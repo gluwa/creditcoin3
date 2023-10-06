@@ -24,7 +24,10 @@ use sp_runtime::traits::Block as BlockT;
 use frontier_template_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};
 
 mod eth;
-pub use self::eth::{create_eth, overrides_handle, EthDeps};
+pub use self::eth::{
+    consensus_data_provider::{self, BabeConsensusDataProvider},
+    create_eth, overrides_handle, EthDeps,
+};
 
 /// Full client dependencies.
 pub struct FullDeps<C, P, SC, A: ChainApi, CT, CIDP> {
