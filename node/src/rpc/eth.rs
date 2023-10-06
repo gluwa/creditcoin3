@@ -15,7 +15,7 @@ use sc_transaction_pool_api::TransactionPool;
 use sp_api::{CallApiAt, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use sp_consensus_aura::{sr25519::AuthorityId as AuraId, AuraApi};
+use sp_consensus_babe::BabeApi;
 use sp_core::H256;
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::Block as BlockT;
@@ -80,7 +80,7 @@ pub fn create_eth<B, C, BE, P, A, CT, CIDP, EC>(
 where
     B: BlockT<Hash = H256>,
     C: CallApiAt<B> + ProvideRuntimeApi<B>,
-    C::Api: AuraApi<B, AuraId>
+    C::Api: BabeApi<B>
         + BlockBuilderApi<B>
         + ConvertTransactionRuntimeApi<B>
         + EthereumRuntimeRPCApi<B>,
@@ -94,9 +94,8 @@ where
     EC: EthConfig<B, C>,
 {
     use fc_rpc::{
-        pending::AuraConsensusDataProvider, Eth, EthApiServer, EthDevSigner, EthFilter,
-        EthFilterApiServer, EthPubSub, EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3,
-        Web3ApiServer,
+        Eth, EthApiServer, EthDevSigner, EthFilter, EthFilterApiServer, EthPubSub,
+        EthPubSubApiServer, EthSigner, Net, NetApiServer, Web3, Web3ApiServer,
     };
     #[cfg(feature = "txpool")]
     use fc_rpc::{TxPool, TxPoolApiServer};
@@ -144,7 +143,7 @@ where
             execute_gas_limit_multiplier,
             forced_parent_hashes,
             pending_create_inherent_data_providers,
-            Some(Box::new(AuraConsensusDataProvider::new(client.clone()))),
+            None, // TODO: revisit this
         )
         .replace_config::<EC>()
         .into_rpc(),

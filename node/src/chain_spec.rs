@@ -4,16 +4,20 @@ use hex_literal::hex;
 use serde::{Deserialize, Serialize};
 // Substrate
 use sc_chain_spec::{ChainType, Properties};
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
 use sp_core::ecdsa;
 use sp_core::{storage::Storage, Pair, Public, H160, U256};
-use sp_runtime::traits::{IdentifyAccount, Verify};
+use sp_runtime::{
+    traits::{IdentifyAccount, Verify},
+    Perbill,
+};
 use sp_state_machine::BasicExternalities;
 // Frontier
 use frontier_template_runtime::{
-    AccountId, Balance, EnableManualSeal, RuntimeGenesisConfig, SS58Prefix, Signature, WASM_BINARY,
+    opaque::SessionKeys, AccountId, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
+    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -65,9 +69,24 @@ where
     AccountPublic::from(get_from_seed::<TPublic>(seed)).into_account()
 }
 
-/// Generate an Aura authority key.
-pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
-    (get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
+type AuthorityKeys = (AccountId, GrandpaId, BabeId, ImOnlineId);
+
+/// Generate authority keys.
+pub fn authority_keys_from_seed(s: &str) -> AuthorityKeys {
+    (
+        get_account_id_from_seed::<sp_core::ecdsa::Public>(s),
+        get_from_seed::<GrandpaId>(s),
+        get_from_seed::<BabeId>(s),
+        get_from_seed::<ImOnlineId>(s),
+    )
+}
+
+pub fn session_keys(grandpa: GrandpaId, babe: BabeId, im_online: ImOnlineId) -> SessionKeys {
+    SessionKeys {
+        grandpa,
+        babe,
+        im_online,
+    }
 }
 
 fn properties() -> Properties {
@@ -177,13 +196,15 @@ fn testnet_genesis(
     wasm_binary: &[u8],
     sudo_key: AccountId,
     endowed_accounts: Vec<AccountId>,
-    initial_authorities: Vec<(AuraId, GrandpaId)>,
+    initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
 ) -> RuntimeGenesisConfig {
     use frontier_template_runtime::{
-        AuraConfig, BalancesConfig, EVMChainIdConfig, EVMConfig, GrandpaConfig, SudoConfig,
-        SystemConfig,
+        BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
     };
+
+    const STASH: u128 = 1_000_000 * UNITS;
+    const ENDOWMENT: u128 = 1_000_000 * UNITS;
 
     RuntimeGenesisConfig {
         // System
@@ -202,20 +223,48 @@ fn testnet_genesis(
             balances: endowed_accounts
                 .iter()
                 .cloned()
-                .map(|k| (k, 1_000_000 * UNITS))
+                .chain(initial_authorities.iter().map(|x| x.0.clone()))
+                .map(|k| (k, ENDOWMENT))
                 .collect(),
         },
         transaction_payment: Default::default(),
 
         // Consensus
-        aura: AuraConfig {
-            authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect(),
+        babe: BabeConfig {
+            epoch_config: Some(frontier_template_runtime::BABE_GENESIS_EPOCH_CONFIG),
+            ..Default::default()
         },
-        grandpa: GrandpaConfig {
-            authorities: initial_authorities
+        grandpa: Default::default(),
+
+        im_online: Default::default(),
+        session: SessionConfig {
+            keys: initial_authorities
                 .iter()
-                .map(|x| (x.1.clone(), 1))
+                .map(|(acct, grandpa, babe, imon)| {
+                    (
+                        acct.clone(),
+                        acct.clone(),
+                        session_keys(grandpa.clone(), babe.clone(), imon.clone()),
+                    )
+                })
                 .collect(),
+        },
+        staking: StakingConfig {
+            validator_count: initial_authorities.len() as u32,
+            minimum_validator_count: 1,
+            stakers: initial_authorities
+                .iter()
+                .map(|x| {
+                    (
+                        x.0.clone(),
+                        x.0.clone(),
+                        STASH,
+                        frontier_template_runtime::StakerStatus::Validator,
+                    )
+                })
+                .collect(),
+            invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
+            slash_reward_fraction: Perbill::from_percent(10),
             ..Default::default()
         },
 
