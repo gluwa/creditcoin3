@@ -242,6 +242,9 @@ impl frame_system::Config for Runtime {
 
 parameter_types! {
     pub const MaxAuthorities: u32 = 100;
+
+    pub const ReportLongevity: u64 =
+        BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
 }
 
 impl pallet_grandpa::Config for Runtime {
@@ -250,8 +253,9 @@ impl pallet_grandpa::Config for Runtime {
     type MaxAuthorities = ConstU32<32>;
     type MaxNominators = ConstU32<0>;
     type MaxSetIdSessionEntries = ();
-    type KeyOwnerProof = sp_core::Void; // TODO: revisit this
-    type EquivocationReportSystem = (); // TODO: revisit this
+    type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
+    type EquivocationReportSystem =
+        pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 }
 
 parameter_types! {
@@ -433,8 +437,9 @@ impl pallet_babe::Config for Runtime {
     type EpochDuration = EpochDuration;
     type ExpectedBlockTime = ExpectedBlockTime;
     type EpochChangeTrigger = pallet_babe::ExternalTrigger;
-    type KeyOwnerProof = sp_core::Void; // TODO: revisit this
-    type EquivocationReportSystem = (); // TODO: revisit this
+    type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, BabeId)>>::Proof;
+    type EquivocationReportSystem =
+        pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
     type WeightInfo = ();
     type MaxAuthorities = MaxAuthorities;
     type DisabledValidators = ();
@@ -506,7 +511,7 @@ impl pallet_staking::Config for Runtime {
     type WeightInfo = ();
 
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
-    type EventListeners = (); // TODO: revisit this
+    type EventListeners = (); // TODO: should be pools when nomination pools are added
 }
 
 pub type OnChainAccuracy = sp_runtime::Perbill;
