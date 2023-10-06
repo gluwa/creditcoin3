@@ -499,6 +499,7 @@ where
         };
         let select_chain = select_chain.clone();
         let keystore = keystore_container.keystore();
+        let epoch_changes = babe_link.epoch_changes().clone();
         Box::new(move |deny_unsafe, subscription_task_executor| {
             let eth_deps = crate::rpc::EthDeps {
                 client: client.clone(),
@@ -522,6 +523,12 @@ where
                 execute_gas_limit_multiplier,
                 forced_parent_hashes: None,
                 pending_create_inherent_data_providers,
+                pending_consensus_data_provider: Some(crate::rpc::BabeConsensusDataProvider::new(
+                    client.clone(),
+                    keystore.clone(),
+                    epoch_changes.clone(),
+                    vec![],
+                )?),
             };
             let deps = crate::rpc::FullDeps {
                 client: client.clone(),

@@ -3148,6 +3148,7 @@ dependencies = [
  "sc-consensus",
  "sc-consensus-babe",
  "sc-consensus-babe-rpc",
+ "sc-consensus-epochs",
  "sc-consensus-grandpa",
  "sc-consensus-manual-seal",
  "sc-executor",
@@ -3179,6 +3180,7 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
+ "thiserror",
 ]
 
 [[package]]
