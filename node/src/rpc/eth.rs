@@ -1,3 +1,5 @@
+pub mod consensus_data_provider;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use jsonrpsee::RpcModule;
@@ -64,6 +66,9 @@ pub struct EthDeps<B: BlockT, C, P, A: ChainApi, CT, CIDP> {
     pub forced_parent_hashes: Option<BTreeMap<H256, H256>>,
     /// Something that can create the inherent data providers for pending state
     pub pending_create_inherent_data_providers: CIDP,
+
+    pub pending_consensus_data_provider:
+        Option<consensus_data_provider::BabeConsensusDataProvider<B, C>>,
 }
 
 /// Instantiate Ethereum-compatible RPC extensions.
@@ -119,6 +124,7 @@ where
         execute_gas_limit_multiplier,
         forced_parent_hashes,
         pending_create_inherent_data_providers,
+        pending_consensus_data_provider,
     } = deps;
 
     let mut signers = Vec::new();
@@ -143,7 +149,7 @@ where
             execute_gas_limit_multiplier,
             forced_parent_hashes,
             pending_create_inherent_data_providers,
-            None, // TODO: revisit this
+            pending_consensus_data_provider.map(|p| Box::new(p) as _), // TODO: revisit this
         )
         .replace_config::<EC>()
         .into_rpc(),
