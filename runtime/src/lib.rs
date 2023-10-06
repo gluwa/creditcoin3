@@ -596,18 +596,22 @@ where
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
+        // System always goes first
         System: frame_system,
+        // Babe has to be before Session
+        Babe: pallet_babe,
         Timestamp: pallet_timestamp,
         Balances: pallet_balances,
-        Babe: pallet_babe,
-        Historical: session_historical,
-        Session: pallet_session,
+        // Authorship has to be before Session
+        Authorship: pallet_authorship,
         Staking: pallet_staking,
         Offences: pallet_offences,
-        Authorship: pallet_authorship,
-        ImOnline: pallet_im_online,
-        VoterList: pallet_bags_list::<Instance1>,
+        Session: pallet_session,
         Grandpa: pallet_grandpa,
+        ImOnline: pallet_im_online,
+
+        VoterList: pallet_bags_list::<Instance1>,
+        Historical: session_historical,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         Ethereum: pallet_ethereum,
