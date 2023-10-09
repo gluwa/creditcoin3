@@ -584,6 +584,13 @@ where
     type Extrinsic = UncheckedExtrinsic;
 }
 
+impl pallet_utility::Config for Runtime {
+    type PalletsOrigin = OriginCaller;
+    type RuntimeCall = RuntimeCall;
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
