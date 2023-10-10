@@ -3230,6 +3230,7 @@ dependencies = [
  "pallet-evm-precompile-modexp",
  "pallet-evm-precompile-sha3fips",
  "pallet-evm-precompile-simple",
+ "pallet-fast-unstake",
  "pallet-grandpa",
  "pallet-hotfix-sufficients",
  "pallet-identity",
@@ -5814,6 +5815,25 @@ dependencies = [
  "fp-evm",
  "ripemd",
  "sp-io",
+]
+
+[[package]]
+name = "pallet-fast-unstake"
+version = "4.0.0-dev"
+source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#f60318f68687e601c47de5ad5ca88e2c3f8139a7"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
 ]
 
 [[package]]
