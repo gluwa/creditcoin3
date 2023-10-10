@@ -43,6 +43,7 @@ pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
 pallet-im-online = { workspace = true }
 pallet-offences = { workspace = true }
+pallet-proxy = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-sudo = { workspace = true }
@@ -104,6 +105,7 @@ std = [
 	"pallet-grandpa/std",
 	"pallet-im-online/std",
 	"pallet-offences/std",
+	"pallet-proxy/std",
 	"pallet-session/std",
 	"pallet-staking/std",
 	"pallet-sudo/std",
@@ -139,6 +141,8 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
+	"pallet-utility/runtime-benchmarks",
+	"pallet-proxy/runtime-benchmarks",
 	"pallet-ethereum/runtime-benchmarks",
 	"pallet-evm/runtime-benchmarks",
 	"pallet-hotfix-sufficients/runtime-benchmarks",
