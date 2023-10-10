@@ -29,10 +29,7 @@ use sp_runtime::{
 use sp_std::{marker::PhantomData, prelude::*};
 use sp_version::RuntimeVersion;
 // Substrate FRAME
-#[cfg(feature = "with-paritydb-weights")]
 use frame_support::weights::constants::ParityDbWeight as RuntimeDbWeight;
-#[cfg(feature = "with-rocksdb-weights")]
-use frame_support::weights::constants::RocksDbWeight as RuntimeDbWeight;
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{ConstBool, ConstU32, ConstU8, FindAuthor, OnFinalize, OnTimestampSet},

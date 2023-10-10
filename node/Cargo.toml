@@ -79,14 +79,14 @@ fp-account = { workspace = true }
 fp-dynamic-fee = { workspace = true, features = ["default"] }
 fp-evm = { workspace = true, features = ["default"] }
 fp-rpc = { workspace = true, features = ["default"] }
-frontier-template-runtime = { workspace = true, features = ["std"] }
+frontier-template-runtime = { workspace = true, features = ["std"], optional = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 
 [features]
 default = [
-	"with-rocksdb-weights",
+	"frontier-template-runtime",
 	"rocksdb",
 	"sql",
 	"txpool",
@@ -103,8 +103,6 @@ sql = [
 	"fc-db/sql",
 	"fc-mapping-sync/sql",
 ]
-with-rocksdb-weights = ["frontier-template-runtime/with-rocksdb-weights"]
-with-paritydb-weights = ["frontier-template-runtime/with-paritydb-weights"]
 txpool = ["fc-rpc/txpool"]
 rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
 runtime-benchmarks = [
