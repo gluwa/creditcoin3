@@ -46,6 +46,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y protobuf-compiler
+
       - name: Configure rustc version
         run: |
           RUSTC_VERSION=$(cat rust-toolchain.toml | grep channel | tail -n1 | tr -d " " | cut -f2 -d'"')
@@ -75,6 +80,11 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y protobuf-compiler
 
       - name: Configure rustc version
         run: |
