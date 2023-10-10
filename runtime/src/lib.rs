@@ -700,6 +700,23 @@ impl pallet_identity::Config for Runtime {
     type WeightInfo = ();
 }
 
+parameter_types! {
+    pub const FastUnstakeDeposit: u128 = 500;
+    pub const FastUnstakeBatchSize: u32 = 100;
+    pub const MaxErasToCheckPerBlock: u32 = 100;
+}
+
+impl pallet_fast_unstake::Config for Runtime {
+    type BatchSize = FastUnstakeBatchSize;
+    type Currency = Balances;
+    type ControlOrigin = frame_system::EnsureRoot<AccountId>;
+    type Deposit = FastUnstakeDeposit;
+    type RuntimeEvent = RuntimeEvent;
+    type MaxErasToCheckPerBlock = MaxErasToCheckPerBlock;
+    type WeightInfo = ();
+    type Staking = Staking;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -724,6 +741,7 @@ construct_runtime!(
         Utility: pallet_utility,
         Proxy: pallet_proxy,
         Identity: pallet_identity,
+        FastUnstake: pallet_fast_unstake,
 
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
