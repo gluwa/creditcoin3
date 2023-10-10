@@ -1,12 +1,10 @@
-# Substrate Frontier Node Template
+# Creditcoin Next
 
-A [FRAME](https://docs.substrate.io/v3/runtime/frame)-based
-[Substrate](https://substrate.io) node with the Ethereum RPC support, ready for hacking
-:rocket:
+A next generation Creditcoin node with the Ethereum RPC support, ready for deploying smart contracts.
 
 ## Generation & Upstream
 
-This template is maintained in the
+This project was originally forked from the Frontier template. The template is maintained in the
 [Frontier](https://github.com/paritytech/frontier/tree/master/template) project repository, and can
 be used to generate a stand-alone template for use in an independent project via the included
 [template generation script](https://github.com/paritytech/frontier/blob/master/docs/node-template-release.md).
@@ -112,6 +110,61 @@ x: eth.getBalance
 
 Alice's EVM account ID was calculated using
 [an included utility script](utils/README.md#--evm-address-address).
+
+## Example 1: Deploy basic contract using Remix & Metamask
+
+### Adding local network to Metamask
+
+Creditcoin Next is compatible with most tooling from the Ethereum ecosystem, including browser wallets like Metamask. To connect to your local dev node, add it as a new network:
+
+```
+Network name: CC Next Local
+New RPC URL: http://localhost:9944
+Chain ID: 42
+Currency symbol: CTC
+Block explorer URL: <empty>
+```
+
+### EVM accounts
+
+To fund an account, simply transfer from one of the dev accounts. Import the Alith account to Metamask and you should see it funded with 1M CTC.
+
+Alith (SUDO) keys:
+```
+Address: 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
+Private key: 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+```
+
+### Deploying contracts with Remix
+
+We will deploy a simple Counter contract:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
+
+contract TestCounter {
+    int private count = 0;
+    function incrementCounter() public {
+        count += 1;
+    }
+    function decrementCounter() public {
+        count -= 1;
+    }
+
+    function getCount() public view returns (int) {
+        return count;
+    }
+}
+```
+
+1. Open the [Remix IDE](https://remix.ethereum.org/). In the Remix IDE, click on the Solidity tab and create a new file called Counter.sol. Paste the Counter contract in the file.
+
+2. In the Remix IDE, click on the Deploy & Run tab. In the Environment dropdown, select Injected Web3. This will prompt you to connect to Metamask. 
+
+3. Click on Deploy and Metamask should prompt you to sign the transaction. 
+
+4. Once deployed, you can interact with the contract through the Deployed Contracts dropdown menu. Try sending transactions to increase and decrease the counter.
 
 ## Example 2: ERC20 Contract Deployment using EVM dispatchable
 
