@@ -35,7 +35,10 @@ use sp_version::RuntimeVersion;
 use frame_support::weights::constants::ParityDbWeight as RuntimeDbWeight;
 use frame_support::{
     construct_runtime, parameter_types,
-    traits::{ConstU32, ConstU8, FindAuthor, KeyOwnerProofSystem, OnFinalize, OnTimestampSet},
+    traits::{
+        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        OnTimestampSet,
+    },
     weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, IdentityFee, Weight},
 };
 use pallet_grandpa::{
@@ -600,6 +603,88 @@ impl pallet_utility::Config for Runtime {
     type WeightInfo = ();
 }
 
+parameter_types! {
+    pub const ProxyDepositBase: u128 = 500;
+    pub const ProxyDepositFactor: u128 = 500;
+    pub const MaxProxies: u32 = 64;
+    pub const MaxPending: u32 = 64;
+    pub const AnnouncementDepositBase: u128 = 500;
+    pub const AnnouncementDepositFactor: u128 = 500;
+
+}
+
+impl pallet_proxy::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type WeightInfo = ();
+    type RuntimeCall = RuntimeCall;
+    type ProxyDepositBase = ProxyDepositBase; // TODO: proxy deposit base?
+    type MaxProxies = MaxProxies; // TODO: max proxies?
+    type MaxPending = MaxPending; // TODO: max pending?
+    type ProxyDepositFactor = ProxyDepositFactor; // TODO: proxy deposit factor?
+    type CallHasher = BlakeTwo256;
+    type AnnouncementDepositBase = AnnouncementDepositBase;
+    type AnnouncementDepositFactor = AnnouncementDepositFactor;
+    type ProxyType = ProxyFilter;
+}
+
+#[derive(
+    Default,
+    Encode,
+    Decode,
+    scale_codec::MaxEncodedLen,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Debug,
+    scale_info::TypeInfo,
+    PartialOrd,
+    Ord,
+)]
+pub enum ProxyFilter {
+    #[default]
+    All,
+    NonTransfer,
+    Staking,
+}
+
+impl InstanceFilter<RuntimeCall> for ProxyFilter {
+    fn filter(&self, call: &RuntimeCall) -> bool {
+        match self {
+            ProxyFilter::All => true,
+            ProxyFilter::Staking => matches!(
+                call,
+                RuntimeCall::Staking(_)
+                    | RuntimeCall::Session(_)
+                    | RuntimeCall::Utility(_)
+                    | RuntimeCall::VoterList(_)
+            ),
+            ProxyFilter::NonTransfer => matches!(
+                call,
+                RuntimeCall::Grandpa(_)
+                    | RuntimeCall::ImOnline(_)
+                    | RuntimeCall::Proxy(_)
+                    | RuntimeCall::Session(_)
+                    | RuntimeCall::Staking(_)
+                    | RuntimeCall::System(_)
+                    | RuntimeCall::Timestamp(_)
+                    | RuntimeCall::Utility(_)
+                    | RuntimeCall::VoterList(_)
+            ),
+        }
+    }
+
+    fn is_superset(&self, o: &Self) -> bool {
+        match (self, o) {
+            (ProxyFilter::All, _) => true,
+            (ProxyFilter::NonTransfer, ProxyFilter::Staking) => true,
+            (a, b) if a == b => true,
+            _ => false,
+        }
+    }
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -621,6 +706,9 @@ construct_runtime!(
         Historical: session_historical,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
+        Utility: pallet_utility,
+        Proxy: pallet_proxy,
+
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
         EVMChainId: pallet_evm_chain_id,
