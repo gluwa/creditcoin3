@@ -3235,6 +3235,7 @@ dependencies = [
  "pallet-hotfix-sufficients",
  "pallet-identity",
  "pallet-im-online",
+ "pallet-nomination-pools",
  "pallet-offences",
  "pallet-proxy",
  "pallet-session",
@@ -5909,6 +5910,25 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std",
+]
+
+[[package]]
+name = "pallet-nomination-pools"
+version = "1.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#f60318f68687e601c47de5ad5ca88e2c3f8139a7"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
+ "sp-tracing",
 ]
 
 [[package]]

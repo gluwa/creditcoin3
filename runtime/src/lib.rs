@@ -19,14 +19,14 @@ use sp_core::{
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
     traits::{
-        BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
+        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
         IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
         Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
     },
-    ApplyExtrinsicResult, ConsensusEngineId, Perbill, Permill,
+    ApplyExtrinsicResult, ConsensusEngineId, Perbill, Permill, SaturatedConversion,
 };
 use sp_staking::SessionIndex;
 use sp_std::{marker::PhantomData, prelude::*};
@@ -40,6 +40,7 @@ use frame_support::{
         OnTimestampSet,
     },
     weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, IdentityFee, Weight},
+    PalletId,
 };
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
@@ -726,6 +727,43 @@ impl pallet_fast_unstake::Config for Runtime {
     type Staking = Staking;
 }
 
+parameter_types! {
+    pub const NomPoolsPalletId: PalletId = PalletId(*b"ctcnopls");
+    pub const MaxPointsToBalance: u8 = 100;
+    pub const PostUnbondingPoolsWindow: u32 = 4;
+}
+
+pub struct BalanceToU256;
+
+impl Convert<Balance, U256> for BalanceToU256 {
+    fn convert(x: Balance) -> U256 {
+        U256::from(x)
+    }
+}
+
+pub struct U256ToBalance;
+
+impl Convert<U256, Balance> for U256ToBalance {
+    fn convert(x: U256) -> Balance {
+        x.saturated_into()
+    }
+}
+
+impl pallet_nomination_pools::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
+    type Currency = Balances;
+    type RewardCounter = sp_runtime::FixedU128;
+    type PalletId = NomPoolsPalletId;
+    type MaxPointsToBalance = MaxPointsToBalance;
+    type BalanceToU256 = BalanceToU256;
+    type U256ToBalance = U256ToBalance;
+    type Staking = Staking;
+    type PostUnbondingPoolsWindow = PostUnbondingPoolsWindow;
+    type MaxMetadataLen = ConstU32<256>;
+    type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -751,6 +789,7 @@ construct_runtime!(
         Proxy: pallet_proxy,
         Identity: pallet_identity,
         FastUnstake: pallet_fast_unstake,
+        NominationPools: pallet_nomination_pools,
 
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
