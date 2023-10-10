@@ -113,7 +113,7 @@ x: eth.getBalance
 Alice's EVM account ID was calculated using
 [an included utility script](utils/README.md#--evm-address-address).
 
-## Example 1: ERC20 Contract Deployment using EVM dispatchable
+## Example 2: ERC20 Contract Deployment using EVM dispatchable
 
 The following steps are also available as a [Typescript script](examples/contract-erc20) using
 Polkadot JS SDK
