@@ -676,6 +676,30 @@ impl InstanceFilter<RuntimeCall> for ProxyFilter {
     }
 }
 
+parameter_types! {
+    pub const BasicDeposit: Balance = 500;
+    pub const FieldDeposit: Balance = 500;
+    pub const SubAccountDeposit: Balance = 500;
+    pub const MaxSubAccounts: u32 = 10;
+    pub const MaxAdditionalFields: u32 = 10;
+    pub const MaxRegistrars: u32 = 15;
+}
+
+impl pallet_identity::Config for Runtime {
+    type Currency = Balances;
+    type BasicDeposit = BasicDeposit;
+    type FieldDeposit = FieldDeposit;
+    type SubAccountDeposit = SubAccountDeposit;
+    type MaxSubAccounts = MaxSubAccounts;
+    type MaxAdditionalFields = MaxAdditionalFields;
+    type MaxRegistrars = MaxRegistrars;
+    type RuntimeEvent = RuntimeEvent;
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+    type RegistrarOrigin = frame_system::EnsureRoot<AccountId>;
+    type Slashed = ();
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -699,6 +723,7 @@ construct_runtime!(
         Sudo: pallet_sudo,
         Utility: pallet_utility,
         Proxy: pallet_proxy,
+        Identity: pallet_identity,
 
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
