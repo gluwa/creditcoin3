@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use fc_rpc::pending::ConsensusDataProvider;
+use parity_scale_codec::Encode;
 use sc_client_api::{AuxStore, UsageProvider};
 use sc_consensus_babe::{
     authorship::claim_slot, AuthorityId, BabeAuthorityWeight, BabeConfiguration,
     CompatibleDigestItem, Epoch, NextEpochDescriptor, PreDigest, SecondaryPlainPreDigest,
 };
 use sc_consensus_epochs::{descendent_query, SharedEpochChanges, ViableEpochDescriptor};
-use scale_codec::Encode;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{HeaderBackend, HeaderMetadata};
 use sp_consensus_babe::{inherents::BabeInherentData, BabeApi, ConsensusLog, Slot, BABE_ENGINE_ID};
