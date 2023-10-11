@@ -33,3 +33,19 @@ updates:
     directory: "/runtime"
     schedule:
       interval: "monthly"
+
+  - package-ecosystem: "npm"
+    directory: "/examples/contract-erc20"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/examples/contract-hello"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
