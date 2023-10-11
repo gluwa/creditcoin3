@@ -122,16 +122,7 @@ where
     }
 
     if let Some(babe_worker) = babe_worker {
-        io.merge(
-            Babe::new(
-                client,
-                babe_worker,
-                keystore,
-                select_chain,
-                deny_unsafe,
-            )
-            .into_rpc(),
-        )?;
+        io.merge(Babe::new(client, babe_worker, keystore, select_chain, deny_unsafe).into_rpc())?;
     }
 
     // Ethereum compatibility RPCs
