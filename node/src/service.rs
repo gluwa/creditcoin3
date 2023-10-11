@@ -4,7 +4,6 @@ use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 
 use futures::{channel::mpsc, prelude::*};
 // Substrate
-use prometheus_endpoint::Registry;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
@@ -16,6 +15,7 @@ use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_api::ConstructRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::U256;
+use substrate_prometheus_endpoint::Registry;
 // Runtime
 use frontier_template_runtime::{opaque::Block, Hash, TransactionConverter};
 

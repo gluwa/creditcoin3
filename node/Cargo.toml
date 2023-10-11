@@ -19,12 +19,12 @@ futures = { workspace = true }
 hex-literal = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 log = { workspace = true }
-scale-codec = { package = "parity-scale-codec", workspace = true }
+parity-scale-codec = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 # Substrate
-prometheus-endpoint = { package = "substrate-prometheus-endpoint", workspace = true }
+substrate-prometheus-endpoint = { workspace = true }
 sc-basic-authorship = { workspace = true }
 sc-chain-spec = { workspace = true }
 sc-cli = { workspace = true }
@@ -84,18 +84,15 @@ fp-account = { workspace = true }
 fp-dynamic-fee = { workspace = true, features = ["default"] }
 fp-evm = { workspace = true, features = ["default"] }
 fp-rpc = { workspace = true, features = ["default"] }
-frontier-template-runtime = { workspace = true, features = ["std"], optional = true }
+frontier-template-runtime = { workspace = true, features = [
+	"std",
+], optional = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 
 [features]
-default = [
-	"frontier-template-runtime",
-	"rocksdb",
-	"sql",
-	"txpool",
-]
+default = ["frontier-template-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
 	"sc-cli/rocksdb",
 	"sc-service/rocksdb",
@@ -104,10 +101,7 @@ rocksdb = [
 	"fc-mapping-sync/rocksdb",
 	"fc-rpc/rocksdb",
 ]
-sql = [
-	"fc-db/sql",
-	"fc-mapping-sync/sql",
-]
+sql = ["fc-db/sql", "fc-mapping-sync/sql"]
 txpool = ["fc-rpc/txpool"]
 rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
 runtime-benchmarks = [
