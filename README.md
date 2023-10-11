@@ -23,13 +23,13 @@ can find more information on features on this template there, and more detailed 
 To build the chain, execute the following commands from the project root:
 
 ```bash
-$ cargo build --release
+cargo build --release
 ```
 
 To execute the chain, run:
 
 ```bash
-$ ./target/release/frontier-template-node --dev
+./target/release/frontier-template-node --dev
 ```
 
 The node also supports to use manual seal (to produce block manually through RPC).  

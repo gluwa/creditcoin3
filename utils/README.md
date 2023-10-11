@@ -29,8 +29,9 @@ node ./utils --erc20-slot 0 0xd43593c715fdd31c61141abd04a99fd6822c8558
 Calculate the **hashed** EVM address that corresponds to a native Substrate address.
 
 ```bash
-$ node ./utils --evm-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
-$ 0x57d213d0927ccc7596044c6ba013dd05522aacba
+node ./utils --evm-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+
+0x57d213d0927ccc7596044c6ba013dd05522aacba
 ```
 
 > NOTE: the template presently uses the **truncated** H160 address format. Thus this utility is not
