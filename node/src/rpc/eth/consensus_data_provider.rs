@@ -91,7 +91,7 @@ where
         authorities: Vec<(AuthorityId, BabeAuthorityWeight)>,
     ) -> Result<Self, Error> {
         let config =
-            sc_consensus_babe::configuration(&*client).map_err(|e| Error::MissingConfig(e))?;
+            sc_consensus_babe::configuration(&*client).map_err(Error::MissingConfig)?;
 
         Ok(Self {
             client,
