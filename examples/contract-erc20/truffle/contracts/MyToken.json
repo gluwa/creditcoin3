@@ -265,21 +265,14 @@
   "ast": {
     "absolutePath": "/home/dan/Code/Substrate/substrate-evm/contracts/contracts/MyToken.sol",
     "exportedSymbols": {
-      "MyToken": [
-        19
-      ]
+      "MyToken": [19]
     },
     "id": 20,
     "nodeType": "SourceUnit",
     "nodes": [
       {
         "id": 1,
-        "literals": [
-          "solidity",
-          "^",
-          "0.5",
-          ".0"
-        ],
+        "literals": ["solidity", "^", "0.5", ".0"],
         "nodeType": "PragmaDirective",
         "src": "0:23:0"
       },
@@ -315,21 +308,12 @@
             "src": "186:5:0"
           }
         ],
-        "contractDependencies": [
-          46,
-          638,
-          707
-        ],
+        "contractDependencies": [46, 638, 707],
         "contractKind": "contract",
         "documentation": null,
         "fullyImplemented": true,
         "id": 19,
-        "linearizedBaseContracts": [
-          19,
-          638,
-          707,
-          46
-        ],
+        "linearizedBaseContracts": [19, 638, 707, 46],
         "name": "MyToken",
         "nodeType": "ContractDefinition",
         "nodes": [
@@ -542,21 +526,14 @@
   "legacyAST": {
     "absolutePath": "/home/dan/Code/Substrate/substrate-evm/contracts/contracts/MyToken.sol",
     "exportedSymbols": {
-      "MyToken": [
-        19
-      ]
+      "MyToken": [19]
     },
     "id": 20,
     "nodeType": "SourceUnit",
     "nodes": [
       {
         "id": 1,
-        "literals": [
-          "solidity",
-          "^",
-          "0.5",
-          ".0"
-        ],
+        "literals": ["solidity", "^", "0.5", ".0"],
         "nodeType": "PragmaDirective",
         "src": "0:23:0"
       },
@@ -592,21 +569,12 @@
             "src": "186:5:0"
           }
         ],
-        "contractDependencies": [
-          46,
-          638,
-          707
-        ],
+        "contractDependencies": [46, 638, 707],
         "contractKind": "contract",
         "documentation": null,
         "fullyImplemented": true,
         "id": 19,
-        "linearizedBaseContracts": [
-          19,
-          638,
-          707,
-          46
-        ],
+        "linearizedBaseContracts": [19, 638, 707, 46],
         "name": "MyToken",
         "nodeType": "ContractDefinition",
         "nodes": [

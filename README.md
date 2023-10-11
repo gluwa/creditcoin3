@@ -74,26 +74,26 @@ inspect blocks:
 
 ```json
 {
-	"Address": "MultiAddress",
-	"LookupSource": "MultiAddress",
-	"Account": {
-		"nonce": "U256",
-		"balance": "U256"
-	},
-	"Transaction": {
-		"nonce": "U256",
-		"action": "String",
-		"gas_price": "u64",
-		"gas_limit": "u64",
-		"value": "U256",
-		"input": "Vec<u8>",
-		"signature": "Signature"
-	},
-	"Signature": {
-		"v": "u64",
-		"r": "H256",
-		"s": "H256"
-	}
+  "Address": "MultiAddress",
+  "LookupSource": "MultiAddress",
+  "Account": {
+    "nonce": "U256",
+    "balance": "U256"
+  },
+  "Transaction": {
+    "nonce": "U256",
+    "action": "String",
+    "gas_price": "u64",
+    "gas_limit": "u64",
+    "value": "U256",
+    "input": "Vec<u8>",
+    "signature": "Signature"
+  },
+  "Signature": {
+    "v": "u64",
+    "r": "H256",
+    "s": "H256"
+  }
 }
 ```
 
@@ -130,6 +130,7 @@ Block explorer URL: <empty>
 To fund an account, simply transfer from one of the dev accounts. Import the Alith account to Metamask and you should see it funded with 1M CTC.
 
 Alith (SUDO) keys:
+
 ```
 Address: 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
 Private key: 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
@@ -160,9 +161,9 @@ contract TestCounter {
 
 1. Open the [Remix IDE](https://remix.ethereum.org/). In the Remix IDE, click on the Solidity tab and create a new file called Counter.sol. Paste the Counter contract in the file.
 
-2. In the Remix IDE, click on the Deploy & Run tab. In the Environment dropdown, select Injected Web3. This will prompt you to connect to Metamask. 
+2. In the Remix IDE, click on the Deploy & Run tab. In the Environment dropdown, select Injected Web3. This will prompt you to connect to Metamask.
 
-3. Click on Deploy and Metamask should prompt you to sign the transaction. 
+3. Click on Deploy and Metamask should prompt you to sign the transaction.
 
 4. Once deployed, you can interact with the contract through the Deployed Contracts dropdown menu. Try sending transactions to increase and decrease the counter.
 
