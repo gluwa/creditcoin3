@@ -25,15 +25,15 @@ As above, please DO NOT include attachments or provide detail regarding the secu
 ## Incident Response Process
 
 1. Establish a new draft security advisory
-    1. In response to an email to [security@gluwa.com](mailto:security@gluwa.com), a member of the Creditcoin team will create a new draft security advisory for the incident at [https://github.com/gluwa/creditcoin-next/security/advisories](https://github.com/gluwa/creditcoin-next/security/advisories).
-    2. Add the reporter's GitHub account and relevant individuals to the draft security advisory.
-    3. Respond to the reporter by email, sharing a link to the draft security advisory.
+   1. In response to an email to [security@gluwa.com](mailto:security@gluwa.com), a member of the Creditcoin team will create a new draft security advisory for the incident at [https://github.com/gluwa/creditcoin-next/security/advisories](https://github.com/gluwa/creditcoin-next/security/advisories).
+   2. Add the reporter's GitHub account and relevant individuals to the draft security advisory.
+   3. Respond to the reporter by email, sharing a link to the draft security advisory.
 2. Reporter should add appropriate content to the draft security advisory to help the team resolve the issue. This includes:
-    1. A clear description of the issue and the impacted areas.
-    2. The code and the methodology to reproduce the underlying issue.
-    3. Discussion of potential remediations.
+   1. A clear description of the issue and the impacted areas.
+   2. The code and the methodology to reproduce the underlying issue.
+   3. Discussion of potential remediations.
 3. Triage
-    1. Validate the issue.
-    2. Determine the criticality of the issue.
-    3. If this is a bug and not a security issue, recommend to the submitter to create an issue.
+   1. Validate the issue.
+   2. Determine the criticality of the issue.
+   3. If this is a bug and not a security issue, recommend to the submitter to create an issue.
 4. Release a new version resolving the issue
