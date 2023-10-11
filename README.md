@@ -22,20 +22,20 @@ can find more information on features on this template there, and more detailed 
 
 To build the chain, execute the following commands from the project root:
 
-```
+```bash
 $ cargo build --release
 ```
 
 To execute the chain, run:
 
-```
+```bash
 $ ./target/release/frontier-template-node --dev
 ```
 
 The node also supports to use manual seal (to produce block manually through RPC).  
 This is also used by the ts-tests:
 
-```
+```bash
 $ ./target/release/frontier-template-node --dev --sealing=manual
 # Or
 $ ./target/release/frontier-template-node --dev --sealing=instant
@@ -117,7 +117,7 @@ Alice's EVM account ID was calculated using
 
 Creditcoin Next is compatible with most tooling from the Ethereum ecosystem, including browser wallets like Metamask. To connect to your local dev node, add it as a new network:
 
-```
+```text
 Network name: CC Next Local
 New RPC URL: http://localhost:9944
 Chain ID: 42
@@ -131,7 +131,7 @@ To fund an account, simply transfer from one of the dev accounts. Import the Ali
 
 Alith (SUDO) keys:
 
-```
+```text
 Address: 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
 Private key: 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
 ```
@@ -187,7 +187,7 @@ which can be used to deploy it to the Substrate blockchain.
 Use the Polkadot UI `Extrinsics` app to deploy the contract from Alice's account (submit the
 extrinsic as a signed transaction) using `evm > create` with the following parameters:
 
-```
+```text
 source: 0xd43593c715fdd31c61141abd04a99fd6822c8558
 init: <raw contract bytecode, a very long hex value>
 value: 0
