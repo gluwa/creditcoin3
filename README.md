@@ -215,7 +215,7 @@ A contract has been created at given [address]
 ```
 
 In this case, however, it is trivial to
-[calculate this value](https://ethereum.stackexchange.com/a/46960):
+[calculate this value](https://ethereum.stackexchange.com/questions/760/how-is-the-address-of-an-ethereum-contract-computed/46960#46960):
 `0x8a50db1e0f9452cfd91be8dc004ceb11cb08832f`. That is because EVM contract account IDs are
 determined solely by the ID and nonce of the contract creator's account and, in this case, both of
 those values are well-known (`0xd43593c715fdd31c61141abd04a99fd6822c8558` and `0x0`, respectively).
@@ -242,7 +242,7 @@ The storage slot was calculated using
 `0xd43593c715fdd31c61141abd04a99fd6822c8558`)
 
 > Further reading:
-> [EVM layout of state variables in storage](https://solidity.readthedocs.io/en/latest/miscellaneous.html#layout-of-state-variables-in-storage)
+> [EVM layout of state variables in storage](https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html)
 
 ### Step 3: Contract Usage
 
