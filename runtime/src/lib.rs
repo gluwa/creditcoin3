@@ -624,7 +624,7 @@ impl pallet_proxy::Config for Runtime {
     Default,
     Encode,
     Decode,
-    scale_codec::MaxEncodedLen,
+    parity_scale_codec::MaxEncodedLen,
     PartialEq,
     Eq,
     Clone,
