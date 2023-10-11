@@ -15,7 +15,7 @@ template node is running in `--dev` mode.
 
 The ouput of the command should look similar to this:
 
-```
+```text
 └────╼ ts-node create-erc20.ts
 Initiating the API (ignore message "Unable to resolve type B..." and "Unknown types found...")
 Unable to resolve type B, it will fail on construction
@@ -64,13 +64,3 @@ Bob Contract account storage: 0x000000000000000000000000000000000000000000000000
 
 This section describes how to use the web3.js SDK to interact with
 Frontier.
-
-## Installation and Usage
-
-Use `npm i` to install dependencies. To create an ERC20 contract,
-execute `node_modules/.bin/ts-node create-erc20.ts` while your
-template node is running in `--dev` mode.
-
-## Expected output
-
-WIP
