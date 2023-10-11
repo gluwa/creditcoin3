@@ -90,8 +90,7 @@ where
         epoch_changes: SharedEpochChanges<B, Epoch>,
         authorities: Vec<(AuthorityId, BabeAuthorityWeight)>,
     ) -> Result<Self, Error> {
-        let config =
-            sc_consensus_babe::configuration(&*client).map_err(Error::MissingConfig)?;
+        let config = sc_consensus_babe::configuration(&*client).map_err(Error::MissingConfig)?;
 
         Ok(Self {
             client,
