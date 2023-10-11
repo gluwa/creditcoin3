@@ -124,8 +124,8 @@ where
     if let Some(babe_worker) = babe_worker {
         io.merge(
             Babe::new(
-                client.clone(),
-                babe_worker.clone(),
+                client,
+                babe_worker,
                 keystore,
                 select_chain,
                 deny_unsafe,

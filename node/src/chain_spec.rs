@@ -223,7 +223,7 @@ fn testnet_genesis(
             balances: endowed_accounts
                 .iter()
                 .cloned()
-                .chain(initial_authorities.iter().map(|x| x.0.clone()))
+                .chain(initial_authorities.iter().map(|x| x.0))
                 .map(|k| (k, ENDOWMENT))
                 .collect(),
         },
@@ -242,8 +242,8 @@ fn testnet_genesis(
                 .iter()
                 .map(|(acct, grandpa, babe, imon)| {
                     (
-                        acct.clone(),
-                        acct.clone(),
+                        *acct,
+                        *acct,
                         session_keys(grandpa.clone(), babe.clone(), imon.clone()),
                     )
                 })
@@ -256,14 +256,14 @@ fn testnet_genesis(
                 .iter()
                 .map(|x| {
                     (
-                        x.0.clone(),
-                        x.0.clone(),
+                        x.0,
+                        x.0,
                         STASH,
                         frontier_template_runtime::StakerStatus::Validator,
                     )
                 })
                 .collect(),
-            invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
+            invulnerables: initial_authorities.iter().map(|x| x.0).collect(),
             slash_reward_fraction: Perbill::from_percent(10),
             ..Default::default()
         },

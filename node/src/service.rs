@@ -274,20 +274,20 @@ where
         Ok((slot, timestamp, dynamic_fee))
     };
 
-    let frontier_block_import = FrontierBlockImport::new(babe_import.clone(), client.clone());
+    let frontier_block_import = FrontierBlockImport::new(babe_import, client.clone());
 
     let (import_queue, babe_worker) =
         sc_consensus_babe::import_queue(sc_consensus_babe::ImportQueueParams {
-            link: babe_link.clone(),
+            link: babe_link,
             block_import: frontier_block_import.clone(),
-            justification_import: Some(Box::new(grandpa_block_import.clone())),
-            client: client.clone(),
+            justification_import: Some(Box::new(grandpa_block_import)),
+            client,
             select_chain,
             create_inherent_data_providers,
             spawner: &task_manager.spawn_essential_handle(),
             registry: config.prometheus_registry(),
-            telemetry: telemetry.as_ref().map(|x| x.clone()),
-            offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool.clone()),
+            telemetry: telemetry.as_ref().cloned(),
+            offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
         })?;
 
     Ok((
