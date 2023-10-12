@@ -26,7 +26,7 @@ VERSION_FROM_CARGO_TOML=$(grep "^version =" Cargo.toml  | cut -f2 -d'=' | tr -d 
 
 SPEC_VERSION=$(grep spec_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
 IMPL_VERSION=$(grep impl_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
-VERSION_FROM_VERSION_RS="2.$SPEC_VERSION.$IMPL_VERSION"
+VERSION_FROM_VERSION_RS="1.$SPEC_VERSION.$IMPL_VERSION"
 
 # Since PR #969 version strings in Cargo.toml and version.rs should be in sync
 echo "INFO: Cargo.toml version is $VERSION_FROM_CARGO_TOML"
@@ -58,7 +58,7 @@ if git --no-pager diff --name-only "${FROM}"..."${TO}" | grep -e '^runtime'; the
 else
     greenprint "INFO: runtime/src/ didn't change. Will inspect Cargo.lock"
     if git --no-pager diff "${FROM}"..."${TO}" Cargo.lock | grep '+source = "git+https://github.com/paritytech'; then
-        echo "INFO: Cargo.lock references to `frontier` or `polkadot-sdk` have been modified"
+        echo "INFO: Cargo.lock references to 'frontier' or 'polkadot-sdk' have been modified"
         check_version "${FROM}" "${TO}"
     else
         greenprint "INFO: Cargo.lock references to Substrate did not change"

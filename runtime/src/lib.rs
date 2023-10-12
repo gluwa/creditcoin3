@@ -17,7 +17,7 @@ use sp_core::{
     OpaqueMetadata, H160, H256, U256,
 };
 use sp_runtime::{
-    create_runtime_str, generic, impl_opaque_keys,
+    generic, impl_opaque_keys,
     traits::{
         BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
         IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
@@ -120,17 +120,8 @@ pub mod opaque {
     }
 }
 
-#[sp_version::runtime_version]
-pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: create_runtime_str!("frontier-template"),
-    impl_name: create_runtime_str!("frontier-template"),
-    authoring_version: 1,
-    spec_version: 1,
-    impl_version: 1,
-    apis: RUNTIME_API_VERSIONS,
-    transaction_version: 1,
-    state_version: 1,
-};
+mod version;
+pub use version::VERSION;
 
 macro_rules! prod_or_fast {
     ($prod: expr, $fast: expr) => {
