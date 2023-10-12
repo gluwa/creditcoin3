@@ -119,6 +119,7 @@ std = [
 	"pallet-timestamp/std",
 	"pallet-transaction-payment/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
+	"pallet-utility/std",
 	# Frontier
 	"fp-account/std",
 	"fp-evm/std",
