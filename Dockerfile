@@ -1,36 +1,42 @@
-# Note: This is currently designed to simplify development
-# To get a smaller docker image, there should be 2 images generated, in 2 stages.
+# hadolint global ignore=DL3008,DL3009,SC3046,DL4006
 
-FROM rustlang/rust:nightly
+FROM ubuntu:22.04 as runtime-base
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    update-ca-certificates
 
-
-ARG PROFILE=release
-WORKDIR /frontier
-
-# Upcd dates core parts
-RUN apt-get update -y && \
-	apt-get install -y cmake pkg-config libssl-dev git gcc build-essential clang libclang-dev protobuf-compiler
-
-# Install rust wasm. Needed for substrate wasm engine
-RUN rustup target add wasm32-unknown-unknown
-
-# Download Frontier repo
-RUN git clone https://github.com/paritytech/frontier /frontier
-RUN cd /frontier && git submodule init && git submodule update
-
-# Download rust dependencies and build the rust binary
-RUN cargo build "--$PROFILE"
-
-# 30333 for p2p traffic
-# 9933 for RPC call
-# 9944 for Websocket
-# 9615 for Prometheus (metrics)
-EXPOSE 30333 9933 9944 9615
+RUN useradd --home-dir /creditcoin-node --create-home creditcoin
+USER creditcoin
+SHELL ["/bin/bash", "-c"]
+WORKDIR /creditcoin-node
 
 
-ENV PROFILE ${PROFILE}
+FROM runtime-base AS devel-base
+COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 
-# The execution will re-compile the project to run it
-# This allows to modify the code and not have to re-compile the
-# dependencies.
-CMD cargo run --bin frontier-template-node "--$PROFILE" -- --dev
+
+FROM devel-base as rust-builder
+USER 0
+RUN apt-get install -y --no-install-recommends \
+    cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler
+USER creditcoin
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
+
+COPY --chown=creditcoin:creditcoin . /creditcoin-node/
+# shellcheck source=/dev/null
+RUN source ~/.cargo/env && \
+    cargo build --release
+
+
+FROM runtime-base
+EXPOSE 30333/tcp
+EXPOSE 30333/udp
+EXPOSE 9944 9933 9615
+ENTRYPOINT [ "/bin/creditcoin-node" ]
+
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/frontier-template-node /bin/creditcoin-node
+
+USER creditcoin
+RUN mkdir /creditcoin-node/data
