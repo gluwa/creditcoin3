@@ -3,9 +3,12 @@ members = ["node", "runtime"]
 resolver = "2"
 
 [workspace.package]
-authors = ["Parity Technologies <admin@parity.io>"]
+version = "1.1.1"
+authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
 edition = "2021"
-repository = "https://github.com/paritytech/frontier/"
+license = "Unlicense"
+publish = false
+repository = "https://github.com/gluwa/creditcoin-next/"
 
 [workspace.dependencies]
 async-trait = "0.1"
