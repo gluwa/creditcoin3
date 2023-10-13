@@ -32,11 +32,11 @@ use sp_staking::SessionIndex;
 use sp_std::{marker::PhantomData, prelude::*};
 use sp_version::RuntimeVersion;
 // Substrate FRAME
-use frame_support::weights::constants::ParityDbWeight as RuntimeDbWeight;
+use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, WeightToFeePolynomial};
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{ConstU32, ConstU8, FindAuthor, KeyOwnerProofSystem, OnFinalize, OnTimestampSet},
-    weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, IdentityFee, Weight},
+    weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, Weight, WeightToFeeCoefficient},
 };
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
@@ -308,12 +308,52 @@ parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
 }
 
+pub const TARGET_FEE_CREDO: Balance = 10_000_000_000_000_000;
+pub struct WeightToCtcFee<T>(PhantomData<T>);
+
+impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
+    type Balance = Balance;
+
+    fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
+        // Copied from the weights for the lock deal order extrinsic which is what is referenced in cc2
+        let deal_order_weight = Weight::from_parts(30_601_000, 0)
+            .saturating_add(Weight::from_parts(0, 4089))
+			.saturating_add(T::DbWeight::get().reads(1))
+			.saturating_add(T::DbWeight::get().writes(1));
+
+        let base = Balance::from(deal_order_weight.ref_time());
+		let ratio = TARGET_FEE_CREDO / base;
+		let rem = TARGET_FEE_CREDO % base;
+		smallvec::smallvec!(WeightToFeeCoefficient {
+			coeff_integer: ratio,
+			coeff_frac: Perbill::from_rational(rem, base),
+			negative: false,
+			degree: 1,
+		})
+    }
+}
+
+pub struct LengthToCtcFee;
+
+impl WeightToFeePolynomial for LengthToCtcFee {
+    type Balance = Balance;
+
+    fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
+        smallvec::smallvec![WeightToFeeCoefficient {
+			coeff_integer: 1,
+			coeff_frac: Perbill::zero(),
+			negative: false,
+			degree: 1,
+		}]
+    }
+}
+
 impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
-    type OperationalFeeMultiplier = ConstU8<5>;
-    type WeightToFee = IdentityFee<Balance>;
-    type LengthToFee = IdentityFee<Balance>;
+    type OperationalFeeMultiplier = ConstU8<1u8>;
+    type WeightToFee = WeightToCtcFee<Runtime>;
+    type LengthToFee = LengthToCtcFee;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
@@ -482,6 +522,26 @@ impl pallet_staking::BenchmarkingConfig for StakingBenchmarkingConfig {
     type MaxNominators = ConstU32<1000>;
 }
 
+pub const CTC: Balance = 1_000_000_000_000_000_000;
+
+const CTC_REWARD_PER_BLOCK: Balance = 2 * CTC;
+
+pub struct EraPayout;
+impl pallet_staking::EraPayout<Balance> for EraPayout {
+    fn era_payout(
+            _total_staked: Balance,
+            _total_issuance: Balance,
+            _era_duration_millis: u64,
+        ) -> (Balance, Balance) {
+        (
+            CTC_REWARD_PER_BLOCK
+            * (EPOCH_DURATION_IN_BLOCKS as Balance)
+            * (SessionsPerEra::get() as Balance),
+            0,
+        )
+    }
+}
+
 impl pallet_staking::Config for Runtime {
     type Currency = Balances;
     type CurrencyBalance = Balance;
@@ -499,7 +559,7 @@ impl pallet_staking::Config for Runtime {
     type SlashDeferDuration = SlashDeferDuration;
     type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
     type SessionInterface = Self;
-    type EraPayout = ();
+    type EraPayout = EraPayout;
     type NextNewSession = Session;
     type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
     type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
