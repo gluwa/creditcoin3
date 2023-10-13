@@ -348,7 +348,7 @@ impl pallet_transaction_payment::Config for Runtime {
     type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
     type OperationalFeeMultiplier = ConstU8<1u8>;
     type WeightToFee = WeightToCtcFee<Runtime>;
-    type LengthToFee = LengthToCtcFee;
+    type LengthToFee = ConstantMultiplier::<u128, ConstU128<1_500_000_000u128>>;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
