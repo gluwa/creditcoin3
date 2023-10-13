@@ -1,0 +1,38 @@
+---
+name: Build WASM Runtime
+
+on:
+  push:
+    branches: [main, testnet, dev]
+  pull_request:
+    branches: [testnet, dev]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Srtool build
+        id: srtool_build
+        uses: chevdor/srtool-actions@v0.8.0
+        with:
+          chain: "creditcoin"
+          runtime_dir: runtime
+          package: frontier-template-runtime
+          workdir: ${{ github.workspace }}
+          tag: "1.70.0"
+      - name: Summary
+        run: |
+          echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
+          cat creditcoin-srtool-digest.json
+          echo "Runtime location: ${{ steps.srtool_build.outputs.wasm }}"
+      - name: Archive Runtime
+        uses: actions/upload-artifact@v3
+        with:
+          name: creditcoin-runtime-${{ github.sha }}
+          path: |
+            ${{ steps.srtool_build.outputs.wasm_compressed }}
+            creditcoin-srtool-digest.json
