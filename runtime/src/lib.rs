@@ -309,18 +309,18 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
         // Copied from the weights for the lock deal order extrinsic which is what is referenced in cc2
         let deal_order_weight = Weight::from_parts(30_601_000, 0)
             .saturating_add(Weight::from_parts(0, 4089))
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1));
+            .saturating_add(T::DbWeight::get().reads(1))
+            .saturating_add(T::DbWeight::get().writes(1));
 
         let base = Balance::from(deal_order_weight.ref_time());
-		let ratio = TARGET_FEE_CREDO / base;
-		let rem = TARGET_FEE_CREDO % base;
-		smallvec::smallvec!(WeightToFeeCoefficient {
-			coeff_integer: ratio,
-			coeff_frac: Perbill::from_rational(rem, base),
-			negative: false,
-			degree: 1,
-		})
+        let ratio = TARGET_FEE_CREDO / base;
+        let rem = TARGET_FEE_CREDO % base;
+        smallvec::smallvec!(WeightToFeeCoefficient {
+            coeff_integer: ratio,
+            coeff_frac: Perbill::from_rational(rem, base),
+            negative: false,
+            degree: 1,
+        })
     }
 }
 
@@ -331,11 +331,11 @@ impl WeightToFeePolynomial for LengthToCtcFee {
 
     fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
         smallvec::smallvec![WeightToFeeCoefficient {
-			coeff_integer: 1,
-			coeff_frac: Perbill::zero(),
-			negative: false,
-			degree: 1,
-		}]
+            coeff_integer: 1,
+            coeff_frac: Perbill::zero(),
+            negative: false,
+            degree: 1,
+        }]
     }
 }
 
@@ -517,7 +517,6 @@ impl pallet_staking::BenchmarkingConfig for StakingBenchmarkingConfig {
     type MaxNominators = ConstU32<1000>;
 }
 
-
 pub const CTC: Balance = 1_000_000_000_000_000_000;
 
 const CTC_REWARD_PER_BLOCK: Balance = 2 * CTC;
@@ -525,14 +524,14 @@ const CTC_REWARD_PER_BLOCK: Balance = 2 * CTC;
 pub struct EraPayout;
 impl pallet_staking::EraPayout<Balance> for EraPayout {
     fn era_payout(
-            _total_staked: Balance,
-            _total_issuance: Balance,
-            _era_duration_millis: u64,
-        ) -> (Balance, Balance) {
+        _total_staked: Balance,
+        _total_issuance: Balance,
+        _era_duration_millis: u64,
+    ) -> (Balance, Balance) {
         (
             CTC_REWARD_PER_BLOCK
-            * (EPOCH_DURATION_IN_BLOCKS as Balance)
-            * (SessionsPerEra::get() as Balance),
+                * (EPOCH_DURATION_IN_BLOCKS as Balance)
+                * (SessionsPerEra::get() as Balance),
             0,
         )
     }
