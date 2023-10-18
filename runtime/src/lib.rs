@@ -36,10 +36,10 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
         OnTimestampSet,
     },
-    weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, Weight, WeightToFeeCoefficient},
+    weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, Weight, WeightToFeeCoefficient, ConstantMultiplier},
     PalletId,
 };
 use pallet_grandpa::{
@@ -324,21 +324,6 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
     }
 }
 
-pub struct LengthToCtcFee;
-
-impl WeightToFeePolynomial for LengthToCtcFee {
-    type Balance = Balance;
-
-    fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
-        smallvec::smallvec![WeightToFeeCoefficient {
-            coeff_integer: 1,
-            coeff_frac: Perbill::zero(),
-            negative: false,
-            degree: 1,
-        }]
-    }
-}
-
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
 }
@@ -348,7 +333,7 @@ impl pallet_transaction_payment::Config for Runtime {
     type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
     type OperationalFeeMultiplier = ConstU8<1u8>;
     type WeightToFee = WeightToCtcFee<Runtime>;
-    type LengthToFee = LengthToCtcFee;
+    type LengthToFee = ConstantMultiplier<u128, ConstU128<1_500_000_000u128>>;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 

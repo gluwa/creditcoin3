@@ -3,7 +3,7 @@ members = ["node", "runtime"]
 resolver = "2"
 
 [workspace.package]
-version = "1.2.1"
+version = "1.3.1"
 authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
