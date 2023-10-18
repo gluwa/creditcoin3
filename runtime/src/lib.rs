@@ -39,7 +39,9 @@ use frame_support::{
         ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
         OnTimestampSet,
     },
-    weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, Weight, WeightToFeeCoefficient, ConstantMultiplier},
+    weights::{
+        constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
+    },
     PalletId,
 };
 use pallet_grandpa::{
