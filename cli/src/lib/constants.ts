@@ -1,0 +1,1 @@
+export const CREDO_PER_CTC = 1_000_000_000_000_000_000;
