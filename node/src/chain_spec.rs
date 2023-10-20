@@ -98,6 +98,10 @@ fn properties() -> Properties {
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
 
+pub fn devnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/devnetSpecRaw.json")[..])
+}
+
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
