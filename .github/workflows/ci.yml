@@ -24,6 +24,19 @@ jobs:
         run: |
           docker build -t gluwa/creditcoin-next .
 
+  sanity-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check migrations
+        run: |
+          ./.github/check-usage-of-log-warn.sh
+
+      - name: Check if Cargo.toml specifies dependencies from forks
+        run: |
+          ./.github/check-for-used-forks.sh
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-22.04
