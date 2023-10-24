@@ -181,6 +181,93 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
+  build-creditcoin-node:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y curl protobuf-compiler
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build SUT
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --features fast-runtime
+
+      - name: Upload creditcoin-node binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release/creditcoin-next-node
+
+      - name: Upload WASM runtime
+        uses: actions/upload-artifact@v3
+        with:
+          name: creditcoin_node_runtime.compact.compressed.wasm
+          path: target/release/wbuild/creditcoin-next-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+  integration-test-smart-contract:
+    needs:
+      - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - name: Start Node 1 - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin-next-node
+          ./target/release/creditcoin-next-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Install smart contract test tool
+        run: |
+          npm install
+
+      - name: Wait for node(s) to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Execute smart contract basicTest
+        run: |
+          # note: this is Alith (Alice) private key, see README.md and
+          # https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
+          ./node_modules/.bin/basicTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+
+      - name: Execute smart contract advancedTest
+        run: |
+          # note: this is Alith (Alice) private key, see README.md
+          ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+
   audit:
     name: cargo audit
     runs-on: ubuntu-22.04

@@ -33,3 +33,11 @@ updates:
     directory: "/runtime"
     schedule:
       interval: "monthly"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
