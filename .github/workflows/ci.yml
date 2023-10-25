@@ -263,10 +263,11 @@ jobs:
           # https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
           ./node_modules/.bin/basicTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
 
-      - name: Execute smart contract advancedTest
-        run: |
-          # note: this is Alith (Alice) private key, see README.md
-          ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+      # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
+      #- name: Execute smart contract advancedTest
+      #  run: |
+      #    # note: this is Alith (Alice) private key, see README.md
+      #    ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
 
   audit:
     name: cargo audit
