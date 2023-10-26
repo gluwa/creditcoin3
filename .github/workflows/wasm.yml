@@ -36,3 +36,37 @@ jobs:
           path: |
             ${{ steps.srtool_build.outputs.wasm_compressed }}
             creditcoin-srtool-digest.json
+
+  update-wasm-on-devnet:
+    runs-on: ubuntu-22.04
+    needs: build
+    if: github.ref == 'refs/heads/dev'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-runtime-${{ github.sha }}
+          path: wasm
+
+      - name: Install JS Dependencies
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - run: |
+          npm install -g yarn
+          pushd ./creditcoin-js && yarn install && yarn pack && popd
+          yarn --cwd ./scripts/js upgrade 'creditcoin-js'
+
+      - name: Install Subwasm
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --locked --git https://github.com/chevdor/subwasm --tag v0.17.1
+
+      - name: Update WASM
+        working-directory: scripts/js
+        env:
+          DEVNET_SUDO_KEY: ${{ secrets.DEVNET_SUDO_KEY }}
+        run: |
+          yarn runtimeUpgrade "wss://rpc.cc3-devnet.creditcoin.network/ws" \
+          ../../wasm/runtime/target/srtool/release/wbuild/creditcoin-node-runtime/creditcoin_node_runtime.compact.compressed.wasm "$DEVNET_SUDO_KEY"
