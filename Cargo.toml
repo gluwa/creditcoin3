@@ -165,10 +165,11 @@ pallet-evm-precompile-sha3fips = { version = "2.0.0-dev", git = "https://github.
 pallet-evm-precompile-simple = { version = "2.0.0-dev", git = "https://github.com/paritytech/frontier", branch = "polkadot-v1.1.0", default-features = false }
 pallet-evm-test-vector-support = { version = "1.0.0-dev", git = "https://github.com/paritytech/frontier", branch = "polkadot-v1.1.0" }
 pallet-hotfix-sufficients = { version = "1.0.0", git = "https://github.com/paritytech/frontier", branch = "polkadot-v1.1.0", default-features = false }
-# Frontier Template
-frontier-template-runtime = { path = "runtime", default-features = false }
 # Frontier Utility
 precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "polkadot-v1.1.0", default-features = false }
+
+# Gluwa
+creditcoin-next-runtime = { path = "runtime", default-features = false }
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [

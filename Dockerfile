@@ -36,7 +36,7 @@ EXPOSE 30333/udp
 EXPOSE 9944 9933 9615
 ENTRYPOINT [ "/bin/creditcoin-node" ]
 
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/frontier-template-node /bin/creditcoin-node
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin-next-node /bin/creditcoin-node
 
 USER creditcoin
 RUN mkdir /creditcoin-node/data

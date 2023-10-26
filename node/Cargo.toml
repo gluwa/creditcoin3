@@ -1,9 +1,9 @@
 [package]
-name = "frontier-template-node"
+name = "creditcoin-next-node"
 version = "0.0.0"
 license = "Unlicense"
 build = "build.rs"
-description = "A fresh FRAME-based Substrate node, ready for hacking."
+description = "CreditcoinNext"
 publish = false
 authors = { workspace = true }
 edition = { workspace = true }
@@ -84,7 +84,9 @@ fp-account = { workspace = true }
 fp-dynamic-fee = { workspace = true, features = ["default"] }
 fp-evm = { workspace = true, features = ["default"] }
 fp-rpc = { workspace = true, features = ["default"] }
-frontier-template-runtime = { workspace = true, features = [
+
+# Gluwa
+creditcoin-next-runtime = { workspace = true, features = [
 	"std",
 ], optional = true }
 
@@ -92,7 +94,7 @@ frontier-template-runtime = { workspace = true, features = [
 substrate-build-script-utils = { workspace = true }
 
 [features]
-default = ["frontier-template-runtime", "rocksdb", "sql", "txpool"]
+default = ["creditcoin-next-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
 	"sc-cli/rocksdb",
 	"sc-service/rocksdb",
@@ -108,5 +110,5 @@ runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-benchmarking-cli/runtime-benchmarks",
 	"sc-service/runtime-benchmarks",
-	"frontier-template-runtime/runtime-benchmarks",
+	"creditcoin-next-runtime/runtime-benchmarks",
 ]

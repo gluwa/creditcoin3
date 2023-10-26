@@ -21,7 +21,7 @@ jobs:
         with:
           chain: "creditcoin"
           runtime_dir: runtime
-          package: frontier-template-runtime
+          package: creditcoin-next-runtime
           workdir: ${{ github.workspace }}
           tag: "1.70.0"
       - name: Summary
