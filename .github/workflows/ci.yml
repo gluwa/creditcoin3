@@ -272,6 +272,48 @@ jobs:
       #    # note: this is Alith (Alice) private key, see README.md
       #    ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
 
+  integration-test-check-extrinsics:
+    needs:
+      - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node Dependencies
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16.x
+      - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Run Extrinsics Ordering
+        shell: bash
+        run: |
+          chmod a+x ./target/release/creditcoin-next-node
+          ./.github/check-extrinsics.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      #Upload logs if nodes are not connecting.
+      #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
+      - name: Upload logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          if-no-files-found: warn
+          name: "extrinsic-logs"
+          path: |
+            head-node.log
+            release-node.log
+            # disabled until we have mainnet and testnet
+            # metadata-cmp-with-mainnet.txt
+            # metadata-cmp-with-testnet.txt
+
+
   audit:
     name: cargo audit
     runs-on: ubuntu-22.04
