@@ -180,7 +180,7 @@ pub fn run() -> sc_cli::Result<()> {
             use frame_benchmarking_cli::{
                 BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE,
             };
-            use frontier_template_runtime::{Block, ExistentialDeposit};
+            use creditcoin_next_runtime::{Block, ExistentialDeposit};
 
             let runner = cli.create_runner(cmd)?;
             match cmd {
