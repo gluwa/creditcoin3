@@ -15,7 +15,7 @@ use sp_runtime::{
 };
 use sp_state_machine::BasicExternalities;
 // Frontier
-use frontier_template_runtime::{
+use creditcoin_next_runtime::{
     opaque::SessionKeys, AccountId, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
     RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
 };
@@ -203,7 +203,7 @@ fn testnet_genesis(
     initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
 ) -> RuntimeGenesisConfig {
-    use frontier_template_runtime::{
+    use creditcoin_next_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
     };
 
@@ -235,7 +235,7 @@ fn testnet_genesis(
 
         // Consensus
         babe: BabeConfig {
-            epoch_config: Some(frontier_template_runtime::BABE_GENESIS_EPOCH_CONFIG),
+            epoch_config: Some(creditcoin_next_runtime::BABE_GENESIS_EPOCH_CONFIG),
             ..Default::default()
         },
         grandpa: Default::default(),
@@ -263,7 +263,7 @@ fn testnet_genesis(
                         x.0,
                         x.0,
                         STASH,
-                        frontier_template_runtime::StakerStatus::Validator,
+                        creditcoin_next_runtime::StakerStatus::Validator,
                     )
                 })
                 .collect(),

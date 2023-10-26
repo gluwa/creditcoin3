@@ -213,7 +213,7 @@ jobs:
       - name: Run cargo audit
         run: |
           cargo audit || true
-          CC_MATCH=$(cargo audit --color never | grep -E "^.── frontier-template-node" || true)
+          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin-next-node" || true)
 
           # fail for anything which is a 1st level dependency of Creditcoin
           if [ -n "$CC_MATCH" ]; then

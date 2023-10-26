@@ -21,7 +21,7 @@ use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::Block as BlockT;
 // Runtime
-use frontier_template_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};
+use creditcoin_next_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};
 
 mod eth;
 pub use self::eth::{

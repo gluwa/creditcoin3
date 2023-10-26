@@ -98,9 +98,9 @@ jobs:
         with:
           type: "zip"
           directory: "target/release/"
-          path: "frontier-template-node*"
+          path: "creditcoin-next-node*"
           filename: "../../creditcoin-${{ env.TAG_NAME }}-${{ env.PLATFORM }}.zip"
-          exclusions: "frontier-template-node.d"
+          exclusions: "creditcoin-next-node.d"
 
       - name: Compress MacOS aarch64 target
         if: matrix.operating-system == 'macos-11'
@@ -108,9 +108,9 @@ jobs:
         with:
           type: "zip"
           directory: "target/aarch64-apple-darwin/release/"
-          path: "frontier-template-node*"
+          path: "creditcoin-next-node*"
           filename: "../../../creditcoin-${{ env.TAG_NAME }}-aarch64-apple-darwin.zip"
-          exclusions: "frontier-template-node.d"
+          exclusions: "creditcoin-next-node.d"
 
       - name: Upload binary
         uses: actions/upload-artifact@v3
@@ -138,7 +138,7 @@ jobs:
         with:
           chain: "creditcoin"
           runtime_dir: runtime
-          package: frontier-template-runtime
+          package: creditcoin-next-runtime
           tag: "1.70.0"
           workdir: ${{ github.workspace }}
 
