@@ -249,15 +249,17 @@ jobs:
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data &
 
-      - name: Install smart contract test tool
-        run: |
-          npm install
-
       - name: Wait for node(s) to start
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Install smart contract test tool
+        working-directory: ./testing
+        run: |
+          npm install
+
       - name: Execute smart contract basicTest
+        working-directory: ./testing
         run: |
           # note: this is Alith (Alice) private key, see README.md and
           # https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
@@ -265,6 +267,7 @@ jobs:
 
       # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
       #- name: Execute smart contract advancedTest
+      #  working-directory: ./testing
       #  run: |
       #    # note: this is Alith (Alice) private key, see README.md
       #    ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133

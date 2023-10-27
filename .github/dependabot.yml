@@ -35,7 +35,7 @@ updates:
       interval: "monthly"
 
   - package-ecosystem: "npm"
-    directory: "/"
+    directory: "/testing"
     schedule:
       interval: "monthly"
     ignore:
