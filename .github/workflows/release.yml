@@ -16,9 +16,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sanity check tag name
+      - name: Figure out tag name
+        shell: bash
         run: |
-          git describe --tag | grep -E "mainnet|testnet|devnet"
+          TAG_NAME=$(git describe --tag)
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
+
+      - name: Sanity check tag name suffix
+        run: |
+          echo "${{ env.TAG_NAME }}" | grep -E "mainnet|testnet|devnet"
+
+      - name: Check tag name vs. Cargo.toml version
+        run: |
+          ./.github/check-version-vs-git-tag.sh
 
   build-native-runtime:
     needs: sanity-check
