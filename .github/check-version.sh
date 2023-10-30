@@ -26,7 +26,7 @@ VERSION_FROM_CARGO_TOML=$(grep "^version =" Cargo.toml  | cut -f2 -d'=' | tr -d 
 
 SPEC_VERSION=$(grep spec_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
 IMPL_VERSION=$(grep impl_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
-VERSION_FROM_VERSION_RS="1.$SPEC_VERSION.$IMPL_VERSION"
+VERSION_FROM_VERSION_RS="3.$SPEC_VERSION.$IMPL_VERSION"
 
 # Since PR #969 version strings in Cargo.toml and version.rs should be in sync
 echo "INFO: Cargo.toml version is $VERSION_FROM_CARGO_TOML"
