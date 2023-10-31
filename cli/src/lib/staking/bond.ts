@@ -12,9 +12,12 @@ export async function bond(
   api: ApiPromise,
   extra = false,
 ) {
-  if (amount.lt(new BN(1).mul(new BN(MICROUNITS_PER_CTC)))) {
-    throw new Error("Amount to bond must be at least 1");
-  }
+  console.log(`Amount: ${amount.toString()}`);
+
+  // TODO resupport this min amount check
+  // if (amount.lt(new BN(1).mul(new BN(MICROUNITS_PER_CTC)))) {
+  //   throw new Error("Amount to bond must be at least 1");
+  // }
 
   const amountInMicroUnits = amount;
 
@@ -24,7 +27,6 @@ export async function bond(
     bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
   } else {
     bondTx = api.tx.staking.bond(
-      controllerAddress,
       amountInMicroUnits.toString(),
       rewardDestination,
     );
