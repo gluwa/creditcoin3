@@ -1,12 +1,10 @@
 import { ApiPromise, BN, KeyringPair } from "..";
-import { MICROUNITS_PER_CTC } from "../constants";
 import { requireEnoughFundsToSend, signSendAndWatch } from "../tx";
 
-type RewardDestination = "Staked" | "Stash" | "Controller";
+type RewardDestination = "Staked" | "Stash";
 
 export async function bond(
   stashKeyring: KeyringPair,
-  controllerAddress: string,
   amount: BN,
   rewardDestination: RewardDestination,
   api: ApiPromise,
@@ -49,11 +47,10 @@ export function parseRewardDestination(
 
   if (
     rewardDestination !== "Staked" &&
-    rewardDestination !== "Stash" &&
-    rewardDestination !== "Controller"
+    rewardDestination !== "Stash"
   ) {
     throw new Error(
-      "Invalid reward destination, must be one of 'Staked', 'Stash', or 'Controller'",
+      "Invalid reward destination, must be one of 'Staked' or 'Stash'",
     );
   } else {
     return rewardDestination;
@@ -70,11 +67,10 @@ export function checkRewardDestination(
 
   if (
     rewardDestination !== "Staked" &&
-    rewardDestination !== "Stash" &&
-    rewardDestination !== "Controller"
+    rewardDestination !== "Stash"
   ) {
     throw new Error(
-      "Invalid reward destination, must be one of 'Staked', 'Stash', or 'Controller'",
+      "Invalid reward destination, must be one of 'Staked' or 'Stash'",
     );
   } else {
     return rewardDestination;
