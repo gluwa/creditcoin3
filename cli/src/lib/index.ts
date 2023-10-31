@@ -1,6 +1,7 @@
 export * from './api';
 export * from './types';
 export * from './constants';
+export * from './staking';
 
 export { Provider, Wallet, FixedNumber } from 'ethers';
 export { parseUnits } from 'ethers';

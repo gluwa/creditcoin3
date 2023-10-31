@@ -1,4 +1,5 @@
-import { ApiPromise, BN, parseUnits } from "..";
+import { ApiPromise, parseUnits } from "..";
+import { BN } from '@polkadot/util';
 import Table from "cli-table3";
 
 import type { DeriveStakingAccount } from "@polkadot/api-derive/types";
