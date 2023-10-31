@@ -4,14 +4,10 @@ import prompts from "prompts";
 import { getErrorMessage } from "../error";
 import { OptionValues } from "commander";
 
-export function initKeyringPair(seed: string) {
-  const keyring = new Keyring({ type: "sr25519" });
-  const pair = keyring.addFromUri(`${seed}`);
-  return pair;
-}
-export function initECDSAKeyringPairFromPK(pk: string) {
-  const keyring = new Keyring({ type: "ecdsa" });
-  const pair = keyring.addFromUri(`${pk}`);
+
+export function initEthKeyringPair(seed: string, accIndex = 0) {
+  const keyring = new Keyring({ type: "ethereum" });
+  const pair = keyring.addFromUri(`${seed}/m/44'/60'/0'/0/${accIndex}`);
   return pair;
 }
 
@@ -61,11 +57,11 @@ export async function initKeyringFromEnvOrPrompt(
   accountRole: string,
   options: OptionValues,
 ): Promise<KeyringPair> {
+  // General configs
   const interactive = options.input;
-  const ecdsa = options.ecdsa;
-  const inputName = ecdsa ? "private key" : "seed phrase";
-  const validateInput = ecdsa ? validateECDSAKey : mnemonicValidate;
-  const generateKeyring = ecdsa ? initECDSAKeyringPairFromPK : initKeyringPair;
+  const inputName = "seed phrase";
+  const validateInput = mnemonicValidate;
+  const generateKeyring = initEthKeyringPair
 
   if (!interactive && !process.env[envVar]) {
     throw new Error(
@@ -94,17 +90,10 @@ export async function initKeyringFromEnvOrPrompt(
     // If SIGTERM is issued while prompting, it will log a bogus address anyways and exit without error.
     // To avoid this, we check if prompt was successful, before returning.
     if (promptResult.seed) {
-      return generateKeyring(promptResult.seed);
+      return generateKeyring(promptResult.seed, options.index as number);
     }
   }
   throw new Error(`Error: Could not retrieve ${inputName}`);
-}
-
-export function validateECDSAKey(pk: string): boolean {
-  const keyring = initECDSAKeyringPairFromPK(pk);
-  const msg = "";
-  const sig = keyring.sign(msg);
-  return keyring.verify(msg, sig, keyring.publicKey);
 }
 
 function getStringFromEnvVar(envVar: string | undefined): string {
