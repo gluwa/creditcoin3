@@ -11,10 +11,6 @@ import { initCallerKeyring } from "../lib/account/keyring";
 export function makeSendCommand() {
   const cmd = new Command("send");
   cmd.description("Send CTC from an account");
-  cmd.option(
-    "--use-ecdsa",
-    "Use ECDSA signature scheme and a private key instead of a mnemonic phrase",
-  );
   cmd.option("-a, --amount [amount]", "Amount to send");
   cmd.option("-t, --to [to]", "Specify recipient address");
   cmd.action(sendAction);
