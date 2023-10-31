@@ -24,7 +24,6 @@ export function makeBondCommand() {
   const cmd = new Command("bond");
   cmd.description("Bond CTC from a Stash account");
   cmd.option("-a, --amount [amount]", "Amount to bond");
-  cmd.option("-c, --controller [controller]", "Specify controller address");
   cmd.option(
     "-r, --reward-destination [reward-destination]",
     "Specify reward destination account to use for new account",
@@ -40,7 +39,7 @@ export function makeBondCommand() {
 async function bondAction(options: OptionValues) {
   const { api } = await newApi(options.url);
 
-  const { amount, controller, rewardDestination, extra, interactive } =
+  const { amount, rewardDestination, extra, interactive } =
     parseOptions(options);
 
   const stashKeyring = await initStashKeyring(options);
@@ -50,7 +49,6 @@ async function bondAction(options: OptionValues) {
   await checkBalance(amount, api, stashAddress);
 
   console.log("Creating bond transaction...");
-  console.log("Controller address:", controller);
   console.log("Reward destination:", rewardDestination);
   console.log("Amount:", toCTCString(amount));
   if (extra) {
@@ -61,7 +59,6 @@ async function bondAction(options: OptionValues) {
 
   const bondTxResult = await bond(
     stashKeyring,
-    controller,
     amount,
     rewardDestination,
     api,
@@ -97,18 +94,10 @@ function parseOptions(options: OptionValues) {
   );
   checkAmount(amount);
 
-  const controller = parseAddressOrExit(
-    requiredInput(
-      options.controller,
-      "Failed to bond: Must specify a controller address",
-    ),
-  );
-
   const rewardDestination = checkRewardDestination(
     parseChoiceOrExit(inputOrDefault(options.rewardDestination, "Staked"), [
       "Staked",
       "Stash",
-      "Controller",
     ]),
   );
 
@@ -116,5 +105,5 @@ function parseOptions(options: OptionValues) {
 
   const interactive = setInteractivity(options);
 
-  return { amount, controller, rewardDestination, extra, interactive };
+  return { amount, rewardDestination, extra, interactive };
 }
