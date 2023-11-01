@@ -9,6 +9,7 @@ import { makeBondCommand } from './commands/staking/bond'
 import { makeChillCommand } from './commands/staking/chill'
 import { makeRotateKeysCommand } from './commands/session/rotateKeys'
 import { makeSetKeysCommand } from './commands/staking/setKeys'
+import { makeUnbondCommand } from './commands/staking/unbond'
 
 const program = new Command()
 
@@ -22,6 +23,7 @@ program
     .addCommand(makeChillCommand())
     .addCommand(makeRotateKeysCommand())
     .addCommand(makeSetKeysCommand())
+    .addCommand(makeUnbondCommand())
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts')
