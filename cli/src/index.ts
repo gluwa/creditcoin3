@@ -15,17 +15,20 @@ import { makeValidateCommand } from './commands/staking/validate'
 const program = new Command()
 
 program
-    .addCommand(makeStatusCommand())
-    .addCommand(makeNewSeedCommand())
-    .addCommand(makeShowAddressCommand())
     .addCommand(makeBalanceCommand())
-    .addCommand(makeSendCommand())
     .addCommand(makeBondCommand())
     .addCommand(makeChillCommand())
+    // .addCommand(makeDistributeRewardsCommand())
+    .addCommand(makeNewSeedCommand())
     .addCommand(makeRotateKeysCommand())
+    .addCommand(makeSendCommand())
     .addCommand(makeSetKeysCommand())
+    .addCommand(makeShowAddressCommand())
+    .addCommand(makeStatusCommand())
     .addCommand(makeUnbondCommand())
     .addCommand(makeValidateCommand())
+// .addCommand(makeWithdrawUnbondedCommand())
+// .addCommand(makeWizardCommand())
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts')
