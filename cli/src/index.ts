@@ -11,6 +11,7 @@ import { makeRotateKeysCommand } from './commands/session/rotateKeys'
 import { makeSetKeysCommand } from './commands/staking/setKeys'
 import { makeUnbondCommand } from './commands/staking/unbond'
 import { makeValidateCommand } from './commands/staking/validate'
+import { makeDistributeRewardsCommand } from './commands/staking/distribute'
 
 const program = new Command()
 
@@ -18,7 +19,7 @@ program
     .addCommand(makeBalanceCommand())
     .addCommand(makeBondCommand())
     .addCommand(makeChillCommand())
-    // .addCommand(makeDistributeRewardsCommand())
+    .addCommand(makeDistributeRewardsCommand())
     .addCommand(makeNewSeedCommand())
     .addCommand(makeRotateKeysCommand())
     .addCommand(makeSendCommand())
