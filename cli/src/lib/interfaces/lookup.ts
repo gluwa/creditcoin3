@@ -2745,4 +2745,4 @@ export default {
      * Lookup385: frontier_template_runtime::Runtime
      **/
     FrontierTemplateRuntimeRuntime: 'Null',
-}
+};

@@ -1,14 +1,14 @@
 // #!/usr/bin/env node
-import { Command } from 'commander'
-import { makeStatusCommand } from './commands/status'
-import { makeNewSeedCommand } from './commands/newSeed'
-import { makeShowAddressCommand } from './commands/showAddress'
-import { makeBalanceCommand } from './commands/balance'
-import { makeSendCommand } from './commands/send'
-import { makeBondCommand } from './commands/staking/bond'
-import { makeChillCommand } from './commands/staking/chill'
+import { Command } from 'commander';
+import { makeStatusCommand } from './commands/status';
+import { makeNewSeedCommand } from './commands/newSeed';
+import { makeShowAddressCommand } from './commands/showAddress';
+import { makeBalanceCommand } from './commands/balance';
+import { makeSendCommand } from './commands/send';
+import { makeBondCommand } from './commands/staking/bond';
+import { makeChillCommand } from './commands/staking/chill';
 
-const program = new Command()
+const program = new Command();
 
 program
     .addCommand(makeStatusCommand())
@@ -17,15 +17,15 @@ program
     .addCommand(makeBalanceCommand())
     .addCommand(makeSendCommand())
     .addCommand(makeBondCommand())
-    .addCommand(makeChillCommand())
+    .addCommand(makeChillCommand());
 
 program.commands.forEach((cmd) => {
-    cmd.option('--no-input', 'Disable interactive prompts')
+    cmd.option('--no-input', 'Disable interactive prompts');
     cmd.option(
         '-u, --url [url]',
         'URL for the Substrate node',
         'ws://localhost:9944'
-    )
-})
+    );
+});
 
-program.parse(process.argv)
+program.parse(process.argv);

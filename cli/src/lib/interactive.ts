@@ -1,10 +1,10 @@
-import { OptionValues } from 'commander'
-import prompts from 'prompts'
-import { parseBoolean } from './parsing'
+import { OptionValues } from 'commander';
+import prompts from 'prompts';
+import { parseBoolean } from './parsing';
 
 export async function promptContinue(interactive: boolean) {
     if (!interactive) {
-        return true
+        return true;
     }
 
     const promptResult = await prompts({
@@ -12,17 +12,17 @@ export async function promptContinue(interactive: boolean) {
         name: 'confirm',
         message: 'Continue?',
         initial: false,
-    })
+    });
 
     if (promptResult.confirm === undefined) {
-        process.exit(1)
+        process.exit(1);
     }
 
     if (!promptResult.confirm) {
-        process.exit(0)
+        process.exit(0);
     }
 
-    return promptResult.confirm
+    return promptResult.confirm;
 }
 
 export async function promptContinueOrSkip(
@@ -30,7 +30,7 @@ export async function promptContinueOrSkip(
     interactive: boolean
 ) {
     if (!interactive) {
-        return true
+        return true;
     }
     const promptResult = await prompts({
         type: 'select',
@@ -41,17 +41,17 @@ export async function promptContinueOrSkip(
             { title: 'Skip', value: false },
         ],
         initial: 1,
-    })
+    });
 
     if (promptResult.continue === undefined) {
-        process.exit(1)
+        process.exit(1);
     }
 
-    return promptResult.continue
+    return promptResult.continue;
 }
 
 export function setInteractivity(options: OptionValues) {
-    const input = parseBoolean(options.input)
-    const interactive = process.stdin.isTTY && input
-    return interactive
+    const input = parseBoolean(options.input);
+    const interactive = process.stdin.isTTY && input;
+    return interactive;
 }

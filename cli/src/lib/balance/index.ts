@@ -1,51 +1,51 @@
-import { ApiPromise, parseUnits } from '..'
-import { BN } from '@polkadot/util'
-import Table from 'cli-table3'
+import { ApiPromise, parseUnits } from '..';
+import { BN } from '@polkadot/util';
+import Table from 'cli-table3';
 
-import type { DeriveStakingAccount } from '@polkadot/api-derive/types'
+import type { DeriveStakingAccount } from '@polkadot/api-derive/types';
 
-export const MICROUNITS_PER_CTC = new BN('1000000000000000000')
+export const MICROUNITS_PER_CTC = new BN('1000000000000000000');
 
 export function parseCTCString(amount: string): BN {
     try {
-        const parsed = positiveBigNumberFromString(amount)
-        return new BN(parsed.toString())
+        const parsed = positiveBigNumberFromString(amount);
+        return new BN(parsed.toString());
     } catch (e) {
-        console.error(`Unable to parse CTC amount: ${amount}`)
-        process.exit(1)
+        console.error(`Unable to parse CTC amount: ${amount}`);
+        process.exit(1);
     }
 }
 
 export function toCTCString(amount: BN, decimals = 18): string {
-    const CTC = amount.div(MICROUNITS_PER_CTC)
-    const remainder = amount.mod(MICROUNITS_PER_CTC)
+    const CTC = amount.div(MICROUNITS_PER_CTC);
+    const remainder = amount.mod(MICROUNITS_PER_CTC);
     const remainderString = remainder
         .toString()
         .padStart(18, '0')
-        .slice(0, decimals)
-    return `${CTC.toString()}.${remainderString} CTC`
+        .slice(0, decimals);
+    return `${CTC.toString()}.${remainderString} CTC`;
 }
 
 export function readAmount(amount: string): BN {
-    return new BN(amount)
+    return new BN(amount);
 }
 
 export function readAmountFromHex(amount: string): BN {
-    return new BN(amount.slice(2), 16)
+    return new BN(amount.slice(2), 16);
 }
 
 export interface AccountBalance {
-    address: string
-    transferable: BN
-    locked: BN
-    bonded: BN
-    total: BN
-    unbonding: BN
+    address: string;
+    transferable: BN;
+    locked: BN;
+    bonded: BN;
+    total: BN;
+    unbonding: BN;
 }
 
 export async function getBalance(address: string, api: any) {
-    const balacesAll = await getBalancesAll(address, api)
-    const stakingInfo = await getStakingInfo(address, api)
+    const balacesAll = await getBalancesAll(address, api);
+    const stakingInfo = await getStakingInfo(address, api);
 
     const balance: AccountBalance = {
         address,
@@ -54,24 +54,24 @@ export async function getBalance(address: string, api: any) {
         locked: balacesAll.lockedBalance,
         total: balacesAll.freeBalance.add(balacesAll.reservedBalance),
         unbonding: calcUnbonding(stakingInfo),
-    }
+    };
 
-    return balance
+    return balance;
 }
 
 async function getBalancesAll(address: string, api: ApiPromise) {
-    const balance = await api.derive.balances.all(address)
-    return balance
+    const balance = await api.derive.balances.all(address);
+    return balance;
 }
 
 async function getStakingInfo(address: string, api: ApiPromise) {
-    const stakingInfo = await api.derive.staking.account(address)
-    return stakingInfo
+    const stakingInfo = await api.derive.staking.account(address);
+    return stakingInfo;
 }
 
 function calcUnbonding(stakingInfo?: DeriveStakingAccount) {
     if (!stakingInfo?.unlocking) {
-        return new BN(0)
+        return new BN(0);
     }
 
     const filtered = stakingInfo.unlocking
@@ -79,25 +79,25 @@ function calcUnbonding(stakingInfo?: DeriveStakingAccount) {
             ({ remainingEras, value }) =>
                 value.gt(new BN(0)) && remainingEras.gt(new BN(0))
         )
-        .map((unlock) => unlock.value)
+        .map((unlock) => unlock.value);
     const unbonding = filtered.reduce(
         (total, value) => total.iadd(value),
         new BN(0)
-    )
+    );
 
-    return unbonding
+    return unbonding;
 }
 
 export function logBalance(balance: AccountBalance, human = true) {
     if (human) {
-        printBalance(balance)
+        printBalance(balance);
     } else {
-        printJsonBalance(balance)
+        printJsonBalance(balance);
     }
 }
 
 export function printBalance(balance: AccountBalance) {
-    const table = new Table({})
+    const table = new Table({});
 
     table.push(
         ['Transferable', toCTCString(balance.transferable, 4)],
@@ -105,10 +105,10 @@ export function printBalance(balance: AccountBalance) {
         ['Bonded', toCTCString(balance.bonded, 4)],
         ['Unbonding', toCTCString(balance.unbonding, 4)],
         ['Total', toCTCString(balance.total, 4)]
-    )
+    );
 
-    console.log(`Address: ${balance.address}`)
-    console.log(table.toString())
+    console.log(`Address: ${balance.address}`);
+    console.log(table.toString());
 }
 
 export function printJsonBalance(balance: AccountBalance) {
@@ -121,34 +121,34 @@ export function printJsonBalance(balance: AccountBalance) {
             unbonding: balance.unbonding.toString(),
             total: balance.total.toString(),
         },
-    }
-    console.log(JSON.stringify(jsonBalance, null, 2))
+    };
+    console.log(JSON.stringify(jsonBalance, null, 2));
 }
 
 export function checkAmount(amount: BN) {
     if (!amount) {
-        console.log('Must specify amount to bond')
-        process.exit(1)
+        console.log('Must specify amount to bond');
+        process.exit(1);
     } else {
         if (amount.lt(new BN(1).mul(MICROUNITS_PER_CTC))) {
-            console.log('Bond amount must be at least 1 CTC')
-            process.exit(1)
+            console.log('Bond amount must be at least 1 CTC');
+            process.exit(1);
         }
     }
 }
 
 function positiveBigNumberFromString(amount: string) {
-    const parsedValue = parseUnits(amount, 18)
+    const parsedValue = parseUnits(amount, 18);
 
     if (parsedValue === BigInt(0)) {
-        console.error('Failed to parse amount, must be greater than 0')
-        process.exit(1)
+        console.error('Failed to parse amount, must be greater than 0');
+        process.exit(1);
     }
 
     if (parsedValue < BigInt(0)) {
-        console.error('Failed to parse amount, must be a positive number')
-        process.exit(1)
+        console.error('Failed to parse amount, must be a positive number');
+        process.exit(1);
     }
 
-    return parsedValue
+    return parsedValue;
 }

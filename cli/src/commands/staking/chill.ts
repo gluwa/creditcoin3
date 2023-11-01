@@ -1,22 +1,22 @@
-import { Command, OptionValues } from 'commander'
-import { newApi } from '../../api'
-import { initStashKeyring } from '../../lib/account/keyring'
-import { chill } from '../../lib/staking/chill'
+import { Command, OptionValues } from 'commander';
+import { newApi } from '../../api';
+import { initStashKeyring } from '../../lib/account/keyring';
+import { chill } from '../../lib/staking/chill';
 // import { getValidatorStatus, requireStatus } from '../utils/validatorStatus'
 
 export function makeChillCommand() {
-    const cmd = new Command('chill')
+    const cmd = new Command('chill');
     cmd.description(
         'Signal intention to stop validating from a Controller account'
-    )
-    cmd.action(chillAction)
-    return cmd
+    );
+    cmd.action(chillAction);
+    return cmd;
 }
 
 async function chillAction(options: OptionValues) {
-    const { api } = await newApi(options.url)
+    const { api } = await newApi(options.url);
 
-    const keyring = await initStashKeyring(options)
+    const keyring = await initStashKeyring(options);
 
     // TODO resupport validator status check
     //
@@ -32,10 +32,10 @@ async function chillAction(options: OptionValues) {
 
     // requireStatus(stashStatus, 'validating')
 
-    console.log('Creating chill transaction...')
+    console.log('Creating chill transaction...');
 
-    const result = await chill(keyring, api)
+    const result = await chill(keyring, api);
 
-    console.log(result.info)
-    process.exit(0)
+    console.log(result.info);
+    process.exit(0);
 }

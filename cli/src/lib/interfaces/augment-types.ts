@@ -3,9 +3,9 @@
 
 // import type lookup before we augment - in some environments
 // this is required to allow for ambient/previous definitions
-import '@polkadot/types/types/registry'
+import '@polkadot/types/types/registry';
 
-import type { Data, StorageKey } from '@polkadot/types'
+import type { Data, StorageKey } from '@polkadot/types';
 import type {
     BitVec,
     Bool,
@@ -49,7 +49,7 @@ import type {
     u64,
     u8,
     usize,
-} from '@polkadot/types-codec'
+} from '@polkadot/types-codec';
 import type {
     AssetApproval,
     AssetApprovalKey,
@@ -59,18 +59,18 @@ import type {
     AssetMetadata,
     TAssetBalance,
     TAssetDepositBalance,
-} from '@polkadot/types/interfaces/assets'
+} from '@polkadot/types/interfaces/assets';
 import type {
     BlockAttestations,
     IncludedBlocks,
     MoreAttestations,
-} from '@polkadot/types/interfaces/attestations'
-import type { RawAuraPreDigest } from '@polkadot/types/interfaces/aura'
+} from '@polkadot/types/interfaces/attestations';
+import type { RawAuraPreDigest } from '@polkadot/types/interfaces/aura';
 import type {
     ExtrinsicOrHash,
     ExtrinsicStatus,
-} from '@polkadot/types/interfaces/author'
-import type { UncleEntryItem } from '@polkadot/types/interfaces/authorship'
+} from '@polkadot/types/interfaces/author';
+import type { UncleEntryItem } from '@polkadot/types/interfaces/authorship';
 import type {
     AllowedSlots,
     BabeAuthorityWeight,
@@ -100,7 +100,7 @@ import type {
     VrfData,
     VrfOutput,
     VrfProof,
-} from '@polkadot/types/interfaces/babe'
+} from '@polkadot/types/interfaces/babe';
 import type {
     AccountData,
     BalanceLock,
@@ -111,7 +111,7 @@ import type {
     ReserveIdentifier,
     VestingSchedule,
     WithdrawReasons,
-} from '@polkadot/types/interfaces/balances'
+} from '@polkadot/types/interfaces/balances';
 import type {
     BeefyAuthoritySet,
     BeefyCommitment,
@@ -125,7 +125,7 @@ import type {
     MmrRootHash,
     ValidatorSet,
     ValidatorSetId,
-} from '@polkadot/types/interfaces/beefy'
+} from '@polkadot/types/interfaces/beefy';
 import type {
     BenchmarkBatch,
     BenchmarkConfig,
@@ -133,12 +133,12 @@ import type {
     BenchmarkMetadata,
     BenchmarkParameter,
     BenchmarkResult,
-} from '@polkadot/types/interfaces/benchmark'
+} from '@polkadot/types/interfaces/benchmark';
 import type {
     CheckInherentsResult,
     InherentData,
     InherentIdentifier,
-} from '@polkadot/types/interfaces/blockbuilder'
+} from '@polkadot/types/interfaces/blockbuilder';
 import type {
     BridgeMessageId,
     BridgedBlockHash,
@@ -165,21 +165,21 @@ import type {
     RelayerId,
     UnrewardedRelayer,
     UnrewardedRelayersState,
-} from '@polkadot/types/interfaces/bridges'
-import type { BlockHash } from '@polkadot/types/interfaces/chain'
-import type { PrefixedStorageKey } from '@polkadot/types/interfaces/childstate'
-import type { StatementKind } from '@polkadot/types/interfaces/claims'
+} from '@polkadot/types/interfaces/bridges';
+import type { BlockHash } from '@polkadot/types/interfaces/chain';
+import type { PrefixedStorageKey } from '@polkadot/types/interfaces/childstate';
+import type { StatementKind } from '@polkadot/types/interfaces/claims';
 import type {
     CollectiveOrigin,
     MemberCount,
     ProposalIndex,
     Votes,
     VotesTo230,
-} from '@polkadot/types/interfaces/collective'
+} from '@polkadot/types/interfaces/collective';
 import type {
     AuthorityId,
     RawVRFOutput,
-} from '@polkadot/types/interfaces/consensus'
+} from '@polkadot/types/interfaces/consensus';
 import type {
     AliveContractInfo,
     CodeHash,
@@ -229,7 +229,7 @@ import type {
     StorageDeposit,
     TombstoneContractInfo,
     TrieId,
-} from '@polkadot/types/interfaces/contracts'
+} from '@polkadot/types/interfaces/contracts';
 import type {
     ContractConstructorSpecLatest,
     ContractConstructorSpecV0,
@@ -284,13 +284,13 @@ import type {
     ContractSelector,
     ContractStorageLayout,
     ContractTypeSpec,
-} from '@polkadot/types/interfaces/contractsAbi'
+} from '@polkadot/types/interfaces/contractsAbi';
 import type {
     FundIndex,
     FundInfo,
     LastContribution,
     TrieIndex,
-} from '@polkadot/types/interfaces/crowdloan'
+} from '@polkadot/types/interfaces/crowdloan';
 import type {
     CollationInfo,
     CollationInfoV1,
@@ -299,7 +299,7 @@ import type {
     OverweightIndex,
     PageCounter,
     PageIndexData,
-} from '@polkadot/types/interfaces/cumulus'
+} from '@polkadot/types/interfaces/cumulus';
 import type {
     AccountVote,
     AccountVoteSplit,
@@ -322,8 +322,8 @@ import type {
     VotingDelegating,
     VotingDirect,
     VotingDirectVote,
-} from '@polkadot/types/interfaces/democracy'
-import type { BlockStats } from '@polkadot/types/interfaces/dev'
+} from '@polkadot/types/interfaces/democracy';
+import type { BlockStats } from '@polkadot/types/interfaces/dev';
 import type {
     ApprovalFlag,
     DefunctVoter,
@@ -333,11 +333,11 @@ import type {
     VoteIndex,
     VoteThreshold,
     VoterInfo,
-} from '@polkadot/types/interfaces/elections'
+} from '@polkadot/types/interfaces/elections';
 import type {
     CreatedBlock,
     ImportedAux,
-} from '@polkadot/types/interfaces/engine'
+} from '@polkadot/types/interfaces/engine';
 import type {
     BlockV0,
     BlockV1,
@@ -386,7 +386,7 @@ import type {
     TransactionV0,
     TransactionV1,
     TransactionV2,
-} from '@polkadot/types/interfaces/eth'
+} from '@polkadot/types/interfaces/eth';
 import type {
     EvmAccount,
     EvmCallInfo,
@@ -401,7 +401,7 @@ import type {
     ExitReason,
     ExitRevert,
     ExitSucceed,
-} from '@polkadot/types/interfaces/evm'
+} from '@polkadot/types/interfaces/evm';
 import type {
     AnySignature,
     EcdsaSignature,
@@ -422,21 +422,21 @@ import type {
     Signature,
     SignerPayload,
     Sr25519Signature,
-} from '@polkadot/types/interfaces/extrinsics'
-import type { FungiblesAccessError } from '@polkadot/types/interfaces/fungibles'
+} from '@polkadot/types/interfaces/extrinsics';
+import type { FungiblesAccessError } from '@polkadot/types/interfaces/fungibles';
 import type {
     AssetOptions,
     Owner,
     PermissionLatest,
     PermissionVersions,
     PermissionsV1,
-} from '@polkadot/types/interfaces/genericAsset'
+} from '@polkadot/types/interfaces/genericAsset';
 import type {
     ActiveGilt,
     ActiveGiltsTotal,
     ActiveIndex,
     GiltBid,
-} from '@polkadot/types/interfaces/gilt'
+} from '@polkadot/types/interfaces/gilt';
 import type {
     AuthorityIndex,
     AuthorityList,
@@ -470,7 +470,7 @@ import type {
     SetId,
     StoredPendingChange,
     StoredState,
-} from '@polkadot/types/interfaces/grandpa'
+} from '@polkadot/types/interfaces/grandpa';
 import type {
     IdentityFields,
     IdentityInfo,
@@ -482,7 +482,7 @@ import type {
     Registration,
     RegistrationJudgement,
     RegistrationTo198,
-} from '@polkadot/types/interfaces/identity'
+} from '@polkadot/types/interfaces/identity';
 import type {
     AuthIndex,
     AuthoritySignature,
@@ -491,11 +491,11 @@ import type {
     OpaqueMultiaddr,
     OpaqueNetworkState,
     OpaquePeerId,
-} from '@polkadot/types/interfaces/imOnline'
+} from '@polkadot/types/interfaces/imOnline';
 import type {
     CallIndex,
     LotteryConfig,
-} from '@polkadot/types/interfaces/lottery'
+} from '@polkadot/types/interfaces/lottery';
 import type {
     CustomMetadata15,
     CustomValueMetadata15,
@@ -608,7 +608,7 @@ import type {
     StorageMetadataV12,
     StorageMetadataV13,
     StorageMetadataV9,
-} from '@polkadot/types/interfaces/metadata'
+} from '@polkadot/types/interfaces/metadata';
 import type {
     MmrBatchProof,
     MmrEncodableOpaqueLeaf,
@@ -619,13 +619,13 @@ import type {
     MmrLeafProof,
     MmrNodeIndex,
     MmrProof,
-} from '@polkadot/types/interfaces/mmr'
+} from '@polkadot/types/interfaces/mmr';
 import type {
     NftCollectionId,
     NftItemId,
-} from '@polkadot/types/interfaces/nfts'
-import type { NpApiError, NpPoolId } from '@polkadot/types/interfaces/nompools'
-import type { StorageKind } from '@polkadot/types/interfaces/offchain'
+} from '@polkadot/types/interfaces/nfts';
+import type { NpApiError, NpPoolId } from '@polkadot/types/interfaces/nompools';
+import type { StorageKind } from '@polkadot/types/interfaces/offchain';
 import type {
     DeferredOffenceOf,
     Kind,
@@ -634,7 +634,7 @@ import type {
     OpaqueTimeSlot,
     ReportIdOf,
     Reporter,
-} from '@polkadot/types/interfaces/offences'
+} from '@polkadot/types/interfaces/offences';
 import type {
     AbridgedCandidateReceipt,
     AbridgedHostConfiguration,
@@ -768,29 +768,29 @@ import type {
     WinningData,
     WinningData10,
     WinningDataEntry,
-} from '@polkadot/types/interfaces/parachains'
+} from '@polkadot/types/interfaces/parachains';
 import type {
     FeeDetails,
     InclusionFee,
     RuntimeDispatchInfo,
     RuntimeDispatchInfoV1,
     RuntimeDispatchInfoV2,
-} from '@polkadot/types/interfaces/payment'
-import type { Approvals } from '@polkadot/types/interfaces/poll'
+} from '@polkadot/types/interfaces/payment';
+import type { Approvals } from '@polkadot/types/interfaces/poll';
 import type {
     ProxyAnnouncement,
     ProxyDefinition,
     ProxyType,
-} from '@polkadot/types/interfaces/proxy'
+} from '@polkadot/types/interfaces/proxy';
 import type {
     AccountStatus,
     AccountValidity,
-} from '@polkadot/types/interfaces/purchase'
+} from '@polkadot/types/interfaces/purchase';
 import type {
     ActiveRecovery,
     RecoveryConfig,
-} from '@polkadot/types/interfaces/recovery'
-import type { RpcMethods } from '@polkadot/types/interfaces/rpc'
+} from '@polkadot/types/interfaces/recovery';
+import type { RpcMethods } from '@polkadot/types/interfaces/rpc';
 import type {
     AccountId,
     AccountId20,
@@ -892,7 +892,7 @@ import type {
     WeightV0,
     WeightV1,
     WeightV2,
-} from '@polkadot/types/interfaces/runtime'
+} from '@polkadot/types/interfaces/runtime';
 import type {
     Si0Field,
     Si0LookupTypeId,
@@ -940,7 +940,7 @@ import type {
     SiTypeDefVariant,
     SiTypeParameter,
     SiVariant,
-} from '@polkadot/types/interfaces/scaleInfo'
+} from '@polkadot/types/interfaces/scaleInfo';
 import type {
     Period,
     Priority,
@@ -949,7 +949,7 @@ import type {
     Scheduled,
     ScheduledTo254,
     TaskAddress,
-} from '@polkadot/types/interfaces/scheduler'
+} from '@polkadot/types/interfaces/scheduler';
 import type {
     BeefyKey,
     FullIdentification,
@@ -973,7 +973,7 @@ import type {
     SessionKeys9,
     SessionKeys9B,
     ValidatorCount,
-} from '@polkadot/types/interfaces/session'
+} from '@polkadot/types/interfaces/session';
 import type {
     Bid,
     BidKind,
@@ -981,7 +981,7 @@ import type {
     SocietyVote,
     StrikeCount,
     VouchingStatus,
-} from '@polkadot/types/interfaces/society'
+} from '@polkadot/types/interfaces/society';
 import type {
     ActiveEraInfo,
     CompactAssignments,
@@ -1051,7 +1051,7 @@ import type {
     ValidatorPrefsWithCommission,
     VoteWeight,
     Voter,
-} from '@polkadot/types/interfaces/staking'
+} from '@polkadot/types/interfaces/staking';
 import type {
     ApiId,
     BlockTrace,
@@ -1070,8 +1070,8 @@ import type {
     StorageChangeSet,
     TraceBlockResponse,
     TraceError,
-} from '@polkadot/types/interfaces/state'
-import type { WeightToFeeCoefficient } from '@polkadot/types/interfaces/support'
+} from '@polkadot/types/interfaces/state';
+import type { WeightToFeeCoefficient } from '@polkadot/types/interfaces/support';
 import type {
     AccountInfo,
     AccountInfoWithDualRefCount,
@@ -1137,7 +1137,7 @@ import type {
     TransactionalError,
     UnknownTransaction,
     WeightPerClass,
-} from '@polkadot/types/interfaces/system'
+} from '@polkadot/types/interfaces/system';
 import type {
     Bounty,
     BountyIndex,
@@ -1150,13 +1150,13 @@ import type {
     OpenTipTip,
     OpenTipTo225,
     TreasuryProposal,
-} from '@polkadot/types/interfaces/treasury'
-import type { Multiplier } from '@polkadot/types/interfaces/txpayment'
+} from '@polkadot/types/interfaces/treasury';
+import type { Multiplier } from '@polkadot/types/interfaces/txpayment';
 import type {
     TransactionSource,
     TransactionValidity,
     ValidTransaction,
-} from '@polkadot/types/interfaces/txqueue'
+} from '@polkadot/types/interfaces/txqueue';
 import type {
     ClassDetails,
     ClassId,
@@ -1167,9 +1167,9 @@ import type {
     InstanceDetails,
     InstanceId,
     InstanceMetadata,
-} from '@polkadot/types/interfaces/uniques'
-import type { Multisig, Timepoint } from '@polkadot/types/interfaces/utility'
-import type { VestingInfo } from '@polkadot/types/interfaces/vesting'
+} from '@polkadot/types/interfaces/uniques';
+import type { Multisig, Timepoint } from '@polkadot/types/interfaces/utility';
+import type { VestingInfo } from '@polkadot/types/interfaces/vesting';
 import type {
     AssetInstance,
     AssetInstanceV0,
@@ -1252,1162 +1252,1162 @@ import type {
     XcmV2,
     XcmVersion,
     XcmpMessageFormat,
-} from '@polkadot/types/interfaces/xcm'
+} from '@polkadot/types/interfaces/xcm';
 
 declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
-        AbridgedCandidateReceipt: AbridgedCandidateReceipt
-        AbridgedHostConfiguration: AbridgedHostConfiguration
-        AbridgedHrmpChannel: AbridgedHrmpChannel
-        AccountData: AccountData
-        AccountId: AccountId
-        AccountId20: AccountId20
-        AccountId32: AccountId32
-        AccountId33: AccountId33
-        AccountIdOf: AccountIdOf
-        AccountIndex: AccountIndex
-        AccountInfo: AccountInfo
-        AccountInfoWithDualRefCount: AccountInfoWithDualRefCount
-        AccountInfoWithProviders: AccountInfoWithProviders
-        AccountInfoWithRefCount: AccountInfoWithRefCount
-        AccountInfoWithRefCountU8: AccountInfoWithRefCountU8
-        AccountInfoWithTripleRefCount: AccountInfoWithTripleRefCount
-        AccountStatus: AccountStatus
-        AccountValidity: AccountValidity
-        AccountVote: AccountVote
-        AccountVoteSplit: AccountVoteSplit
-        AccountVoteStandard: AccountVoteStandard
-        ActiveEraInfo: ActiveEraInfo
-        ActiveGilt: ActiveGilt
-        ActiveGiltsTotal: ActiveGiltsTotal
-        ActiveIndex: ActiveIndex
-        ActiveRecovery: ActiveRecovery
-        Address: Address
-        AliveContractInfo: AliveContractInfo
-        AllowedSlots: AllowedSlots
-        AnySignature: AnySignature
-        ApiId: ApiId
-        ApplyExtrinsicResult: ApplyExtrinsicResult
-        ApplyExtrinsicResultPre6: ApplyExtrinsicResultPre6
-        ApprovalFlag: ApprovalFlag
-        Approvals: Approvals
-        ArithmeticError: ArithmeticError
-        AssetApproval: AssetApproval
-        AssetApprovalKey: AssetApprovalKey
-        AssetBalance: AssetBalance
-        AssetDestroyWitness: AssetDestroyWitness
-        AssetDetails: AssetDetails
-        AssetId: AssetId
-        AssetInstance: AssetInstance
-        AssetInstanceV0: AssetInstanceV0
-        AssetInstanceV1: AssetInstanceV1
-        AssetInstanceV2: AssetInstanceV2
-        AssetMetadata: AssetMetadata
-        AssetOptions: AssetOptions
-        AssignmentId: AssignmentId
-        AssignmentKind: AssignmentKind
-        AttestedCandidate: AttestedCandidate
-        AuctionIndex: AuctionIndex
-        AuthIndex: AuthIndex
-        AuthorityDiscoveryId: AuthorityDiscoveryId
-        AuthorityId: AuthorityId
-        AuthorityIndex: AuthorityIndex
-        AuthorityList: AuthorityList
-        AuthoritySet: AuthoritySet
-        AuthoritySetChange: AuthoritySetChange
-        AuthoritySetChanges: AuthoritySetChanges
-        AuthoritySignature: AuthoritySignature
-        AuthorityWeight: AuthorityWeight
-        AvailabilityBitfield: AvailabilityBitfield
-        AvailabilityBitfieldRecord: AvailabilityBitfieldRecord
-        BabeAuthorityWeight: BabeAuthorityWeight
-        BabeBlockWeight: BabeBlockWeight
-        BabeEpochConfiguration: BabeEpochConfiguration
-        BabeEquivocationProof: BabeEquivocationProof
-        BabeGenesisConfiguration: BabeGenesisConfiguration
-        BabeGenesisConfigurationV1: BabeGenesisConfigurationV1
-        BabeWeight: BabeWeight
-        BackedCandidate: BackedCandidate
-        Balance: Balance
-        BalanceLock: BalanceLock
-        BalanceLockTo212: BalanceLockTo212
-        BalanceOf: BalanceOf
-        BalanceStatus: BalanceStatus
-        BeefyAuthoritySet: BeefyAuthoritySet
-        BeefyCommitment: BeefyCommitment
-        BeefyEquivocationProof: BeefyEquivocationProof
-        BeefyId: BeefyId
-        BeefyKey: BeefyKey
-        BeefyNextAuthoritySet: BeefyNextAuthoritySet
-        BeefyPayload: BeefyPayload
-        BeefyPayloadId: BeefyPayloadId
-        BeefySignedCommitment: BeefySignedCommitment
-        BeefyVoteMessage: BeefyVoteMessage
-        BenchmarkBatch: BenchmarkBatch
-        BenchmarkConfig: BenchmarkConfig
-        BenchmarkList: BenchmarkList
-        BenchmarkMetadata: BenchmarkMetadata
-        BenchmarkParameter: BenchmarkParameter
-        BenchmarkResult: BenchmarkResult
-        Bid: Bid
-        Bidder: Bidder
-        BidKind: BidKind
-        BitVec: BitVec
-        Block: Block
-        BlockAttestations: BlockAttestations
-        BlockHash: BlockHash
-        BlockLength: BlockLength
-        BlockNumber: BlockNumber
-        BlockNumberFor: BlockNumberFor
-        BlockNumberOf: BlockNumberOf
-        BlockStats: BlockStats
-        BlockTrace: BlockTrace
-        BlockTraceEvent: BlockTraceEvent
-        BlockTraceEventData: BlockTraceEventData
-        BlockTraceSpan: BlockTraceSpan
-        BlockV0: BlockV0
-        BlockV1: BlockV1
-        BlockV2: BlockV2
-        BlockWeights: BlockWeights
-        BodyId: BodyId
-        BodyPart: BodyPart
-        bool: bool
-        Bool: Bool
-        Bounty: Bounty
-        BountyIndex: BountyIndex
-        BountyStatus: BountyStatus
-        BountyStatusActive: BountyStatusActive
-        BountyStatusCuratorProposed: BountyStatusCuratorProposed
-        BountyStatusPendingPayout: BountyStatusPendingPayout
-        BridgedBlockHash: BridgedBlockHash
-        BridgedBlockNumber: BridgedBlockNumber
-        BridgedHeader: BridgedHeader
-        BridgeMessageId: BridgeMessageId
-        BufferedSessionChange: BufferedSessionChange
-        Bytes: Bytes
-        Call: Call
-        CallHash: CallHash
-        CallHashOf: CallHashOf
-        CallIndex: CallIndex
-        CallOrigin: CallOrigin
-        CandidateCommitments: CandidateCommitments
-        CandidateDescriptor: CandidateDescriptor
-        CandidateEvent: CandidateEvent
-        CandidateHash: CandidateHash
-        CandidateInfo: CandidateInfo
-        CandidatePendingAvailability: CandidatePendingAvailability
-        CandidateReceipt: CandidateReceipt
-        ChainId: ChainId
-        ChainProperties: ChainProperties
-        ChainType: ChainType
-        ChangesTrieConfiguration: ChangesTrieConfiguration
-        ChangesTrieSignal: ChangesTrieSignal
-        CheckInherentsResult: CheckInherentsResult
-        ClassDetails: ClassDetails
-        ClassId: ClassId
-        ClassMetadata: ClassMetadata
-        CodecHash: CodecHash
-        CodeHash: CodeHash
-        CodeSource: CodeSource
-        CodeUploadRequest: CodeUploadRequest
-        CodeUploadResult: CodeUploadResult
-        CodeUploadResultValue: CodeUploadResultValue
-        CollationInfo: CollationInfo
-        CollationInfoV1: CollationInfoV1
-        CollatorId: CollatorId
-        CollatorSignature: CollatorSignature
-        CollectiveOrigin: CollectiveOrigin
-        CommittedCandidateReceipt: CommittedCandidateReceipt
-        CompactAssignments: CompactAssignments
-        CompactAssignmentsTo257: CompactAssignmentsTo257
-        CompactAssignmentsTo265: CompactAssignmentsTo265
-        CompactAssignmentsWith16: CompactAssignmentsWith16
-        CompactAssignmentsWith24: CompactAssignmentsWith24
-        CompactScore: CompactScore
-        CompactScoreCompact: CompactScoreCompact
-        ConfigData: ConfigData
-        Consensus: Consensus
-        ConsensusEngineId: ConsensusEngineId
-        ConsumedWeight: ConsumedWeight
-        ContractCallFlags: ContractCallFlags
-        ContractCallRequest: ContractCallRequest
-        ContractConstructorSpecLatest: ContractConstructorSpecLatest
-        ContractConstructorSpecV0: ContractConstructorSpecV0
-        ContractConstructorSpecV1: ContractConstructorSpecV1
-        ContractConstructorSpecV2: ContractConstructorSpecV2
-        ContractConstructorSpecV3: ContractConstructorSpecV3
-        ContractConstructorSpecV4: ContractConstructorSpecV4
-        ContractContractSpecV0: ContractContractSpecV0
-        ContractContractSpecV1: ContractContractSpecV1
-        ContractContractSpecV2: ContractContractSpecV2
-        ContractContractSpecV3: ContractContractSpecV3
-        ContractContractSpecV4: ContractContractSpecV4
-        ContractCryptoHasher: ContractCryptoHasher
-        ContractDiscriminant: ContractDiscriminant
-        ContractDisplayName: ContractDisplayName
-        ContractEnvironmentV4: ContractEnvironmentV4
-        ContractEventParamSpecLatest: ContractEventParamSpecLatest
-        ContractEventParamSpecV0: ContractEventParamSpecV0
-        ContractEventParamSpecV2: ContractEventParamSpecV2
-        ContractEventSpecLatest: ContractEventSpecLatest
-        ContractEventSpecV0: ContractEventSpecV0
-        ContractEventSpecV1: ContractEventSpecV1
-        ContractEventSpecV2: ContractEventSpecV2
-        ContractExecResult: ContractExecResult
-        ContractExecResultOk: ContractExecResultOk
-        ContractExecResultResult: ContractExecResultResult
-        ContractExecResultSuccessTo255: ContractExecResultSuccessTo255
-        ContractExecResultSuccessTo260: ContractExecResultSuccessTo260
-        ContractExecResultTo255: ContractExecResultTo255
-        ContractExecResultTo260: ContractExecResultTo260
-        ContractExecResultTo267: ContractExecResultTo267
-        ContractExecResultU64: ContractExecResultU64
-        ContractInfo: ContractInfo
-        ContractInstantiateResult: ContractInstantiateResult
-        ContractInstantiateResultTo267: ContractInstantiateResultTo267
-        ContractInstantiateResultTo299: ContractInstantiateResultTo299
-        ContractInstantiateResultU64: ContractInstantiateResultU64
-        ContractLayoutArray: ContractLayoutArray
-        ContractLayoutCell: ContractLayoutCell
-        ContractLayoutEnum: ContractLayoutEnum
-        ContractLayoutHash: ContractLayoutHash
-        ContractLayoutHashingStrategy: ContractLayoutHashingStrategy
-        ContractLayoutKey: ContractLayoutKey
-        ContractLayoutStruct: ContractLayoutStruct
-        ContractLayoutStructField: ContractLayoutStructField
-        ContractMessageParamSpecLatest: ContractMessageParamSpecLatest
-        ContractMessageParamSpecV0: ContractMessageParamSpecV0
-        ContractMessageParamSpecV2: ContractMessageParamSpecV2
-        ContractMessageSpecLatest: ContractMessageSpecLatest
-        ContractMessageSpecV0: ContractMessageSpecV0
-        ContractMessageSpecV1: ContractMessageSpecV1
-        ContractMessageSpecV2: ContractMessageSpecV2
-        ContractMessageSpecV3: ContractMessageSpecV3
-        ContractMetadata: ContractMetadata
-        ContractMetadataLatest: ContractMetadataLatest
-        ContractMetadataV0: ContractMetadataV0
-        ContractMetadataV1: ContractMetadataV1
-        ContractMetadataV2: ContractMetadataV2
-        ContractMetadataV3: ContractMetadataV3
-        ContractMetadataV4: ContractMetadataV4
-        ContractProject: ContractProject
-        ContractProjectContract: ContractProjectContract
-        ContractProjectInfo: ContractProjectInfo
-        ContractProjectSource: ContractProjectSource
-        ContractProjectV0: ContractProjectV0
-        ContractReturnFlags: ContractReturnFlags
-        ContractSelector: ContractSelector
-        ContractStorageKey: ContractStorageKey
-        ContractStorageLayout: ContractStorageLayout
-        ContractTypeSpec: ContractTypeSpec
-        Conviction: Conviction
-        CoreAssignment: CoreAssignment
-        CoreIndex: CoreIndex
-        CoreOccupied: CoreOccupied
-        CoreState: CoreState
-        CrateVersion: CrateVersion
-        CreatedBlock: CreatedBlock
-        CustomMetadata15: CustomMetadata15
-        CustomValueMetadata15: CustomValueMetadata15
-        Data: Data
-        DeferredOffenceOf: DeferredOffenceOf
-        DefunctVoter: DefunctVoter
-        DelayKind: DelayKind
-        DelayKindBest: DelayKindBest
-        Delegations: Delegations
-        DeletedContract: DeletedContract
-        DeliveredMessages: DeliveredMessages
-        DepositBalance: DepositBalance
-        DepositBalanceOf: DepositBalanceOf
-        DestroyWitness: DestroyWitness
-        Digest: Digest
-        DigestItem: DigestItem
-        DigestOf: DigestOf
-        DispatchClass: DispatchClass
-        DispatchError: DispatchError
-        DispatchErrorModule: DispatchErrorModule
-        DispatchErrorModulePre6: DispatchErrorModulePre6
-        DispatchErrorModuleU8: DispatchErrorModuleU8
-        DispatchErrorModuleU8a: DispatchErrorModuleU8a
-        DispatchErrorPre6: DispatchErrorPre6
-        DispatchErrorPre6First: DispatchErrorPre6First
-        DispatchErrorTo198: DispatchErrorTo198
-        DispatchFeePayment: DispatchFeePayment
-        DispatchInfo: DispatchInfo
-        DispatchInfoTo190: DispatchInfoTo190
-        DispatchInfoTo244: DispatchInfoTo244
-        DispatchOutcome: DispatchOutcome
-        DispatchOutcomePre6: DispatchOutcomePre6
-        DispatchResult: DispatchResult
-        DispatchResultOf: DispatchResultOf
-        DispatchResultTo198: DispatchResultTo198
-        DisputeLocation: DisputeLocation
-        DisputeProof: DisputeProof
-        DisputeResult: DisputeResult
-        DisputeState: DisputeState
-        DisputeStatement: DisputeStatement
-        DisputeStatementSet: DisputeStatementSet
-        DisputesTimeSlot: DisputesTimeSlot
-        DoubleEncodedCall: DoubleEncodedCall
-        DoubleVoteReport: DoubleVoteReport
-        DownwardMessage: DownwardMessage
-        EcdsaSignature: EcdsaSignature
-        Ed25519Signature: Ed25519Signature
-        EIP1559Transaction: EIP1559Transaction
-        EIP2930Transaction: EIP2930Transaction
-        ElectionCompute: ElectionCompute
-        ElectionPhase: ElectionPhase
-        ElectionResult: ElectionResult
-        ElectionScore: ElectionScore
-        ElectionSize: ElectionSize
-        ElectionStatus: ElectionStatus
-        EncodedFinalityProofs: EncodedFinalityProofs
-        EncodedJustification: EncodedJustification
-        Epoch: Epoch
-        EpochAuthorship: EpochAuthorship
-        Era: Era
-        EraIndex: EraIndex
-        EraPoints: EraPoints
-        EraRewardPoints: EraRewardPoints
-        EraRewards: EraRewards
-        ErrorMetadataLatest: ErrorMetadataLatest
-        ErrorMetadataV10: ErrorMetadataV10
-        ErrorMetadataV11: ErrorMetadataV11
-        ErrorMetadataV12: ErrorMetadataV12
-        ErrorMetadataV13: ErrorMetadataV13
-        ErrorMetadataV14: ErrorMetadataV14
-        ErrorMetadataV9: ErrorMetadataV9
-        EthAccessList: EthAccessList
-        EthAccessListItem: EthAccessListItem
-        EthAccount: EthAccount
-        EthAddress: EthAddress
-        EthBlock: EthBlock
-        EthBloom: EthBloom
-        EthCallRequest: EthCallRequest
-        EthereumAccountId: EthereumAccountId
-        EthereumAddress: EthereumAddress
-        EthereumLookupSource: EthereumLookupSource
-        EthereumSignature: EthereumSignature
-        EthFeeHistory: EthFeeHistory
-        EthFilter: EthFilter
-        EthFilterAddress: EthFilterAddress
-        EthFilterChanges: EthFilterChanges
-        EthFilterTopic: EthFilterTopic
-        EthFilterTopicEntry: EthFilterTopicEntry
-        EthFilterTopicInner: EthFilterTopicInner
-        EthHeader: EthHeader
-        EthLog: EthLog
-        EthReceipt: EthReceipt
-        EthReceiptV0: EthReceiptV0
-        EthReceiptV3: EthReceiptV3
-        EthRichBlock: EthRichBlock
-        EthRichHeader: EthRichHeader
-        EthStorageProof: EthStorageProof
-        EthSubKind: EthSubKind
-        EthSubParams: EthSubParams
-        EthSubResult: EthSubResult
-        EthSyncInfo: EthSyncInfo
-        EthSyncStatus: EthSyncStatus
-        EthTransaction: EthTransaction
-        EthTransactionAction: EthTransactionAction
-        EthTransactionCondition: EthTransactionCondition
-        EthTransactionRequest: EthTransactionRequest
-        EthTransactionSignature: EthTransactionSignature
-        EthTransactionStatus: EthTransactionStatus
-        EthWork: EthWork
-        Event: Event
-        EventId: EventId
-        EventIndex: EventIndex
-        EventMetadataLatest: EventMetadataLatest
-        EventMetadataV10: EventMetadataV10
-        EventMetadataV11: EventMetadataV11
-        EventMetadataV12: EventMetadataV12
-        EventMetadataV13: EventMetadataV13
-        EventMetadataV14: EventMetadataV14
-        EventMetadataV9: EventMetadataV9
-        EventRecord: EventRecord
-        EvmAccount: EvmAccount
-        EvmCallInfo: EvmCallInfo
-        EvmCallInfoV2: EvmCallInfoV2
-        EvmCreateInfo: EvmCreateInfo
-        EvmCreateInfoV2: EvmCreateInfoV2
-        EvmLog: EvmLog
-        EvmVicinity: EvmVicinity
-        EvmWeightInfo: EvmWeightInfo
-        ExecReturnValue: ExecReturnValue
-        ExecutorParam: ExecutorParam
-        ExecutorParams: ExecutorParams
-        ExecutorParamsHash: ExecutorParamsHash
-        ExitError: ExitError
-        ExitFatal: ExitFatal
-        ExitReason: ExitReason
-        ExitRevert: ExitRevert
-        ExitSucceed: ExitSucceed
-        ExplicitDisputeStatement: ExplicitDisputeStatement
-        Exposure: Exposure
-        ExtendedBalance: ExtendedBalance
-        Extrinsic: Extrinsic
-        ExtrinsicEra: ExtrinsicEra
-        ExtrinsicMetadataLatest: ExtrinsicMetadataLatest
-        ExtrinsicMetadataV11: ExtrinsicMetadataV11
-        ExtrinsicMetadataV12: ExtrinsicMetadataV12
-        ExtrinsicMetadataV13: ExtrinsicMetadataV13
-        ExtrinsicMetadataV14: ExtrinsicMetadataV14
-        ExtrinsicMetadataV15: ExtrinsicMetadataV15
-        ExtrinsicOrHash: ExtrinsicOrHash
-        ExtrinsicPayload: ExtrinsicPayload
-        ExtrinsicPayloadUnknown: ExtrinsicPayloadUnknown
-        ExtrinsicPayloadV4: ExtrinsicPayloadV4
-        ExtrinsicSignature: ExtrinsicSignature
-        ExtrinsicSignatureV4: ExtrinsicSignatureV4
-        ExtrinsicStatus: ExtrinsicStatus
-        ExtrinsicsWeight: ExtrinsicsWeight
-        ExtrinsicUnknown: ExtrinsicUnknown
-        ExtrinsicV4: ExtrinsicV4
-        f32: f32
-        F32: F32
-        f64: f64
-        F64: F64
-        FeeDetails: FeeDetails
-        Fixed128: Fixed128
-        Fixed64: Fixed64
-        FixedI128: FixedI128
-        FixedI64: FixedI64
-        FixedU128: FixedU128
-        FixedU64: FixedU64
-        Forcing: Forcing
-        ForkTreePendingChange: ForkTreePendingChange
-        ForkTreePendingChangeNode: ForkTreePendingChangeNode
-        FullIdentification: FullIdentification
-        FunctionArgumentMetadataLatest: FunctionArgumentMetadataLatest
-        FunctionArgumentMetadataV10: FunctionArgumentMetadataV10
-        FunctionArgumentMetadataV11: FunctionArgumentMetadataV11
-        FunctionArgumentMetadataV12: FunctionArgumentMetadataV12
-        FunctionArgumentMetadataV13: FunctionArgumentMetadataV13
-        FunctionArgumentMetadataV14: FunctionArgumentMetadataV14
-        FunctionArgumentMetadataV9: FunctionArgumentMetadataV9
-        FunctionMetadataLatest: FunctionMetadataLatest
-        FunctionMetadataV10: FunctionMetadataV10
-        FunctionMetadataV11: FunctionMetadataV11
-        FunctionMetadataV12: FunctionMetadataV12
-        FunctionMetadataV13: FunctionMetadataV13
-        FunctionMetadataV14: FunctionMetadataV14
-        FunctionMetadataV9: FunctionMetadataV9
-        FundIndex: FundIndex
-        FundInfo: FundInfo
-        Fungibility: Fungibility
-        FungibilityV0: FungibilityV0
-        FungibilityV1: FungibilityV1
-        FungibilityV2: FungibilityV2
-        FungiblesAccessError: FungiblesAccessError
-        Gas: Gas
-        GiltBid: GiltBid
-        GlobalValidationData: GlobalValidationData
-        GlobalValidationSchedule: GlobalValidationSchedule
-        GrandpaCommit: GrandpaCommit
-        GrandpaEquivocation: GrandpaEquivocation
-        GrandpaEquivocationProof: GrandpaEquivocationProof
-        GrandpaEquivocationValue: GrandpaEquivocationValue
-        GrandpaJustification: GrandpaJustification
-        GrandpaPrecommit: GrandpaPrecommit
-        GrandpaPrevote: GrandpaPrevote
-        GrandpaSignedPrecommit: GrandpaSignedPrecommit
-        GroupIndex: GroupIndex
-        GroupRotationInfo: GroupRotationInfo
-        H1024: H1024
-        H128: H128
-        H160: H160
-        H2048: H2048
-        H256: H256
-        H32: H32
-        H512: H512
-        H64: H64
-        Hash: Hash
-        HeadData: HeadData
-        Header: Header
-        HeaderPartial: HeaderPartial
-        Health: Health
-        Heartbeat: Heartbeat
-        HeartbeatTo244: HeartbeatTo244
-        HostConfiguration: HostConfiguration
-        HostFnWeights: HostFnWeights
-        HostFnWeightsTo264: HostFnWeightsTo264
-        HrmpChannel: HrmpChannel
-        HrmpChannelId: HrmpChannelId
-        HrmpOpenChannelRequest: HrmpOpenChannelRequest
-        i128: i128
-        I128: I128
-        i16: i16
-        I16: I16
-        i256: i256
-        I256: I256
-        i32: i32
-        I32: I32
-        I32F32: I32F32
-        i64: i64
-        I64: I64
-        i8: i8
-        I8: I8
-        IdentificationTuple: IdentificationTuple
-        IdentityFields: IdentityFields
-        IdentityInfo: IdentityInfo
-        IdentityInfoAdditional: IdentityInfoAdditional
-        IdentityInfoTo198: IdentityInfoTo198
-        IdentityJudgement: IdentityJudgement
-        ImmortalEra: ImmortalEra
-        ImportedAux: ImportedAux
-        InboundDownwardMessage: InboundDownwardMessage
-        InboundHrmpMessage: InboundHrmpMessage
-        InboundHrmpMessages: InboundHrmpMessages
-        InboundLaneData: InboundLaneData
-        InboundRelayer: InboundRelayer
-        InboundStatus: InboundStatus
-        IncludedBlocks: IncludedBlocks
-        InclusionFee: InclusionFee
-        IncomingParachain: IncomingParachain
-        IncomingParachainDeploy: IncomingParachainDeploy
-        IncomingParachainFixed: IncomingParachainFixed
-        Index: Index
-        IndicesLookupSource: IndicesLookupSource
-        IndividualExposure: IndividualExposure
-        InherentData: InherentData
-        InherentIdentifier: InherentIdentifier
-        InitializationData: InitializationData
-        InstanceDetails: InstanceDetails
-        InstanceId: InstanceId
-        InstanceMetadata: InstanceMetadata
-        InstantiateRequest: InstantiateRequest
-        InstantiateRequestV1: InstantiateRequestV1
-        InstantiateRequestV2: InstantiateRequestV2
-        InstantiateReturnValue: InstantiateReturnValue
-        InstantiateReturnValueOk: InstantiateReturnValueOk
-        InstantiateReturnValueTo267: InstantiateReturnValueTo267
-        InstructionV2: InstructionV2
-        InstructionWeights: InstructionWeights
-        InteriorMultiLocation: InteriorMultiLocation
-        InvalidDisputeStatementKind: InvalidDisputeStatementKind
-        InvalidTransaction: InvalidTransaction
-        isize: isize
-        ISize: ISize
-        Json: Json
-        Junction: Junction
-        Junctions: Junctions
-        JunctionsV1: JunctionsV1
-        JunctionsV2: JunctionsV2
-        JunctionV0: JunctionV0
-        JunctionV1: JunctionV1
-        JunctionV2: JunctionV2
-        Justification: Justification
-        JustificationNotification: JustificationNotification
-        Justifications: Justifications
-        Key: Key
-        KeyOwnerProof: KeyOwnerProof
-        Keys: Keys
-        KeyType: KeyType
-        KeyTypeId: KeyTypeId
-        KeyValue: KeyValue
-        KeyValueOption: KeyValueOption
-        Kind: Kind
-        LaneId: LaneId
-        LastContribution: LastContribution
-        LastRuntimeUpgradeInfo: LastRuntimeUpgradeInfo
-        LeasePeriod: LeasePeriod
-        LeasePeriodOf: LeasePeriodOf
-        LegacyTransaction: LegacyTransaction
-        Limits: Limits
-        LimitsTo264: LimitsTo264
-        LocalValidationData: LocalValidationData
-        LockIdentifier: LockIdentifier
-        LookupSource: LookupSource
-        LookupTarget: LookupTarget
-        LotteryConfig: LotteryConfig
-        MaybeRandomness: MaybeRandomness
-        MaybeVrf: MaybeVrf
-        MemberCount: MemberCount
-        MembershipProof: MembershipProof
-        MessageData: MessageData
-        MessageId: MessageId
-        MessageIngestionType: MessageIngestionType
-        MessageKey: MessageKey
-        MessageNonce: MessageNonce
-        MessageQueueChain: MessageQueueChain
-        MessagesDeliveryProofOf: MessagesDeliveryProofOf
-        MessagesProofOf: MessagesProofOf
-        MessagingStateSnapshot: MessagingStateSnapshot
-        MessagingStateSnapshotEgressEntry: MessagingStateSnapshotEgressEntry
-        MetadataAll: MetadataAll
-        MetadataLatest: MetadataLatest
-        MetadataV10: MetadataV10
-        MetadataV11: MetadataV11
-        MetadataV12: MetadataV12
-        MetadataV13: MetadataV13
-        MetadataV14: MetadataV14
-        MetadataV15: MetadataV15
-        MetadataV9: MetadataV9
-        MigrationStatusResult: MigrationStatusResult
-        MmrBatchProof: MmrBatchProof
-        MmrEncodableOpaqueLeaf: MmrEncodableOpaqueLeaf
-        MmrError: MmrError
-        MmrHash: MmrHash
-        MmrLeafBatchProof: MmrLeafBatchProof
-        MmrLeafIndex: MmrLeafIndex
-        MmrLeafProof: MmrLeafProof
-        MmrNodeIndex: MmrNodeIndex
-        MmrProof: MmrProof
-        MmrRootHash: MmrRootHash
-        ModuleConstantMetadataV10: ModuleConstantMetadataV10
-        ModuleConstantMetadataV11: ModuleConstantMetadataV11
-        ModuleConstantMetadataV12: ModuleConstantMetadataV12
-        ModuleConstantMetadataV13: ModuleConstantMetadataV13
-        ModuleConstantMetadataV9: ModuleConstantMetadataV9
-        ModuleId: ModuleId
-        ModuleMetadataV10: ModuleMetadataV10
-        ModuleMetadataV11: ModuleMetadataV11
-        ModuleMetadataV12: ModuleMetadataV12
-        ModuleMetadataV13: ModuleMetadataV13
-        ModuleMetadataV9: ModuleMetadataV9
-        Moment: Moment
-        MomentOf: MomentOf
-        MoreAttestations: MoreAttestations
-        MortalEra: MortalEra
-        MultiAddress: MultiAddress
-        MultiAsset: MultiAsset
-        MultiAssetFilter: MultiAssetFilter
-        MultiAssetFilterV1: MultiAssetFilterV1
-        MultiAssetFilterV2: MultiAssetFilterV2
-        MultiAssets: MultiAssets
-        MultiAssetsV1: MultiAssetsV1
-        MultiAssetsV2: MultiAssetsV2
-        MultiAssetV0: MultiAssetV0
-        MultiAssetV1: MultiAssetV1
-        MultiAssetV2: MultiAssetV2
-        MultiDisputeStatementSet: MultiDisputeStatementSet
-        MultiLocation: MultiLocation
-        MultiLocationV0: MultiLocationV0
-        MultiLocationV1: MultiLocationV1
-        MultiLocationV2: MultiLocationV2
-        Multiplier: Multiplier
-        Multisig: Multisig
-        MultiSignature: MultiSignature
-        MultiSigner: MultiSigner
-        NetworkId: NetworkId
-        NetworkState: NetworkState
-        NetworkStatePeerset: NetworkStatePeerset
-        NetworkStatePeersetInfo: NetworkStatePeersetInfo
-        NewBidder: NewBidder
-        NextAuthority: NextAuthority
-        NextConfigDescriptor: NextConfigDescriptor
-        NextConfigDescriptorV1: NextConfigDescriptorV1
-        NftCollectionId: NftCollectionId
-        NftItemId: NftItemId
-        NodeRole: NodeRole
-        Nominations: Nominations
-        NominatorIndex: NominatorIndex
-        NominatorIndexCompact: NominatorIndexCompact
-        NotConnectedPeer: NotConnectedPeer
-        NpApiError: NpApiError
-        NpPoolId: NpPoolId
-        Null: Null
-        OccupiedCore: OccupiedCore
-        OccupiedCoreAssumption: OccupiedCoreAssumption
-        OffchainAccuracy: OffchainAccuracy
-        OffchainAccuracyCompact: OffchainAccuracyCompact
-        OffenceDetails: OffenceDetails
-        Offender: Offender
-        OldV1SessionInfo: OldV1SessionInfo
-        OpaqueCall: OpaqueCall
-        OpaqueKeyOwnershipProof: OpaqueKeyOwnershipProof
-        OpaqueMetadata: OpaqueMetadata
-        OpaqueMultiaddr: OpaqueMultiaddr
-        OpaqueNetworkState: OpaqueNetworkState
-        OpaquePeerId: OpaquePeerId
-        OpaqueTimeSlot: OpaqueTimeSlot
-        OpenTip: OpenTip
-        OpenTipFinderTo225: OpenTipFinderTo225
-        OpenTipTip: OpenTipTip
-        OpenTipTo225: OpenTipTo225
-        OperatingMode: OperatingMode
-        OptionBool: OptionBool
-        Origin: Origin
-        OriginCaller: OriginCaller
-        OriginKindV0: OriginKindV0
-        OriginKindV1: OriginKindV1
-        OriginKindV2: OriginKindV2
-        OutboundHrmpMessage: OutboundHrmpMessage
-        OutboundLaneData: OutboundLaneData
-        OutboundMessageFee: OutboundMessageFee
-        OutboundPayload: OutboundPayload
-        OutboundStatus: OutboundStatus
-        Outcome: Outcome
-        OuterEnums15: OuterEnums15
-        OverweightIndex: OverweightIndex
-        Owner: Owner
-        PageCounter: PageCounter
-        PageIndexData: PageIndexData
-        PalletCallMetadataLatest: PalletCallMetadataLatest
-        PalletCallMetadataV14: PalletCallMetadataV14
-        PalletConstantMetadataLatest: PalletConstantMetadataLatest
-        PalletConstantMetadataV14: PalletConstantMetadataV14
-        PalletErrorMetadataLatest: PalletErrorMetadataLatest
-        PalletErrorMetadataV14: PalletErrorMetadataV14
-        PalletEventMetadataLatest: PalletEventMetadataLatest
-        PalletEventMetadataV14: PalletEventMetadataV14
-        PalletId: PalletId
-        PalletMetadataLatest: PalletMetadataLatest
-        PalletMetadataV14: PalletMetadataV14
-        PalletMetadataV15: PalletMetadataV15
-        PalletsOrigin: PalletsOrigin
-        PalletStorageMetadataLatest: PalletStorageMetadataLatest
-        PalletStorageMetadataV14: PalletStorageMetadataV14
-        PalletVersion: PalletVersion
-        ParachainDispatchOrigin: ParachainDispatchOrigin
-        ParachainInherentData: ParachainInherentData
-        ParachainProposal: ParachainProposal
-        ParachainsInherentData: ParachainsInherentData
-        ParaGenesisArgs: ParaGenesisArgs
-        ParaId: ParaId
-        ParaInfo: ParaInfo
-        ParaLifecycle: ParaLifecycle
-        Parameter: Parameter
-        ParaPastCodeMeta: ParaPastCodeMeta
-        ParaScheduling: ParaScheduling
-        ParathreadClaim: ParathreadClaim
-        ParathreadClaimQueue: ParathreadClaimQueue
-        ParathreadEntry: ParathreadEntry
-        ParaValidatorIndex: ParaValidatorIndex
-        Pays: Pays
-        Peer: Peer
-        PeerEndpoint: PeerEndpoint
-        PeerEndpointAddr: PeerEndpointAddr
-        PeerInfo: PeerInfo
-        PeerPing: PeerPing
-        PendingChange: PendingChange
-        PendingPause: PendingPause
-        PendingResume: PendingResume
-        PendingSlashes: PendingSlashes
-        Perbill: Perbill
-        Percent: Percent
-        PerDispatchClassU32: PerDispatchClassU32
-        PerDispatchClassWeight: PerDispatchClassWeight
-        PerDispatchClassWeightsPerClass: PerDispatchClassWeightsPerClass
-        Period: Period
-        Permill: Permill
-        PermissionLatest: PermissionLatest
-        PermissionsV1: PermissionsV1
-        PermissionVersions: PermissionVersions
-        Perquintill: Perquintill
-        PersistedValidationData: PersistedValidationData
-        PerU16: PerU16
-        Phantom: Phantom
-        PhantomData: PhantomData
-        Phase: Phase
-        PhragmenScore: PhragmenScore
-        Points: Points
-        PortableType: PortableType
-        PortableTypeV14: PortableTypeV14
-        Precommits: Precommits
-        PrefabWasmModule: PrefabWasmModule
-        PrefixedStorageKey: PrefixedStorageKey
-        PreimageStatus: PreimageStatus
-        PreimageStatusAvailable: PreimageStatusAvailable
-        PreRuntime: PreRuntime
-        Prevotes: Prevotes
-        Priority: Priority
-        PriorLock: PriorLock
-        PropIndex: PropIndex
-        Proposal: Proposal
-        ProposalIndex: ProposalIndex
-        ProxyAnnouncement: ProxyAnnouncement
-        ProxyDefinition: ProxyDefinition
-        ProxyState: ProxyState
-        ProxyType: ProxyType
-        PvfCheckStatement: PvfCheckStatement
-        PvfExecTimeoutKind: PvfExecTimeoutKind
-        PvfPrepTimeoutKind: PvfPrepTimeoutKind
-        QueryId: QueryId
-        QueryStatus: QueryStatus
-        QueueConfigData: QueueConfigData
-        QueuedParathread: QueuedParathread
-        Randomness: Randomness
-        Raw: Raw
-        RawAuraPreDigest: RawAuraPreDigest
-        RawBabePreDigest: RawBabePreDigest
-        RawBabePreDigestCompat: RawBabePreDigestCompat
-        RawBabePreDigestPrimary: RawBabePreDigestPrimary
-        RawBabePreDigestPrimaryTo159: RawBabePreDigestPrimaryTo159
-        RawBabePreDigestSecondaryPlain: RawBabePreDigestSecondaryPlain
-        RawBabePreDigestSecondaryTo159: RawBabePreDigestSecondaryTo159
-        RawBabePreDigestSecondaryVRF: RawBabePreDigestSecondaryVRF
-        RawBabePreDigestTo159: RawBabePreDigestTo159
-        RawOrigin: RawOrigin
-        RawSolution: RawSolution
-        RawSolutionTo265: RawSolutionTo265
-        RawSolutionWith16: RawSolutionWith16
-        RawSolutionWith24: RawSolutionWith24
-        RawVRFOutput: RawVRFOutput
-        ReadProof: ReadProof
-        ReadySolution: ReadySolution
-        Reasons: Reasons
-        RecoveryConfig: RecoveryConfig
-        RefCount: RefCount
-        RefCountTo259: RefCountTo259
-        ReferendumIndex: ReferendumIndex
-        ReferendumInfo: ReferendumInfo
-        ReferendumInfoFinished: ReferendumInfoFinished
-        ReferendumInfoTo239: ReferendumInfoTo239
-        ReferendumStatus: ReferendumStatus
-        RegisteredParachainInfo: RegisteredParachainInfo
-        RegistrarIndex: RegistrarIndex
-        RegistrarInfo: RegistrarInfo
-        Registration: Registration
-        RegistrationJudgement: RegistrationJudgement
-        RegistrationTo198: RegistrationTo198
-        RelayBlockNumber: RelayBlockNumber
-        RelayChainBlockNumber: RelayChainBlockNumber
-        RelayChainHash: RelayChainHash
-        RelayerId: RelayerId
-        RelayHash: RelayHash
-        Releases: Releases
-        Remark: Remark
-        Renouncing: Renouncing
-        RentProjection: RentProjection
-        ReplacementTimes: ReplacementTimes
-        ReportedRoundStates: ReportedRoundStates
-        Reporter: Reporter
-        ReportIdOf: ReportIdOf
-        ReserveData: ReserveData
-        ReserveIdentifier: ReserveIdentifier
-        Response: Response
-        ResponseV0: ResponseV0
-        ResponseV1: ResponseV1
-        ResponseV2: ResponseV2
-        ResponseV2Error: ResponseV2Error
-        ResponseV2Result: ResponseV2Result
-        Retriable: Retriable
-        RewardDestination: RewardDestination
-        RewardPoint: RewardPoint
-        RoundSnapshot: RoundSnapshot
-        RoundState: RoundState
-        RpcMethods: RpcMethods
-        RuntimeApiMetadataLatest: RuntimeApiMetadataLatest
-        RuntimeApiMetadataV15: RuntimeApiMetadataV15
-        RuntimeApiMethodMetadataV15: RuntimeApiMethodMetadataV15
-        RuntimeApiMethodParamMetadataV15: RuntimeApiMethodParamMetadataV15
-        RuntimeCall: RuntimeCall
-        RuntimeDbWeight: RuntimeDbWeight
-        RuntimeDispatchInfo: RuntimeDispatchInfo
-        RuntimeDispatchInfoV1: RuntimeDispatchInfoV1
-        RuntimeDispatchInfoV2: RuntimeDispatchInfoV2
-        RuntimeEvent: RuntimeEvent
-        RuntimeVersion: RuntimeVersion
-        RuntimeVersionApi: RuntimeVersionApi
-        RuntimeVersionPartial: RuntimeVersionPartial
-        RuntimeVersionPre3: RuntimeVersionPre3
-        RuntimeVersionPre4: RuntimeVersionPre4
-        Schedule: Schedule
-        Scheduled: Scheduled
-        ScheduledCore: ScheduledCore
-        ScheduledTo254: ScheduledTo254
-        SchedulePeriod: SchedulePeriod
-        SchedulePriority: SchedulePriority
-        ScheduleTo212: ScheduleTo212
-        ScheduleTo258: ScheduleTo258
-        ScheduleTo264: ScheduleTo264
-        Scheduling: Scheduling
-        ScrapedOnChainVotes: ScrapedOnChainVotes
-        Seal: Seal
-        SealV0: SealV0
-        SeatHolder: SeatHolder
-        SeedOf: SeedOf
-        ServiceQuality: ServiceQuality
-        SessionIndex: SessionIndex
-        SessionInfo: SessionInfo
-        SessionInfoValidatorGroup: SessionInfoValidatorGroup
-        SessionKeys1: SessionKeys1
-        SessionKeys10: SessionKeys10
-        SessionKeys10B: SessionKeys10B
-        SessionKeys2: SessionKeys2
-        SessionKeys3: SessionKeys3
-        SessionKeys4: SessionKeys4
-        SessionKeys5: SessionKeys5
-        SessionKeys6: SessionKeys6
-        SessionKeys6B: SessionKeys6B
-        SessionKeys7: SessionKeys7
-        SessionKeys7B: SessionKeys7B
-        SessionKeys8: SessionKeys8
-        SessionKeys8B: SessionKeys8B
-        SessionKeys9: SessionKeys9
-        SessionKeys9B: SessionKeys9B
-        SetId: SetId
-        SetIndex: SetIndex
-        Si0Field: Si0Field
-        Si0LookupTypeId: Si0LookupTypeId
-        Si0Path: Si0Path
-        Si0Type: Si0Type
-        Si0TypeDef: Si0TypeDef
-        Si0TypeDefArray: Si0TypeDefArray
-        Si0TypeDefBitSequence: Si0TypeDefBitSequence
-        Si0TypeDefCompact: Si0TypeDefCompact
-        Si0TypeDefComposite: Si0TypeDefComposite
-        Si0TypeDefPhantom: Si0TypeDefPhantom
-        Si0TypeDefPrimitive: Si0TypeDefPrimitive
-        Si0TypeDefSequence: Si0TypeDefSequence
-        Si0TypeDefTuple: Si0TypeDefTuple
-        Si0TypeDefVariant: Si0TypeDefVariant
-        Si0TypeParameter: Si0TypeParameter
-        Si0Variant: Si0Variant
-        Si1Field: Si1Field
-        Si1LookupTypeId: Si1LookupTypeId
-        Si1Path: Si1Path
-        Si1Type: Si1Type
-        Si1TypeDef: Si1TypeDef
-        Si1TypeDefArray: Si1TypeDefArray
-        Si1TypeDefBitSequence: Si1TypeDefBitSequence
-        Si1TypeDefCompact: Si1TypeDefCompact
-        Si1TypeDefComposite: Si1TypeDefComposite
-        Si1TypeDefPrimitive: Si1TypeDefPrimitive
-        Si1TypeDefSequence: Si1TypeDefSequence
-        Si1TypeDefTuple: Si1TypeDefTuple
-        Si1TypeDefVariant: Si1TypeDefVariant
-        Si1TypeParameter: Si1TypeParameter
-        Si1Variant: Si1Variant
-        SiField: SiField
-        Signature: Signature
-        SignedAvailabilityBitfield: SignedAvailabilityBitfield
-        SignedAvailabilityBitfields: SignedAvailabilityBitfields
-        SignedBlock: SignedBlock
-        SignedBlockWithJustification: SignedBlockWithJustification
-        SignedBlockWithJustifications: SignedBlockWithJustifications
-        SignedExtensionMetadataLatest: SignedExtensionMetadataLatest
-        SignedExtensionMetadataV14: SignedExtensionMetadataV14
-        SignedSubmission: SignedSubmission
-        SignedSubmissionOf: SignedSubmissionOf
-        SignedSubmissionTo276: SignedSubmissionTo276
-        SignerPayload: SignerPayload
-        SigningContext: SigningContext
-        SiLookupTypeId: SiLookupTypeId
-        SiPath: SiPath
-        SiType: SiType
-        SiTypeDef: SiTypeDef
-        SiTypeDefArray: SiTypeDefArray
-        SiTypeDefBitSequence: SiTypeDefBitSequence
-        SiTypeDefCompact: SiTypeDefCompact
-        SiTypeDefComposite: SiTypeDefComposite
-        SiTypeDefPrimitive: SiTypeDefPrimitive
-        SiTypeDefSequence: SiTypeDefSequence
-        SiTypeDefTuple: SiTypeDefTuple
-        SiTypeDefVariant: SiTypeDefVariant
-        SiTypeParameter: SiTypeParameter
-        SiVariant: SiVariant
-        SlashingOffenceKind: SlashingOffenceKind
-        SlashingSpans: SlashingSpans
-        SlashingSpansTo204: SlashingSpansTo204
-        SlashJournalEntry: SlashJournalEntry
-        Slot: Slot
-        SlotDuration: SlotDuration
-        SlotNumber: SlotNumber
-        SlotRange: SlotRange
-        SlotRange10: SlotRange10
-        SocietyJudgement: SocietyJudgement
-        SocietyVote: SocietyVote
-        SolutionOrSnapshotSize: SolutionOrSnapshotSize
-        SolutionSupport: SolutionSupport
-        SolutionSupports: SolutionSupports
-        SpanIndex: SpanIndex
-        SpanRecord: SpanRecord
-        SpecVersion: SpecVersion
-        Sr25519Signature: Sr25519Signature
-        StakingLedger: StakingLedger
-        StakingLedgerTo223: StakingLedgerTo223
-        StakingLedgerTo240: StakingLedgerTo240
-        Statement: Statement
-        StatementKind: StatementKind
-        StorageChangeSet: StorageChangeSet
-        StorageData: StorageData
-        StorageDeposit: StorageDeposit
-        StorageEntryMetadataLatest: StorageEntryMetadataLatest
-        StorageEntryMetadataV10: StorageEntryMetadataV10
-        StorageEntryMetadataV11: StorageEntryMetadataV11
-        StorageEntryMetadataV12: StorageEntryMetadataV12
-        StorageEntryMetadataV13: StorageEntryMetadataV13
-        StorageEntryMetadataV14: StorageEntryMetadataV14
-        StorageEntryMetadataV9: StorageEntryMetadataV9
-        StorageEntryModifierLatest: StorageEntryModifierLatest
-        StorageEntryModifierV10: StorageEntryModifierV10
-        StorageEntryModifierV11: StorageEntryModifierV11
-        StorageEntryModifierV12: StorageEntryModifierV12
-        StorageEntryModifierV13: StorageEntryModifierV13
-        StorageEntryModifierV14: StorageEntryModifierV14
-        StorageEntryModifierV9: StorageEntryModifierV9
-        StorageEntryTypeLatest: StorageEntryTypeLatest
-        StorageEntryTypeV10: StorageEntryTypeV10
-        StorageEntryTypeV11: StorageEntryTypeV11
-        StorageEntryTypeV12: StorageEntryTypeV12
-        StorageEntryTypeV13: StorageEntryTypeV13
-        StorageEntryTypeV14: StorageEntryTypeV14
-        StorageEntryTypeV9: StorageEntryTypeV9
-        StorageHasher: StorageHasher
-        StorageHasherV10: StorageHasherV10
-        StorageHasherV11: StorageHasherV11
-        StorageHasherV12: StorageHasherV12
-        StorageHasherV13: StorageHasherV13
-        StorageHasherV14: StorageHasherV14
-        StorageHasherV9: StorageHasherV9
-        StorageInfo: StorageInfo
-        StorageKey: StorageKey
-        StorageKind: StorageKind
-        StorageMetadataV10: StorageMetadataV10
-        StorageMetadataV11: StorageMetadataV11
-        StorageMetadataV12: StorageMetadataV12
-        StorageMetadataV13: StorageMetadataV13
-        StorageMetadataV9: StorageMetadataV9
-        StorageProof: StorageProof
-        StoredPendingChange: StoredPendingChange
-        StoredState: StoredState
-        StrikeCount: StrikeCount
-        SubId: SubId
-        SubmissionIndicesOf: SubmissionIndicesOf
-        Supports: Supports
-        SyncState: SyncState
-        SystemInherentData: SystemInherentData
-        SystemOrigin: SystemOrigin
-        Tally: Tally
-        TaskAddress: TaskAddress
-        TAssetBalance: TAssetBalance
-        TAssetDepositBalance: TAssetDepositBalance
-        Text: Text
-        Timepoint: Timepoint
-        TokenError: TokenError
-        TombstoneContractInfo: TombstoneContractInfo
-        TraceBlockResponse: TraceBlockResponse
-        TraceError: TraceError
-        TransactionalError: TransactionalError
-        TransactionInfo: TransactionInfo
-        TransactionLongevity: TransactionLongevity
-        TransactionPriority: TransactionPriority
-        TransactionSource: TransactionSource
-        TransactionStorageProof: TransactionStorageProof
-        TransactionTag: TransactionTag
-        TransactionV0: TransactionV0
-        TransactionV1: TransactionV1
-        TransactionV2: TransactionV2
-        TransactionValidity: TransactionValidity
-        TransactionValidityError: TransactionValidityError
-        TransientValidationData: TransientValidationData
-        TreasuryProposal: TreasuryProposal
-        TrieId: TrieId
-        TrieIndex: TrieIndex
-        Type: Type
-        u128: u128
-        U128: U128
-        u16: u16
-        U16: U16
-        u256: u256
-        U256: U256
-        u32: u32
-        U32: U32
-        U32F32: U32F32
-        u64: u64
-        U64: U64
-        u8: u8
-        U8: U8
-        UnappliedSlash: UnappliedSlash
-        UnappliedSlashOther: UnappliedSlashOther
-        UncleEntryItem: UncleEntryItem
-        UnknownTransaction: UnknownTransaction
-        UnlockChunk: UnlockChunk
-        UnrewardedRelayer: UnrewardedRelayer
-        UnrewardedRelayersState: UnrewardedRelayersState
-        UpgradeGoAhead: UpgradeGoAhead
-        UpgradeRestriction: UpgradeRestriction
-        UpwardMessage: UpwardMessage
-        usize: usize
-        USize: USize
-        ValidationCode: ValidationCode
-        ValidationCodeHash: ValidationCodeHash
-        ValidationData: ValidationData
-        ValidationDataType: ValidationDataType
-        ValidationFunctionParams: ValidationFunctionParams
-        ValidatorCount: ValidatorCount
-        ValidatorId: ValidatorId
-        ValidatorIdOf: ValidatorIdOf
-        ValidatorIndex: ValidatorIndex
-        ValidatorIndexCompact: ValidatorIndexCompact
-        ValidatorPrefs: ValidatorPrefs
-        ValidatorPrefsTo145: ValidatorPrefsTo145
-        ValidatorPrefsTo196: ValidatorPrefsTo196
-        ValidatorPrefsWithBlocked: ValidatorPrefsWithBlocked
-        ValidatorPrefsWithCommission: ValidatorPrefsWithCommission
-        ValidatorSet: ValidatorSet
-        ValidatorSetId: ValidatorSetId
-        ValidatorSignature: ValidatorSignature
-        ValidDisputeStatementKind: ValidDisputeStatementKind
-        ValidityAttestation: ValidityAttestation
-        ValidTransaction: ValidTransaction
-        VecInboundHrmpMessage: VecInboundHrmpMessage
-        VersionedMultiAsset: VersionedMultiAsset
-        VersionedMultiAssets: VersionedMultiAssets
-        VersionedMultiLocation: VersionedMultiLocation
-        VersionedResponse: VersionedResponse
-        VersionedXcm: VersionedXcm
-        VersionMigrationStage: VersionMigrationStage
-        VestingInfo: VestingInfo
-        VestingSchedule: VestingSchedule
-        Vote: Vote
-        VoteIndex: VoteIndex
-        Voter: Voter
-        VoterInfo: VoterInfo
-        Votes: Votes
-        VotesTo230: VotesTo230
-        VoteThreshold: VoteThreshold
-        VoteWeight: VoteWeight
-        Voting: Voting
-        VotingDelegating: VotingDelegating
-        VotingDirect: VotingDirect
-        VotingDirectVote: VotingDirectVote
-        VouchingStatus: VouchingStatus
-        VrfData: VrfData
-        VrfOutput: VrfOutput
-        VrfProof: VrfProof
-        Weight: Weight
-        WeightLimitV2: WeightLimitV2
-        WeightMultiplier: WeightMultiplier
-        WeightPerClass: WeightPerClass
-        WeightToFeeCoefficient: WeightToFeeCoefficient
-        WeightV0: WeightV0
-        WeightV1: WeightV1
-        WeightV2: WeightV2
-        WildFungibility: WildFungibility
-        WildFungibilityV0: WildFungibilityV0
-        WildFungibilityV1: WildFungibilityV1
-        WildFungibilityV2: WildFungibilityV2
-        WildMultiAsset: WildMultiAsset
-        WildMultiAssetV1: WildMultiAssetV1
-        WildMultiAssetV2: WildMultiAssetV2
-        WinnersData: WinnersData
-        WinnersData10: WinnersData10
-        WinnersDataTuple: WinnersDataTuple
-        WinnersDataTuple10: WinnersDataTuple10
-        WinningData: WinningData
-        WinningData10: WinningData10
-        WinningDataEntry: WinningDataEntry
-        WithdrawReasons: WithdrawReasons
-        Xcm: Xcm
-        XcmAssetId: XcmAssetId
-        XcmError: XcmError
-        XcmErrorV0: XcmErrorV0
-        XcmErrorV1: XcmErrorV1
-        XcmErrorV2: XcmErrorV2
-        XcmOrder: XcmOrder
-        XcmOrderV0: XcmOrderV0
-        XcmOrderV1: XcmOrderV1
-        XcmOrderV2: XcmOrderV2
-        XcmOrigin: XcmOrigin
-        XcmOriginKind: XcmOriginKind
-        XcmpMessageFormat: XcmpMessageFormat
-        XcmV0: XcmV0
-        XcmV1: XcmV1
-        XcmV2: XcmV2
-        XcmVersion: XcmVersion
+        AbridgedCandidateReceipt: AbridgedCandidateReceipt;
+        AbridgedHostConfiguration: AbridgedHostConfiguration;
+        AbridgedHrmpChannel: AbridgedHrmpChannel;
+        AccountData: AccountData;
+        AccountId: AccountId;
+        AccountId20: AccountId20;
+        AccountId32: AccountId32;
+        AccountId33: AccountId33;
+        AccountIdOf: AccountIdOf;
+        AccountIndex: AccountIndex;
+        AccountInfo: AccountInfo;
+        AccountInfoWithDualRefCount: AccountInfoWithDualRefCount;
+        AccountInfoWithProviders: AccountInfoWithProviders;
+        AccountInfoWithRefCount: AccountInfoWithRefCount;
+        AccountInfoWithRefCountU8: AccountInfoWithRefCountU8;
+        AccountInfoWithTripleRefCount: AccountInfoWithTripleRefCount;
+        AccountStatus: AccountStatus;
+        AccountValidity: AccountValidity;
+        AccountVote: AccountVote;
+        AccountVoteSplit: AccountVoteSplit;
+        AccountVoteStandard: AccountVoteStandard;
+        ActiveEraInfo: ActiveEraInfo;
+        ActiveGilt: ActiveGilt;
+        ActiveGiltsTotal: ActiveGiltsTotal;
+        ActiveIndex: ActiveIndex;
+        ActiveRecovery: ActiveRecovery;
+        Address: Address;
+        AliveContractInfo: AliveContractInfo;
+        AllowedSlots: AllowedSlots;
+        AnySignature: AnySignature;
+        ApiId: ApiId;
+        ApplyExtrinsicResult: ApplyExtrinsicResult;
+        ApplyExtrinsicResultPre6: ApplyExtrinsicResultPre6;
+        ApprovalFlag: ApprovalFlag;
+        Approvals: Approvals;
+        ArithmeticError: ArithmeticError;
+        AssetApproval: AssetApproval;
+        AssetApprovalKey: AssetApprovalKey;
+        AssetBalance: AssetBalance;
+        AssetDestroyWitness: AssetDestroyWitness;
+        AssetDetails: AssetDetails;
+        AssetId: AssetId;
+        AssetInstance: AssetInstance;
+        AssetInstanceV0: AssetInstanceV0;
+        AssetInstanceV1: AssetInstanceV1;
+        AssetInstanceV2: AssetInstanceV2;
+        AssetMetadata: AssetMetadata;
+        AssetOptions: AssetOptions;
+        AssignmentId: AssignmentId;
+        AssignmentKind: AssignmentKind;
+        AttestedCandidate: AttestedCandidate;
+        AuctionIndex: AuctionIndex;
+        AuthIndex: AuthIndex;
+        AuthorityDiscoveryId: AuthorityDiscoveryId;
+        AuthorityId: AuthorityId;
+        AuthorityIndex: AuthorityIndex;
+        AuthorityList: AuthorityList;
+        AuthoritySet: AuthoritySet;
+        AuthoritySetChange: AuthoritySetChange;
+        AuthoritySetChanges: AuthoritySetChanges;
+        AuthoritySignature: AuthoritySignature;
+        AuthorityWeight: AuthorityWeight;
+        AvailabilityBitfield: AvailabilityBitfield;
+        AvailabilityBitfieldRecord: AvailabilityBitfieldRecord;
+        BabeAuthorityWeight: BabeAuthorityWeight;
+        BabeBlockWeight: BabeBlockWeight;
+        BabeEpochConfiguration: BabeEpochConfiguration;
+        BabeEquivocationProof: BabeEquivocationProof;
+        BabeGenesisConfiguration: BabeGenesisConfiguration;
+        BabeGenesisConfigurationV1: BabeGenesisConfigurationV1;
+        BabeWeight: BabeWeight;
+        BackedCandidate: BackedCandidate;
+        Balance: Balance;
+        BalanceLock: BalanceLock;
+        BalanceLockTo212: BalanceLockTo212;
+        BalanceOf: BalanceOf;
+        BalanceStatus: BalanceStatus;
+        BeefyAuthoritySet: BeefyAuthoritySet;
+        BeefyCommitment: BeefyCommitment;
+        BeefyEquivocationProof: BeefyEquivocationProof;
+        BeefyId: BeefyId;
+        BeefyKey: BeefyKey;
+        BeefyNextAuthoritySet: BeefyNextAuthoritySet;
+        BeefyPayload: BeefyPayload;
+        BeefyPayloadId: BeefyPayloadId;
+        BeefySignedCommitment: BeefySignedCommitment;
+        BeefyVoteMessage: BeefyVoteMessage;
+        BenchmarkBatch: BenchmarkBatch;
+        BenchmarkConfig: BenchmarkConfig;
+        BenchmarkList: BenchmarkList;
+        BenchmarkMetadata: BenchmarkMetadata;
+        BenchmarkParameter: BenchmarkParameter;
+        BenchmarkResult: BenchmarkResult;
+        Bid: Bid;
+        Bidder: Bidder;
+        BidKind: BidKind;
+        BitVec: BitVec;
+        Block: Block;
+        BlockAttestations: BlockAttestations;
+        BlockHash: BlockHash;
+        BlockLength: BlockLength;
+        BlockNumber: BlockNumber;
+        BlockNumberFor: BlockNumberFor;
+        BlockNumberOf: BlockNumberOf;
+        BlockStats: BlockStats;
+        BlockTrace: BlockTrace;
+        BlockTraceEvent: BlockTraceEvent;
+        BlockTraceEventData: BlockTraceEventData;
+        BlockTraceSpan: BlockTraceSpan;
+        BlockV0: BlockV0;
+        BlockV1: BlockV1;
+        BlockV2: BlockV2;
+        BlockWeights: BlockWeights;
+        BodyId: BodyId;
+        BodyPart: BodyPart;
+        bool: bool;
+        Bool: Bool;
+        Bounty: Bounty;
+        BountyIndex: BountyIndex;
+        BountyStatus: BountyStatus;
+        BountyStatusActive: BountyStatusActive;
+        BountyStatusCuratorProposed: BountyStatusCuratorProposed;
+        BountyStatusPendingPayout: BountyStatusPendingPayout;
+        BridgedBlockHash: BridgedBlockHash;
+        BridgedBlockNumber: BridgedBlockNumber;
+        BridgedHeader: BridgedHeader;
+        BridgeMessageId: BridgeMessageId;
+        BufferedSessionChange: BufferedSessionChange;
+        Bytes: Bytes;
+        Call: Call;
+        CallHash: CallHash;
+        CallHashOf: CallHashOf;
+        CallIndex: CallIndex;
+        CallOrigin: CallOrigin;
+        CandidateCommitments: CandidateCommitments;
+        CandidateDescriptor: CandidateDescriptor;
+        CandidateEvent: CandidateEvent;
+        CandidateHash: CandidateHash;
+        CandidateInfo: CandidateInfo;
+        CandidatePendingAvailability: CandidatePendingAvailability;
+        CandidateReceipt: CandidateReceipt;
+        ChainId: ChainId;
+        ChainProperties: ChainProperties;
+        ChainType: ChainType;
+        ChangesTrieConfiguration: ChangesTrieConfiguration;
+        ChangesTrieSignal: ChangesTrieSignal;
+        CheckInherentsResult: CheckInherentsResult;
+        ClassDetails: ClassDetails;
+        ClassId: ClassId;
+        ClassMetadata: ClassMetadata;
+        CodecHash: CodecHash;
+        CodeHash: CodeHash;
+        CodeSource: CodeSource;
+        CodeUploadRequest: CodeUploadRequest;
+        CodeUploadResult: CodeUploadResult;
+        CodeUploadResultValue: CodeUploadResultValue;
+        CollationInfo: CollationInfo;
+        CollationInfoV1: CollationInfoV1;
+        CollatorId: CollatorId;
+        CollatorSignature: CollatorSignature;
+        CollectiveOrigin: CollectiveOrigin;
+        CommittedCandidateReceipt: CommittedCandidateReceipt;
+        CompactAssignments: CompactAssignments;
+        CompactAssignmentsTo257: CompactAssignmentsTo257;
+        CompactAssignmentsTo265: CompactAssignmentsTo265;
+        CompactAssignmentsWith16: CompactAssignmentsWith16;
+        CompactAssignmentsWith24: CompactAssignmentsWith24;
+        CompactScore: CompactScore;
+        CompactScoreCompact: CompactScoreCompact;
+        ConfigData: ConfigData;
+        Consensus: Consensus;
+        ConsensusEngineId: ConsensusEngineId;
+        ConsumedWeight: ConsumedWeight;
+        ContractCallFlags: ContractCallFlags;
+        ContractCallRequest: ContractCallRequest;
+        ContractConstructorSpecLatest: ContractConstructorSpecLatest;
+        ContractConstructorSpecV0: ContractConstructorSpecV0;
+        ContractConstructorSpecV1: ContractConstructorSpecV1;
+        ContractConstructorSpecV2: ContractConstructorSpecV2;
+        ContractConstructorSpecV3: ContractConstructorSpecV3;
+        ContractConstructorSpecV4: ContractConstructorSpecV4;
+        ContractContractSpecV0: ContractContractSpecV0;
+        ContractContractSpecV1: ContractContractSpecV1;
+        ContractContractSpecV2: ContractContractSpecV2;
+        ContractContractSpecV3: ContractContractSpecV3;
+        ContractContractSpecV4: ContractContractSpecV4;
+        ContractCryptoHasher: ContractCryptoHasher;
+        ContractDiscriminant: ContractDiscriminant;
+        ContractDisplayName: ContractDisplayName;
+        ContractEnvironmentV4: ContractEnvironmentV4;
+        ContractEventParamSpecLatest: ContractEventParamSpecLatest;
+        ContractEventParamSpecV0: ContractEventParamSpecV0;
+        ContractEventParamSpecV2: ContractEventParamSpecV2;
+        ContractEventSpecLatest: ContractEventSpecLatest;
+        ContractEventSpecV0: ContractEventSpecV0;
+        ContractEventSpecV1: ContractEventSpecV1;
+        ContractEventSpecV2: ContractEventSpecV2;
+        ContractExecResult: ContractExecResult;
+        ContractExecResultOk: ContractExecResultOk;
+        ContractExecResultResult: ContractExecResultResult;
+        ContractExecResultSuccessTo255: ContractExecResultSuccessTo255;
+        ContractExecResultSuccessTo260: ContractExecResultSuccessTo260;
+        ContractExecResultTo255: ContractExecResultTo255;
+        ContractExecResultTo260: ContractExecResultTo260;
+        ContractExecResultTo267: ContractExecResultTo267;
+        ContractExecResultU64: ContractExecResultU64;
+        ContractInfo: ContractInfo;
+        ContractInstantiateResult: ContractInstantiateResult;
+        ContractInstantiateResultTo267: ContractInstantiateResultTo267;
+        ContractInstantiateResultTo299: ContractInstantiateResultTo299;
+        ContractInstantiateResultU64: ContractInstantiateResultU64;
+        ContractLayoutArray: ContractLayoutArray;
+        ContractLayoutCell: ContractLayoutCell;
+        ContractLayoutEnum: ContractLayoutEnum;
+        ContractLayoutHash: ContractLayoutHash;
+        ContractLayoutHashingStrategy: ContractLayoutHashingStrategy;
+        ContractLayoutKey: ContractLayoutKey;
+        ContractLayoutStruct: ContractLayoutStruct;
+        ContractLayoutStructField: ContractLayoutStructField;
+        ContractMessageParamSpecLatest: ContractMessageParamSpecLatest;
+        ContractMessageParamSpecV0: ContractMessageParamSpecV0;
+        ContractMessageParamSpecV2: ContractMessageParamSpecV2;
+        ContractMessageSpecLatest: ContractMessageSpecLatest;
+        ContractMessageSpecV0: ContractMessageSpecV0;
+        ContractMessageSpecV1: ContractMessageSpecV1;
+        ContractMessageSpecV2: ContractMessageSpecV2;
+        ContractMessageSpecV3: ContractMessageSpecV3;
+        ContractMetadata: ContractMetadata;
+        ContractMetadataLatest: ContractMetadataLatest;
+        ContractMetadataV0: ContractMetadataV0;
+        ContractMetadataV1: ContractMetadataV1;
+        ContractMetadataV2: ContractMetadataV2;
+        ContractMetadataV3: ContractMetadataV3;
+        ContractMetadataV4: ContractMetadataV4;
+        ContractProject: ContractProject;
+        ContractProjectContract: ContractProjectContract;
+        ContractProjectInfo: ContractProjectInfo;
+        ContractProjectSource: ContractProjectSource;
+        ContractProjectV0: ContractProjectV0;
+        ContractReturnFlags: ContractReturnFlags;
+        ContractSelector: ContractSelector;
+        ContractStorageKey: ContractStorageKey;
+        ContractStorageLayout: ContractStorageLayout;
+        ContractTypeSpec: ContractTypeSpec;
+        Conviction: Conviction;
+        CoreAssignment: CoreAssignment;
+        CoreIndex: CoreIndex;
+        CoreOccupied: CoreOccupied;
+        CoreState: CoreState;
+        CrateVersion: CrateVersion;
+        CreatedBlock: CreatedBlock;
+        CustomMetadata15: CustomMetadata15;
+        CustomValueMetadata15: CustomValueMetadata15;
+        Data: Data;
+        DeferredOffenceOf: DeferredOffenceOf;
+        DefunctVoter: DefunctVoter;
+        DelayKind: DelayKind;
+        DelayKindBest: DelayKindBest;
+        Delegations: Delegations;
+        DeletedContract: DeletedContract;
+        DeliveredMessages: DeliveredMessages;
+        DepositBalance: DepositBalance;
+        DepositBalanceOf: DepositBalanceOf;
+        DestroyWitness: DestroyWitness;
+        Digest: Digest;
+        DigestItem: DigestItem;
+        DigestOf: DigestOf;
+        DispatchClass: DispatchClass;
+        DispatchError: DispatchError;
+        DispatchErrorModule: DispatchErrorModule;
+        DispatchErrorModulePre6: DispatchErrorModulePre6;
+        DispatchErrorModuleU8: DispatchErrorModuleU8;
+        DispatchErrorModuleU8a: DispatchErrorModuleU8a;
+        DispatchErrorPre6: DispatchErrorPre6;
+        DispatchErrorPre6First: DispatchErrorPre6First;
+        DispatchErrorTo198: DispatchErrorTo198;
+        DispatchFeePayment: DispatchFeePayment;
+        DispatchInfo: DispatchInfo;
+        DispatchInfoTo190: DispatchInfoTo190;
+        DispatchInfoTo244: DispatchInfoTo244;
+        DispatchOutcome: DispatchOutcome;
+        DispatchOutcomePre6: DispatchOutcomePre6;
+        DispatchResult: DispatchResult;
+        DispatchResultOf: DispatchResultOf;
+        DispatchResultTo198: DispatchResultTo198;
+        DisputeLocation: DisputeLocation;
+        DisputeProof: DisputeProof;
+        DisputeResult: DisputeResult;
+        DisputeState: DisputeState;
+        DisputeStatement: DisputeStatement;
+        DisputeStatementSet: DisputeStatementSet;
+        DisputesTimeSlot: DisputesTimeSlot;
+        DoubleEncodedCall: DoubleEncodedCall;
+        DoubleVoteReport: DoubleVoteReport;
+        DownwardMessage: DownwardMessage;
+        EcdsaSignature: EcdsaSignature;
+        Ed25519Signature: Ed25519Signature;
+        EIP1559Transaction: EIP1559Transaction;
+        EIP2930Transaction: EIP2930Transaction;
+        ElectionCompute: ElectionCompute;
+        ElectionPhase: ElectionPhase;
+        ElectionResult: ElectionResult;
+        ElectionScore: ElectionScore;
+        ElectionSize: ElectionSize;
+        ElectionStatus: ElectionStatus;
+        EncodedFinalityProofs: EncodedFinalityProofs;
+        EncodedJustification: EncodedJustification;
+        Epoch: Epoch;
+        EpochAuthorship: EpochAuthorship;
+        Era: Era;
+        EraIndex: EraIndex;
+        EraPoints: EraPoints;
+        EraRewardPoints: EraRewardPoints;
+        EraRewards: EraRewards;
+        ErrorMetadataLatest: ErrorMetadataLatest;
+        ErrorMetadataV10: ErrorMetadataV10;
+        ErrorMetadataV11: ErrorMetadataV11;
+        ErrorMetadataV12: ErrorMetadataV12;
+        ErrorMetadataV13: ErrorMetadataV13;
+        ErrorMetadataV14: ErrorMetadataV14;
+        ErrorMetadataV9: ErrorMetadataV9;
+        EthAccessList: EthAccessList;
+        EthAccessListItem: EthAccessListItem;
+        EthAccount: EthAccount;
+        EthAddress: EthAddress;
+        EthBlock: EthBlock;
+        EthBloom: EthBloom;
+        EthCallRequest: EthCallRequest;
+        EthereumAccountId: EthereumAccountId;
+        EthereumAddress: EthereumAddress;
+        EthereumLookupSource: EthereumLookupSource;
+        EthereumSignature: EthereumSignature;
+        EthFeeHistory: EthFeeHistory;
+        EthFilter: EthFilter;
+        EthFilterAddress: EthFilterAddress;
+        EthFilterChanges: EthFilterChanges;
+        EthFilterTopic: EthFilterTopic;
+        EthFilterTopicEntry: EthFilterTopicEntry;
+        EthFilterTopicInner: EthFilterTopicInner;
+        EthHeader: EthHeader;
+        EthLog: EthLog;
+        EthReceipt: EthReceipt;
+        EthReceiptV0: EthReceiptV0;
+        EthReceiptV3: EthReceiptV3;
+        EthRichBlock: EthRichBlock;
+        EthRichHeader: EthRichHeader;
+        EthStorageProof: EthStorageProof;
+        EthSubKind: EthSubKind;
+        EthSubParams: EthSubParams;
+        EthSubResult: EthSubResult;
+        EthSyncInfo: EthSyncInfo;
+        EthSyncStatus: EthSyncStatus;
+        EthTransaction: EthTransaction;
+        EthTransactionAction: EthTransactionAction;
+        EthTransactionCondition: EthTransactionCondition;
+        EthTransactionRequest: EthTransactionRequest;
+        EthTransactionSignature: EthTransactionSignature;
+        EthTransactionStatus: EthTransactionStatus;
+        EthWork: EthWork;
+        Event: Event;
+        EventId: EventId;
+        EventIndex: EventIndex;
+        EventMetadataLatest: EventMetadataLatest;
+        EventMetadataV10: EventMetadataV10;
+        EventMetadataV11: EventMetadataV11;
+        EventMetadataV12: EventMetadataV12;
+        EventMetadataV13: EventMetadataV13;
+        EventMetadataV14: EventMetadataV14;
+        EventMetadataV9: EventMetadataV9;
+        EventRecord: EventRecord;
+        EvmAccount: EvmAccount;
+        EvmCallInfo: EvmCallInfo;
+        EvmCallInfoV2: EvmCallInfoV2;
+        EvmCreateInfo: EvmCreateInfo;
+        EvmCreateInfoV2: EvmCreateInfoV2;
+        EvmLog: EvmLog;
+        EvmVicinity: EvmVicinity;
+        EvmWeightInfo: EvmWeightInfo;
+        ExecReturnValue: ExecReturnValue;
+        ExecutorParam: ExecutorParam;
+        ExecutorParams: ExecutorParams;
+        ExecutorParamsHash: ExecutorParamsHash;
+        ExitError: ExitError;
+        ExitFatal: ExitFatal;
+        ExitReason: ExitReason;
+        ExitRevert: ExitRevert;
+        ExitSucceed: ExitSucceed;
+        ExplicitDisputeStatement: ExplicitDisputeStatement;
+        Exposure: Exposure;
+        ExtendedBalance: ExtendedBalance;
+        Extrinsic: Extrinsic;
+        ExtrinsicEra: ExtrinsicEra;
+        ExtrinsicMetadataLatest: ExtrinsicMetadataLatest;
+        ExtrinsicMetadataV11: ExtrinsicMetadataV11;
+        ExtrinsicMetadataV12: ExtrinsicMetadataV12;
+        ExtrinsicMetadataV13: ExtrinsicMetadataV13;
+        ExtrinsicMetadataV14: ExtrinsicMetadataV14;
+        ExtrinsicMetadataV15: ExtrinsicMetadataV15;
+        ExtrinsicOrHash: ExtrinsicOrHash;
+        ExtrinsicPayload: ExtrinsicPayload;
+        ExtrinsicPayloadUnknown: ExtrinsicPayloadUnknown;
+        ExtrinsicPayloadV4: ExtrinsicPayloadV4;
+        ExtrinsicSignature: ExtrinsicSignature;
+        ExtrinsicSignatureV4: ExtrinsicSignatureV4;
+        ExtrinsicStatus: ExtrinsicStatus;
+        ExtrinsicsWeight: ExtrinsicsWeight;
+        ExtrinsicUnknown: ExtrinsicUnknown;
+        ExtrinsicV4: ExtrinsicV4;
+        f32: f32;
+        F32: F32;
+        f64: f64;
+        F64: F64;
+        FeeDetails: FeeDetails;
+        Fixed128: Fixed128;
+        Fixed64: Fixed64;
+        FixedI128: FixedI128;
+        FixedI64: FixedI64;
+        FixedU128: FixedU128;
+        FixedU64: FixedU64;
+        Forcing: Forcing;
+        ForkTreePendingChange: ForkTreePendingChange;
+        ForkTreePendingChangeNode: ForkTreePendingChangeNode;
+        FullIdentification: FullIdentification;
+        FunctionArgumentMetadataLatest: FunctionArgumentMetadataLatest;
+        FunctionArgumentMetadataV10: FunctionArgumentMetadataV10;
+        FunctionArgumentMetadataV11: FunctionArgumentMetadataV11;
+        FunctionArgumentMetadataV12: FunctionArgumentMetadataV12;
+        FunctionArgumentMetadataV13: FunctionArgumentMetadataV13;
+        FunctionArgumentMetadataV14: FunctionArgumentMetadataV14;
+        FunctionArgumentMetadataV9: FunctionArgumentMetadataV9;
+        FunctionMetadataLatest: FunctionMetadataLatest;
+        FunctionMetadataV10: FunctionMetadataV10;
+        FunctionMetadataV11: FunctionMetadataV11;
+        FunctionMetadataV12: FunctionMetadataV12;
+        FunctionMetadataV13: FunctionMetadataV13;
+        FunctionMetadataV14: FunctionMetadataV14;
+        FunctionMetadataV9: FunctionMetadataV9;
+        FundIndex: FundIndex;
+        FundInfo: FundInfo;
+        Fungibility: Fungibility;
+        FungibilityV0: FungibilityV0;
+        FungibilityV1: FungibilityV1;
+        FungibilityV2: FungibilityV2;
+        FungiblesAccessError: FungiblesAccessError;
+        Gas: Gas;
+        GiltBid: GiltBid;
+        GlobalValidationData: GlobalValidationData;
+        GlobalValidationSchedule: GlobalValidationSchedule;
+        GrandpaCommit: GrandpaCommit;
+        GrandpaEquivocation: GrandpaEquivocation;
+        GrandpaEquivocationProof: GrandpaEquivocationProof;
+        GrandpaEquivocationValue: GrandpaEquivocationValue;
+        GrandpaJustification: GrandpaJustification;
+        GrandpaPrecommit: GrandpaPrecommit;
+        GrandpaPrevote: GrandpaPrevote;
+        GrandpaSignedPrecommit: GrandpaSignedPrecommit;
+        GroupIndex: GroupIndex;
+        GroupRotationInfo: GroupRotationInfo;
+        H1024: H1024;
+        H128: H128;
+        H160: H160;
+        H2048: H2048;
+        H256: H256;
+        H32: H32;
+        H512: H512;
+        H64: H64;
+        Hash: Hash;
+        HeadData: HeadData;
+        Header: Header;
+        HeaderPartial: HeaderPartial;
+        Health: Health;
+        Heartbeat: Heartbeat;
+        HeartbeatTo244: HeartbeatTo244;
+        HostConfiguration: HostConfiguration;
+        HostFnWeights: HostFnWeights;
+        HostFnWeightsTo264: HostFnWeightsTo264;
+        HrmpChannel: HrmpChannel;
+        HrmpChannelId: HrmpChannelId;
+        HrmpOpenChannelRequest: HrmpOpenChannelRequest;
+        i128: i128;
+        I128: I128;
+        i16: i16;
+        I16: I16;
+        i256: i256;
+        I256: I256;
+        i32: i32;
+        I32: I32;
+        I32F32: I32F32;
+        i64: i64;
+        I64: I64;
+        i8: i8;
+        I8: I8;
+        IdentificationTuple: IdentificationTuple;
+        IdentityFields: IdentityFields;
+        IdentityInfo: IdentityInfo;
+        IdentityInfoAdditional: IdentityInfoAdditional;
+        IdentityInfoTo198: IdentityInfoTo198;
+        IdentityJudgement: IdentityJudgement;
+        ImmortalEra: ImmortalEra;
+        ImportedAux: ImportedAux;
+        InboundDownwardMessage: InboundDownwardMessage;
+        InboundHrmpMessage: InboundHrmpMessage;
+        InboundHrmpMessages: InboundHrmpMessages;
+        InboundLaneData: InboundLaneData;
+        InboundRelayer: InboundRelayer;
+        InboundStatus: InboundStatus;
+        IncludedBlocks: IncludedBlocks;
+        InclusionFee: InclusionFee;
+        IncomingParachain: IncomingParachain;
+        IncomingParachainDeploy: IncomingParachainDeploy;
+        IncomingParachainFixed: IncomingParachainFixed;
+        Index: Index;
+        IndicesLookupSource: IndicesLookupSource;
+        IndividualExposure: IndividualExposure;
+        InherentData: InherentData;
+        InherentIdentifier: InherentIdentifier;
+        InitializationData: InitializationData;
+        InstanceDetails: InstanceDetails;
+        InstanceId: InstanceId;
+        InstanceMetadata: InstanceMetadata;
+        InstantiateRequest: InstantiateRequest;
+        InstantiateRequestV1: InstantiateRequestV1;
+        InstantiateRequestV2: InstantiateRequestV2;
+        InstantiateReturnValue: InstantiateReturnValue;
+        InstantiateReturnValueOk: InstantiateReturnValueOk;
+        InstantiateReturnValueTo267: InstantiateReturnValueTo267;
+        InstructionV2: InstructionV2;
+        InstructionWeights: InstructionWeights;
+        InteriorMultiLocation: InteriorMultiLocation;
+        InvalidDisputeStatementKind: InvalidDisputeStatementKind;
+        InvalidTransaction: InvalidTransaction;
+        isize: isize;
+        ISize: ISize;
+        Json: Json;
+        Junction: Junction;
+        Junctions: Junctions;
+        JunctionsV1: JunctionsV1;
+        JunctionsV2: JunctionsV2;
+        JunctionV0: JunctionV0;
+        JunctionV1: JunctionV1;
+        JunctionV2: JunctionV2;
+        Justification: Justification;
+        JustificationNotification: JustificationNotification;
+        Justifications: Justifications;
+        Key: Key;
+        KeyOwnerProof: KeyOwnerProof;
+        Keys: Keys;
+        KeyType: KeyType;
+        KeyTypeId: KeyTypeId;
+        KeyValue: KeyValue;
+        KeyValueOption: KeyValueOption;
+        Kind: Kind;
+        LaneId: LaneId;
+        LastContribution: LastContribution;
+        LastRuntimeUpgradeInfo: LastRuntimeUpgradeInfo;
+        LeasePeriod: LeasePeriod;
+        LeasePeriodOf: LeasePeriodOf;
+        LegacyTransaction: LegacyTransaction;
+        Limits: Limits;
+        LimitsTo264: LimitsTo264;
+        LocalValidationData: LocalValidationData;
+        LockIdentifier: LockIdentifier;
+        LookupSource: LookupSource;
+        LookupTarget: LookupTarget;
+        LotteryConfig: LotteryConfig;
+        MaybeRandomness: MaybeRandomness;
+        MaybeVrf: MaybeVrf;
+        MemberCount: MemberCount;
+        MembershipProof: MembershipProof;
+        MessageData: MessageData;
+        MessageId: MessageId;
+        MessageIngestionType: MessageIngestionType;
+        MessageKey: MessageKey;
+        MessageNonce: MessageNonce;
+        MessageQueueChain: MessageQueueChain;
+        MessagesDeliveryProofOf: MessagesDeliveryProofOf;
+        MessagesProofOf: MessagesProofOf;
+        MessagingStateSnapshot: MessagingStateSnapshot;
+        MessagingStateSnapshotEgressEntry: MessagingStateSnapshotEgressEntry;
+        MetadataAll: MetadataAll;
+        MetadataLatest: MetadataLatest;
+        MetadataV10: MetadataV10;
+        MetadataV11: MetadataV11;
+        MetadataV12: MetadataV12;
+        MetadataV13: MetadataV13;
+        MetadataV14: MetadataV14;
+        MetadataV15: MetadataV15;
+        MetadataV9: MetadataV9;
+        MigrationStatusResult: MigrationStatusResult;
+        MmrBatchProof: MmrBatchProof;
+        MmrEncodableOpaqueLeaf: MmrEncodableOpaqueLeaf;
+        MmrError: MmrError;
+        MmrHash: MmrHash;
+        MmrLeafBatchProof: MmrLeafBatchProof;
+        MmrLeafIndex: MmrLeafIndex;
+        MmrLeafProof: MmrLeafProof;
+        MmrNodeIndex: MmrNodeIndex;
+        MmrProof: MmrProof;
+        MmrRootHash: MmrRootHash;
+        ModuleConstantMetadataV10: ModuleConstantMetadataV10;
+        ModuleConstantMetadataV11: ModuleConstantMetadataV11;
+        ModuleConstantMetadataV12: ModuleConstantMetadataV12;
+        ModuleConstantMetadataV13: ModuleConstantMetadataV13;
+        ModuleConstantMetadataV9: ModuleConstantMetadataV9;
+        ModuleId: ModuleId;
+        ModuleMetadataV10: ModuleMetadataV10;
+        ModuleMetadataV11: ModuleMetadataV11;
+        ModuleMetadataV12: ModuleMetadataV12;
+        ModuleMetadataV13: ModuleMetadataV13;
+        ModuleMetadataV9: ModuleMetadataV9;
+        Moment: Moment;
+        MomentOf: MomentOf;
+        MoreAttestations: MoreAttestations;
+        MortalEra: MortalEra;
+        MultiAddress: MultiAddress;
+        MultiAsset: MultiAsset;
+        MultiAssetFilter: MultiAssetFilter;
+        MultiAssetFilterV1: MultiAssetFilterV1;
+        MultiAssetFilterV2: MultiAssetFilterV2;
+        MultiAssets: MultiAssets;
+        MultiAssetsV1: MultiAssetsV1;
+        MultiAssetsV2: MultiAssetsV2;
+        MultiAssetV0: MultiAssetV0;
+        MultiAssetV1: MultiAssetV1;
+        MultiAssetV2: MultiAssetV2;
+        MultiDisputeStatementSet: MultiDisputeStatementSet;
+        MultiLocation: MultiLocation;
+        MultiLocationV0: MultiLocationV0;
+        MultiLocationV1: MultiLocationV1;
+        MultiLocationV2: MultiLocationV2;
+        Multiplier: Multiplier;
+        Multisig: Multisig;
+        MultiSignature: MultiSignature;
+        MultiSigner: MultiSigner;
+        NetworkId: NetworkId;
+        NetworkState: NetworkState;
+        NetworkStatePeerset: NetworkStatePeerset;
+        NetworkStatePeersetInfo: NetworkStatePeersetInfo;
+        NewBidder: NewBidder;
+        NextAuthority: NextAuthority;
+        NextConfigDescriptor: NextConfigDescriptor;
+        NextConfigDescriptorV1: NextConfigDescriptorV1;
+        NftCollectionId: NftCollectionId;
+        NftItemId: NftItemId;
+        NodeRole: NodeRole;
+        Nominations: Nominations;
+        NominatorIndex: NominatorIndex;
+        NominatorIndexCompact: NominatorIndexCompact;
+        NotConnectedPeer: NotConnectedPeer;
+        NpApiError: NpApiError;
+        NpPoolId: NpPoolId;
+        Null: Null;
+        OccupiedCore: OccupiedCore;
+        OccupiedCoreAssumption: OccupiedCoreAssumption;
+        OffchainAccuracy: OffchainAccuracy;
+        OffchainAccuracyCompact: OffchainAccuracyCompact;
+        OffenceDetails: OffenceDetails;
+        Offender: Offender;
+        OldV1SessionInfo: OldV1SessionInfo;
+        OpaqueCall: OpaqueCall;
+        OpaqueKeyOwnershipProof: OpaqueKeyOwnershipProof;
+        OpaqueMetadata: OpaqueMetadata;
+        OpaqueMultiaddr: OpaqueMultiaddr;
+        OpaqueNetworkState: OpaqueNetworkState;
+        OpaquePeerId: OpaquePeerId;
+        OpaqueTimeSlot: OpaqueTimeSlot;
+        OpenTip: OpenTip;
+        OpenTipFinderTo225: OpenTipFinderTo225;
+        OpenTipTip: OpenTipTip;
+        OpenTipTo225: OpenTipTo225;
+        OperatingMode: OperatingMode;
+        OptionBool: OptionBool;
+        Origin: Origin;
+        OriginCaller: OriginCaller;
+        OriginKindV0: OriginKindV0;
+        OriginKindV1: OriginKindV1;
+        OriginKindV2: OriginKindV2;
+        OutboundHrmpMessage: OutboundHrmpMessage;
+        OutboundLaneData: OutboundLaneData;
+        OutboundMessageFee: OutboundMessageFee;
+        OutboundPayload: OutboundPayload;
+        OutboundStatus: OutboundStatus;
+        Outcome: Outcome;
+        OuterEnums15: OuterEnums15;
+        OverweightIndex: OverweightIndex;
+        Owner: Owner;
+        PageCounter: PageCounter;
+        PageIndexData: PageIndexData;
+        PalletCallMetadataLatest: PalletCallMetadataLatest;
+        PalletCallMetadataV14: PalletCallMetadataV14;
+        PalletConstantMetadataLatest: PalletConstantMetadataLatest;
+        PalletConstantMetadataV14: PalletConstantMetadataV14;
+        PalletErrorMetadataLatest: PalletErrorMetadataLatest;
+        PalletErrorMetadataV14: PalletErrorMetadataV14;
+        PalletEventMetadataLatest: PalletEventMetadataLatest;
+        PalletEventMetadataV14: PalletEventMetadataV14;
+        PalletId: PalletId;
+        PalletMetadataLatest: PalletMetadataLatest;
+        PalletMetadataV14: PalletMetadataV14;
+        PalletMetadataV15: PalletMetadataV15;
+        PalletsOrigin: PalletsOrigin;
+        PalletStorageMetadataLatest: PalletStorageMetadataLatest;
+        PalletStorageMetadataV14: PalletStorageMetadataV14;
+        PalletVersion: PalletVersion;
+        ParachainDispatchOrigin: ParachainDispatchOrigin;
+        ParachainInherentData: ParachainInherentData;
+        ParachainProposal: ParachainProposal;
+        ParachainsInherentData: ParachainsInherentData;
+        ParaGenesisArgs: ParaGenesisArgs;
+        ParaId: ParaId;
+        ParaInfo: ParaInfo;
+        ParaLifecycle: ParaLifecycle;
+        Parameter: Parameter;
+        ParaPastCodeMeta: ParaPastCodeMeta;
+        ParaScheduling: ParaScheduling;
+        ParathreadClaim: ParathreadClaim;
+        ParathreadClaimQueue: ParathreadClaimQueue;
+        ParathreadEntry: ParathreadEntry;
+        ParaValidatorIndex: ParaValidatorIndex;
+        Pays: Pays;
+        Peer: Peer;
+        PeerEndpoint: PeerEndpoint;
+        PeerEndpointAddr: PeerEndpointAddr;
+        PeerInfo: PeerInfo;
+        PeerPing: PeerPing;
+        PendingChange: PendingChange;
+        PendingPause: PendingPause;
+        PendingResume: PendingResume;
+        PendingSlashes: PendingSlashes;
+        Perbill: Perbill;
+        Percent: Percent;
+        PerDispatchClassU32: PerDispatchClassU32;
+        PerDispatchClassWeight: PerDispatchClassWeight;
+        PerDispatchClassWeightsPerClass: PerDispatchClassWeightsPerClass;
+        Period: Period;
+        Permill: Permill;
+        PermissionLatest: PermissionLatest;
+        PermissionsV1: PermissionsV1;
+        PermissionVersions: PermissionVersions;
+        Perquintill: Perquintill;
+        PersistedValidationData: PersistedValidationData;
+        PerU16: PerU16;
+        Phantom: Phantom;
+        PhantomData: PhantomData;
+        Phase: Phase;
+        PhragmenScore: PhragmenScore;
+        Points: Points;
+        PortableType: PortableType;
+        PortableTypeV14: PortableTypeV14;
+        Precommits: Precommits;
+        PrefabWasmModule: PrefabWasmModule;
+        PrefixedStorageKey: PrefixedStorageKey;
+        PreimageStatus: PreimageStatus;
+        PreimageStatusAvailable: PreimageStatusAvailable;
+        PreRuntime: PreRuntime;
+        Prevotes: Prevotes;
+        Priority: Priority;
+        PriorLock: PriorLock;
+        PropIndex: PropIndex;
+        Proposal: Proposal;
+        ProposalIndex: ProposalIndex;
+        ProxyAnnouncement: ProxyAnnouncement;
+        ProxyDefinition: ProxyDefinition;
+        ProxyState: ProxyState;
+        ProxyType: ProxyType;
+        PvfCheckStatement: PvfCheckStatement;
+        PvfExecTimeoutKind: PvfExecTimeoutKind;
+        PvfPrepTimeoutKind: PvfPrepTimeoutKind;
+        QueryId: QueryId;
+        QueryStatus: QueryStatus;
+        QueueConfigData: QueueConfigData;
+        QueuedParathread: QueuedParathread;
+        Randomness: Randomness;
+        Raw: Raw;
+        RawAuraPreDigest: RawAuraPreDigest;
+        RawBabePreDigest: RawBabePreDigest;
+        RawBabePreDigestCompat: RawBabePreDigestCompat;
+        RawBabePreDigestPrimary: RawBabePreDigestPrimary;
+        RawBabePreDigestPrimaryTo159: RawBabePreDigestPrimaryTo159;
+        RawBabePreDigestSecondaryPlain: RawBabePreDigestSecondaryPlain;
+        RawBabePreDigestSecondaryTo159: RawBabePreDigestSecondaryTo159;
+        RawBabePreDigestSecondaryVRF: RawBabePreDigestSecondaryVRF;
+        RawBabePreDigestTo159: RawBabePreDigestTo159;
+        RawOrigin: RawOrigin;
+        RawSolution: RawSolution;
+        RawSolutionTo265: RawSolutionTo265;
+        RawSolutionWith16: RawSolutionWith16;
+        RawSolutionWith24: RawSolutionWith24;
+        RawVRFOutput: RawVRFOutput;
+        ReadProof: ReadProof;
+        ReadySolution: ReadySolution;
+        Reasons: Reasons;
+        RecoveryConfig: RecoveryConfig;
+        RefCount: RefCount;
+        RefCountTo259: RefCountTo259;
+        ReferendumIndex: ReferendumIndex;
+        ReferendumInfo: ReferendumInfo;
+        ReferendumInfoFinished: ReferendumInfoFinished;
+        ReferendumInfoTo239: ReferendumInfoTo239;
+        ReferendumStatus: ReferendumStatus;
+        RegisteredParachainInfo: RegisteredParachainInfo;
+        RegistrarIndex: RegistrarIndex;
+        RegistrarInfo: RegistrarInfo;
+        Registration: Registration;
+        RegistrationJudgement: RegistrationJudgement;
+        RegistrationTo198: RegistrationTo198;
+        RelayBlockNumber: RelayBlockNumber;
+        RelayChainBlockNumber: RelayChainBlockNumber;
+        RelayChainHash: RelayChainHash;
+        RelayerId: RelayerId;
+        RelayHash: RelayHash;
+        Releases: Releases;
+        Remark: Remark;
+        Renouncing: Renouncing;
+        RentProjection: RentProjection;
+        ReplacementTimes: ReplacementTimes;
+        ReportedRoundStates: ReportedRoundStates;
+        Reporter: Reporter;
+        ReportIdOf: ReportIdOf;
+        ReserveData: ReserveData;
+        ReserveIdentifier: ReserveIdentifier;
+        Response: Response;
+        ResponseV0: ResponseV0;
+        ResponseV1: ResponseV1;
+        ResponseV2: ResponseV2;
+        ResponseV2Error: ResponseV2Error;
+        ResponseV2Result: ResponseV2Result;
+        Retriable: Retriable;
+        RewardDestination: RewardDestination;
+        RewardPoint: RewardPoint;
+        RoundSnapshot: RoundSnapshot;
+        RoundState: RoundState;
+        RpcMethods: RpcMethods;
+        RuntimeApiMetadataLatest: RuntimeApiMetadataLatest;
+        RuntimeApiMetadataV15: RuntimeApiMetadataV15;
+        RuntimeApiMethodMetadataV15: RuntimeApiMethodMetadataV15;
+        RuntimeApiMethodParamMetadataV15: RuntimeApiMethodParamMetadataV15;
+        RuntimeCall: RuntimeCall;
+        RuntimeDbWeight: RuntimeDbWeight;
+        RuntimeDispatchInfo: RuntimeDispatchInfo;
+        RuntimeDispatchInfoV1: RuntimeDispatchInfoV1;
+        RuntimeDispatchInfoV2: RuntimeDispatchInfoV2;
+        RuntimeEvent: RuntimeEvent;
+        RuntimeVersion: RuntimeVersion;
+        RuntimeVersionApi: RuntimeVersionApi;
+        RuntimeVersionPartial: RuntimeVersionPartial;
+        RuntimeVersionPre3: RuntimeVersionPre3;
+        RuntimeVersionPre4: RuntimeVersionPre4;
+        Schedule: Schedule;
+        Scheduled: Scheduled;
+        ScheduledCore: ScheduledCore;
+        ScheduledTo254: ScheduledTo254;
+        SchedulePeriod: SchedulePeriod;
+        SchedulePriority: SchedulePriority;
+        ScheduleTo212: ScheduleTo212;
+        ScheduleTo258: ScheduleTo258;
+        ScheduleTo264: ScheduleTo264;
+        Scheduling: Scheduling;
+        ScrapedOnChainVotes: ScrapedOnChainVotes;
+        Seal: Seal;
+        SealV0: SealV0;
+        SeatHolder: SeatHolder;
+        SeedOf: SeedOf;
+        ServiceQuality: ServiceQuality;
+        SessionIndex: SessionIndex;
+        SessionInfo: SessionInfo;
+        SessionInfoValidatorGroup: SessionInfoValidatorGroup;
+        SessionKeys1: SessionKeys1;
+        SessionKeys10: SessionKeys10;
+        SessionKeys10B: SessionKeys10B;
+        SessionKeys2: SessionKeys2;
+        SessionKeys3: SessionKeys3;
+        SessionKeys4: SessionKeys4;
+        SessionKeys5: SessionKeys5;
+        SessionKeys6: SessionKeys6;
+        SessionKeys6B: SessionKeys6B;
+        SessionKeys7: SessionKeys7;
+        SessionKeys7B: SessionKeys7B;
+        SessionKeys8: SessionKeys8;
+        SessionKeys8B: SessionKeys8B;
+        SessionKeys9: SessionKeys9;
+        SessionKeys9B: SessionKeys9B;
+        SetId: SetId;
+        SetIndex: SetIndex;
+        Si0Field: Si0Field;
+        Si0LookupTypeId: Si0LookupTypeId;
+        Si0Path: Si0Path;
+        Si0Type: Si0Type;
+        Si0TypeDef: Si0TypeDef;
+        Si0TypeDefArray: Si0TypeDefArray;
+        Si0TypeDefBitSequence: Si0TypeDefBitSequence;
+        Si0TypeDefCompact: Si0TypeDefCompact;
+        Si0TypeDefComposite: Si0TypeDefComposite;
+        Si0TypeDefPhantom: Si0TypeDefPhantom;
+        Si0TypeDefPrimitive: Si0TypeDefPrimitive;
+        Si0TypeDefSequence: Si0TypeDefSequence;
+        Si0TypeDefTuple: Si0TypeDefTuple;
+        Si0TypeDefVariant: Si0TypeDefVariant;
+        Si0TypeParameter: Si0TypeParameter;
+        Si0Variant: Si0Variant;
+        Si1Field: Si1Field;
+        Si1LookupTypeId: Si1LookupTypeId;
+        Si1Path: Si1Path;
+        Si1Type: Si1Type;
+        Si1TypeDef: Si1TypeDef;
+        Si1TypeDefArray: Si1TypeDefArray;
+        Si1TypeDefBitSequence: Si1TypeDefBitSequence;
+        Si1TypeDefCompact: Si1TypeDefCompact;
+        Si1TypeDefComposite: Si1TypeDefComposite;
+        Si1TypeDefPrimitive: Si1TypeDefPrimitive;
+        Si1TypeDefSequence: Si1TypeDefSequence;
+        Si1TypeDefTuple: Si1TypeDefTuple;
+        Si1TypeDefVariant: Si1TypeDefVariant;
+        Si1TypeParameter: Si1TypeParameter;
+        Si1Variant: Si1Variant;
+        SiField: SiField;
+        Signature: Signature;
+        SignedAvailabilityBitfield: SignedAvailabilityBitfield;
+        SignedAvailabilityBitfields: SignedAvailabilityBitfields;
+        SignedBlock: SignedBlock;
+        SignedBlockWithJustification: SignedBlockWithJustification;
+        SignedBlockWithJustifications: SignedBlockWithJustifications;
+        SignedExtensionMetadataLatest: SignedExtensionMetadataLatest;
+        SignedExtensionMetadataV14: SignedExtensionMetadataV14;
+        SignedSubmission: SignedSubmission;
+        SignedSubmissionOf: SignedSubmissionOf;
+        SignedSubmissionTo276: SignedSubmissionTo276;
+        SignerPayload: SignerPayload;
+        SigningContext: SigningContext;
+        SiLookupTypeId: SiLookupTypeId;
+        SiPath: SiPath;
+        SiType: SiType;
+        SiTypeDef: SiTypeDef;
+        SiTypeDefArray: SiTypeDefArray;
+        SiTypeDefBitSequence: SiTypeDefBitSequence;
+        SiTypeDefCompact: SiTypeDefCompact;
+        SiTypeDefComposite: SiTypeDefComposite;
+        SiTypeDefPrimitive: SiTypeDefPrimitive;
+        SiTypeDefSequence: SiTypeDefSequence;
+        SiTypeDefTuple: SiTypeDefTuple;
+        SiTypeDefVariant: SiTypeDefVariant;
+        SiTypeParameter: SiTypeParameter;
+        SiVariant: SiVariant;
+        SlashingOffenceKind: SlashingOffenceKind;
+        SlashingSpans: SlashingSpans;
+        SlashingSpansTo204: SlashingSpansTo204;
+        SlashJournalEntry: SlashJournalEntry;
+        Slot: Slot;
+        SlotDuration: SlotDuration;
+        SlotNumber: SlotNumber;
+        SlotRange: SlotRange;
+        SlotRange10: SlotRange10;
+        SocietyJudgement: SocietyJudgement;
+        SocietyVote: SocietyVote;
+        SolutionOrSnapshotSize: SolutionOrSnapshotSize;
+        SolutionSupport: SolutionSupport;
+        SolutionSupports: SolutionSupports;
+        SpanIndex: SpanIndex;
+        SpanRecord: SpanRecord;
+        SpecVersion: SpecVersion;
+        Sr25519Signature: Sr25519Signature;
+        StakingLedger: StakingLedger;
+        StakingLedgerTo223: StakingLedgerTo223;
+        StakingLedgerTo240: StakingLedgerTo240;
+        Statement: Statement;
+        StatementKind: StatementKind;
+        StorageChangeSet: StorageChangeSet;
+        StorageData: StorageData;
+        StorageDeposit: StorageDeposit;
+        StorageEntryMetadataLatest: StorageEntryMetadataLatest;
+        StorageEntryMetadataV10: StorageEntryMetadataV10;
+        StorageEntryMetadataV11: StorageEntryMetadataV11;
+        StorageEntryMetadataV12: StorageEntryMetadataV12;
+        StorageEntryMetadataV13: StorageEntryMetadataV13;
+        StorageEntryMetadataV14: StorageEntryMetadataV14;
+        StorageEntryMetadataV9: StorageEntryMetadataV9;
+        StorageEntryModifierLatest: StorageEntryModifierLatest;
+        StorageEntryModifierV10: StorageEntryModifierV10;
+        StorageEntryModifierV11: StorageEntryModifierV11;
+        StorageEntryModifierV12: StorageEntryModifierV12;
+        StorageEntryModifierV13: StorageEntryModifierV13;
+        StorageEntryModifierV14: StorageEntryModifierV14;
+        StorageEntryModifierV9: StorageEntryModifierV9;
+        StorageEntryTypeLatest: StorageEntryTypeLatest;
+        StorageEntryTypeV10: StorageEntryTypeV10;
+        StorageEntryTypeV11: StorageEntryTypeV11;
+        StorageEntryTypeV12: StorageEntryTypeV12;
+        StorageEntryTypeV13: StorageEntryTypeV13;
+        StorageEntryTypeV14: StorageEntryTypeV14;
+        StorageEntryTypeV9: StorageEntryTypeV9;
+        StorageHasher: StorageHasher;
+        StorageHasherV10: StorageHasherV10;
+        StorageHasherV11: StorageHasherV11;
+        StorageHasherV12: StorageHasherV12;
+        StorageHasherV13: StorageHasherV13;
+        StorageHasherV14: StorageHasherV14;
+        StorageHasherV9: StorageHasherV9;
+        StorageInfo: StorageInfo;
+        StorageKey: StorageKey;
+        StorageKind: StorageKind;
+        StorageMetadataV10: StorageMetadataV10;
+        StorageMetadataV11: StorageMetadataV11;
+        StorageMetadataV12: StorageMetadataV12;
+        StorageMetadataV13: StorageMetadataV13;
+        StorageMetadataV9: StorageMetadataV9;
+        StorageProof: StorageProof;
+        StoredPendingChange: StoredPendingChange;
+        StoredState: StoredState;
+        StrikeCount: StrikeCount;
+        SubId: SubId;
+        SubmissionIndicesOf: SubmissionIndicesOf;
+        Supports: Supports;
+        SyncState: SyncState;
+        SystemInherentData: SystemInherentData;
+        SystemOrigin: SystemOrigin;
+        Tally: Tally;
+        TaskAddress: TaskAddress;
+        TAssetBalance: TAssetBalance;
+        TAssetDepositBalance: TAssetDepositBalance;
+        Text: Text;
+        Timepoint: Timepoint;
+        TokenError: TokenError;
+        TombstoneContractInfo: TombstoneContractInfo;
+        TraceBlockResponse: TraceBlockResponse;
+        TraceError: TraceError;
+        TransactionalError: TransactionalError;
+        TransactionInfo: TransactionInfo;
+        TransactionLongevity: TransactionLongevity;
+        TransactionPriority: TransactionPriority;
+        TransactionSource: TransactionSource;
+        TransactionStorageProof: TransactionStorageProof;
+        TransactionTag: TransactionTag;
+        TransactionV0: TransactionV0;
+        TransactionV1: TransactionV1;
+        TransactionV2: TransactionV2;
+        TransactionValidity: TransactionValidity;
+        TransactionValidityError: TransactionValidityError;
+        TransientValidationData: TransientValidationData;
+        TreasuryProposal: TreasuryProposal;
+        TrieId: TrieId;
+        TrieIndex: TrieIndex;
+        Type: Type;
+        u128: u128;
+        U128: U128;
+        u16: u16;
+        U16: U16;
+        u256: u256;
+        U256: U256;
+        u32: u32;
+        U32: U32;
+        U32F32: U32F32;
+        u64: u64;
+        U64: U64;
+        u8: u8;
+        U8: U8;
+        UnappliedSlash: UnappliedSlash;
+        UnappliedSlashOther: UnappliedSlashOther;
+        UncleEntryItem: UncleEntryItem;
+        UnknownTransaction: UnknownTransaction;
+        UnlockChunk: UnlockChunk;
+        UnrewardedRelayer: UnrewardedRelayer;
+        UnrewardedRelayersState: UnrewardedRelayersState;
+        UpgradeGoAhead: UpgradeGoAhead;
+        UpgradeRestriction: UpgradeRestriction;
+        UpwardMessage: UpwardMessage;
+        usize: usize;
+        USize: USize;
+        ValidationCode: ValidationCode;
+        ValidationCodeHash: ValidationCodeHash;
+        ValidationData: ValidationData;
+        ValidationDataType: ValidationDataType;
+        ValidationFunctionParams: ValidationFunctionParams;
+        ValidatorCount: ValidatorCount;
+        ValidatorId: ValidatorId;
+        ValidatorIdOf: ValidatorIdOf;
+        ValidatorIndex: ValidatorIndex;
+        ValidatorIndexCompact: ValidatorIndexCompact;
+        ValidatorPrefs: ValidatorPrefs;
+        ValidatorPrefsTo145: ValidatorPrefsTo145;
+        ValidatorPrefsTo196: ValidatorPrefsTo196;
+        ValidatorPrefsWithBlocked: ValidatorPrefsWithBlocked;
+        ValidatorPrefsWithCommission: ValidatorPrefsWithCommission;
+        ValidatorSet: ValidatorSet;
+        ValidatorSetId: ValidatorSetId;
+        ValidatorSignature: ValidatorSignature;
+        ValidDisputeStatementKind: ValidDisputeStatementKind;
+        ValidityAttestation: ValidityAttestation;
+        ValidTransaction: ValidTransaction;
+        VecInboundHrmpMessage: VecInboundHrmpMessage;
+        VersionedMultiAsset: VersionedMultiAsset;
+        VersionedMultiAssets: VersionedMultiAssets;
+        VersionedMultiLocation: VersionedMultiLocation;
+        VersionedResponse: VersionedResponse;
+        VersionedXcm: VersionedXcm;
+        VersionMigrationStage: VersionMigrationStage;
+        VestingInfo: VestingInfo;
+        VestingSchedule: VestingSchedule;
+        Vote: Vote;
+        VoteIndex: VoteIndex;
+        Voter: Voter;
+        VoterInfo: VoterInfo;
+        Votes: Votes;
+        VotesTo230: VotesTo230;
+        VoteThreshold: VoteThreshold;
+        VoteWeight: VoteWeight;
+        Voting: Voting;
+        VotingDelegating: VotingDelegating;
+        VotingDirect: VotingDirect;
+        VotingDirectVote: VotingDirectVote;
+        VouchingStatus: VouchingStatus;
+        VrfData: VrfData;
+        VrfOutput: VrfOutput;
+        VrfProof: VrfProof;
+        Weight: Weight;
+        WeightLimitV2: WeightLimitV2;
+        WeightMultiplier: WeightMultiplier;
+        WeightPerClass: WeightPerClass;
+        WeightToFeeCoefficient: WeightToFeeCoefficient;
+        WeightV0: WeightV0;
+        WeightV1: WeightV1;
+        WeightV2: WeightV2;
+        WildFungibility: WildFungibility;
+        WildFungibilityV0: WildFungibilityV0;
+        WildFungibilityV1: WildFungibilityV1;
+        WildFungibilityV2: WildFungibilityV2;
+        WildMultiAsset: WildMultiAsset;
+        WildMultiAssetV1: WildMultiAssetV1;
+        WildMultiAssetV2: WildMultiAssetV2;
+        WinnersData: WinnersData;
+        WinnersData10: WinnersData10;
+        WinnersDataTuple: WinnersDataTuple;
+        WinnersDataTuple10: WinnersDataTuple10;
+        WinningData: WinningData;
+        WinningData10: WinningData10;
+        WinningDataEntry: WinningDataEntry;
+        WithdrawReasons: WithdrawReasons;
+        Xcm: Xcm;
+        XcmAssetId: XcmAssetId;
+        XcmError: XcmError;
+        XcmErrorV0: XcmErrorV0;
+        XcmErrorV1: XcmErrorV1;
+        XcmErrorV2: XcmErrorV2;
+        XcmOrder: XcmOrder;
+        XcmOrderV0: XcmOrderV0;
+        XcmOrderV1: XcmOrderV1;
+        XcmOrderV2: XcmOrderV2;
+        XcmOrigin: XcmOrigin;
+        XcmOriginKind: XcmOriginKind;
+        XcmpMessageFormat: XcmpMessageFormat;
+        XcmV0: XcmV0;
+        XcmV1: XcmV1;
+        XcmV2: XcmV2;
+        XcmVersion: XcmVersion;
     } // InterfaceTypes
 } // declare module
