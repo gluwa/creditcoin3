@@ -45,10 +45,7 @@ export function parseRewardDestination(
     rewardDestinationRaw.charAt(0).toUpperCase() +
     rewardDestinationRaw.slice(1).toLowerCase();
 
-  if (
-    rewardDestination !== "Staked" &&
-    rewardDestination !== "Stash"
-  ) {
+  if (rewardDestination !== "Staked" && rewardDestination !== "Stash") {
     throw new Error(
       "Invalid reward destination, must be one of 'Staked' or 'Stash'",
     );
@@ -65,10 +62,7 @@ export function checkRewardDestination(
     rewardDestinationRaw.charAt(0).toUpperCase() +
     rewardDestinationRaw.slice(1).toLowerCase();
 
-  if (
-    rewardDestination !== "Staked" &&
-    rewardDestination !== "Stash"
-  ) {
+  if (rewardDestination !== "Staked" && rewardDestination !== "Stash") {
     throw new Error(
       "Invalid reward destination, must be one of 'Staked' or 'Stash'",
     );

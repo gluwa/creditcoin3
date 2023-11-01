@@ -4,7 +4,6 @@ import prompts from "prompts";
 import { getErrorMessage } from "../error";
 import { OptionValues } from "commander";
 
-
 export function initEthKeyringPair(seed: string, accIndex = 0) {
   const keyring = new Keyring({ type: "ethereum" });
   const pair = keyring.addFromUri(`${seed}/m/44'/60'/0'/0/${accIndex}`);
@@ -61,7 +60,7 @@ export async function initKeyringFromEnvOrPrompt(
   const interactive = options.input;
   const inputName = "seed phrase";
   const validateInput = mnemonicValidate;
-  const generateKeyring = initEthKeyringPair
+  const generateKeyring = initEthKeyringPair;
 
   if (!interactive && !process.env[envVar]) {
     throw new Error(

@@ -1,6 +1,6 @@
 import { Command, OptionValues } from "commander";
 import { newApi } from "../../api";
-import { BN } from "../../lib"
+import { BN } from "../../lib";
 import { bond, checkRewardDestination } from "../../lib/staking";
 import { promptContinue, setInteractivity } from "../../lib/interactive";
 import {

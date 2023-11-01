@@ -12,7 +12,7 @@ export function makeShowAddressCommand() {
 
 async function showAddressAction(options: OptionValues) {
   await cryptoWaitReady();
-  
+
   const caller = await initCallerKeyring(options);
 
   console.log("Account address:", caller.address);
