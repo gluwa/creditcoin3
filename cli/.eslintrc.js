@@ -14,17 +14,17 @@ Happy linting! 💖
 module.exports = {
   env: {
     browser: true,
-    es6: true,
+    es6: true
   },
   extends: [
     "plugin:@typescript-eslint/recommended",
     "plugin:@typescript-eslint/recommended-requiring-type-checking",
-    "prettier",
+    "prettier"
   ],
   parser: "@typescript-eslint/parser",
   parserOptions: {
     project: "tsconfig.json",
-    sourceType: "module",
+    sourceType: "module"
   },
   plugins: ["@typescript-eslint"],
   rules: {
@@ -32,34 +32,34 @@ module.exports = {
     "@typescript-eslint/array-type": [
       "error",
       {
-        default: "array",
-      },
+        default: "array"
+      }
     ],
     "@typescript-eslint/ban-types": [
       "error",
       {
         types: {
           Object: {
-            message: "Avoid using the `Object` type. Did you mean `object`?",
+            message: "Avoid using the `Object` type. Did you mean `object`?"
           },
           Function: {
             message:
-              "Avoid using the `Function` type. Prefer a specific function type, like `() => void`.",
+              "Avoid using the `Function` type. Prefer a specific function type, like `() => void`."
           },
           Boolean: {
-            message: "Avoid using the `Boolean` type. Did you mean `boolean`?",
+            message: "Avoid using the `Boolean` type. Did you mean `boolean`?"
           },
           Number: {
-            message: "Avoid using the `Number` type. Did you mean `number`?",
+            message: "Avoid using the `Number` type. Did you mean `number`?"
           },
           String: {
-            message: "Avoid using the `String` type. Did you mean `string`?",
+            message: "Avoid using the `String` type. Did you mean `string`?"
           },
           Symbol: {
-            message: "Avoid using the `Symbol` type. Did you mean `symbol`?",
-          },
-        },
-      },
+            message: "Avoid using the `Symbol` type. Did you mean `symbol`?"
+          }
+        }
+      }
     ],
     "@typescript-eslint/consistent-type-assertions": "error",
     "@typescript-eslint/dot-notation": "error",
@@ -71,13 +71,13 @@ module.exports = {
       {
         multiline: {
           delimiter: "none",
-          requireLast: true,
+          requireLast: true
         },
         singleline: {
           delimiter: "semi",
-          requireLast: false,
-        },
-      },
+          requireLast: false
+        }
+      }
     ],
     "@typescript-eslint/naming-convention": [
       "error",
@@ -87,9 +87,9 @@ module.exports = {
         filter: {
           // you can expand this regex to add more allowed names
           regex: "^(CC_SECRET|CC_CONTROLLER_SECRET|CC_STASH_SECRET)$",
-          match: false,
-        },
-      },
+          match: false
+        }
+      }
     ],
     "@typescript-eslint/no-empty-function": "error",
     "@typescript-eslint/no-empty-interface": "error",
@@ -100,8 +100,8 @@ module.exports = {
     "@typescript-eslint/no-shadow": [
       "error",
       {
-        hoist: "all",
-      },
+        hoist: "all"
+      }
     ],
     "@typescript-eslint/no-unused-expressions": "error",
     "@typescript-eslint/no-unsafe-argument": "off",
@@ -121,8 +121,8 @@ module.exports = {
       {
         path: "always",
         types: "prefer-import",
-        lib: "always",
-      },
+        lib: "always"
+      }
     ],
     "@typescript-eslint/type-annotation-spacing": "off",
     "@typescript-eslint/typedef": "off",
@@ -146,7 +146,7 @@ module.exports = {
       "Boolean",
       "boolean",
       "Undefined",
-      "undefined",
+      "undefined"
     ],
     "id-match": "error",
     indent: "off",
@@ -184,11 +184,11 @@ module.exports = {
     "padded-blocks": [
       "off",
       {
-        blocks: "never",
+        blocks: "never"
       },
       {
-        allowSingleLineBlocks: true,
-      },
+        allowSingleLineBlocks: true
+      }
     ],
     "prefer-const": "error",
     "quote-props": "off",
@@ -200,8 +200,8 @@ module.exports = {
       "off",
       {
         afterOpening: "allow",
-        closingSlash: "allow",
-      },
+        closingSlash: "allow"
+      }
     ],
     "react/jsx-wrap-multilines": "off",
     semi: "off",
@@ -211,10 +211,10 @@ module.exports = {
       "error",
       "always",
       {
-        markers: ["/"],
-      },
+        markers: ["/"]
+      }
     ],
     "use-isnan": "error",
-    "valid-typeof": "off",
-  },
+    "valid-typeof": "off"
+  }
 };
