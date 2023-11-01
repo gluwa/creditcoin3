@@ -6,6 +6,7 @@ import { makeShowAddressCommand } from './commands/showAddress'
 import { makeBalanceCommand } from './commands/balance'
 import { makeSendCommand } from './commands/send'
 import { makeBondCommand } from './commands/staking/bond'
+import { makeChillCommand } from './commands/staking/chill'
 
 const program = new Command()
 
@@ -16,6 +17,7 @@ program
     .addCommand(makeBalanceCommand())
     .addCommand(makeSendCommand())
     .addCommand(makeBondCommand())
+    .addCommand(makeChillCommand())
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts')
@@ -27,5 +29,3 @@ program.commands.forEach((cmd) => {
 })
 
 program.parse(process.argv)
-
-// console.log(program.opts());
