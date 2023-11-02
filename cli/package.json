@@ -14,7 +14,7 @@
         "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
         "typecheck": "tsc --noEmit",
         "prepare": "yarn build",
-        "test": "$npm_execpath example"
+        "test:unit": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts src/test/unit-tests"
     },
     "keywords": [
         "creditcoin",
