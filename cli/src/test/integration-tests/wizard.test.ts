@@ -1,0 +1,49 @@
+import { execaCommandSync } from 'execa';
+import { newApi } from '../../api';
+import { initEthKeyringPair } from '../../lib/account/keyring';
+import { parseAmountInternal } from '../../lib/parsing';
+import { signSendAndWatch } from '../../lib/tx';
+import {
+    randomTestAccount,
+    fundAddressesFromSudo,
+    ALICE_NODE_URL,
+    BOB_NODE_URL,
+} from './helpers';
+import { getValidatorStatus } from '../../lib/staking/validatorStatus';
+
+describe('integration test: validator wizard setup', () => {
+    it.each([['using a seed phrase', false]])(
+        'new validator should appear as waiting after running %s',
+        async (text, ecdsa) => {
+            // Fund stash and controller
+            const stash = randomTestAccount();
+            const controller = randomTestAccount();
+
+            const fundTx = await fundAddressesFromSudo(
+                [stash.address, controller.address],
+                parseAmountInternal('10000')
+            );
+            const { api } = await newApi(ALICE_NODE_URL);
+            await signSendAndWatch(fundTx, api, initEthKeyringPair('//Alice'));
+
+            // Run wizard setup with 1k ctc ang to pair with node Bob
+            execaCommandSync(
+                `node dist/index.js wizard --amount 1000 --url ${BOB_NODE_URL}`,
+                {
+                    env: {
+                        CC_STASH_SECRET: stash.secret,
+                        CC_CONTROLLER_SECRET: controller.secret,
+                    },
+                }
+            );
+
+            const validatorStatus = await getValidatorStatus(
+                stash.address,
+                api
+            );
+
+            expect(validatorStatus.waiting).toBe(true);
+        },
+        120000
+    );
+});
