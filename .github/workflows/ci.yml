@@ -347,7 +347,7 @@
   
         - name: Run integration tests
           run: |
-            pushd scripts/cc-cli
+            pushd cli/
             yarn test:integration
             popd
   
