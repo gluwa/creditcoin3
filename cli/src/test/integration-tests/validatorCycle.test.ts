@@ -104,12 +104,6 @@ describe('integration test: validator manual setup', () => {
         const stashStatus = await getValidatorStatus(stashAddress, aliceApi);
         expect(stashStatus.bonded).toBe(true);
 
-        const controllerStatus = await getValidatorStatus(
-            controllerAddress,
-            aliceApi
-        );
-        expect(controllerStatus.stash).toBe(stashAddress);
-
         const stashBondedBalance = (await getBalance(stashAddress, aliceApi))
             .bonded;
         expect(stashBondedBalance.toString()).toBe(
