@@ -8,6 +8,7 @@ import {
     fundAddressesFromSudo,
     ALICE_NODE_URL,
     BOB_NODE_URL,
+    initAlithKeyring,
 } from './helpers';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 
@@ -24,7 +25,7 @@ describe('integration test: validator wizard setup', () => {
                 parseAmountInternal('10000')
             );
             const { api } = await newApi(ALICE_NODE_URL);
-            await signSendAndWatch(fundTx, api, initEthKeyringPair('//Alice'));
+            await signSendAndWatch(fundTx, api, initAlithKeyring());
 
             // Run wizard setup with 1k ctc ang to pair with node Bob
             commandSync(
