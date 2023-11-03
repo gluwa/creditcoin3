@@ -30,5 +30,6 @@ describe('Send command', () => {
         );
 
         expect(result.stdout).toContain('Transaction included');
+        api.disconnect();
     }, 60000);
 });

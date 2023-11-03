@@ -44,6 +44,12 @@ describe('integration test: validator wizard setup', () => {
             );
 
             expect(validatorStatus.waiting).toBe(true);
+            console.log(
+                'Validator waiting status is: ',
+                validatorStatus.waiting
+            );
+
+            api.disconnect();
         },
         120000
     );
