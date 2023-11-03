@@ -7,8 +7,8 @@
         "build": "tsc",
         "example": "ts-node --files ./src/examples/loan-cycle.ts",
         "build:types": "yarn generate:defs && yarn generate:meta",
-        "generate:defs": "ts-node --skip-project node_modules/.bin/polkadot-types-from-defs --package creditcoin-js/interfaces --input ./src/lib/interfaces --endpoint ./creditcoin.json",
-        "generate:meta": "ts-node --skip-project node_modules/.bin/polkadot-types-from-chain --package creditcoin-js/interfaces  --endpoint ./creditcoin.json --output ./src/lib/interfaces",
+        "generate:defs": "ts-node --esm --skip-project node_modules/.bin/polkadot-types-from-defs --package  cc3-cli/src/lib/interfaces --input ./src/lib/interfaces --endpoint ./creditcoin.json",
+        "generate:meta": "ts-node --esm --skip-project node_modules/.bin/polkadot-types-from-chain --package cc3-cli/src/lib/interfaces  --endpoint ./creditcoin.json --output ./src/lib/interfaces",
         "format": "prettier --write \"src/**/*.ts\"",
         "check-format": "prettier --check \"src/**/*.ts\"",
         "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
@@ -23,7 +23,7 @@
     "author": "Creditcoin Devs <support@gluwa.com>",
     "license": "MIT",
     "devDependencies": {
-        "@polkadot/typegen": "^10.10.1",
+        "@polkadot/typegen": "10.10.1",
         "@types/jest": "^29.5.7",
         "@types/prompts": "^2.4.7",
         "@typescript-eslint/eslint-plugin": "^6.9.1",
@@ -38,7 +38,7 @@
         "typescript": "^5.2.2"
     },
     "dependencies": {
-        "@polkadot/api": "^10.10.1",
+        "@polkadot/api": "10.10.1",
         "@polkadot/util-crypto": "^12.5.1",
         "cli-table3": "^0.6.3",
         "commander": "^11.0.0",
