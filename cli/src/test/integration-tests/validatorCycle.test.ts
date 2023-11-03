@@ -32,29 +32,16 @@ describe('integration test: validator manual setup', () => {
             commandSync('node dist/index.js new').stdout.split(
                 'Seed phrase: '
             )[1];
-        let controllerSecret = commandSync(
-            'node dist/index.js new'
-        ).stdout.split('Seed phrase: ')[1];
 
         expect(mnemonicValidate(stashSecret)).toBe(true);
-        expect(mnemonicValidate(controllerSecret)).toBe(true);
 
         console.log('Stash seed: ', stashSecret);
-        console.log('Controller seed: ', controllerSecret);
 
         // Getting the addresses using `show-address` should return two valid addresses
         const stashAddress = parseAddressInternal(
             commandSync(`node dist/index.js show-address`, {
                 env: {
                     CC_SECRET: stashSecret,
-                },
-            }).stdout.split('Account address: ')[1]
-        );
-
-        const controllerAddress = parseAddressInternal(
-            commandSync(`node dist/index.js show-address`, {
-                env: {
-                    CC_SECRET: controllerSecret,
                 },
             }).stdout.split('Account address: ')[1]
         );
@@ -67,24 +54,6 @@ describe('integration test: validator manual setup', () => {
         const stashBalance = (await getBalance(stashAddress, aliceApi))
             .transferable;
         expect(stashBalance.toString()).toBe(fundAmount.toString());
-
-        // Sending 1k ctc from stash to controller should make the controller balance equal to 1k ctc
-        const sendAmount = '1000';
-        commandSync(
-            // CLI commands are sent through Bob's node
-            `node dist/index.js send --amount ${sendAmount} --to ${controllerAddress} --url ${BOB_NODE_URL}`,
-            {
-                env: {
-                    CC_SECRET: stashSecret,
-                },
-            }
-        );
-        const controllerBalance = (
-            await getBalance(controllerAddress, aliceApi)
-        ).transferable;
-        expect(controllerBalance.toString()).toBe(
-            parseAmountInternal(sendAmount).toString()
-        );
 
         // Bonding 1k ctc from stash and setting the controller should
         // - make the stash bonded balance equal to 1k ctc
@@ -124,7 +93,7 @@ describe('integration test: validator manual setup', () => {
             `node dist/index.js set-keys --keys ${newKeys} --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_CONTROLLER_SECRET: controllerSecret,
+                    CC_STASH_SECRET: stashSecret,
                 },
             }
         );
@@ -142,7 +111,7 @@ describe('integration test: validator manual setup', () => {
             `node dist/index.js validate --commission 1 --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_CONTROLLER_SECRET: controllerSecret,
+                    CC_STASH_SECRET: stashSecret,
                 },
             }
         );
@@ -209,7 +178,7 @@ describe('integration test: validator manual setup', () => {
         // After executing the chill commmand, the validator should no longer be active nor waiting
         commandSync(`node dist/index.js chill --url ${BOB_NODE_URL}`, {
             env: {
-                CC_CONTROLLER_SECRET: controllerSecret,
+                CC_STASH_SECRET: stashSecret,
             },
         });
         // wait 5 seconds for nodes to sync
@@ -227,7 +196,7 @@ describe('integration test: validator manual setup', () => {
             `node dist/index.js unbond --url ${BOB_NODE_URL} -a 100000`,
             {
                 env: {
-                    CC_CONTROLLER_SECRET: controllerSecret,
+                    CC_STASH_SECRET: stashSecret,
                 },
             }
         );
@@ -254,7 +223,7 @@ describe('integration test: validator manual setup', () => {
             `node dist/index.js withdraw-unbonded --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_CONTROLLER_SECRET: controllerSecret,
+                    CC_STASH_SECRET: stashSecret,
                 },
             }
         );
@@ -263,7 +232,7 @@ describe('integration test: validator manual setup', () => {
         await new Promise((resolve) => setTimeout(resolve, 5000));
         const balanceAfterWithdraw = await getBalance(stashAddress, aliceApi);
         printBalance(balanceAfterWithdraw);
-        const stashAmount = fundAmount.sub(parseAmountInternal(sendAmount));
+        const stashAmount = fundAmount;
         expect(balanceAfterWithdraw.transferable.gte(stashAmount)).toBe(true);
     }, 2000000);
 });
