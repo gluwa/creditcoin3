@@ -1,15 +1,4 @@
 // #!/usr/bin/env node
-
-// augment on-chain lookup types
-import './interfaces/types-lookup';
-
-// augment types for createType(...)
-import './interfaces/augment-types';
-import './interfaces/registry';
-
-// augment API interfaces
-import './interfaces/augment-api';
-
 import { Command } from 'commander';
 import { makeStatusCommand } from './commands/status';
 import { makeNewSeedCommand } from './commands/newSeed';

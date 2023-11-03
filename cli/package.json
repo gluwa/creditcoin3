@@ -3,7 +3,6 @@
     "version": "0.0.1",
     "description": "CLI tools for Creditcoin 3",
     "main": "dist/index.js",
-    "type": "module",
     "scripts": {
         "build": "tsc",
         "example": "ts-node --files ./src/examples/loan-cycle.ts",
