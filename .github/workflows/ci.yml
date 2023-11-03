@@ -342,8 +342,8 @@
   
         - name: Wait for nodes to start
           run: |
-            ./integration-tests/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-            ./integration-tests/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
+            ./scripts/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+            ./scripts/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
   
         - name: Run integration tests
           run: |
