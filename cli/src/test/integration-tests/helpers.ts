@@ -27,7 +27,7 @@ export async function fundFromSudo(
     url = (global as any).CREDITCOIN_API_URL
 ) {
     const { api } = await newApi(url);
-    const call = api.tx.balances.setBalance(address, amount.toString(), '0');
+    const call = api.tx.balances.forceSetBalance(address, amount.toString());
     const tx = api.tx.sudo.sudo(call);
     return tx;
 }
@@ -39,10 +39,9 @@ export async function fundAddressesFromSudo(
 ) {
     const { api } = await newApi(url);
     const txs = addresses.map((address) => {
-        const fundTx = api.tx.balances.setBalance(
+        const fundTx = api.tx.balances.forceSetBalance(
             address,
-            amount.toString(),
-            '0'
+            amount.toString()
         );
         return api.tx.sudo.sudo(fundTx);
     });
