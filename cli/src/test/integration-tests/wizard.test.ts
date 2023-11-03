@@ -49,7 +49,7 @@ describe('integration test: validator wizard setup', () => {
                 validatorStatus.waiting
             );
 
-            api.disconnect();
+            await api.disconnect();
         },
         120000
     );

@@ -235,7 +235,7 @@ describe('integration test: validator manual setup', () => {
         const stashAmount = fundAmount;
         expect(balanceAfterWithdraw.transferable.gte(stashAmount)).toBe(true);
 
-        aliceApi.disconnect();
-        bobApi.disconnect();
+        await aliceApi.disconnect();
+        await bobApi.disconnect();
     }, 2000000);
 });
