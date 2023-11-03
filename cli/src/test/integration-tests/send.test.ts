@@ -6,11 +6,12 @@ import {
     randomTestAccount,
     fundAddressesFromSudo,
     initAlithKeyring,
+    ALICE_NODE_URL,
 } from './helpers';
 
 describe('Send command', () => {
     it('should be able to send CTC when %s', async () => {
-        const { api } = await newApi();
+        const { api } = await newApi(ALICE_NODE_URL);
 
         const caller = randomTestAccount();
 

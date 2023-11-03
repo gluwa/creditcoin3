@@ -5,11 +5,11 @@ import { BN } from '../../lib';
 import { initEthKeyringPair } from '../../lib/account/keyring';
 import { signSendAndWatch } from '../../lib/tx';
 
-export const ALICE_NODE_URL = (global as any).CREDITCOIN_API_URL;
-export const BOB_NODE_URL = 'ws://localhost:9955';
+export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
+export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
 
 export async function fundAccounts(amount: BN) {
-    const { api } = await newApi((global as any).CREDITCOIN_API_URL);
+    const { api } = await newApi(ALICE_NODE_URL);
     const stash = randomTestAccount();
     const controller = randomTestAccount();
     const tx = await fundAddressesFromSudo(
@@ -24,7 +24,7 @@ export async function fundAccounts(amount: BN) {
 export async function fundFromSudo(
     address: string,
     amount: BN,
-    url = (global as any).CREDITCOIN_API_URL
+    url = ALICE_NODE_URL
 ) {
     const { api } = await newApi(url);
     const call = api.tx.balances.forceSetBalance(address, amount.toString());
@@ -35,7 +35,7 @@ export async function fundFromSudo(
 export async function fundAddressesFromSudo(
     addresses: string[],
     amount: BN,
-    url = (global as any).CREDITCOIN_API_URL
+    url = ALICE_NODE_URL
 ) {
     const { api } = await newApi(url);
     const txs = addresses.map((address) => {
