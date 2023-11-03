@@ -326,7 +326,7 @@
           run: |
             chmod a+x ./target/release/creditcoin-next-node
             ./target/release/creditcoin-next-node \
-              --chain local \
+              --chain dev \
               --validator --alice  --pruning archive \
               --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
               --base-path ./alice-data &
