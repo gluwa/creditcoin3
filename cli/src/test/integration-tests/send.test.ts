@@ -1,4 +1,4 @@
-import { execaCommandSync } from 'execa';
+import { commandSync } from 'execa';
 import { newApi } from '../../api';
 import { parseAmountInternal } from '../../lib/parsing';
 import { signSendAndWatch } from '../../lib/tx';
@@ -20,7 +20,7 @@ describe('Send command', () => {
         );
         await signSendAndWatch(fundTx, api, initAlithKeyring());
 
-        const result = execaCommandSync(
+        const result = commandSync(
             `node dist/index.js send --to 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
             {
                 env: {

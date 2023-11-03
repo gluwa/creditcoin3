@@ -1,4 +1,4 @@
-import { execaCommandSync } from 'execa';
+import { commandSync } from 'execa';
 import { newApi } from '../../api';
 import { initEthKeyringPair } from '../../lib/account/keyring';
 import { parseAmountInternal } from '../../lib/parsing';
@@ -27,7 +27,7 @@ describe('integration test: validator wizard setup', () => {
             await signSendAndWatch(fundTx, api, initEthKeyringPair('//Alice'));
 
             // Run wizard setup with 1k ctc ang to pair with node Bob
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js wizard --amount 1000 --url ${BOB_NODE_URL}`,
                 {
                     env: {

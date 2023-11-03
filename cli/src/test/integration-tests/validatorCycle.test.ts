@@ -1,5 +1,5 @@
 import { mnemonicValidate } from '@polkadot/util-crypto';
-import { execaCommandSync } from 'execa';
+import { commandSync } from 'execa';
 import { newApi } from '../../api';
 import { BN } from '../../lib';
 import { getBalance, printBalance } from '../../lib/balance';
@@ -36,10 +36,10 @@ describe('integration test: validator manual setup', () => {
             const ecdsaFlag = ecdsa ? '--ecdsa' : '';
 
             let stashSecret = // Creating two accounts using `new` should return two valid mnemonic seeds
-                execaCommandSync('node dist/index.js new').stdout.split(
+                commandSync('node dist/index.js new').stdout.split(
                     'Seed phrase: '
                 )[1];
-            let controllerSecret = execaCommandSync(
+            let controllerSecret = commandSync(
                 'node dist/index.js new'
             ).stdout.split('Seed phrase: ')[1];
 
@@ -51,25 +51,19 @@ describe('integration test: validator manual setup', () => {
 
             // Getting the addresses using `show-address` should return two valid addresses
             const stashAddress = parseAddressInternal(
-                execaCommandSync(
-                    `node dist/index.js show-address ${ecdsaFlag}`,
-                    {
-                        env: {
-                            CC_SECRET: stashSecret,
-                        },
-                    }
-                ).stdout.split('Account address: ')[1]
+                commandSync(`node dist/index.js show-address ${ecdsaFlag}`, {
+                    env: {
+                        CC_SECRET: stashSecret,
+                    },
+                }).stdout.split('Account address: ')[1]
             );
 
             const controllerAddress = parseAddressInternal(
-                execaCommandSync(
-                    `node dist/index.js show-address ${ecdsaFlag}`,
-                    {
-                        env: {
-                            CC_SECRET: controllerSecret,
-                        },
-                    }
-                ).stdout.split('Account address: ')[1]
+                commandSync(`node dist/index.js show-address ${ecdsaFlag}`, {
+                    env: {
+                        CC_SECRET: controllerSecret,
+                    },
+                }).stdout.split('Account address: ')[1]
             );
 
             // Funding the stash account should make its balance equal to the amount funded
@@ -83,7 +77,7 @@ describe('integration test: validator manual setup', () => {
 
             // Sending 1k ctc from stash to controller should make the controller balance equal to 1k ctc
             const sendAmount = '1000';
-            execaCommandSync(
+            commandSync(
                 // CLI commands are sent through Bob's node
                 `node dist/index.js send --amount ${sendAmount} --to ${controllerAddress} --url ${BOB_NODE_URL} ${ecdsaFlag}`,
                 {
@@ -104,7 +98,7 @@ describe('integration test: validator manual setup', () => {
             // - make the stash's controller be the controller address
             // - make controller's stash be the stash address
             const bondAmount = '1000';
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js bond --controller ${controllerAddress} --amount ${bondAmount} --url ${BOB_NODE_URL} ${ecdsaFlag}`,
                 {
                     env: {
@@ -135,7 +129,7 @@ describe('integration test: validator manual setup', () => {
 
             // Rotating session keys for the node should return a valid hex string
             const newKeys = parseHexStringInternal(
-                execaCommandSync(
+                commandSync(
                     `node dist/index.js rotate-keys --url ${BOB_NODE_URL}`
                 ).stdout.split('New keys: ')[1]
             );
@@ -143,7 +137,7 @@ describe('integration test: validator manual setup', () => {
             // Setting session keys for the controller should
             // - make the validator (stash) next session keys equal to the new keys
             // - make the new keys appear as the node's session keys
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js set-keys --keys ${newKeys} --url ${BOB_NODE_URL} ${ecdsaFlag}`,
                 {
                     env: {
@@ -162,7 +156,7 @@ describe('integration test: validator manual setup', () => {
             expect(nodeHasKeys).toBe(true);
 
             // Signaling intention to validate should make the validator (stash) appear as waiting
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js validate --commission 1 --url ${BOB_NODE_URL} ${ecdsaFlag}`,
                 {
                     env: {
@@ -215,7 +209,7 @@ describe('integration test: validator manual setup', () => {
             );
             console.log(balanceBeforeRewards.bonded.toString());
 
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js distribute-rewards --url ${BOB_NODE_URL} --validator-id ${stashAddress} --era ${startingEra} ${ecdsaFlag}`,
                 {
                     env: {
@@ -237,7 +231,7 @@ describe('integration test: validator manual setup', () => {
             expect(balanceIncreased).toBe(true);
 
             // After executing the chill commmand, the validator should no longer be active nor waiting
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js chill --url ${BOB_NODE_URL} ${ecdsaFlag}`,
                 {
                     env: {
@@ -255,7 +249,7 @@ describe('integration test: validator manual setup', () => {
             expect(stashStatusAfterChill.waiting).toBe(false);
 
             // After unbonding, the validator should no longer be bonded
-            execaCommandSync(
+            commandSync(
                 // Unbonding defaults to max if it exceeds the bonded amount
                 `node dist/index.js unbond --url ${BOB_NODE_URL} -a 100000 ${ecdsaFlag}`,
                 {
@@ -286,7 +280,7 @@ describe('integration test: validator manual setup', () => {
             console.log('Unbonding period: ', unbondingPeriod);
             await waitEras(unbondingPeriod + 1, aliceApi, true);
 
-            execaCommandSync(
+            commandSync(
                 `node dist/index.js withdraw-unbonded --url ${BOB_NODE_URL} ${ecdsaFlag}`,
                 {
                     env: {

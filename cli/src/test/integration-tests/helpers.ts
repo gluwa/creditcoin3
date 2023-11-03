@@ -6,7 +6,7 @@ import { initEthKeyringPair } from '../../lib/account/keyring';
 import { signSendAndWatch } from '../../lib/tx';
 
 export const ALICE_NODE_URL = (global as any).CREDITCOIN_API_URL;
-export const BOB_NODE_URL = 'ws://localhost:9945';
+export const BOB_NODE_URL = 'ws://localhost:9955';
 
 export async function fundAccounts(amount: BN) {
     const { api } = await newApi((global as any).CREDITCOIN_API_URL);
