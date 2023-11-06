@@ -1,6 +1,5 @@
 import { commandSync } from 'execa';
 import { newApi } from '../../api';
-import { initEthKeyringPair } from '../../lib/account/keyring';
 import { parseAmountInternal } from '../../lib/parsing';
 import { signSendAndWatch } from '../../lib/tx';
 import {

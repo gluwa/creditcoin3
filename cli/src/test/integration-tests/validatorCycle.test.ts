@@ -28,7 +28,7 @@ describe('integration test: validator manual setup', () => {
         // sudo calls and state checks both use Alice's node
         const aliceApi = (await newApi(ALICE_NODE_URL)).api;
 
-        let stashSecret = // Creating two accounts using `new` should return two valid mnemonic seeds
+        const stashSecret = // Creating two accounts using `new` should return two valid mnemonic seeds
             commandSync('node dist/index.js new').stdout.split(
                 'Seed phrase: '
             )[1];
