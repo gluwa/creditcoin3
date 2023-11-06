@@ -1,11 +1,11 @@
-import { ApiPromise, KeyringPair } from '..'
-import { requireEnoughFundsToSend, signSendAndWatch } from '../tx'
+import { ApiPromise, KeyringPair } from '..';
+import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
 
 export interface StakingPalletValidatorPrefs {
     // The validator's commission.
-    commission: number
+    commission: number;
     // Whether or not the validator is accepting more nominations.
-    blocked: boolean
+    blocked: boolean;
 }
 
 export async function validate(
@@ -13,21 +13,23 @@ export async function validate(
     prefs: StakingPalletValidatorPrefs,
     api: ApiPromise
 ) {
-    console.log('Creating validate transaction with params:')
+    console.log('Creating validate transaction with params:');
 
     const preferences: StakingPalletValidatorPrefs = prefs || {
         commission: 0,
         blocked: false,
-    }
+    };
 
-    console.log(`Comission: ${preferences.commission}`)
-    console.log(`Blocked for new nominators: ${preferences.blocked.toString()}`)
+    console.log(`Comission: ${preferences.commission}`);
+    console.log(
+        `Blocked for new nominators: ${preferences.blocked.toString()}`
+    );
 
-    const validateTx = api.tx.staking.validate(preferences)
+    const validateTx = api.tx.staking.validate(preferences);
 
-    await requireEnoughFundsToSend(validateTx, account.address, api)
+    await requireEnoughFundsToSend(validateTx, account.address, api);
 
-    const result = await signSendAndWatch(validateTx, api, account)
+    const result = await signSendAndWatch(validateTx, api, account);
 
-    return result
+    return result;
 }

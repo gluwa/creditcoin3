@@ -1,19 +1,19 @@
-import { Command, OptionValues } from 'commander'
-import { newApi } from '../../api'
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx'
-import { initStashKeyring } from '../../lib/account/keyring'
+import { Command, OptionValues } from 'commander';
+import { newApi } from '../../api';
+import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { initStashKeyring } from '../../lib/account/keyring';
 
 export function makeWithdrawUnbondedCommand() {
-    const cmd = new Command('withdraw-unbonded')
-    cmd.description('Withdraw unbonded funds from a stash account')
-    cmd.action(withdrawUnbondedAction)
-    return cmd
+    const cmd = new Command('withdraw-unbonded');
+    cmd.description('Withdraw unbonded funds from a stash account');
+    cmd.action(withdrawUnbondedAction);
+    return cmd;
 }
 
 async function withdrawUnbondedAction(options: OptionValues) {
-    const { api } = await newApi(options.url)
+    const { api } = await newApi(options.url);
 
-    const controller = await initStashKeyring(options)
+    const controller = await initStashKeyring(options);
 
     // TODO resupport validator status check
     //
@@ -35,16 +35,17 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const slashingSpans = await api.query.staking.slashingSpans(
         controller.address
-    )
+    );
     const slashingSpansCount = slashingSpans.isSome
         ? slashingSpans.unwrap().lastNonzeroSlash
-        : 0
-    const withdrawUnbondTx = api.tx.staking.withdrawUnbonded(slashingSpansCount)
+        : 0;
+    const withdrawUnbondTx =
+        api.tx.staking.withdrawUnbonded(slashingSpansCount);
 
-    await requireEnoughFundsToSend(withdrawUnbondTx, controller.address, api)
+    await requireEnoughFundsToSend(withdrawUnbondTx, controller.address, api);
 
-    const result = await signSendAndWatch(withdrawUnbondTx, api, controller)
+    const result = await signSendAndWatch(withdrawUnbondTx, api, controller);
 
-    console.log(result.info)
-    process.exit(0)
+    console.log(result.info);
+    process.exit(0);
 }
