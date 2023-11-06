@@ -174,25 +174,6 @@ export function makeWizardCommand() {
     return cmd;
 }
 
-function checkControllerBalance(
-    address: string,
-    balance: AccountBalance,
-    amount: BN
-) {
-    if (balance.transferable.lt(amount)) {
-        console.log(
-            'Controller account does not have enough funds to pay transaction fees'
-        );
-        printBalance(balance);
-        console.log(
-            `Please send at least ${toCTCString(
-                amount
-            )} to controller address ${address} and try again.`
-        );
-        process.exit(1);
-    }
-}
-
 function checkStashBalance(
     address: string,
     balance: AccountBalance,
