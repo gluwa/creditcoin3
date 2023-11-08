@@ -3426,6 +3426,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "generate-bags"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "creditcoin-next-runtime",
+ "generate-bags 4.0.0-dev",
+]
+
+[[package]]
+name = "generate-bags"
+version = "4.0.0-dev"
+source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#f60318f68687e601c47de5ad5ca88e2c3f8139a7"
+dependencies = [
+ "chrono",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "num-format",
+ "pallet-staking",
+ "sp-staking",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

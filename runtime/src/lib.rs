@@ -10,6 +10,8 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+mod output;
+
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
 use sp_core::{
@@ -580,12 +582,16 @@ impl frame_election_provider_support::onchain::Config for OnChainSeqPhragmen {
     type Bounds = ElectionBounds;
 }
 
+parameter_types! {
+    pub const BagThresholds: &'static [u64] = &output::THRESHOLDS;
+}
+
 type VoterBagsListInstance = pallet_bags_list::Instance1;
 impl pallet_bags_list::Config<VoterBagsListInstance> for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ScoreProvider = Staking;
     type WeightInfo = ();
-    type BagThresholds = ();
+    type BagThresholds = BagThresholds;
     type Score = u64;
 }
 
