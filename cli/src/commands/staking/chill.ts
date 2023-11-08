@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../api';
 import { chill } from '../../lib/staking/chill';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 // import { getValidatorStatus, requireStatus } from '../utils/validatorStatus'
 
 export function makeChillCommand() {

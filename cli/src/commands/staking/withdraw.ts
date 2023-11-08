@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../api';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 
 export function makeWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');

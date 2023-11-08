@@ -2,7 +2,7 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../api';
 import { parseHexStringOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');

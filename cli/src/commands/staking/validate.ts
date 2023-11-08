@@ -9,7 +9,7 @@ import {
     StakingPalletValidatorPrefs,
     validate,
 } from '../../lib/staking/validate';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 
 export function makeValidateCommand() {
     const cmd = new Command('validate');

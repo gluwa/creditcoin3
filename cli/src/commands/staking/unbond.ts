@@ -12,7 +12,7 @@ import {
     getValidatorStatus,
     requireStatus,
 } from '../../lib/staking';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');

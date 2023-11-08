@@ -17,7 +17,7 @@ import {
     parseChoiceOrExit,
     requiredInput,
 } from '../../lib/parsing';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');

@@ -33,7 +33,7 @@ import {
     signSendAndWatch,
 } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { initCallerKeyring } from 'src/lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
