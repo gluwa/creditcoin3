@@ -1,4 +1,4 @@
-import { ApiPromise, BN, KeyringPair } from '..';
+import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
 
 type RewardDestination = 'Staked' | 'Stash';
@@ -12,10 +12,9 @@ export async function bond(
 ) {
     console.log(`Amount: ${amount.toString()}`);
 
-    // TODO resupport this min amount check
-    // if (amount.lt(new BN(1).mul(new BN(MICROUNITS_PER_CTC)))) {
-    //   throw new Error("Amount to bond must be at least 1");
-    // }
+    if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
+      throw new Error("Amount to bond must be at least 1");
+    }
 
     const amountInMicroUnits = amount;
 
