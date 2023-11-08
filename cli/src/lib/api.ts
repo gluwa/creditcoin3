@@ -12,7 +12,5 @@ export const creditcoinApi = async (
 
     return {
         api,
-        // extrinsics: extrinsics(api),
-        // utils: utils(api)
     };
 };
