@@ -40,6 +40,7 @@ program.commands.forEach((cmd) => {
         'URL for the Substrate node',
         'ws://localhost:9944'
     );
+    cmd.option('--use-private-key', 'Use private key instead of mnemonic')
 });
 
 program.parse(process.argv);

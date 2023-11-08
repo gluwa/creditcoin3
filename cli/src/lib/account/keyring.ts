@@ -29,7 +29,7 @@ export async function initKeyringFromEnvOrPrompt(
     // General configs
     const interactive = options.input;
     const inputName = 'seed phrase';
-    const validateInput = mnemonicValidate;
+    const validateInput = options.usePrivateKey ? () => true : mnemonicValidate;
     const generateKeyring = initEthKeyringPair;
 
     if (!interactive && !process.env[envVar]) {
