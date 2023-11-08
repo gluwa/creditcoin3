@@ -284,6 +284,7 @@ jobs:
       - run: npm install -g yarn
 
       - name: Execute tests
+        working-directory: ./testing
         run: |
           pushd cli/
           yarn install
@@ -316,6 +317,7 @@ jobs:
       - run: npm install -g yarn
 
       - name: Install creditcoin3-cli
+        working-directory: ./testing
         run: |
           pushd cli/
           yarn install
