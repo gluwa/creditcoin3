@@ -12,7 +12,7 @@ import { initStashKeyring } from '../../lib/account/keyring';
 import {
     getValidatorStatus,
     requireStatus,
-} from 'src/lib/staking/validatorStatus';
+} from '../../lib/staking';
 
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');
