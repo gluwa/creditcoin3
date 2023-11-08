@@ -3,8 +3,8 @@ ws|wss://(.*)
 bzz-raw://(.*)
 rpc\.(.*)\.creditcoin\.network/
 staticsitellvmhtml.z13.web.core.windows.net
-thedoctor0/zip-release@0.7.1
-ludeeus/action-shellcheck@2.0.0
+thedoctor0/zip-release@(.*)
+ludeeus/action-shellcheck@(.*)
 https://www.buymeacoffee.com/ricmoo
 git+https://github.com/paritytech/frontier.git
 https://github.com/gluwa/creditcoin-next/security/advisories(.*)
