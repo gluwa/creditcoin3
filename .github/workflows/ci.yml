@@ -284,12 +284,10 @@ jobs:
       - run: npm install -g yarn
 
       - name: Execute tests
-        working-directory: ./testing
+        working-directory: ./cli
         run: |
-          pushd cli/
           yarn install
           yarn test:unit
-          popd
 
       - uses: codecov/codecov-action@v3
         with:
@@ -317,12 +315,10 @@ jobs:
       - run: npm install -g yarn
 
       - name: Install creditcoin3-cli
-        working-directory: ./testing
+        working-directory: ./cli
         run: |
-          pushd cli/
           yarn install
           yarn test:unit
-          popd
 
       - name: Start Node 1
         run: |
