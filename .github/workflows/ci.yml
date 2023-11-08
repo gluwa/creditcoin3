@@ -344,8 +344,8 @@ jobs:
 
       - name: Wait for nodes to start
         run: |
-          ./scripts/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          ./scripts/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
       - name: Run integration tests
         run: |
