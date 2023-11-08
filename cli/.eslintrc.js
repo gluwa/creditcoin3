@@ -86,7 +86,7 @@ module.exports = {
         format: ["strictCamelCase"],
         filter: {
           // you can expand this regex to add more allowed names
-          regex: "^(CC_SECRET|CC_CONTROLLER_SECRET|CC_STASH_SECRET)$",
+          regex: "^(CC_SECRET)$",
           match: false
         }
       }
