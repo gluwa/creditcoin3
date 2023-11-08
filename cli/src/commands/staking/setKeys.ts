@@ -1,8 +1,8 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../api';
-import { initStashKeyring } from '../../lib/account/keyring';
 import { parseHexStringOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { initCallerKeyring } from 'src/lib/account/keyring';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');
@@ -18,7 +18,7 @@ async function setKeysAction(options: OptionValues) {
     const { api } = await newApi(options.url);
 
     // Build account
-    const stash = await initStashKeyring(options);
+    const keyring = await initCallerKeyring(options);
 
     let keys;
     if (!options.keys && !options.rotate) {
@@ -39,9 +39,9 @@ async function setKeysAction(options: OptionValues) {
 
     const tx = api.tx.session.setKeys(keys, '');
 
-    await requireEnoughFundsToSend(tx, stash.address, api);
+    await requireEnoughFundsToSend(tx, keyring.address, api);
 
-    const result = await signSendAndWatch(tx, api, stash);
+    const result = await signSendAndWatch(tx, api, keyring);
 
     console.log(result.info);
 

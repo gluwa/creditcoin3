@@ -8,15 +8,15 @@ import { getBalance } from '../../lib/balance';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { parseAmountOrExit, requiredInput } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initStashKeyring } from '../../lib/account/keyring';
 import {
     getValidatorStatus,
     requireStatus,
 } from '../../lib/staking';
+import { initCallerKeyring } from 'src/lib/account/keyring';
 
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');
-    cmd.description('Schedule a portion of the stash to be unlocked');
+    cmd.description('Schedule a bonded CTC to be unlocked');
     cmd.option('-a, --amount [amount]', 'Amount to send');
     cmd.action(unbondAction);
     return cmd;
@@ -35,19 +35,19 @@ async function unbondAction(options: OptionValues) {
     );
 
     // Build account
-    const stash = await initStashKeyring(options);
+    const caller = await initCallerKeyring(options);
 
-    const status = await getValidatorStatus(stash.address, api);
+    const status = await getValidatorStatus(caller.address, api);
     requireStatus(status, 'bonded');
 
     // // Check if amount specified exceeds total bonded funds
-    await checkIfUnbodingMax(stash.address, amount, api, interactive);
+    await checkIfUnbodingMax(caller.address, amount, api, interactive);
 
     // Unbond transaction
     const tx = api.tx.staking.unbond(amount.toString());
-    await requireEnoughFundsToSend(tx, stash.address, api);
+    await requireEnoughFundsToSend(tx, caller.address, api);
 
-    const result = await signSendAndWatch(tx, api, stash);
+    const result = await signSendAndWatch(tx, api, caller);
 
     console.log(result.info);
     process.exit(0);

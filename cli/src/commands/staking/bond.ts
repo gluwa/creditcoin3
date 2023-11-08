@@ -17,11 +17,11 @@ import {
     parseChoiceOrExit,
     requiredInput,
 } from '../../lib/parsing';
-import { initStashKeyring } from '../../lib/account/keyring';
+import { initCallerKeyring } from 'src/lib/account/keyring';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
-    cmd.description('Bond CTC from a Stash account');
+    cmd.description('Bond CTC in an account');
     cmd.option('-a, --amount [amount]', 'Amount to bond');
     cmd.option(
         '-r, --reward-destination [reward-destination]',
@@ -41,11 +41,11 @@ async function bondAction(options: OptionValues) {
     const { amount, rewardDestination, extra, interactive } =
         parseOptions(options);
 
-    const stashKeyring = await initStashKeyring(options);
-    const stashAddress = stashKeyring.address;
+    const callerKeyring = await initCallerKeyring(options);
+    const callerAddress = callerKeyring.address;
 
-    // Check if stash has enough balance
-    await checkBalance(amount, api, stashAddress);
+    // Check if caller has enough balance
+    await checkBalance(amount, api, callerAddress);
 
     console.log('Creating bond transaction...');
     console.log('Reward destination:', rewardDestination);
@@ -57,7 +57,7 @@ async function bondAction(options: OptionValues) {
     await promptContinue(interactive);
 
     const bondTxResult = await bond(
-        stashKeyring,
+        callerKeyring,
         amount,
         rewardDestination,
         api,
@@ -96,7 +96,7 @@ function parseOptions(options: OptionValues) {
     const rewardDestination = checkRewardDestination(
         parseChoiceOrExit(inputOrDefault(options.rewardDestination, 'Staked'), [
             'Staked',
-            'Stash',
+            'caller',
         ])
     );
 

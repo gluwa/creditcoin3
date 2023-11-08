@@ -6,7 +6,6 @@ import {
     checkRewardDestination,
     BN,
 } from '../../lib';
-import { initStashKeyring } from '../../lib/account/keyring';
 import {
     toCTCString,
     getBalance,
@@ -34,6 +33,7 @@ import {
     signSendAndWatch,
 } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
+import { initCallerKeyring } from 'src/lib/account/keyring';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
@@ -59,9 +59,9 @@ export function makeWizardCommand() {
         // Create new API instance
         const { api } = await newApi(options.url);
 
-        // Generate stash keyring
-        const stashKeyring = await initStashKeyring(options);
-        const stashAddress = stashKeyring.address;
+        // Generate keyring
+        const keyring = await initCallerKeyring(options);
+        const address = keyring.address;
 
         // Validate prefs
         const preferences: StakingPalletValidatorPrefs = {
@@ -76,7 +76,7 @@ export function makeWizardCommand() {
 
         // State parameters being used
         console.log('Using the following parameters:');
-        console.log(`💰 Stash account: ${stashAddress}`);
+        console.log(`💰 Stash account: ${address}`);
         console.log(`🪙 Amount to bond: ${toCTCString(amount)}`);
         console.log(`🎁 Reward destination: ${rewardDestination}`);
         console.log(`📡 Node URL: ${nodeUrl}`);
@@ -89,13 +89,13 @@ export function makeWizardCommand() {
         await promptContinue(interactive);
 
         // get balances.
-        const stashBalance = await getBalance(stashAddress, api);
+        const stashBalance = await getBalance(address, api);
 
         // ensure they have enough fee's and balance to cover the wizard.
         const grosslyEstimatedFee = parseCTCString('2');
 
         const amountWithFee = amount.add(grosslyEstimatedFee);
-        checkStashBalance(stashAddress, stashBalance, amountWithFee);
+        checkStashBalance(address, stashBalance, amountWithFee);
 
         const bondExtra: boolean = checkIfAlreadyBonded(stashBalance);
 
@@ -109,11 +109,11 @@ export function makeWizardCommand() {
                     interactive
                 )
             ) {
-                checkStashBalance(stashAddress, stashBalance, amount);
+                checkStashBalance(address, stashBalance, amount);
                 // Bond extra
                 console.log('Sending bond transaction...');
                 const bondTxResult = await bond(
-                    stashKeyring,
+                    keyring,
                     amount,
                     rewardDestination,
                     api,
@@ -129,7 +129,7 @@ export function makeWizardCommand() {
             // Bond
             console.log('Sending bond transaction...');
             const bondTxResult = await bond(
-                stashKeyring,
+                keyring,
                 amount,
                 rewardDestination,
                 api
@@ -159,9 +159,9 @@ export function makeWizardCommand() {
         const txs = [setKeysTx, validateTx];
 
         const batchTx = api.tx.utility.batchAll(txs);
-        await requireEnoughFundsToSend(batchTx, stashAddress, api);
+        await requireEnoughFundsToSend(batchTx, address, api);
 
-        const batchResult = await signSendAndWatch(batchTx, api, stashKeyring);
+        const batchResult = await signSendAndWatch(batchTx, api, keyring);
 
         console.log(batchResult.info);
 

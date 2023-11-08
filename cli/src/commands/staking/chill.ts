@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../api';
-import { initStashKeyring } from '../../lib/account/keyring';
 import { chill } from '../../lib/staking/chill';
+import { initCallerKeyring } from 'src/lib/account/keyring';
 // import { getValidatorStatus, requireStatus } from '../utils/validatorStatus'
 
 export function makeChillCommand() {
@@ -16,7 +16,7 @@ export function makeChillCommand() {
 async function chillAction(options: OptionValues) {
     const { api } = await newApi(options.url);
 
-    const keyring = await initStashKeyring(options);
+    const keyring = await initCallerKeyring(options);
 
     // TODO resupport validator status check
     //

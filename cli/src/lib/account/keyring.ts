@@ -10,21 +10,6 @@ export function initEthKeyringPair(seed: string, accIndex = 0) {
     return pair;
 }
 
-export async function initStashKeyring(
-    options: OptionValues
-): Promise<KeyringPair> {
-    try {
-        return await initKeyringFromEnvOrPrompt(
-            'CC_STASH_SECRET',
-            'stash',
-            options
-        );
-    } catch (e) {
-        console.error(getErrorMessage(e));
-        process.exit(1);
-    }
-}
-
 export async function initCallerKeyring(
     options: OptionValues
 ): Promise<KeyringPair> {

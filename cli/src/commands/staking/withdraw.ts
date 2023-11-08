@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../api';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initStashKeyring } from '../../lib/account/keyring';
+import { initCallerKeyring } from 'src/lib/account/keyring';
 
 export function makeWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
@@ -13,7 +13,7 @@ export function makeWithdrawUnbondedCommand() {
 async function withdrawUnbondedAction(options: OptionValues) {
     const { api } = await newApi(options.url);
 
-    const controller = await initStashKeyring(options);
+    const keyring = await initCallerKeyring(options);
 
     // TODO resupport validator status check
     //
@@ -34,7 +34,7 @@ async function withdrawUnbondedAction(options: OptionValues) {
     // )
 
     const slashingSpans = await api.query.staking.slashingSpans(
-        controller.address
+        keyring.address
     );
     const slashingSpansCount = slashingSpans.isSome
         ? slashingSpans.unwrap().lastNonzeroSlash
@@ -42,9 +42,9 @@ async function withdrawUnbondedAction(options: OptionValues) {
     const withdrawUnbondTx =
         api.tx.staking.withdrawUnbonded(slashingSpansCount);
 
-    await requireEnoughFundsToSend(withdrawUnbondTx, controller.address, api);
+    await requireEnoughFundsToSend(withdrawUnbondTx, keyring.address, api);
 
-    const result = await signSendAndWatch(withdrawUnbondTx, api, controller);
+    const result = await signSendAndWatch(withdrawUnbondTx, api, keyring);
 
     console.log(result.info);
     process.exit(0);
