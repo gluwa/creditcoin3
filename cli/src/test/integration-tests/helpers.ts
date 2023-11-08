@@ -8,19 +8,6 @@ import { signSendAndWatch } from '../../lib/tx';
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
 
-export async function fundAccounts(amount: BN) {
-    const { api } = await newApi(ALICE_NODE_URL);
-    const stash = randomTestAccount();
-    const controller = randomTestAccount();
-    const tx = await fundAddressesFromSudo(
-        [stash.address, controller.address],
-        amount
-    );
-    await signSendAndWatch(tx, api, initAlithKeyring());
-
-    return { stash, controller };
-}
-
 export async function fundFromSudo(
     address: string,
     amount: BN,

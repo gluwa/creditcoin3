@@ -6,7 +6,7 @@ import { initCallerKeyring } from 'src/lib/account/keyring';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');
-    cmd.description('Set session keys for a stash account');
+    cmd.description('Set session keys for a bonded account');
     cmd.option('-k, --keys [keys]', 'Specify keys to set');
     cmd.option('-r, --rotate', 'Rotate and set new keys');
 

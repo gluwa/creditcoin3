@@ -38,7 +38,7 @@ import { initCallerKeyring } from 'src/lib/account/keyring';
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
     cmd.description(
-        'Run the validator setup wizard. Only requires funded stash and controller accounts.'
+        'Run the validator setup wizard. Only requires funded stash account.'
     );
     cmd.option(
         '-r, --reward-destination [reward-destination]',
@@ -221,7 +221,6 @@ function parseOptions(options: OptionValues) {
         parseChoiceOrExit(inputOrDefault(options.rewardDestination, 'Staked'), [
             'Staked',
             'Stash',
-            'Controller',
         ])
     );
 

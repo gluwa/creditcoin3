@@ -50,7 +50,7 @@ export function parseAmountInternal(input: string): BN {
     }
 }
 
-// Choices must be in Capitalized form: ['Staked', 'Stash', 'Controller']
+// Choices must be in Capitalized form: ['Staked', 'Stash']
 export function parseChoiceInternal(input: string, choices: string[]): string {
     const styled = input.charAt(0).toUpperCase() + input.slice(1).toLowerCase();
     if (!choices.includes(styled)) {
