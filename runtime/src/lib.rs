@@ -26,7 +26,7 @@ use sp_runtime::{
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
     },
-    ApplyExtrinsicResult, ConsensusEngineId, Perbill, Permill, SaturatedConversion,
+    ApplyExtrinsicResult, ConsensusEngineId, MultiSignature, Perbill, Permill, SaturatedConversion,
 };
 use sp_staking::SessionIndex;
 use sp_std::{marker::PhantomData, prelude::*};
@@ -49,7 +49,6 @@ use pallet_grandpa::{
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
-use fp_account::EthereumSignature;
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -57,7 +56,7 @@ use pallet_ethereum::{
     TransactionData,
 };
 use pallet_evm::{
-    Account as EVMAccount, EnsureAccountId20, FeeCalculator, IdentityAddressMapping, Runner,
+    Account as EVMAccount, EnsureAddressTruncated, FeeCalculator, HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -65,6 +64,7 @@ use pallet_session::historical as session_historical;
 pub use frame_system::Call as SystemCall;
 pub use pallet_babe::AuthorityId as BabeId;
 pub use pallet_balances::Call as BalancesCall;
+pub use pallet_evm;
 pub use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
@@ -77,7 +77,7 @@ use precompiles::FrontierPrecompiles;
 pub type BlockNumber = u32;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = EthereumSignature;
+pub type Signature = MultiSignature;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
@@ -100,6 +100,8 @@ pub type Hash = H256;
 
 /// Digest item type.
 pub type DigestItem = generic::DigestItem;
+
+pub type AddressMapping = HashedAddressMapping<BlakeTwo256>;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -376,9 +378,9 @@ impl pallet_evm::Config for Runtime {
     type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
     type WeightPerGas = WeightPerGas;
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
-    type CallOrigin = EnsureAccountId20;
-    type WithdrawOrigin = EnsureAccountId20;
-    type AddressMapping = IdentityAddressMapping;
+    type CallOrigin = EnsureAddressTruncated;
+    type WithdrawOrigin = EnsureAddressTruncated;
+    type AddressMapping = AddressMapping;
     type Currency = Balances;
     type RuntimeEvent = RuntimeEvent;
     type PrecompilesType = FrontierPrecompiles<Self>;
@@ -439,7 +441,7 @@ impl pallet_base_fee::Config for Runtime {
 }
 
 impl pallet_hotfix_sufficients::Config for Runtime {
-    type AddressMapping = IdentityAddressMapping;
+    type AddressMapping = AddressMapping;
     type WeightInfo = pallet_hotfix_sufficients::weights::SubstrateWeight<Self>;
 }
 

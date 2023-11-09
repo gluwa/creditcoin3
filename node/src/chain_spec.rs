@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, str::FromStr};
+use std::{
+    collections::{BTreeMap, HashSet},
+    str::FromStr,
+};
 
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
@@ -8,7 +11,7 @@ use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
 use sp_core::ecdsa;
-use sp_core::{storage::Storage, Pair, Public, H160, U256};
+use sp_core::{sr25519, storage::Storage, Pair, Public, H160, U256};
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
     Perbill,
@@ -16,8 +19,9 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, AccountId, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
-    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
+    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping, BabeConfig,
+    Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig, SS58Prefix, SessionConfig,
+    Signature, StakingConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -74,7 +78,7 @@ type AuthorityKeys = (AccountId, GrandpaId, BabeId, ImOnlineId);
 /// Generate authority keys.
 pub fn authority_keys_from_seed(s: &str) -> AuthorityKeys {
     (
-        get_account_id_from_seed::<sp_core::ecdsa::Public>(s),
+        get_account_id_from_seed::<sr25519::Public>(s),
         get_from_seed::<GrandpaId>(s),
         get_from_seed::<BabeId>(s),
         get_from_seed::<ImOnlineId>(s),
@@ -94,6 +98,11 @@ fn properties() -> Properties {
     properties.insert("tokenDecimals".into(), 18.into());
     properties.insert("ss58Format".into(), SS58Prefix::get().into());
     properties
+}
+
+fn account_id(bytes: [u8; 20]) -> AccountId {
+    let address = H160::from(bytes);
+    AddressMapping::into_account_id(address)
 }
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
@@ -116,15 +125,17 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                 genesis_config: testnet_genesis(
                     wasm_binary,
                     // Sudo account (Alith)
-                    AccountId::from(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
+                    account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
                     // Pre-funded accounts
                     vec![
-                        AccountId::from(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
-                        AccountId::from(hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0")), // Baltathar
-                        AccountId::from(hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc")), // Charleth
-                        AccountId::from(hex!("773539d4Ac0e786233D90A233654ccEE26a613D9")), // Dorothy
-                        AccountId::from(hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB")), // Ethan
-                        AccountId::from(hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d")), // Faith
+                        account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
+                        account_id(hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0")), // Baltathar
+                        account_id(hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc")), // Charleth
+                        account_id(hex!("773539d4Ac0e786233D90A233654ccEE26a613D9")), // Dorothy
+                        account_id(hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB")), // Ethan
+                        account_id(hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d")), // Faith
+                        get_account_id_from_seed::<sr25519::Public>("Alice"),
+                        get_account_id_from_seed::<sr25519::Public>("Bob"),
                     ],
                     // Initial PoA authorities
                     vec![authority_keys_from_seed("Alice")],
@@ -163,21 +174,21 @@ pub fn local_testnet_config() -> ChainSpec {
                 wasm_binary,
                 // Initial PoA authorities
                 // Sudo account (Alith)
-                AccountId::from(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
+                account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
                 // Pre-funded accounts
                 vec![
-                    AccountId::from(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
-                    AccountId::from(hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0")), // Baltathar
-                    AccountId::from(hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc")), // Charleth
-                    AccountId::from(hex!("773539d4Ac0e786233D90A233654ccEE26a613D9")), // Dorothy
-                    AccountId::from(hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB")), // Ethan
-                    AccountId::from(hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d")), // Faith
+                    account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
+                    account_id(hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0")), // Baltathar
+                    account_id(hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc")), // Charleth
+                    account_id(hex!("773539d4Ac0e786233D90A233654ccEE26a613D9")), // Dorothy
+                    account_id(hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB")), // Ethan
+                    account_id(hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d")), // Faith
                 ],
                 vec![
                     authority_keys_from_seed("Alice"),
                     authority_keys_from_seed("Bob"),
                 ],
-                42,
+                SS58Prefix::get() as u64,
             )
         },
         // Bootnodes
@@ -189,7 +200,7 @@ pub fn local_testnet_config() -> ChainSpec {
         // Fork ID
         None,
         // Properties
-        None,
+        Some(properties()),
         // Extensions
         None,
     )
@@ -227,7 +238,9 @@ fn testnet_genesis(
             balances: endowed_accounts
                 .iter()
                 .cloned()
-                .chain(initial_authorities.iter().map(|x| x.0))
+                .chain(initial_authorities.iter().map(|x| x.0.clone()))
+                .collect::<HashSet<_>>()
+                .into_iter()
                 .map(|k| (k, ENDOWMENT))
                 .collect(),
         },
@@ -246,8 +259,8 @@ fn testnet_genesis(
                 .iter()
                 .map(|(acct, grandpa, babe, imon)| {
                     (
-                        *acct,
-                        *acct,
+                        acct.clone(),
+                        acct.clone(),
                         session_keys(grandpa.clone(), babe.clone(), imon.clone()),
                     )
                 })
@@ -260,14 +273,14 @@ fn testnet_genesis(
                 .iter()
                 .map(|x| {
                     (
-                        x.0,
-                        x.0,
+                        x.0.clone(),
+                        x.0.clone(),
                         STASH,
                         creditcoin3_runtime::StakerStatus::Validator,
                     )
                 })
                 .collect(),
-            invulnerables: initial_authorities.iter().map(|x| x.0).collect(),
+            invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
             slash_reward_fraction: Perbill::from_percent(10),
             ..Default::default()
         },
