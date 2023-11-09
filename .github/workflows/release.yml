@@ -108,9 +108,9 @@ jobs:
         with:
           type: "zip"
           directory: "target/release/"
-          path: "creditcoin-next-node*"
+          path: "creditcoin3-node*"
           filename: "../../creditcoin-${{ env.TAG_NAME }}-${{ env.PLATFORM }}.zip"
-          exclusions: "creditcoin-next-node.d"
+          exclusions: "creditcoin3-node.d"
 
       - name: Compress MacOS aarch64 target
         if: matrix.operating-system == 'macos-11'
@@ -118,9 +118,9 @@ jobs:
         with:
           type: "zip"
           directory: "target/aarch64-apple-darwin/release/"
-          path: "creditcoin-next-node*"
+          path: "creditcoin3-node*"
           filename: "../../../creditcoin-${{ env.TAG_NAME }}-aarch64-apple-darwin.zip"
-          exclusions: "creditcoin-next-node.d"
+          exclusions: "creditcoin3-node.d"
 
       - name: Upload binary
         uses: actions/upload-artifact@v3
@@ -148,7 +148,7 @@ jobs:
         with:
           chain: "creditcoin"
           runtime_dir: runtime
-          package: creditcoin-next-runtime
+          package: creditcoin3-runtime
           tag: "1.70.0"
           workdir: ${{ github.workspace }}
 
@@ -184,16 +184,16 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin-next:${{ env.TAG_NAME }} .
+          docker build -t gluwa/creditcoin3:${{ env.TAG_NAME }} .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
-          docker push gluwa/creditcoin-next:${{ env.TAG_NAME }}
+          docker push gluwa/creditcoin3:${{ env.TAG_NAME }}
 
           # only -mainnet images are tagged as :latest
           # shellcheck disable=SC2046,SC2143
           if [ $(echo "${{ env.TAG_NAME}}" | grep "mainnet") ]; then
-              docker tag gluwa/creditcoin-next:${{ env.TAG_NAME }} gluwa/creditcoin-next:latest
-              docker push gluwa/creditcoin-next:latest
+              docker tag gluwa/creditcoin3:${{ env.TAG_NAME }} gluwa/creditcoin3:latest
+              docker push gluwa/creditcoin3:latest
           fi
 
           docker logout

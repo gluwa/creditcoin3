@@ -8,12 +8,12 @@
 
 set -ex
 
-HEAD_BIN=./target/release/creditcoin-next-node
+HEAD_BIN=./target/release/creditcoin3-node
 HEAD_WS=ws://localhost:9944
 RELEASE_WS=ws://localhost:9955
 
 runtimes=(
-  "creditcoin-next-runtime"
+  "creditcoin3-runtime"
 )
 
 # First we fetch the latest released binary
@@ -27,9 +27,9 @@ latest_release_url() {
   curl --silent --header "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$1/releases/latest" | jq -r '.url'
 }
 
-latest_tag=$(latest_release_tag 'gluwa/creditcoin-next')
-latest_url=$(latest_release_url 'gluwa/creditcoin-next')
-RELEASE_BIN="./creditcoin-next-node"
+latest_tag=$(latest_release_tag 'gluwa/creditcoin3')
+latest_url=$(latest_release_url 'gluwa/creditcoin3')
+RELEASE_BIN="./creditcoin3-node"
 echo "[+] Fetching binary for Creditcoin version $latest_tag"
 # WARNING: $GITHUB_TOKEN must be defined in the calling environment because this is a private repository
 asset_url=$(curl --silent --header "Authorization: Bearer $GITHUB_TOKEN" \

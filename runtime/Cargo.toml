@@ -1,5 +1,5 @@
 [package]
-name = "creditcoin-next-runtime"
+name = "creditcoin3-runtime"
 version = "0.0.0"
 license = "Unlicense"
 description = "CreditcoinNext Runtime"

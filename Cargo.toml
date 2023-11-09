@@ -8,7 +8,7 @@ authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
 publish = false
-repository = "https://github.com/gluwa/creditcoin-next/"
+repository = "https://github.com/gluwa/creditcoin3/"
 
 [workspace.dependencies]
 async-trait = "0.1"
@@ -169,7 +169,7 @@ pallet-hotfix-sufficients = { version = "1.0.0", git = "https://github.com/parit
 precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "polkadot-v1.1.0", default-features = false }
 
 # Gluwa
-creditcoin-next-runtime = { path = "runtime", default-features = false }
+creditcoin3-runtime = { path = "runtime", default-features = false }
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [

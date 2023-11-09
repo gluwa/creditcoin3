@@ -1466,12 +1466,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "creditcoin-next-node"
+name = "creditcoin3-node"
 version = "0.0.0"
 dependencies = [
  "async-trait",
  "clap",
- "creditcoin-next-runtime",
+ "creditcoin3-runtime",
  "fc-api",
  "fc-cli",
  "fc-consensus",
@@ -1539,7 +1539,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "creditcoin-next-runtime"
+name = "creditcoin3-runtime"
 version = "0.0.0"
 dependencies = [
  "fp-account",

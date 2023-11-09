@@ -7,5 +7,5 @@ thedoctor0/zip-release@(.*)
 ludeeus/action-shellcheck@(.*)
 https://www.buymeacoffee.com/ricmoo
 git+https://github.com/paritytech/frontier.git
-https://github.com/gluwa/creditcoin-next/security/advisories(.*)
+https://github.com/gluwa/creditcoin3/security/advisories(.*)
 https://gitcoin.co/grants/13/ethersjs-complete-simple-and-tiny-2

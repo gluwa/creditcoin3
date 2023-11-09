@@ -22,7 +22,7 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin-next .
+          docker build -t gluwa/creditcoin3 .
 
   sanity-tests:
     runs-on: ubuntu-latest
@@ -215,13 +215,13 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: creditcoin-node
-          path: target/release/creditcoin-next-node
+          path: target/release/creditcoin3-node
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v3
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm
-          path: target/release/wbuild/creditcoin-next-runtime/creditcoin_next_runtime.compact.compressed.wasm
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
   integration-test-smart-contract:
     needs:
@@ -243,8 +243,8 @@ jobs:
 
       - name: Start Node 1 - Alice
         run: |
-          chmod a+x ./target/release/creditcoin-next-node
-          ./target/release/creditcoin-next-node \
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
             --dev --validator --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data &
@@ -293,7 +293,7 @@ jobs:
       - name: Run Extrinsics Ordering
         shell: bash
         run: |
-          chmod a+x ./target/release/creditcoin-next-node
+          chmod a+x ./target/release/creditcoin3-node
           ./.github/check-extrinsics.sh
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
@@ -346,7 +346,7 @@ jobs:
       - name: Run cargo audit
         run: |
           cargo audit || true
-          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin-next-node" || true)
+          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin3-node" || true)
 
           # fail for anything which is a 1st level dependency of Creditcoin
           if [ -n "$CC_MATCH" ]; then
