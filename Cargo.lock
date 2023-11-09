@@ -1480,7 +1480,6 @@ dependencies = [
  "fc-rpc",
  "fc-rpc-core",
  "fc-storage",
- "fp-account",
  "fp-dynamic-fee",
  "fp-evm",
  "fp-rpc",
@@ -1542,7 +1541,6 @@ dependencies = [
 name = "creditcoin3-runtime"
 version = "3.4.2"
 dependencies = [
- "fp-account",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",
