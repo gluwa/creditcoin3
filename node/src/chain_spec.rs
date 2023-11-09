@@ -353,7 +353,7 @@ fn testnet_genesis(
                 let one_mil = U256::from_str("0xd3c21bcecceda1000000").unwrap();
                 for acct in endowed_evm_accounts {
                     let acct = H160::from(acct);
-                    map.insert(acct, genesis_account(one_mil.clone()));
+                    map.insert(acct, genesis_account(one_mil));
                 }
                 map
             },
