@@ -8,7 +8,7 @@ Only the latest Creditcoin node version will receive patches for known vulnerabi
 
 **DO NOT CREATE AN ISSUE** to report a security problem.
 
-Go to [https://github.com/gluwa/creditcoin-next/security/advisories/new](https://github.com/gluwa/creditcoin-next/security/advisories/new) and open a vulnerability report. Send an email to [security@gluwa.com](mailto:security@gluwa.com) and provide your GitHub username. The team will triage the issue from there.
+Go to [https://github.com/gluwa/creditcoin3/security/advisories/new](https://github.com/gluwa/creditcoin3/security/advisories/new) and open a vulnerability report. Send an email to [security@gluwa.com](mailto:security@gluwa.com) and provide your GitHub username. The team will triage the issue from there.
 
 For security reasons, DO NOT include attachments or provide detail sufficient for exploitation regarding the security issue in this email. Instead, wait for the advisory to be created, and **provide any sensitive details in the private GitHub advisory**.
 
@@ -25,7 +25,7 @@ As above, please DO NOT include attachments or provide detail regarding the secu
 ## Incident Response Process
 
 1. Establish a new draft security advisory
-   1. In response to an email to [security@gluwa.com](mailto:security@gluwa.com), a member of the Creditcoin team will create a new draft security advisory for the incident at [https://github.com/gluwa/creditcoin-next/security/advisories](https://github.com/gluwa/creditcoin-next/security/advisories).
+   1. In response to an email to [security@gluwa.com](mailto:security@gluwa.com), a member of the Creditcoin team will create a new draft security advisory for the incident at [https://github.com/gluwa/creditcoin3/security/advisories](https://github.com/gluwa/creditcoin3/security/advisories).
    2. Add the reporter's GitHub account and relevant individuals to the draft security advisory.
    3. Respond to the reporter by email, sharing a link to the draft security advisory.
 2. Reporter should add appropriate content to the draft security advisory to help the team resolve the issue. This includes:

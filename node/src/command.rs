@@ -177,7 +177,7 @@ pub fn run() -> sc_cli::Result<()> {
             use crate::benchmarking::{
                 inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder,
             };
-            use creditcoin_next_runtime::{Block, ExistentialDeposit};
+            use creditcoin3_runtime::{Block, ExistentialDeposit};
             use frame_benchmarking_cli::{
                 BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE,
             };

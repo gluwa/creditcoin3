@@ -29,16 +29,16 @@ cargo build --release
 To execute the chain, run:
 
 ```bash
-./target/release/creditcoin-next-node --dev
+./target/release/creditcoin3-node --dev
 ```
 
 The node also supports to use manual seal (to produce block manually through RPC).  
 This is also used by the ts-tests:
 
 ```bash
-$ ./target/release/creditcoin-next-node --dev --sealing=manual
+$ ./target/release/creditcoin3-node --dev --sealing=manual
 # Or
-$ ./target/release/creditcoin-next-node --dev --sealing=instant
+$ ./target/release/creditcoin3-node --dev --sealing=instant
 ```
 
 ### Docker Based Development

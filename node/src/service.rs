@@ -17,7 +17,7 @@ use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
 // Runtime
-use creditcoin_next_runtime::{opaque::Block, Hash, TransactionConverter};
+use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
 
 use crate::{
     cli::Sealing,
@@ -743,7 +743,7 @@ where
             inherent_data: &mut sp_inherents::InherentData,
         ) -> Result<(), sp_inherents::Error> {
             TIMESTAMP.with(|x| {
-                *x.borrow_mut() += creditcoin_next_runtime::SLOT_DURATION;
+                *x.borrow_mut() += creditcoin3_runtime::SLOT_DURATION;
                 inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &*x.borrow())
             })
         }
@@ -803,7 +803,7 @@ pub async fn build_full(
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full::<creditcoin_next_runtime::RuntimeApi, TemplateRuntimeExecutor>(
+    new_full::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>(
         config, eth_config, sealing,
     )
     .await
@@ -830,7 +830,7 @@ pub fn new_chain_ops(
         task_manager,
         other,
         ..
-    } = new_partial::<creditcoin_next_runtime::RuntimeApi, TemplateRuntimeExecutor, _>(
+    } = new_partial::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor, _>(
         config,
         eth_config,
         build_babe_grandpa_import_queue,

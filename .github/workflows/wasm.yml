@@ -21,7 +21,7 @@ jobs:
         with:
           chain: "creditcoin"
           runtime_dir: runtime
-          package: creditcoin-next-runtime
+          package: creditcoin3-runtime
           workdir: ${{ github.workspace }}
           tag: "1.70.0"
       - name: Summary

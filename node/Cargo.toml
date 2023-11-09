@@ -1,5 +1,5 @@
 [package]
-name = "creditcoin-next-node"
+name = "creditcoin3-node"
 version = "0.0.0"
 license = "Unlicense"
 build = "build.rs"
@@ -86,7 +86,7 @@ fp-evm = { workspace = true, features = ["default"] }
 fp-rpc = { workspace = true, features = ["default"] }
 
 # Gluwa
-creditcoin-next-runtime = { workspace = true, features = [
+creditcoin3-runtime = { workspace = true, features = [
 	"std",
 ], optional = true }
 
@@ -94,7 +94,7 @@ creditcoin-next-runtime = { workspace = true, features = [
 substrate-build-script-utils = { workspace = true }
 
 [features]
-default = ["creditcoin-next-runtime", "rocksdb", "sql", "txpool"]
+default = ["creditcoin3-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
 	"sc-cli/rocksdb",
 	"sc-service/rocksdb",
@@ -110,5 +110,5 @@ runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-benchmarking-cli/runtime-benchmarks",
 	"sc-service/runtime-benchmarks",
-	"creditcoin-next-runtime/runtime-benchmarks",
+	"creditcoin3-runtime/runtime-benchmarks",
 ]
