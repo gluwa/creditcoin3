@@ -1,13 +1,15 @@
 [package]
 name = "creditcoin3-node"
-version = "0.0.0"
-license = "Unlicense"
-build = "build.rs"
-description = "CreditcoinNext"
-publish = false
+description = "Creditcoin3"
+
 authors = { workspace = true }
 edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
+version = { workspace = true }
+
+build = "build.rs"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
