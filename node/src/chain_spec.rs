@@ -19,9 +19,8 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping, BabeConfig,
-    Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig, SS58Prefix, SessionConfig,
-    Signature, StakingConfig, WASM_BINARY,
+    opaque::SessionKeys, AccountId, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
+    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -100,11 +99,6 @@ fn properties() -> Properties {
     properties
 }
 
-fn account_id(bytes: [u8; 20]) -> AccountId {
-    let address = H160::from(bytes);
-    AddressMapping::into_account_id(address)
-}
-
 const UNITS: Balance = 1_000_000_000_000_000_000;
 
 pub fn devnet_config() -> Result<ChainSpec, String> {
@@ -124,18 +118,24 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
             DevGenesisExt {
                 genesis_config: testnet_genesis(
                     wasm_binary,
-                    // Sudo account (Alith)
-                    account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
+                    // Sudo account (Alice)
+                    get_account_id_from_seed::<sr25519::Public>("Alice"),
                     // Pre-funded accounts
                     vec![
-                        account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
-                        account_id(hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0")), // Baltathar
-                        account_id(hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc")), // Charleth
-                        account_id(hex!("773539d4Ac0e786233D90A233654ccEE26a613D9")), // Dorothy
-                        account_id(hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB")), // Ethan
-                        account_id(hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d")), // Faith
                         get_account_id_from_seed::<sr25519::Public>("Alice"),
                         get_account_id_from_seed::<sr25519::Public>("Bob"),
+                        get_account_id_from_seed::<sr25519::Public>("Charlie"),
+                        get_account_id_from_seed::<sr25519::Public>("Dave"),
+                        get_account_id_from_seed::<sr25519::Public>("Eve"),
+                        get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                    ],
+                    vec![
+                        hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+                        hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+                        hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+                        hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+                        hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+                        hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
                     ],
                     // Initial PoA authorities
                     vec![authority_keys_from_seed("Alice")],
@@ -173,16 +173,24 @@ pub fn local_testnet_config() -> ChainSpec {
             testnet_genesis(
                 wasm_binary,
                 // Initial PoA authorities
-                // Sudo account (Alith)
-                account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
+                // Sudo account (Alice)
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
                 // Pre-funded accounts
                 vec![
-                    account_id(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
-                    account_id(hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0")), // Baltathar
-                    account_id(hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc")), // Charleth
-                    account_id(hex!("773539d4Ac0e786233D90A233654ccEE26a613D9")), // Dorothy
-                    account_id(hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB")), // Ethan
-                    account_id(hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d")), // Faith
+                    get_account_id_from_seed::<sr25519::Public>("Alice"),
+                    get_account_id_from_seed::<sr25519::Public>("Bob"),
+                    get_account_id_from_seed::<sr25519::Public>("Charlie"),
+                    get_account_id_from_seed::<sr25519::Public>("Dave"),
+                    get_account_id_from_seed::<sr25519::Public>("Eve"),
+                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                ],
+                vec![
+                    hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+                    hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+                    hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+                    hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+                    hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+                    hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
                 ],
                 vec![
                     authority_keys_from_seed("Alice"),
@@ -206,11 +214,21 @@ pub fn local_testnet_config() -> ChainSpec {
     )
 }
 
+fn genesis_account(balance: U256) -> fp_evm::GenesisAccount {
+    fp_evm::GenesisAccount {
+        nonce: U256::from(0),
+        balance,
+        storage: Default::default(),
+        code: Default::default(),
+    }
+}
+
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
     wasm_binary: &[u8],
     sudo_key: AccountId,
     endowed_accounts: Vec<AccountId>,
+    endowed_evm_accounts: Vec<[u8; 20]>,
     initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
 ) -> RuntimeGenesisConfig {
@@ -332,6 +350,11 @@ fn testnet_genesis(
                         code: vec![0x00],
                     },
                 );
+                let one_mil = U256::from_str("0xd3c21bcecceda1000000").unwrap();
+                for acct in endowed_evm_accounts {
+                    let acct = H160::from(acct);
+                    map.insert(acct, genesis_account(one_mil.clone()));
+                }
                 map
             },
             ..Default::default()
