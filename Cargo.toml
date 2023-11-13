@@ -1,5 +1,5 @@
 [workspace]
-members = ["node", "runtime"]
+members = ["node", "pallets/bridge", "runtime"]
 resolver = "2"
 
 [workspace.package]
