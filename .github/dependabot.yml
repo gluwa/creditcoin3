@@ -41,3 +41,12 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+
+  # Maintain dependencies for Node.js
+  - package-ecosystem: "npm"
+    directory: "/cli"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
