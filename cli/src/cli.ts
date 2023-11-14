@@ -1,3 +1,3 @@
 #!/usr/bin/env node
 
-console.log('CLI still under development!')
+console.log('CLI still under development!');
