@@ -1,0 +1,28 @@
+{
+    "compilerOptions": {
+        "target": "es2017",
+        "module": "commonjs",
+        "declaration": true,
+        "outDir": "./dist",
+        "strict": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "baseUrl": ".",
+        "paths": {
+            "@polkadot/api/augment": ["src/lib/interfaces/augment-api.ts"],
+            "@polkadot/types/augment": ["src/lib/interfaces/augment-types.ts"],
+            "@polkadot/types/lookup": ["src/lib/interfaces/types-lookup.ts"]
+        },
+        "resolveJsonModule": true
+    },
+    "include": ["src", "src/examples/ethless/contracts/**/*.json"],
+    "exclude": ["node_modules", "**/__tests__/*"],
+
+    "ts-node": {
+        "require": ["tsconfig-paths/register"],
+        "compilerOptions": {
+            "rootDir": "."
+        }
+    }
+}
