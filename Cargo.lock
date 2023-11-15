@@ -1467,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -1539,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "fp-evm",
  "fp-rpc",
