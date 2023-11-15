@@ -367,3 +367,28 @@ jobs:
         uses: ludeeus/action-shellcheck@2.0.0
         env:
           SHELLCHECK_OPTS: -e SC2002 # allow useless cat commands
+
+  javascript-checks:
+    name: javascript-${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        directory:
+          [cli]
+        command:
+          [lint, typecheck, check-format]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 16
+      - run: npm install -g yarn
+
+      - name: Run tools
+        working-directory: ${{ matrix.directory }}
+        run: |
+          yarn install
+          yarn ${{ matrix.command }}
