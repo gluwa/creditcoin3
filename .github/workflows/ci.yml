@@ -154,32 +154,11 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v2
 
-      - name: Configure flags for collecting coverage
-        run: |
-          # shellcheck disable=SC2129
-          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
-          echo "RUSTFLAGS=-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests" >> "$GITHUB_ENV"
-          echo "RUSTDOCFLAGS=-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests" >> "$GITHUB_ENV"
-
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
-        env:
-          CARGO_INCREMENTAL: ${{ env.CARGO_INCREMENTAL }}
-          RUSTFLAGS: ${{ env.RUSTFLAGS }}
-          RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }}
-      - id: coverage
-        uses: actions-rs/grcov@v0.1
-        with:
-          config: .grcov.yml
-
-      - uses: codecov/codecov-action@v3
-        with:
-          files: ${{ steps.coverage.outputs.report }}
-          fail_ci_if_error: false
-          verbose: true
 
   build-creditcoin-node:
     runs-on: ubuntu-22.04
