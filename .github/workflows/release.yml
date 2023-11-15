@@ -142,6 +142,11 @@ jobs:
           TAG_NAME=$(git describe --tag)
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
 
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
       - name: Build WASM runtime
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
@@ -149,7 +154,7 @@ jobs:
           chain: "creditcoin"
           runtime_dir: runtime
           package: creditcoin3-runtime
-          tag: "1.73.0"
+          tag: ${{ env.RUSTC_VERSION }}
           workdir: ${{ github.workspace }}
 
       - name: DEBUG
