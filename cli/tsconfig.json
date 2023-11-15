@@ -16,7 +16,7 @@
         },
         "resolveJsonModule": true
     },
-    "exclude": ["node_modules", "**/__tests__/*"],
+    "exclude": ["node_modules", "**/__tests__/*", "dist"],
 
     "ts-node": {
         "require": ["tsconfig-paths/register"],
