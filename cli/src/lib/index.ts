@@ -1,5 +1,8 @@
 export * from './api';
-export * from './types';
+export * from './constants';
+export * from './staking';
+
+export { Wallet, FixedNumber, Provider, parseUnits } from 'ethers';
 
 export { ApiPromise, WsProvider, Keyring } from '@polkadot/api';
 export { Option, Vec, Bytes } from '@polkadot/types';
