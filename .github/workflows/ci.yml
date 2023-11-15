@@ -24,6 +24,9 @@ jobs:
         run: |
           docker build -t gluwa/creditcoin3 .
 
+    # TODO: sanity check that container includes a creditcoin3 binary once
+    # work on CSUB-857 starts
+
   sanity-tests:
     runs-on: ubuntu-latest
     steps:
