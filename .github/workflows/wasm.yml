@@ -23,7 +23,7 @@ jobs:
           runtime_dir: runtime
           package: creditcoin3-runtime
           workdir: ${{ github.workspace }}
-          tag: "1.70.0"
+          tag: "1.73.0"
       - name: Summary
         run: |
           echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json

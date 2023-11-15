@@ -149,7 +149,7 @@ jobs:
           chain: "creditcoin"
           runtime_dir: runtime
           package: creditcoin3-runtime
-          tag: "1.70.0"
+          tag: "1.73.0"
           workdir: ${{ github.workspace }}
 
       - name: DEBUG
