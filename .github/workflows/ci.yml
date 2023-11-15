@@ -37,6 +37,30 @@ jobs:
         run: |
           ./.github/check-for-used-forks.sh
 
+  sanity-test-cli:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install creditcoin3-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Execute creditcoin3 command
+        run: |
+          # this makes sure we have a creditcoin3 entrypoint in the standard PATH
+          which creditcoin3
+          creditcoin3 help
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-22.04
