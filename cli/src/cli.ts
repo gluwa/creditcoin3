@@ -36,7 +36,7 @@ program
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
     cmd.option('-u, --url [url]', 'URL for the Substrate node', 'ws://localhost:9944');
-    cmd.option('--use-private-key', 'Use private key instead of mnemonic');
+    cmd.option('--use-ecdsa', 'Use ECDSA and a private key instead of a mnemonic phrase');
 });
 
 program.parse(process.argv);

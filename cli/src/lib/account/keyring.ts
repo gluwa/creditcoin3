@@ -37,9 +37,9 @@ export async function initKeyringFromEnvOrPrompt(
 ): Promise<KeyringPair> {
     // General configs
     const interactive = options.input;
-    const inputName = 'seed phrase';
-    const validateInput = options.usePrivateKey ? () => true : mnemonicValidate;
-    const generateKeyring = initEthKeyringPair;
+    const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
+    const validateInput = options.useEcdsa ? () => true : mnemonicValidate;
+    const generateKeyring = options.useEcdsa ? initECDSAKeyringPairFromPK : initKeyringPair;
 
     if (!interactive && !process.env[envVar]) {
         throw new Error(
@@ -66,7 +66,7 @@ export async function initKeyringFromEnvOrPrompt(
         // If SIGTERM is issued while prompting, it will log a bogus address anyways and exit without error.
         // To avoid this, we check if prompt was successful, before returning.
         if (promptResult.seed) {
-            return generateKeyring(promptResult.seed, options.index as number);
+            return generateKeyring(promptResult.seed);
         }
     }
     throw new Error(`Error: Could not retrieve ${inputName}`);
