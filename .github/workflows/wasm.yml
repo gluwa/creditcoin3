@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
       - name: Srtool build
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
@@ -23,7 +29,7 @@ jobs:
           runtime_dir: runtime
           package: creditcoin3-runtime
           workdir: ${{ github.workspace }}
-          tag: "1.73.0"
+          tag: ${{ env.RUSTC_VERSION }}
       - name: Summary
         run: |
           echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
