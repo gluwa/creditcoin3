@@ -3427,7 +3427,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "0.1.0"
+version = "3.4.1"
 dependencies = [
  "clap",
  "creditcoin-next-runtime",
