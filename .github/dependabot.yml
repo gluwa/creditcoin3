@@ -34,6 +34,11 @@ updates:
     schedule:
       interval: "monthly"
 
+  - package-ecosystem: "cargo"
+    directory: "/runtime/generate-bags"
+    schedule:
+      interval: "monthly"
+
   - package-ecosystem: "npm"
     directory: "/testing"
     schedule:
