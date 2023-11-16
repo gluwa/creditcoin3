@@ -1467,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.5.1"
+version = "3.6.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1539,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.5.1"
+version = "3.6.0"
 dependencies = [
  "fp-evm",
  "fp-rpc",
@@ -3427,10 +3427,10 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.4.1"
+version = "3.6.0"
 dependencies = [
  "clap",
- "creditcoin-next-runtime",
+ "creditcoin3-runtime",
  "generate-bags 4.0.0-dev",
 ]
 
