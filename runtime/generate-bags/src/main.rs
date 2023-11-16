@@ -28,14 +28,14 @@ fn main() -> Result<(), std::io::Error> {
         output,
     } = Cli::parse();
 
-    let issuance_ctc = total_issuance * creditcoin_next_runtime::CTC * 1_000_000;
+    let issuance_ctc = total_issuance * creditcoin3_runtime::CTC * 1_000_000;
 
     println!(
         "Issuance ctc = {issuance_ctc}; factor = {}",
         (issuance_ctc / u64::MAX as u128)
     );
 
-    generate_thresholds::<creditcoin_next_runtime::Runtime>(
+    generate_thresholds::<creditcoin3_runtime::Runtime>(
         n_bags,
         &output,
         issuance_ctc,
