@@ -1,6 +1,6 @@
-# Creditcoin Next
+# Creditcoin3
 
-A next generation Creditcoin node with the Ethereum RPC support, ready for deploying smart contracts.
+A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart contracts.
 
 ## Generation & Upstream
 
@@ -50,13 +50,13 @@ The Dockerfile is optimized for development speed.
 Building (takes 5-10 min):
 
 ```bash
-docker build -t frontier-node-dev .
+docker build -t creditcoin3-node-dev .
 ```
 
 Running (takes 1 min to rebuild binaries):
 
 ```bash
-docker run -t frontier-node-dev
+docker run -t creditcoin3-node-dev
 ```
 
 ## Genesis Configuration
@@ -115,10 +115,10 @@ Alice's EVM account ID was calculated using
 
 ### Adding local network to Metamask
 
-Creditcoin Next is compatible with most tooling from the Ethereum ecosystem, including browser wallets like Metamask. To connect to your local dev node, add it as a new network:
+Creditcoin3 is compatible with most tooling from the Ethereum ecosystem, including browser wallets like Metamask. To connect to your local dev node, add it as a new network:
 
 ```text
-Network name: CC Next Local
+Network name: Creditcoin3 Local
 New RPC URL: http://localhost:9944
 Chain ID: 42
 Currency symbol: CTC
