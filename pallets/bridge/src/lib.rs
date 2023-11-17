@@ -92,6 +92,8 @@ pub mod pallet {
         ) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
+            // TODO check for authority of ocw
+
             let in_progress = InProgress::<T>::get(burn_id.clone());
 
             ensure!(
