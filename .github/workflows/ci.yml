@@ -371,7 +371,7 @@ jobs:
 
       - name: Start Node 1
         run: |
-          chmod a+x ./target/release/creditcoin3
+          chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
