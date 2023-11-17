@@ -13,16 +13,17 @@ import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { newApi } from '../../lib';
 
 describe('integration test: validator wizard setup', () => {
-    it('new validator should appear as waiting after running %s', async () => {
+    it('new validator should appear as waiting after running %s', async () =>
+    {
+        const { api } = await newApi(ALICE_NODE_URL);
+
         // Fund stash and controller
         const stash = randomTestAccount();
-        const controller = randomTestAccount();
 
         const fundTx = await fundAddressesFromSudo(
-            [stash.address, controller.address],
+            [stash.address],
             parseAmountInternal('10000')
         );
-        const { api } = await newApi(ALICE_NODE_URL);
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Run wizard setup with 1k ctc ang to pair with node Bob
@@ -30,8 +31,7 @@ describe('integration test: validator wizard setup', () => {
             `node ${CLI_PATH} wizard --amount 1000 --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_STASH_SECRET: stash.secret,
-                    CC_CONTROLLER_SECRET: controller.secret,
+                    CC_SECRET: stash.secret,
                 },
             }
         );

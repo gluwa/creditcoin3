@@ -64,7 +64,7 @@ describe('integration test: validator manual setup', () => {
             `node ${CLI_PATH} bond --amount ${bondAmount} --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_STASH_SECRET: stashSecret,
+                    CC_SECRET: stashSecret,
                 },
             }
         );
@@ -93,7 +93,7 @@ describe('integration test: validator manual setup', () => {
             `node ${CLI_PATH} set-keys --keys ${newKeys} --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_STASH_SECRET: stashSecret,
+                    CC_SECRET: stashSecret,
                 },
             }
         );
@@ -111,7 +111,7 @@ describe('integration test: validator manual setup', () => {
             `node ${CLI_PATH} validate --commission 1 --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_STASH_SECRET: stashSecret,
+                    CC_SECRET: stashSecret,
                 },
             }
         );
@@ -178,7 +178,7 @@ describe('integration test: validator manual setup', () => {
         // After executing the chill commmand, the validator should no longer be active nor waiting
         commandSync(`node ${CLI_PATH} chill --url ${BOB_NODE_URL}`, {
             env: {
-                CC_STASH_SECRET: stashSecret,
+                CC_SECRET: stashSecret,
             },
         });
         // wait 5 seconds for nodes to sync
@@ -196,7 +196,7 @@ describe('integration test: validator manual setup', () => {
             `node ${CLI_PATH} unbond --url ${BOB_NODE_URL} -a 100000`,
             {
                 env: {
-                    CC_STASH_SECRET: stashSecret,
+                    CC_SECRET: stashSecret,
                 },
             }
         );
@@ -223,7 +223,7 @@ describe('integration test: validator manual setup', () => {
             `node ${CLI_PATH} withdraw-unbonded --url ${BOB_NODE_URL}`,
             {
                 env: {
-                    CC_STASH_SECRET: stashSecret,
+                    CC_SECRET: stashSecret,
                 },
             }
         );
