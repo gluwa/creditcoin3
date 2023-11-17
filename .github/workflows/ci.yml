@@ -371,8 +371,8 @@ jobs:
 
       - name: Start Node 1
         run: |
-          chmod a+x ./target/release/creditcoin-next-node
-          ./target/release/creditcoin-next-node \
+          chmod a+x ./target/release/creditcoin3
+          ./target/release/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
@@ -380,7 +380,7 @@ jobs:
 
       - name: Start Node 2
         run: |
-          ./target/release/creditcoin-next-node \
+          ./target/release/creditcoin3-node \
             --chain dev \
             --validator --bob --pruning archive \
             --base-path ./bob-data \
