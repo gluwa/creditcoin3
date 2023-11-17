@@ -319,30 +319,7 @@ jobs:
             # metadata-cmp-with-mainnet.txt
             # metadata-cmp-with-testnet.txt
 
-            unit-test-cli:
-              runs-on: ubuntu-22.04
-              steps:
-                - uses: actions/checkout@v4
-          
-                - name: Install Node.js
-                  uses: actions/setup-node@v3
-                  with:
-                    node-version: 16
-                - run: npm install -g yarn
-          
-                - name: Execute tests
-                  working-directory: ./cli
-                  run: |
-                    yarn install
-                    yarn test:unit
-          
-                - uses: codecov/codecov-action@v3
-                  with:
-                    files: ${{ steps.coverage.outputs.report }}
-                    fail_ci_if_error: false
-                    verbose: true
-          
-                    
+
   unit-test-cli:
     runs-on: ubuntu-22.04
     steps:
@@ -351,7 +328,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 20
       - run: npm install -g yarn
 
       - name: Execute tests
@@ -383,7 +360,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 20
       - run: npm install -g yarn
 
       - name: Install creditcoin3-cli
