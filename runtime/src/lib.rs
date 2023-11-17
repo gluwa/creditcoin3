@@ -240,8 +240,6 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-    pub const MaxAuthorities: u32 = 100;
-
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
 }
@@ -465,7 +463,7 @@ impl pallet_babe::Config for Runtime {
     type EquivocationReportSystem =
         pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
     type WeightInfo = ();
-    type MaxAuthorities = MaxAuthorities;
+    type MaxAuthorities = ConstU32<100>;
     type DisabledValidators = ();
     type MaxNominators = ConstU32<100_000>; // TODO: revisit this
 }
@@ -651,7 +649,6 @@ parameter_types! {
     pub const MaxPending: u32 = 64;
     pub const AnnouncementDepositBase: u128 = 500;
     pub const AnnouncementDepositFactor: u128 = 500;
-
 }
 
 impl pallet_proxy::Config for Runtime {
