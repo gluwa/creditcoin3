@@ -3,7 +3,6 @@ DISABLE_LINTERS:
   - BASH_SHFMT
   - COPYPASTE_JSCPD
   - REPOSITORY_GRYPE
-  # https://gluwa.atlassian.net/browse/CSUB-460
   - REPOSITORY_TRIVY
   - RUST_CLIPPY
   - SPELL_CSPELL
