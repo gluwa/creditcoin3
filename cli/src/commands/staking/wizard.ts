@@ -12,8 +12,8 @@ import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from 'src/lib/balance';
-import { promptContinue, promptContinueOrSkip, setInteractivity } from 'src/lib/interactive';
+import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
+import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
