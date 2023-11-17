@@ -1,8 +1,9 @@
 import { ApiPromise } from '@polkadot/api';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
 import { BN, newApi } from '../../lib';
-import { initEthKeyringPair, initKeyringPair } from '../../lib/account/keyring';
+import { initKeyringPair } from '../../lib/account/keyring';
 import { signSendAndWatch } from '../../lib/tx';
+
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -58,7 +59,8 @@ export async function forceNewEra(api: ApiPromise) {
     await signSendAndWatch(sudoTx, api, initAliceKeyring());
 }
 
-export function randomTestAccount() {
+export function randomTestAccount ()
+{
     const secret = mnemonicGenerate();
     const keyring = initKeyringPair(secret);
     const address = keyring.address;
