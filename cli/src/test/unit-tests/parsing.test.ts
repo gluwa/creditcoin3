@@ -10,8 +10,7 @@ import {
 
 describe('parseAddress', () => {
     test('with valid argument returns the same address', () => {
-        const substrateAddress =
-            '5EACfEfYjfg5ZHpzp9uoMCR68UNGBUAu5AYjvZdM5aLYaojx';
+        const substrateAddress = '5EACfEfYjfg5ZHpzp9uoMCR68UNGBUAu5AYjvZdM5aLYaojx';
         const parsedAddress = parseAddressInternal(substrateAddress);
         expect(parsedAddress).toBe(substrateAddress);
     });

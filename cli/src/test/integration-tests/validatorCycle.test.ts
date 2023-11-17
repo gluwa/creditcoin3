@@ -2,21 +2,10 @@ import { mnemonicValidate } from '@polkadot/util-crypto';
 import { commandSync } from 'execa';
 import { BN, newApi } from '../../lib';
 import { getBalance, printBalance } from '../../lib/balance';
-import {
-    parseAddressInternal,
-    parseAmountInternal,
-    parseHexStringInternal,
-} from '../../lib/parsing';
+import { parseAddressInternal, parseAmountInternal, parseHexStringInternal } from '../../lib/parsing';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { signSendAndWatch } from '../../lib/tx';
-import {
-    BOB_NODE_URL,
-    ALICE_NODE_URL,
-    fundFromSudo,
-    waitEras,
-    initAliceKeyring,
-    CLI_PATH,
-} from './helpers';
+import { BOB_NODE_URL, ALICE_NODE_URL, fundFromSudo, waitEras, initAliceKeyring, CLI_PATH } from './helpers';
 
 describe('integration test: validator manual setup', () => {
     it('full validator cycle', async () => {
@@ -29,9 +18,7 @@ describe('integration test: validator manual setup', () => {
         const aliceApi = (await newApi(ALICE_NODE_URL)).api;
 
         const stashSecret = // Creating two accounts using `new` should return two valid mnemonic seeds
-            commandSync(`node ${CLI_PATH} new`).stdout.split(
-                'Seed phrase: '
-            )[1];
+            commandSync(`node ${CLI_PATH} new`).stdout.split('Seed phrase: ')[1];
 
         expect(mnemonicValidate(stashSecret)).toBe(true);
 
@@ -43,7 +30,7 @@ describe('integration test: validator manual setup', () => {
                 env: {
                     CC_SECRET: stashSecret,
                 },
-            }).stdout.split('Account address: ')[1]
+            }).stdout.split('Account address: ')[1],
         );
 
         // Funding the stash account should make its balance equal to the amount funded
@@ -51,8 +38,7 @@ describe('integration test: validator manual setup', () => {
 
         const fundTx = await fundFromSudo(stashAddress, fundAmount);
         await signSendAndWatch(fundTx, aliceApi, initAliceKeyring());
-        const stashBalance = (await getBalance(stashAddress, aliceApi))
-            .transferable;
+        const stashBalance = (await getBalance(stashAddress, aliceApi)).transferable;
         expect(stashBalance.toString()).toBe(fundAmount.toString());
 
         // Bonding 1k ctc from stash and setting the controller should
@@ -60,95 +46,62 @@ describe('integration test: validator manual setup', () => {
         // - make the stash's controller be the controller address
         // - make controller's stash be the stash address
         const bondAmount = '1000';
-        commandSync(
-            `node ${CLI_PATH} bond --amount ${bondAmount} --url ${BOB_NODE_URL}`,
-            {
-                env: {
-                    CC_SECRET: stashSecret,
-                },
-            }
-        );
+        commandSync(`node ${CLI_PATH} bond --amount ${bondAmount} --url ${BOB_NODE_URL}`, {
+            env: {
+                CC_SECRET: stashSecret,
+            },
+        });
         // wait 5 seconds for nodes to sync
         await new Promise((resolve) => setTimeout(resolve, 5000));
         const stashStatus = await getValidatorStatus(stashAddress, aliceApi);
         expect(stashStatus.bonded).toBe(true);
 
-        const stashBondedBalance = (await getBalance(stashAddress, aliceApi))
-            .bonded;
-        expect(stashBondedBalance.toString()).toBe(
-            parseAmountInternal(bondAmount).toString()
-        );
+        const stashBondedBalance = (await getBalance(stashAddress, aliceApi)).bonded;
+        expect(stashBondedBalance.toString()).toBe(parseAmountInternal(bondAmount).toString());
 
         // Rotating session keys for the node should return a valid hex string
         const newKeys = parseHexStringInternal(
-            commandSync(
-                `node ${CLI_PATH} rotate-keys --url ${BOB_NODE_URL}`
-            ).stdout.split('New keys: ')[1]
+            commandSync(`node ${CLI_PATH} rotate-keys --url ${BOB_NODE_URL}`).stdout.split('New keys: ')[1],
         );
 
         // Setting session keys for the controller should
         // - make the validator (stash) next session keys equal to the new keys
         // - make the new keys appear as the node's session keys
-        commandSync(
-            `node ${CLI_PATH} set-keys --keys ${newKeys} --url ${BOB_NODE_URL}`,
-            {
-                env: {
-                    CC_SECRET: stashSecret,
-                },
-            }
-        );
+        commandSync(`node ${CLI_PATH} set-keys --keys ${newKeys} --url ${BOB_NODE_URL}`, {
+            env: {
+                CC_SECRET: stashSecret,
+            },
+        });
         // wait 5 seconds for nodes to sync
         await new Promise((resolve) => setTimeout(resolve, 5000));
-        const validatorSessionKeys =
-            await aliceApi.query.session.nextKeys(stashAddress);
+        const validatorSessionKeys = await aliceApi.query.session.nextKeys(stashAddress);
         expect(validatorSessionKeys.toHex()).toBe(newKeys);
-        const nodeHasKeys = (await bobApi.rpc.author.hasSessionKeys(newKeys))
-            .isTrue;
+        const nodeHasKeys = (await bobApi.rpc.author.hasSessionKeys(newKeys)).isTrue;
         expect(nodeHasKeys).toBe(true);
 
         // Signaling intention to validate should make the validator (stash) appear as waiting
-        commandSync(
-            `node ${CLI_PATH} validate --commission 1 --url ${BOB_NODE_URL}`,
-            {
-                env: {
-                    CC_SECRET: stashSecret,
-                },
-            }
-        );
+        commandSync(`node ${CLI_PATH} validate --commission 1 --url ${BOB_NODE_URL}`, {
+            env: {
+                CC_SECRET: stashSecret,
+            },
+        });
 
-        const stashStatusAfterValidating = await getValidatorStatus(
-            stashAddress,
-            bobApi
-        );
+        const stashStatusAfterValidating = await getValidatorStatus(stashAddress, bobApi);
         expect(stashStatusAfterValidating.waiting).toBe(true);
 
         // After increasing the validator count, (forcing an era- currently not) and waiting for the next era,
         // the validator should become elected & active.
-        const increaseValidatorCountTx =
-            aliceApi.tx.staking.setValidatorCount(2);
-        const increaseValidatorCountSudoTx = aliceApi.tx.sudo.sudo(
-            increaseValidatorCountTx
-        );
-        await signSendAndWatch(
-            increaseValidatorCountSudoTx,
-            aliceApi,
-            initAliceKeyring()
-        );
-        const validatorCount = (
-            await aliceApi.query.staking.validatorCount()
-        ).toNumber();
+        const increaseValidatorCountTx = aliceApi.tx.staking.setValidatorCount(2);
+        const increaseValidatorCountSudoTx = aliceApi.tx.sudo.sudo(increaseValidatorCountTx);
+        await signSendAndWatch(increaseValidatorCountSudoTx, aliceApi, initAliceKeyring());
+        const validatorCount = (await aliceApi.query.staking.validatorCount()).toNumber();
         expect(validatorCount).toBe(2);
         await waitEras(2, aliceApi);
-        const stashStatusAfterEra = await getValidatorStatus(
-            stashAddress,
-            bobApi
-        );
+        const stashStatusAfterEra = await getValidatorStatus(stashAddress, bobApi);
         expect(stashStatusAfterEra.active).toBe(true);
 
         // After waiting for another era, the validator should have accumulated era rewards to distribute
-        const startingEra = (
-            await aliceApi.derive.session.info()
-        ).activeEra.toNumber();
+        const startingEra = (await aliceApi.derive.session.info()).activeEra.toNumber();
         console.log('Starting era: ', startingEra);
         await waitEras(1, aliceApi);
 
@@ -163,16 +116,14 @@ describe('integration test: validator manual setup', () => {
                 env: {
                     CC_SECRET: stashSecret,
                 },
-            }
+            },
         );
 
         // wait 5 seconds for nodes to sync
         await new Promise((resolve) => setTimeout(resolve, 5000));
         const balanceAfterRewards = await getBalance(stashAddress, aliceApi);
         console.log(balanceAfterRewards.bonded.toString());
-        const balanceIncreased = balanceAfterRewards.bonded.gt(
-            balanceBeforeRewards.bonded
-        );
+        const balanceIncreased = balanceAfterRewards.bonded.gt(balanceBeforeRewards.bonded);
         expect(balanceIncreased).toBe(true);
 
         // After executing the chill commmand, the validator should no longer be active nor waiting
@@ -183,10 +134,7 @@ describe('integration test: validator manual setup', () => {
         });
         // wait 5 seconds for nodes to sync
         await waitEras(2, aliceApi);
-        const stashStatusAfterChill = await getValidatorStatus(
-            stashAddress,
-            bobApi
-        );
+        const stashStatusAfterChill = await getValidatorStatus(stashAddress, bobApi);
         expect(stashStatusAfterChill.active).toBe(false);
         expect(stashStatusAfterChill.waiting).toBe(false);
 
@@ -198,7 +146,7 @@ describe('integration test: validator manual setup', () => {
                 env: {
                     CC_SECRET: stashSecret,
                 },
-            }
+            },
         );
         // wait 5 seconds for nodes to sync
         await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -206,27 +154,21 @@ describe('integration test: validator manual setup', () => {
         const isUnbonding = balanceAfterUnbonding.unbonding.gt(new BN(0));
         printBalance(balanceAfterRewards);
         printBalance(balanceAfterUnbonding);
-        const isUnbondingAll = balanceAfterUnbonding.unbonding.eq(
-            balanceAfterRewards.bonded
-        );
+        const isUnbondingAll = balanceAfterUnbonding.unbonding.eq(balanceAfterRewards.bonded);
         expect(isUnbonding).toBe(true);
         expect(isUnbondingAll).toBe(true);
 
         // After unbonding and waiting for the unbonding period, the validator should be able to withdraw
         // the unbonded amount and end up with more funds than the initial funding
-        const unbondingPeriod =
-            aliceApi.consts.staking.bondingDuration.toNumber();
+        const unbondingPeriod = aliceApi.consts.staking.bondingDuration.toNumber();
         console.log('Unbonding period: ', unbondingPeriod);
         await waitEras(unbondingPeriod + 1, aliceApi, true);
 
-        commandSync(
-            `node ${CLI_PATH} withdraw-unbonded --url ${BOB_NODE_URL}`,
-            {
-                env: {
-                    CC_SECRET: stashSecret,
-                },
-            }
-        );
+        commandSync(`node ${CLI_PATH} withdraw-unbonded --url ${BOB_NODE_URL}`, {
+            env: {
+                CC_SECRET: stashSecret,
+            },
+        });
 
         // wait 5 seconds for nodes to sync
         await new Promise((resolve) => setTimeout(resolve, 5000));

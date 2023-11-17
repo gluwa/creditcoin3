@@ -2,7 +2,6 @@ import { commandSync } from 'execa';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { CLI_PATH, randomTestAccount } from './helpers';
 
-
 // TODO
 //
 // Make tests that cover the following cases:
@@ -25,8 +24,6 @@ describe('Show address command', () => {
             },
         });
 
-        expect(result.stdout.split('Account address: ')[1]).toEqual(
-            caller.address.toString()
-        );
+        expect(result.stdout.split('Account address: ')[1]).toEqual(caller.address.toString());
     }, 60000);
 });
