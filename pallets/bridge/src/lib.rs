@@ -4,7 +4,7 @@ mod types;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{BurnId, CollectionInfo, CollectionStatus};
+    use crate::types::{BurnId, CollectionInfo, CollectionStatus, FailureReason};
     use frame_support::pallet_prelude::DispatchResult;
     use frame_support::traits::{fungible::Mutate, ReservableCurrency};
     use frame_support::{
@@ -28,9 +28,8 @@ pub mod pallet {
     pub enum Event<T: Config> {
         TestEvent,
         CollectionInitiated,
-        CollectionInProgress,
         FundsCollected,
-        CollectionFailed,
+        CollectionFailed(FailureReason),
         CollectionExpired,
     }
 
@@ -38,7 +37,7 @@ pub mod pallet {
     pub enum Error<T> {
         AlreadyCollected,
         AlreadyInProgress,
-        InProgressCollectionNotFound,
+        CollectionNotFound,
         CollectionNotInProgress,
     }
 
@@ -67,37 +66,19 @@ pub mod pallet {
         pub fn collect_funds(origin: OriginFor<T>, burn_id: BurnId) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
-            let collection_attempt = Self::collections(burn_id.clone());
+            // Check for an already completed collection
+            let completed_collections = Self::collections(burn_id.clone());
+            ensure!(completed_collections.is_none(), Error::<T>::AlreadyCollected);
+            
+            // Check for an in progress collection
+            let in_progress_collections = Self::in_progress(burn_id.clone());
+            ensure!(in_progress_collections.is_none(), Error::<T>::AlreadyInProgress);
 
-            if collection_attempt.is_none() {
-                let new_attempt: CollectionInfo = Default::default();
-                Collections::<T>::insert(burn_id.clone(), new_attempt);
-                Self::deposit_event(Event::<T>::CollectionInitiated);
-                return Ok(());
-            }
-
-            let collection_attempt = collection_attempt.expect("This should never fail");
-
-            ensure!(
-                collection_attempt.status != CollectionStatus::Completed,
-                Error::<T>::AlreadyCollected
-            );
-
-            let in_progress = InProgress::<T>::get(burn_id.clone());
-
-            ensure!(in_progress.is_none(), Error::<T>::AlreadyInProgress);
-
-            let in_progress = CollectionInfo {
-                status: CollectionStatus::InProgress,
-            };
-            InProgress::<T>::insert(burn_id.clone(), in_progress);
-
-            let collection_attempt = CollectionInfo {
-                status: CollectionStatus::InProgress,
-            };
-            Collections::<T>::insert(burn_id.clone(), collection_attempt);
-
-            Self::deposit_event(Event::<T>::CollectionInProgress);
+            // Create a new collection if it hasn't been found
+            let new_attempt: CollectionInfo = Default::default();
+            InProgress::<T>::insert(burn_id.clone(), new_attempt);
+            Self::deposit_event(Event::<T>::CollectionInitiated);
+            
             Ok(())
         }
 
@@ -115,7 +96,7 @@ pub mod pallet {
 
             ensure!(
                 in_progress.is_some(),
-                Error::<T>::InProgressCollectionNotFound
+                Error::<T>::CollectionNotFound,
             );
 
             let in_progress = in_progress.expect("This should never fail");
@@ -125,10 +106,14 @@ pub mod pallet {
                 Error::<T>::AlreadyCollected
             );
 
+            let completed_collection = Collections::<T>::get(burn_id.clone());
+            ensure!(completed_collection.is_none(), Error::<T>::AlreadyCollected);
+
             <pallet_balances::Pallet<T> as Mutate<T::AccountId>>::mint_into(&collector, amount)?;
 
             let status = CollectionInfo {
                 status: CollectionStatus::Completed,
+                reason: None,
             };
 
             InProgress::<T>::remove(burn_id.clone());
@@ -140,14 +125,14 @@ pub mod pallet {
 
         #[pallet::call_index(3)]
         #[pallet::weight({0_0})]
-        pub fn reject_collection(origin: OriginFor<T>, burn_id: BurnId) -> DispatchResult {
+        pub fn reject_collection(origin: OriginFor<T>, burn_id: BurnId, reason: FailureReason) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
             let in_progress = InProgress::<T>::get(burn_id.clone());
 
             ensure!(
                 in_progress.is_some(),
-                Error::<T>::InProgressCollectionNotFound
+                Error::<T>::CollectionNotFound
             );
 
             let in_progress = in_progress.expect("This should never fail");
@@ -164,12 +149,13 @@ pub mod pallet {
 
             let status = CollectionInfo {
                 status: CollectionStatus::Failed,
+                reason: Some(reason.clone()),
             };
 
             InProgress::<T>::remove(burn_id.clone());
             Collections::<T>::insert(burn_id.clone(), status);
 
-            Self::deposit_event(Event::<T>::CollectionFailed);
+            Self::deposit_event(Event::<T>::CollectionFailed(reason));
             Ok(())
         }
     }
@@ -184,12 +170,12 @@ mod tests {
     };
 
     use frame_support::{
-        assert_err, assert_ok, ord_parameter_types,
+        assert_err,  assert_ok, ord_parameter_types,
         traits::{ConstU32, ConstU64},
     };
     use sp_core::H256;
     use sp_runtime::{
-        traits::{BlakeTwo256, IdentityLookup},
+        traits::{ BlakeTwo256, IdentityLookup},
         BuildStorage,
     };
 

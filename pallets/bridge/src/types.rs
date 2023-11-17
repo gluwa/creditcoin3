@@ -8,7 +8,6 @@ pub enum CollectionStatus {
     InProgress,
     Completed,
     Failed,
-    NotStarted,
 }
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
@@ -24,12 +23,14 @@ pub struct BurnId(pub u64);
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
 pub struct CollectionInfo {
     pub status: CollectionStatus,
+    pub reason: Option<FailureReason>,
 }
 
 impl Default for CollectionInfo {
     fn default() -> Self {
         Self {
-            status: CollectionStatus::NotStarted,
+            status: CollectionStatus::InProgress,
+            reason: None,
         }
     }
 }
