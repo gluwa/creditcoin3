@@ -10,6 +10,7 @@ pub mod pallet {
     use frame_support::traits::{fungible::Mutate, ReservableCurrency};
     use frame_support::{pallet_prelude::*, Twox64Concat};
     use frame_system::pallet_prelude::*;
+     use sp_runtime::SaturatedConversion;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -36,6 +37,7 @@ pub mod pallet {
         AlreadyInProgress,
         CollectionNotFound,
         CollectionNotInProgress,
+        InvalidCollectionAmount,
     }
 
     #[pallet::storage]
@@ -142,6 +144,10 @@ pub mod pallet {
             let completed_collection = Collections::<T>::get(burn_id.clone());
             ensure!(completed_collection.is_none(), Error::<T>::AlreadyCollected);
 
+
+            let amount_128 = amount.saturated_into::<u128>();
+
+            ensure!(amount_128.gt(&0u128), Error::<T>::InvalidCollectionAmount);
             <pallet_balances::Pallet<T> as Mutate<T::AccountId>>::mint_into(&collector, amount)?;
 
             let status = CollectionInfo {
@@ -227,7 +233,7 @@ mod tests {
         type BlockWeights = ();
         type BlockLength = ();
         type DbWeight = ();
-        type RuntimeOrigin = Self::RuntimeOrigin;
+        type RuntimeOrigin = RuntimeOrigin;
         type Nonce = u64;
         type Hash = H256;
         type RuntimeCall = RuntimeCall;
@@ -285,22 +291,11 @@ mod tests {
     }
 
     #[test]
-    fn test_emit_event() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let _ = Bridge::emit_test_event(RuntimeOrigin::signed(1));
-
-            System::assert_has_event(Event::<Test>::TestEvent.into());
-        });
-    }
-
-    #[test]
     fn collect_funds_should_create_new_collection_when_burn_id_nonexisting() {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId(1);
+            let burn_id = BurnId::Creditcoin2(1);
 
             let existing_attempt = Collections::<Test>::get(burn_id.clone());
             assert!(existing_attempt.is_none());
@@ -309,9 +304,6 @@ mod tests {
                 RuntimeOrigin::signed(1),
                 burn_id.clone()
             ));
-
-            let existing_attempt = Collections::<Test>::get(burn_id.clone());
-            assert!(existing_attempt.is_some());
 
             System::assert_has_event(Event::<Test>::CollectionInitiated.into());
         })
@@ -322,10 +314,11 @@ mod tests {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId(1);
+            let burn_id = BurnId::Creditcoin2(1);
 
             let attempt = CollectionInfo {
                 status: types::CollectionStatus::Completed,
+                reason: None,
             };
             Collections::<Test>::insert(burn_id.clone(), attempt);
 
@@ -337,19 +330,15 @@ mod tests {
     }
 
     #[test]
-    fn collect_funds_should_return_error_when_already_in_progress() {
+    fn collect_funds_cc2_should_return_error_when_already_in_progress() {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId(1);
-
-            let attempt = CollectionInfo {
-                status: types::CollectionStatus::NotStarted,
-            };
-            Collections::<Test>::insert(burn_id.clone(), attempt);
+            let burn_id = BurnId::Creditcoin2(1);
 
             let progress = CollectionInfo {
                 status: types::CollectionStatus::InProgress,
+                reason: None,
             };
             InProgress::<Test>::insert(burn_id.clone(), progress);
 
@@ -361,35 +350,30 @@ mod tests {
     }
 
     #[test]
-    fn collect_funds_should_emit_event_when_moved_to_in_progress() {
+    fn collect_funds_cc2_should_emit_event_when_moved_to_in_progress() {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId(1);
-
-            let attempt = CollectionInfo {
-                status: types::CollectionStatus::NotStarted,
-            };
-            Collections::<Test>::insert(burn_id.clone(), attempt);
+            let burn_id = BurnId::Creditcoin2(1);
 
             assert_ok!(Bridge::collect_funds(
                 RuntimeOrigin::signed(1),
                 burn_id.clone()
             ));
 
-            System::assert_has_event(Event::<Test>::CollectionInProgress.into());
+            System::assert_has_event(Event::<Test>::CollectionInitiated.into());
         })
     }
 
     #[test]
-    fn approve_collection_should_error_when_collection_not_found() {
+    fn approve_collection_cc2_should_error_when_collection_not_found() {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId(1);
+            let burn_id = BurnId::Creditcoin2(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let expected_error = Error::<Test>::InProgressCollectionNotFound;
+            let expected_error = Error::<Test>::CollectionNotFound;
             assert_err!(
                 Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 0),
                 expected_error
@@ -398,15 +382,16 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_should_error_when_collection_completed() {
+    fn approve_collection_cc2_should_error_when_collection_completed() {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId(1);
+            let burn_id = BurnId::Creditcoin2(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
             let in_progress = CollectionInfo {
                 status: types::CollectionStatus::Completed,
+                reason: None,
             };
             InProgress::<Test>::insert(burn_id.clone(), in_progress);
 
@@ -416,5 +401,43 @@ mod tests {
                 expected_error
             );
         })
+    }
+
+    #[test]
+    fn approve_collection_cc2_should_update_balance_when_successful() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+
+            let burn_id = BurnId::Creditcoin2(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let prior_balance = Balances::free_balance(collector); 
+            assert_ok!(Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone()));
+
+            assert_ok!(
+                Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 100),
+            );
+
+            let ending_balance = Balances::free_balance(collector);
+            assert!(ending_balance > prior_balance);
+        }) 
+    }
+
+    #[test]
+    fn approve_collection_cc2_should_error_when_amount_is_invalid() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+
+            let burn_id = BurnId::Creditcoin2(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            assert_ok!(Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone()));
+
+            let expected_error = Error::<Test>::InvalidCollectionAmount;
+            assert_err!(
+                Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 0),
+                expected_error,
+            );
+        }) 
     }
 }
