@@ -24,6 +24,9 @@ jobs:
         run: |
           docker build -t gluwa/creditcoin3 .
 
+    # TODO: sanity check that container includes a creditcoin3 binary once
+    # work on CSUB-857 starts
+
   sanity-tests:
     runs-on: ubuntu-latest
     steps:
@@ -36,6 +39,30 @@ jobs:
       - name: Check if Cargo.toml specifies dependencies from forks
         run: |
           ./.github/check-for-used-forks.sh
+
+  sanity-test-cli:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install creditcoin3-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Execute creditcoin3 command
+        run: |
+          # this makes sure we have a creditcoin3 entrypoint in the standard PATH
+          which creditcoin3
+          creditcoin3 help
 
   fmt:
     name: Rustfmt
@@ -154,32 +181,11 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v2
 
-      - name: Configure flags for collecting coverage
-        run: |
-          # shellcheck disable=SC2129
-          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
-          echo "RUSTFLAGS=-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests" >> "$GITHUB_ENV"
-          echo "RUSTDOCFLAGS=-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests" >> "$GITHUB_ENV"
-
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
-        env:
-          CARGO_INCREMENTAL: ${{ env.CARGO_INCREMENTAL }}
-          RUSTFLAGS: ${{ env.RUSTFLAGS }}
-          RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }}
-      - id: coverage
-        uses: actions-rs/grcov@v0.1
-        with:
-          config: .grcov.yml
-
-      - uses: codecov/codecov-action@v3
-        with:
-          files: ${{ steps.coverage.outputs.report }}
-          fail_ci_if_error: false
-          verbose: true
 
   build-creditcoin-node:
     runs-on: ubuntu-22.04
@@ -239,7 +245,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 20
 
       - name: Start Node 1 - Alice
         run: |
@@ -279,9 +285,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Node Dependencies
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 16.x
+          node-version: 20
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
@@ -367,3 +373,28 @@ jobs:
         uses: ludeeus/action-shellcheck@2.0.0
         env:
           SHELLCHECK_OPTS: -e SC2002 # allow useless cat commands
+
+  javascript-checks:
+    name: javascript-${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        directory:
+          [cli]
+        command:
+          [lint, typecheck, check-format]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Run tools
+        working-directory: ${{ matrix.directory }}
+        run: |
+          yarn install
+          yarn ${{ matrix.command }}
