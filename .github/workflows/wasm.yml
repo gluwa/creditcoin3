@@ -61,9 +61,9 @@ jobs:
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.17.1
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 20
       - working-directory: cli
         run: |
           npm install -g yarn

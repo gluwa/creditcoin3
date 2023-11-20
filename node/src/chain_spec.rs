@@ -236,7 +236,9 @@ fn testnet_genesis(
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
     };
 
-    const STASH: u128 = 1_000_000 * UNITS;
+    // STASH must be less than ENDOWMENT to avoid having
+    // all funds locked in staking.
+    const STASH: u128 = 100_000 * UNITS;
     const ENDOWMENT: u128 = 1_000_000 * UNITS;
 
     RuntimeGenesisConfig {

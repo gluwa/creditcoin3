@@ -1,0 +1,15 @@
+[package]
+name = "generate-bags"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+creditcoin3-runtime = { path = "../" }
+generate-bags = { workspace = true }
+clap = { version = "4.4.6", features = ["derive"] }
