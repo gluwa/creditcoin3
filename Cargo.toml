@@ -1,5 +1,5 @@
 [workspace]
-members = ["node", "runtime", "runtime/generate-bags"]
+members = ["node", "runtime", "runtime/generate-bags", "pallet-bridge"]
 resolver = "2"
 
 [workspace.package]
@@ -181,6 +181,14 @@ ark-ec = { version = "0.4.0", default-features = false }
 ark-ff = { version = "0.4.0", default-features = false }
 ark-std = { version = "0.4.0", default-features = false }
 
+bridge-runtime-common = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+pallet-bridge-messages = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+pallet-bridge-grandpa = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+bp-header-chain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+bp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+bp-messages = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+
+sp-debug-derive = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 [profile.release]
 # Substrate runtime requires unwinding.
 panic = "unwind"

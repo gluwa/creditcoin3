@@ -58,6 +58,13 @@ pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-utility = { workspace = true }
 
+bridge-runtime-common = { workspace = true }
+pallet-bridge-messages = { workspace = true }
+pallet-bridge-grandpa = { workspace = true }
+bp-header-chain = { workspace = true }
+bp-runtime = { workspace = true }
+bp-messages = { workspace = true }
+
 # Frontier
 fp-evm = { workspace = true, features = ["serde"] }
 fp-rpc = { workspace = true }
@@ -72,6 +79,10 @@ pallet-evm-precompile-modexp = { workspace = true }
 pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
+
+sp-debug-derive = { workspace = true, features = ["force-debug"] }
+
+pallet-bridge = { path = "../pallet-bridge", default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -136,6 +147,18 @@ std = [
 	"pallet-evm-precompile-sha3fips/std",
 	"pallet-evm-precompile-simple/std",
 	"pallet-hotfix-sufficients/std",
+	# Bridge
+	"pallet-bridge-messages/std",
+	"pallet-bridge-grandpa/std",
+	"bridge-runtime-common/std",
+	"bp-header-chain/std",
+	"bp-runtime/std",
+	"bp-messages/std",
+
+	# Debug
+	"sp-debug-derive/std",
+
+	"pallet-bridge/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

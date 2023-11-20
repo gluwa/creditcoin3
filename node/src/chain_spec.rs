@@ -19,8 +19,9 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, AccountId, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
-    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
+    opaque::SessionKeys, AccountId, BabeConfig, Balance, BridgeGrandpaConfig, EnableManualSeal,
+    ImOnlineId, RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig,
+    WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -250,7 +251,7 @@ fn testnet_genesis(
         },
         sudo: SudoConfig {
             // Assign network admin rights.
-            key: Some(sudo_key),
+            key: Some(sudo_key.clone()),
         },
 
         // Monetary
@@ -365,5 +366,10 @@ fn testnet_genesis(
         dynamic_fee: Default::default(),
         base_fee: Default::default(),
         nomination_pools: Default::default(),
+        bridge_grandpa: BridgeGrandpaConfig {
+            // init_data: (),
+            owner: Some(sudo_key),
+            ..Default::default()
+        },
     }
 }

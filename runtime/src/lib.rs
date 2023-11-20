@@ -34,7 +34,6 @@ use sp_staking::SessionIndex;
 use sp_std::{marker::PhantomData, prelude::*};
 use sp_version::RuntimeVersion;
 // Substrate FRAME
-use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, WeightToFeePolynomial};
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
@@ -45,6 +44,10 @@ use frame_support::{
         constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
     },
     PalletId,
+};
+use frame_support::{
+    dispatch::DispatchClass,
+    weights::{constants::ParityDbWeight as RuntimeDbWeight, WeightToFeePolynomial},
 };
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
@@ -812,6 +815,63 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
 }
 
+pub struct CC2;
+
+impl bp_header_chain::ChainWithGrandpa for CC2 {
+    const MAX_AUTHORITIES_COUNT: u32 = 100_000;
+    const WITH_CHAIN_GRANDPA_PALLET_NAME: &'static str = "Grandpa";
+
+    const REASONABLE_HEADERS_IN_JUSTIFICATON_ANCESTRY: u32 = 2;
+
+    const MAX_HEADER_SIZE: u32 = 90_000;
+
+    const AVERAGE_HEADER_SIZE_IN_JUSTIFICATION: u32 = 20 * 1024;
+}
+
+impl bp_runtime::Chain for CC2 {
+    type BlockNumber = BlockNumber;
+
+    type Hash = Hash;
+
+    type Hasher = BlakeTwo256;
+
+    type Header = Header;
+
+    type AccountId = AccountId;
+
+    type Balance = Balance;
+
+    type Nonce = Nonce;
+
+    type Signature = Signature;
+
+    fn max_extrinsic_size() -> u32 {
+        *BlockLength::get().max.get(DispatchClass::Normal)
+    }
+
+    fn max_extrinsic_weight() -> Weight {
+        BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .unwrap_or(Weight::MAX)
+    }
+}
+
+impl pallet_bridge_grandpa::Config for Runtime {
+    type BridgedChain = CC2;
+    type HeadersToKeep = ConstU32<1024>;
+    type RuntimeEvent = RuntimeEvent;
+    type MaxFreeMandatoryHeadersPerBlock = ConstU32<4>;
+    type WeightInfo = ();
+}
+
+impl pallet_bridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AccountId = AccountId;
+    type Currency = Balances;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -845,6 +905,9 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+
+        BridgeGrandpa: pallet_bridge_grandpa,
+        Bridge: pallet_bridge,
     }
 );
 
