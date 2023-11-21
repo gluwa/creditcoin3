@@ -32,7 +32,7 @@ To execute the chain, run:
 ./target/release/creditcoin3-node --dev
 ```
 
-The node also supports to use manual seal (to produce block manually through RPC).  
+The node also supports to use manual seal (to produce block manually through RPC).
 This is also used by the ts-tests:
 
 ```bash
@@ -43,8 +43,8 @@ $ ./target/release/creditcoin3-node --dev --sealing=instant
 
 ### Docker Based Development
 
-Optionally, You can build and run the frontier node within Docker directly.  
-The Dockerfile is optimized for development speed.  
+Optionally, You can build and run the frontier node within Docker directly.
+The Dockerfile is optimized for development speed.
 (Running the `docker run...` command will recompile the binaries but not the dependencies)
 
 Building (takes 5-10 min):
