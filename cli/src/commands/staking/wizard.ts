@@ -46,7 +46,7 @@ export function makeWizardCommand() {
             blocked,
         };
 
-    
+
         // State parameters being used
         console.log('Using the following parameters:');
         console.log(`💰 Stash account: ${address}`);
