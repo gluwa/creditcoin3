@@ -78,7 +78,9 @@ export async function getValidatorStatus(address: string, api: ApiPromise) {
     // Get information about any unbonding tokens and unlocked chunks
     const unlockingRes = res.stakingLedger.unlocking;
     const currentEra = (await api.query.staking.currentEra()).unwrap();
-    const unlocking = unlockingRes ? unlockingRes.filter((u: PalletStakingUnlockChunk) => u.era.toNumber() > currentEra.toNumber()) : [];
+    const unlocking = unlockingRes
+        ? unlockingRes.filter((u: PalletStakingUnlockChunk) => u.era.toNumber() > currentEra.toNumber())
+        : [];
 
     const redeemable = res.redeemable ? readAmountFromHex(res.redeemable.toString()) : new BN(0);
 

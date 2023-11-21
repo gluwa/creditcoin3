@@ -31,7 +31,7 @@ export function makeWizardCommand() {
         const { amount, rewardDestination, commission, blocked, interactive } = parseOptions(options);
 
         // Node settings
-        const nodeUrl: string = options.url ? options.url as string : 'ws://localhost:9944';
+        const nodeUrl: string = options.url ? (options.url as string) : 'ws://localhost:9944';
 
         // Create new API instance
         const { api } = await newApi(nodeUrl);
@@ -45,7 +45,6 @@ export function makeWizardCommand() {
             commission,
             blocked,
         };
-
 
         // State parameters being used
         console.log('Using the following parameters:');

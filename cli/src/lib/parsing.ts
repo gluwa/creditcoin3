@@ -14,8 +14,7 @@ function parseOrExit<T>(parse: (input: any) => T): (input: any) => T {
     return (input: any) => {
         try {
             return parse(input);
-        } catch (e: any)
-        {
+        } catch (e: any) {
             const error = e as Error;
             console.error(`Unable to parse input. ${error.message}`);
             process.exit(1);
@@ -26,8 +25,7 @@ function parseOrExit<T>(parse: (input: any) => T): (input: any) => T {
 function parseChoiceOrExitFn(input: any, choices: string[]): string | never {
     try {
         return parseChoiceInternal(input, choices);
-    } catch (e: any)
-    {
+    } catch (e: any) {
         const error = e as Error;
         console.error(`Unable to parse input. ${error.message}`);
         process.exit(1);
@@ -37,8 +35,7 @@ function parseChoiceOrExitFn(input: any, choices: string[]): string | never {
 export function parseAddressInternal(input: any): string {
     try {
         validateAddress(input as string);
-    } catch (e: any)
-    {
+    } catch (e: any) {
         const error = e as Error;
         throw new Error(`Invalid address: ${error.message}`);
     }
@@ -49,16 +46,14 @@ export function parseAmountInternal(input: any): BN {
     try {
         const parsed = positiveBigNumberFromString(input);
         return new BN(parsed.toString());
-    } catch (e: any)
-    {
+    } catch (e: any) {
         const error = e as Error;
         throw new Error(`Invalid amount: ${error.message}`);
     }
 }
 
 // Choices must be in Capitalized form: ['Staked', 'Stash']
-export function parseChoiceInternal (input: any, choices: string[]): string
-{
+export function parseChoiceInternal(input: any, choices: string[]): string {
     const choice = input as string;
     const styled = choice.charAt(0).toUpperCase() + choice.slice(1).toLowerCase();
     if (!choices.includes(styled)) {
