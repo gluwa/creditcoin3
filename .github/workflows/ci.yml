@@ -339,7 +339,7 @@ jobs:
 
       - uses: codecov/codecov-action@v3
         with:
-          files: ${{ steps.coverage.outputs.report }}
+          files: cli/coverage/lcov.info
           fail_ci_if_error: false
           verbose: true
 
@@ -401,7 +401,7 @@ jobs:
       - name: Upload code coverage
         uses: codecov/codecov-action@v3
         with:
-          files: ${{ steps.coverage.outputs.report }}
+          files: cli/coverage/lcov.info
           fail_ci_if_error: false
           verbose: true
 
