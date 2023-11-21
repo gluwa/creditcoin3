@@ -14,7 +14,7 @@ export function makeBalanceCommand() {
 
 async function balanceAction(options: OptionValues) {
     const json = parseBoolean(options.json);
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const address = parseAddressOrExit(
         requiredInput(options.address, 'Failed to show balance: Must specify an address'),

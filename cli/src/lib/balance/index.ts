@@ -40,7 +40,7 @@ export interface AccountBalance {
     unbonding: BN;
 }
 
-export async function getBalance(address: string, api: any) {
+export async function getBalance(address: string, api: ApiPromise) {
     const balacesAll = await getBalancesAll(address, api);
     const stakingInfo = await getStakingInfo(address, api);
 

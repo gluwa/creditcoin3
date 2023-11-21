@@ -1,5 +1,5 @@
 import { Command, OptionValues } from 'commander';
-import { BN, newApi } from '../../lib';
+import { ApiPromise, BN, newApi } from '../../lib';
 import { bond, parseRewardDestination } from '../../lib/staking';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
@@ -21,7 +21,7 @@ export function makeBondCommand() {
 }
 
 async function bondAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const { amount, rewardDestination, extra, interactive } = parseOptions(options);
 
@@ -46,7 +46,7 @@ async function bondAction(options: OptionValues) {
     process.exit(0);
 }
 
-async function checkBalance(amount: BN, api: any, address: string) {
+async function checkBalance(amount: BN, api: ApiPromise, address: string) {
     const balance = await getBalance(address, api);
     checkBalanceAgainstBondAmount(balance, amount);
 }

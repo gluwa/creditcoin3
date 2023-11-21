@@ -14,7 +14,7 @@ export function makeValidateCommand() {
 }
 
 async function validateAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const account = await initCallerKeyring(options);
 

@@ -14,7 +14,7 @@ export function makeSendCommand() {
 }
 
 async function sendAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const { amount, recipient } = parseOptions(options);
 

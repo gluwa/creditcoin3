@@ -15,7 +15,7 @@ export function makeDistributeRewardsCommand() {
 }
 
 async function distributeRewardsAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const { validator, era } = parseOptions(options);
 

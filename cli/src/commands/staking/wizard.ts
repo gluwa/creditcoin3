@@ -30,8 +30,11 @@ export function makeWizardCommand() {
 
         const { amount, rewardDestination, commission, blocked, interactive } = parseOptions(options);
 
+        // Node settings
+        const nodeUrl: string = options.url ? options.url as string : 'ws://localhost:9944';
+
         // Create new API instance
-        const { api } = await newApi(options.url);
+        const { api } = await newApi(nodeUrl);
 
         // Generate keyring
         const keyring = await initCallerKeyring(options);
@@ -43,9 +46,7 @@ export function makeWizardCommand() {
             blocked,
         };
 
-        // Node settings
-        const nodeUrl: string = options.url ? options.url : 'ws://localhost:9944';
-
+    
         // State parameters being used
         console.log('Using the following parameters:');
         console.log(`💰 Stash account: ${address}`);
