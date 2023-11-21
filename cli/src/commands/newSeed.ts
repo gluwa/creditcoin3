@@ -11,7 +11,7 @@ export function makeNewSeedCommand() {
 
 function newSeedAction(options: OptionValues) {
     console.log('Creating new seed phrase...');
-    const length = options.length ? parseLength(options.length) : 12;
+    const length = options.length ? parseLength(options.length as string) : 12;
     const seedPhrase = mnemonicGenerate(length);
     console.log('Seed phrase:', seedPhrase);
     process.exit(0);

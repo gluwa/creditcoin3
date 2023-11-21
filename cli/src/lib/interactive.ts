@@ -22,7 +22,7 @@ export async function promptContinue(interactive: boolean) {
         process.exit(0);
     }
 
-    return promptResult.confirm;
+    return promptResult.confirm as boolean;
 }
 
 export async function promptContinueOrSkip(prompt: string, interactive: boolean) {
@@ -44,7 +44,7 @@ export async function promptContinueOrSkip(prompt: string, interactive: boolean)
         process.exit(1);
     }
 
-    return promptResult.continue;
+    return promptResult.continue as boolean;
 }
 
 export function setInteractivity(options: OptionValues) {

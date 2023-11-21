@@ -3,6 +3,7 @@ import { Keyring, KeyringPair } from '..';
 import prompts from 'prompts';
 import { getErrorMessage } from '../error';
 import { OptionValues } from 'commander';
+import { parseBoolean } from '../parsing';
 
 export function initKeyringPair(seed: string) {
     const keyring = new Keyring({ type: 'sr25519' });
@@ -36,7 +37,7 @@ export async function initKeyringFromEnvOrPrompt(
     options: OptionValues,
 ): Promise<KeyringPair> {
     // General configs
-    const interactive = options.input;
+    const interactive = parseBoolean(options.input);
     const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
     const validateInput = options.useEcdsa ? () => true : mnemonicValidate;
     const generateKeyring = options.useEcdsa ? initECDSAKeyringPairFromPK : initKeyringPair;
@@ -60,13 +61,13 @@ export async function initKeyringFromEnvOrPrompt(
                 type: 'password',
                 name: 'seed',
                 message: `Specify a ${inputName} for the ${accountRole} account`,
-                validate: (input) => validateInput(input),
+                validate: (input) => validateInput(input as string),
             },
         ]);
         // If SIGTERM is issued while prompting, it will log a bogus address anyways and exit without error.
         // To avoid this, we check if prompt was successful, before returning.
         if (promptResult.seed) {
-            return generateKeyring(promptResult.seed);
+            return generateKeyring(promptResult.seed as string);
         }
     }
     throw new Error(`Error: Could not retrieve ${inputName}`);

@@ -3,6 +3,7 @@ import { BN } from '..';
 import { readAmount, readAmountFromHex, toCTCString } from '../balance';
 import { timeTillEra } from './era';
 import Table from 'cli-table3';
+import { PalletStakingUnlockChunk } from '@polkadot/types/lookup';
 
 function formatDaysHoursMinutes(ms: number) {
     const days = Math.floor(ms / (24 * 60 * 60 * 1000));
@@ -77,14 +78,14 @@ export async function getValidatorStatus(address: string, api: ApiPromise) {
     // Get information about any unbonding tokens and unlocked chunks
     const unlockingRes = res.stakingLedger.unlocking;
     const currentEra = (await api.query.staking.currentEra()).unwrap();
-    const unlocking = unlockingRes ? unlockingRes.filter((u: any) => u.era > currentEra) : [];
+    const unlocking = unlockingRes ? unlockingRes.filter((u: PalletStakingUnlockChunk) => u.era.toNumber() > currentEra.toNumber()) : [];
 
     const redeemable = res.redeemable ? readAmountFromHex(res.redeemable.toString()) : new BN(0);
 
     // Get the unlocked chunks that are ready for withdrawal
     // by comparing the era of each chunk to the current era
     const readyForWithdraw = res.stakingLedger.unlocking
-        .map((u: any) => {
+        .map((u: PalletStakingUnlockChunk) => {
             const chunk: UnlockChunk = {
                 era: u.era.toNumber(),
                 value: u.value.toBn(),

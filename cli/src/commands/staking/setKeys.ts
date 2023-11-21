@@ -15,7 +15,7 @@ export function makeSetKeysCommand() {
 }
 
 async function setKeysAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     // Build account
     const keyring = await initCallerKeyring(options);

@@ -19,7 +19,7 @@ export function makeUnbondCommand() {
 }
 
 async function unbondAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const interactive = setInteractivity(options);
 

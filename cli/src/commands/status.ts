@@ -14,7 +14,7 @@ export function makeStatusCommand() {
 }
 
 async function statusAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const showValidatorStatus = parseBoolean(options.validator);
     let showChainStatus = parseBoolean(options.chain);

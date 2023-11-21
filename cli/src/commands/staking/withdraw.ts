@@ -11,7 +11,7 @@ export function makeWithdrawUnbondedCommand() {
 }
 
 async function withdrawUnbondedAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     const keyring = await initCallerKeyring(options);
 
