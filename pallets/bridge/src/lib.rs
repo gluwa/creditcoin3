@@ -411,7 +411,7 @@ mod tests {
             let burn_id = BurnId::Creditcoin2(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let prior_balance = Balances::free_balance(collector); 
+            let prior_balance = Balances::free_balance(collector);
             assert_ok!(Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone()));
 
             assert_ok!(
@@ -420,7 +420,7 @@ mod tests {
 
             let ending_balance = Balances::free_balance(collector);
             assert!(ending_balance > prior_balance);
-        }) 
+        })
     }
 
     #[test]
@@ -438,6 +438,6 @@ mod tests {
                 Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 0),
                 expected_error,
             );
-        }) 
+        })
     }
 }
