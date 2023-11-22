@@ -393,10 +393,9 @@ jobs:
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
       - name: Run integration tests
+        working-directory: ./cli
         run: |
-          pushd cli/
           yarn test:integration
-          popd
 
       - name: Upload code coverage
         uses: codecov/codecov-action@v3
