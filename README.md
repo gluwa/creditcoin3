@@ -119,7 +119,7 @@ Creditcoin3 is compatible with most tooling from the Ethereum ecosystem, includi
 
 ```text
 Network name: Creditcoin3 Local
-New RPC URL: http://localhost:9944
+New RPC URL: http://127.0.0.1:9944
 Chain ID: 42
 Currency symbol: CTC
 Block explorer URL: <empty>
