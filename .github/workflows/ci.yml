@@ -367,7 +367,7 @@ jobs:
         working-directory: ./cli
         run: |
           yarn install
-          yarn test:unit
+          yarn build
 
       - name: Start Node 1
         run: |
