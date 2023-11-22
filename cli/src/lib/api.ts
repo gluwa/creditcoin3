@@ -12,7 +12,7 @@ export const creditcoinApi = async (wsUrl: string, noInitWarn = false): Promise<
 };
 
 // Create new API instance
-export async function newApi(url = 'ws://localhost:9944') {
+export async function newApi(url = 'ws://127.0.0.1:9944') {
     const ccApi = await creditcoinApi(url.trim(), true);
     await cryptoWaitReady();
     return ccApi;
