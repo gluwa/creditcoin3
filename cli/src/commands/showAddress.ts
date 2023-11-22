@@ -6,7 +6,6 @@ export function makeShowAddressCommand() {
     const cmd = new Command('show-address');
     cmd.description('Show account address');
     cmd.action(showAddressAction);
-    cmd.option('--index [index]', 'Specify account index');
     return cmd;
 }
 
