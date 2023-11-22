@@ -411,7 +411,7 @@ jobs:
           # if all went well kill the node. Otherwise GitHub Actions would exit on the
           # previous step killing everything and we don't have to worry about
           # dangling processes
-          killall -9 creditcoin-node
+          killall -9 creditcoin3-node
 
 
   audit:
