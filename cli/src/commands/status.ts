@@ -7,7 +7,7 @@ import { getValidatorStatus, printValidatorStatus } from '../lib/staking/validat
 export function makeStatusCommand() {
     const cmd = new Command('status');
     cmd.description('Get staking status for an address');
-    cmd.option('--validator [address]', 'Validator address to get status for');
+    cmd.option('--address [address]', 'Validator address to get status for');
     cmd.option('--chain', 'Show chain status');
     cmd.action(statusAction);
     return cmd;
@@ -16,7 +16,7 @@ export function makeStatusCommand() {
 async function statusAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const showValidatorStatus = parseBoolean(options.validator);
+    const showValidatorStatus = parseBoolean(options.address);
     let showChainStatus = parseBoolean(options.chain);
 
     if (!showValidatorStatus && !showChainStatus) {
@@ -29,7 +29,7 @@ async function statusAction(options: OptionValues) {
     }
 
     if (showValidatorStatus) {
-        const validator = parseAddressOrExit(options.validator);
+        const validator = parseAddressOrExit(options.address);
         const validatorStatus = await getValidatorStatus(validator, api);
         console.log(`Validator ${validator}:`);
         await printValidatorStatus(validatorStatus, api);

@@ -22,54 +22,11 @@ function formatDaysHoursMinutes(ms: number) {
     return `${daysString}${hoursString}${minutesString}${secString}`;
 }
 
-export interface StashControllerPair {
-    stash: string;
-    controller?: string;
-}
-
-export interface ControllerStatus {
-    isController: boolean;
-    stash?: string;
-}
-
-export async function getControllerStatus(address: string, api: ApiPromise): Promise<ControllerStatus> {
-    const stashRes = await api.query.staking.ledger(address);
-    const stash = stashRes.isSome ? stashRes.unwrap().stash.toString() : undefined;
-
-    let status;
-    if (stash) {
-        status = {
-            isController: true,
-            stash,
-        };
-    } else {
-        status = {
-            isController: false,
-            stash: undefined,
-        };
-    }
-    return status;
-}
-
 export async function getValidatorStatus(address: string, api: ApiPromise) {
-    // Check if address is a controller and get its stash
-    const controllerStatus = await getControllerStatus(address, api);
-
-    // If it is a controller, set the stash to its stash address
-    let stash;
-    if (controllerStatus.isController && controllerStatus.stash) {
-        console.log(`Address belongs to the Controller account for validator ${controllerStatus.stash}`);
-        console.log(`Showing status for ${controllerStatus.stash}...`);
-        stash = controllerStatus.stash;
-    } else {
-        stash = address;
-    }
+    let stash = address;
 
     // Get the staking information for the stash
     const res = await api.derive.staking.account(stash);
-
-    // Get the controller address
-    const controller = res.controllerId ? res.controllerId.toString() : undefined;
 
     // Get the total staked amount
     const totalStaked = readAmount(res.stakingLedger.total.toString());
@@ -124,7 +81,6 @@ export async function getValidatorStatus(address: string, api: ApiPromise) {
     const validatorStatus: Status = {
         bonded,
         stash,
-        controller,
         validating,
         waiting,
         active,
@@ -142,10 +98,7 @@ export async function printValidatorStatus(status: Status, api: ApiPromise) {
     const table = new Table({
         head: ['Status'],
     });
-
     table.push(['Bonded', status.bonded ? 'Yes' : 'No']);
-    table.push(['Stash', status.stash ? status.stash : 'None']);
-    table.push(['Controller', status.controller]);
     table.push(['Validating', status.validating ? 'Yes' : 'No']);
     table.push(['Waiting', status.waiting ? 'Yes' : 'No']);
     table.push(['Active', status.active ? 'Yes' : 'No']);
@@ -178,7 +131,6 @@ export function requireStatus(status: Status, condition: keyof Status, message?:
 export interface Status {
     bonded: boolean;
     stash?: string;
-    controller?: string;
     validating: boolean;
     waiting: boolean;
     active: boolean;
