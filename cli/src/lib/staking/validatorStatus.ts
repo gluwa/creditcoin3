@@ -23,7 +23,7 @@ function formatDaysHoursMinutes(ms: number) {
 }
 
 export async function getValidatorStatus(address: string, api: ApiPromise) {
-    let stash = address;
+    const stash = address;
 
     // Get the staking information for the stash
     const res = await api.derive.staking.account(stash);
