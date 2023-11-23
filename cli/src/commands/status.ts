@@ -7,7 +7,7 @@ import { getValidatorStatus, printValidatorStatus } from '../lib/staking/validat
 export function makeStatusCommand() {
     const cmd = new Command('status');
     cmd.description('Get staking status for an address');
-    cmd.option('--address [address]', 'Validator address to get status for');
+    cmd.option('--address [address]', 'Address to get status for');
     cmd.option('--chain', 'Show chain status');
     cmd.action(statusAction);
     return cmd;
