@@ -65,7 +65,7 @@ function parseOptions(options: OptionValues) {
     checkAmount(amount);
 
     const rewardDestination = parseRewardDestination(
-        parseChoiceOrExit(inputOrDefault(options.rewardDestination, 'Staked'), ['Staked', 'caller']),
+        parseChoiceOrExit(inputOrDefault(options.rewardDestination, 'Staked'), ['Staked', 'Stash']),
     );
 
     const extra = parseBoolean(options.extra);
