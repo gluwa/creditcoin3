@@ -15,36 +15,6 @@ import type { Data } from '@polkadot/types';
 import type { Bytes, Compact, Option, U256, Vec, bool, u128, u16, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, Call, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
-import {
-    SpConsensusBabeDigestsNextConfigDescriptor,
-    SpConsensusSlotsEquivocationProof,
-    SpSessionMembershipProof,
-    EthereumTransactionTransactionV2,
-    SpConsensusGrandpaEquivocationProof,
-    PalletIdentityJudgement,
-    PalletIdentityBitFlags,
-    PalletIdentityIdentityInfo,
-    PalletImOnlineHeartbeat,
-    PalletImOnlineSr25519AppSr25519Signature,
-    PalletNominationPoolsBondExtra,
-    PalletNominationPoolsClaimPermission,
-    PalletNominationPoolsCommissionChangeRate,
-    PalletNominationPoolsConfigOpU128,
-    PalletNominationPoolsConfigOpU32,
-    PalletNominationPoolsConfigOpPerbill,
-    PalletNominationPoolsPoolState,
-    PalletNominationPoolsConfigOpAccountId32,
-    Creditcoin3RuntimeProxyFilter,
-    Creditcoin3RuntimeOpaqueSessionKeys,
-    PalletStakingRewardDestination,
-    PalletStakingPalletConfigOpU128,
-    PalletStakingPalletConfigOpU32,
-    PalletStakingPalletConfigOpPercent,
-    PalletStakingPalletConfigOpPerbill,
-    PalletStakingValidatorPrefs,
-    SpWeightsWeightV2Weight,
-    Creditcoin3RuntimeOriginCaller,
-} from '@polkadot/types/lookup';
 
 export type __AugmentedSubmittable = AugmentedSubmittable<() => unknown>;
 export type __SubmittableExtrinsic<ApiType extends ApiTypes> = SubmittableExtrinsic<ApiType>;
