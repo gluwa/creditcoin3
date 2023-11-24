@@ -29,7 +29,7 @@
         "test:integration": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests"
     },
     "devDependencies": {
-        "@polkadot/typegen": "^10.10.1",
+        "@polkadot/typegen": "^10.11.1",
         "@types/jest": "^29.5.8",
         "@types/prompts": "^2.4.8",
         "@typescript-eslint/eslint-plugin": "^5.62.0",
