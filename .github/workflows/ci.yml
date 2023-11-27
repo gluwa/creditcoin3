@@ -348,8 +348,13 @@ jobs:
     needs:
       - build-creditcoin-node
     runs-on: ubuntu-22.04
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions: write-all
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v3
@@ -386,16 +391,48 @@ jobs:
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
-      - name: Install creditcoin3-cli
+      - name: Install creditcoin3-cli dependencies
         working-directory: ./cli
         run: |
           yarn install
+
+      - name: Auto-update typedefs
+        id: update_typedefs
+        working-directory: ./cli
+        run: |
+          ./get-metadata.sh
+          yarn build:types
+          yarn format
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short
+          git diff
+          echo "======================================="
+
+          if [ -n "$(git status --short)" ]; then
+              git diff
+              echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build creditcoin3-cli
+        working-directory: ./cli
+        run: |
           yarn build
 
       - name: Run integration tests
         working-directory: ./cli
         run: |
           yarn test:integration
+
+      - name: Commit changes for typedefs
+        if: ${{ success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: 'cli/src/lib/interfaces/'
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update TypeScript type definitions"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload code coverage
         uses: codecov/codecov-action@v3
