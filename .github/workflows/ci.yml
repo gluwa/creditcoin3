@@ -363,12 +363,6 @@ jobs:
           node-version: 20
       - run: npm install -g yarn
 
-      - name: Install creditcoin3-cli
-        working-directory: ./cli
-        run: |
-          yarn install
-          yarn build
-
       - name: Start Node 1
         run: |
           chmod a+x ./target/release/creditcoin3-node
@@ -391,6 +385,12 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
+
+      - name: Install creditcoin3-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
 
       - name: Run integration tests
         working-directory: ./cli
