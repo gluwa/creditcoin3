@@ -27,9 +27,9 @@ use sc_cli::Result;
 use sc_client_api::BlockBackend;
 use sp_core::{sr25519, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
-use sp_runtime::{generic::Era, AccountId32, OpaqueExtrinsic, SaturatedConversion};
+use sp_runtime::{generic::Era, AccountId32, MultiAddress, OpaqueExtrinsic, SaturatedConversion};
 // Frontier
-use creditcoin3_runtime::{self as runtime, AccountId, Balance, BalancesCall, SystemCall};
+use creditcoin3_runtime::{self as runtime, AccountId, Address, Balance, BalancesCall, SystemCall};
 
 use crate::client::Client;
 
@@ -75,7 +75,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
 /// Note: Should only be used for benchmarking.
 pub struct TransferKeepAliveBuilder {
     client: Arc<Client>,
-    dest: AccountId,
+    dest: Address,
     value: Balance,
 }
 
@@ -84,7 +84,7 @@ impl TransferKeepAliveBuilder {
     pub fn new(client: Arc<Client>, dest: AccountId, value: Balance) -> Self {
         Self {
             client,
-            dest,
+            dest: MultiAddress::Id(dest),
             value,
         }
     }
@@ -170,7 +170,7 @@ pub fn create_benchmark_extrinsic(
 
     runtime::UncheckedExtrinsic::new_signed(
         call,
-        AccountId32::from(sender.public()),
+        Address::Id(AccountId32::from(sender.public())),
         runtime::Signature::from(signature),
         extra,
     )
