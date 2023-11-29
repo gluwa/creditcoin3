@@ -57,6 +57,7 @@ pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-utility = { workspace = true }
+bridge = { workspace = true }
 
 # Frontier
 fp-evm = { workspace = true, features = ["serde"] }
@@ -136,6 +137,7 @@ std = [
 	"pallet-evm-precompile-sha3fips/std",
 	"pallet-evm-precompile-simple/std",
 	"pallet-hotfix-sufficients/std",
+	"bridge/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

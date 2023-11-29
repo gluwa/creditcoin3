@@ -6,11 +6,12 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BurnId, CollectionInfo, CollectionStatus, FailureReason};
+    use frame_support::dispatch::PostDispatchInfo;
     use frame_support::pallet_prelude::DispatchResult;
     use frame_support::traits::{fungible::Mutate, ReservableCurrency};
     use frame_support::{pallet_prelude::*, Twox64Concat};
     use frame_system::pallet_prelude::*;
-     use sp_runtime::SaturatedConversion;
+    use sp_runtime::SaturatedConversion;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -38,6 +39,9 @@ pub mod pallet {
         CollectionNotFound,
         CollectionNotInProgress,
         InvalidCollectionAmount,
+        NotAnAuthority,
+        AlreadyAuthority,
+        InsufficientAuthority,
     }
 
     #[pallet::storage]
@@ -49,6 +53,10 @@ pub mod pallet {
     #[pallet::getter(fn in_progress)]
     pub(super) type InProgress<T: Config> =
         StorageMap<_, Twox64Concat, BurnId, CollectionInfo, OptionQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn authorities)]
+    pub type Authorities<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, ()>;
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
@@ -73,7 +81,9 @@ pub mod pallet {
             collector: T::AccountId,
             amount: T::Balance,
         ) -> DispatchResult {
-            let _ = ensure_signed(origin.clone())?;
+            let who = ensure_signed(origin.clone())?;
+
+            ensure!(Self::is_authority(&who), Error::<T>::InsufficientAuthority);
 
             match burn_id {
                 BurnId::Creditcoin2(_) => {
@@ -90,12 +100,50 @@ pub mod pallet {
             burn_id: BurnId,
             reason: FailureReason,
         ) -> DispatchResult {
-            let _ = ensure_signed(origin.clone())?;
+            let who = ensure_signed(origin.clone())?;
+
+            ensure!(Self::is_authority(&who), Error::<T>::InsufficientAuthority);
 
             match burn_id {
                 BurnId::Creditcoin2(_) => Self::reject_collection_cc2(origin, burn_id, reason),
                 BurnId::Creditcoin3(_) => unimplemented!("This has not been implemented"),
             }
+        }
+
+        #[pallet::call_index(4)]
+        #[pallet::weight({0_0})]
+        pub fn add_authority(
+            origin: OriginFor<T>,
+            who: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            ensure_root(origin)?;
+
+            ensure!(!Self::is_authority(&who), Error::<T>::AlreadyAuthority);
+
+            Self::insert_authority(&who);
+
+            Ok(PostDispatchInfo {
+                actual_weight: None,
+                pays_fee: Pays::No,
+            })
+        }
+
+        #[pallet::call_index(5)]
+        #[pallet::weight({0_0})]
+        pub fn remove_authority(
+            origin: OriginFor<T>,
+            who: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            ensure_root(origin)?;
+
+            ensure!(Self::is_authority(&who), Error::<T>::NotAnAuthority);
+
+            Self::delete_authority(&who);
+
+            Ok(PostDispatchInfo {
+                actual_weight: None,
+                pays_fee: Pays::No,
+            })
         }
     }
 
@@ -143,7 +191,6 @@ pub mod pallet {
 
             let completed_collection = Collections::<T>::get(burn_id.clone());
             ensure!(completed_collection.is_none(), Error::<T>::AlreadyCollected);
-
 
             let amount_128 = amount.saturated_into::<u128>();
 
@@ -197,6 +244,18 @@ pub mod pallet {
             Ok(())
         }
     }
+
+    impl<T: Config> Pallet<T> {
+        fn is_authority(authority: &T::AccountId) -> bool {
+            Authorities::<T>::contains_key(authority)
+        }
+        fn insert_authority(authority: &T::AccountId) {
+            Authorities::<T>::insert(authority, ());
+        }
+        fn delete_authority(authority: &T::AccountId) {
+            Authorities::<T>::remove(authority);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -213,7 +272,7 @@ mod tests {
     };
     use sp_core::H256;
     use sp_runtime::{
-        traits::{BlakeTwo256, IdentityLookup},
+        traits::{BadOrigin, BlakeTwo256, IdentityLookup},
         BuildStorage,
     };
 
@@ -373,9 +432,12 @@ mod tests {
             let burn_id = BurnId::Creditcoin2(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+
             let expected_error = Error::<Test>::CollectionNotFound;
+
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 0),
+                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 0),
                 expected_error
             );
         })
@@ -395,9 +457,11 @@ mod tests {
             };
             InProgress::<Test>::insert(burn_id.clone(), in_progress);
 
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+
             let expected_error = Error::<Test>::AlreadyCollected;
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 0),
+                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 0),
                 expected_error
             );
         })
@@ -412,11 +476,19 @@ mod tests {
             let collector = <Test as frame_system::Config>::AccountId::default();
 
             let prior_balance = Balances::free_balance(collector);
-            assert_ok!(Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone()));
+            assert_ok!(Bridge::collect_funds(
+                RuntimeOrigin::signed(1),
+                burn_id.clone()
+            ));
 
-            assert_ok!(
-                Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 100),
-            );
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+
+            assert_ok!(Bridge::approve_collection(
+                RuntimeOrigin::signed(collector),
+                burn_id,
+                collector,
+                100
+            ),);
 
             let ending_balance = Balances::free_balance(collector);
             assert!(ending_balance > prior_balance);
@@ -431,12 +503,157 @@ mod tests {
             let burn_id = BurnId::Creditcoin2(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
-            assert_ok!(Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone()));
+            assert_ok!(Bridge::collect_funds(
+                RuntimeOrigin::signed(1),
+                burn_id.clone()
+            ));
+
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
 
             let expected_error = Error::<Test>::InvalidCollectionAmount;
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(1), burn_id, collector, 0),
+                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 0),
                 expected_error,
+            );
+        })
+    }
+
+    #[test]
+    fn add_authority_should_work() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_some());
+        })
+    }
+
+    #[test]
+    fn add_authority_should_error_when_not_signed_by_root() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::signed(1), collector),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn remove_authority_should_error_when_not_signed_by_root() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_err!(
+                Bridge::remove_authority(RuntimeOrigin::signed(1), collector),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn add_authority_should_error_when_called_with_existing_authority() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::root(), collector),
+                Error::<Test>::AlreadyAuthority
+            );
+        })
+    }
+
+    #[test]
+    fn remove_authority_should_error_when_called_with_nonexisting_authority() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_err!(
+                Bridge::remove_authority(RuntimeOrigin::root(), collector),
+                Error::<Test>::NotAnAuthority
+            );
+        })
+    }
+
+    #[test]
+    fn approve_collection_cc2_should_error_with_insufficient_authority() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+
+            let burn_id = BurnId::Creditcoin2(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_ok!(Bridge::collect_funds(
+                RuntimeOrigin::signed(1),
+                burn_id.clone()
+            ));
+
+            let expected_err = Error::<Test>::InsufficientAuthority;
+
+            assert_err!(
+                Bridge::approve_collection(
+                    RuntimeOrigin::signed(collector),
+                    burn_id,
+                    collector,
+                    100
+                ),
+                expected_err
+            );
+        })
+    }
+
+    #[test]
+    fn reject_collection_cc2_should_error_with_insufficient_authority() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+
+            let burn_id = BurnId::Creditcoin2(1);
+            let collector = <Test as frame_system::Config>::AccountId::default();
+
+            let authority = Bridge::authorities(collector);
+            assert!(authority.is_none());
+
+            assert_ok!(Bridge::collect_funds(
+                RuntimeOrigin::signed(1),
+                burn_id.clone()
+            ));
+
+            let expected_err = Error::<Test>::InsufficientAuthority;
+
+            assert_err!(
+                Bridge::reject_collection(
+                    RuntimeOrigin::signed(collector),
+                    burn_id,
+                    types::FailureReason::BridgeError
+                ),
+                expected_err
             );
         })
     }
