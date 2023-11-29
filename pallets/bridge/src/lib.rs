@@ -456,7 +456,7 @@ mod tests {
                 reason: None,
             };
             InProgress::<Test>::insert(burn_id.clone(), in_progress);
-            
+
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
 
             let expected_error = Error::<Test>::AlreadyCollected;
@@ -545,7 +545,7 @@ mod tests {
             assert!(authority.is_none());
 
             assert_err!(Bridge::add_authority(RuntimeOrigin::signed(1), collector), BadOrigin);
-        }) 
+        })
     }
 
     #[test]
@@ -558,9 +558,9 @@ mod tests {
             assert!(authority.is_none());
 
             assert_err!(Bridge::remove_authority(RuntimeOrigin::signed(1), collector), BadOrigin);
-        }) 
-    } 
-    
+        })
+    }
+
     #[test]
     fn add_authority_should_error_when_called_with_existing_authority() {
         new_test_ext().execute_with(|| {
@@ -572,7 +572,7 @@ mod tests {
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
             assert_err!(Bridge::add_authority(RuntimeOrigin::root(), collector), Error::<Test>::AlreadyAuthority);
-        }) 
+        })
     }
 
     #[test]
@@ -585,7 +585,7 @@ mod tests {
             assert!(authority.is_none());
 
             assert_err!(Bridge::remove_authority(RuntimeOrigin::root(), collector), Error::<Test>::NotAnAuthority);
-        }) 
+        })
     }
 
     #[test]
@@ -598,7 +598,7 @@ mod tests {
 
             let authority = Bridge::authorities(collector);
             assert!(authority.is_none());
-            
+
             assert_ok!(Bridge::collect_funds(
                 RuntimeOrigin::signed(1),
                 burn_id.clone()
