@@ -137,6 +137,7 @@ std = [
 	"pallet-evm-precompile-sha3fips/std",
 	"pallet-evm-precompile-simple/std",
 	"pallet-hotfix-sufficients/std",
+	"bridge/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
