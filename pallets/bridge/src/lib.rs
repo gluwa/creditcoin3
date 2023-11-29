@@ -272,7 +272,7 @@ mod tests {
     };
     use sp_core::H256;
     use sp_runtime::{
-        traits::{BlakeTwo256, IdentityLookup, BadOrigin},
+        traits::{BadOrigin, BlakeTwo256, IdentityLookup},
         BuildStorage,
     };
 
@@ -518,7 +518,6 @@ mod tests {
         })
     }
 
-
     #[test]
     fn add_authority_should_work() {
         new_test_ext().execute_with(|| {
@@ -544,7 +543,10 @@ mod tests {
             let authority = Bridge::authorities(collector);
             assert!(authority.is_none());
 
-            assert_err!(Bridge::add_authority(RuntimeOrigin::signed(1), collector), BadOrigin);
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::signed(1), collector),
+                BadOrigin
+            );
         })
     }
 
@@ -557,7 +559,10 @@ mod tests {
             let authority = Bridge::authorities(collector);
             assert!(authority.is_none());
 
-            assert_err!(Bridge::remove_authority(RuntimeOrigin::signed(1), collector), BadOrigin);
+            assert_err!(
+                Bridge::remove_authority(RuntimeOrigin::signed(1), collector),
+                BadOrigin
+            );
         })
     }
 
@@ -571,7 +576,10 @@ mod tests {
             assert!(authority.is_none());
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
-            assert_err!(Bridge::add_authority(RuntimeOrigin::root(), collector), Error::<Test>::AlreadyAuthority);
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::root(), collector),
+                Error::<Test>::AlreadyAuthority
+            );
         })
     }
 
@@ -584,7 +592,10 @@ mod tests {
             let authority = Bridge::authorities(collector);
             assert!(authority.is_none());
 
-            assert_err!(Bridge::remove_authority(RuntimeOrigin::root(), collector), Error::<Test>::NotAnAuthority);
+            assert_err!(
+                Bridge::remove_authority(RuntimeOrigin::root(), collector),
+                Error::<Test>::NotAnAuthority
+            );
         })
     }
 
@@ -604,13 +615,16 @@ mod tests {
                 burn_id.clone()
             ));
 
-
             let expected_err = Error::<Test>::InsufficientAuthority;
 
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 100),
+                Bridge::approve_collection(
+                    RuntimeOrigin::signed(collector),
+                    burn_id,
+                    collector,
+                    100
+                ),
                 expected_err
-
             );
         })
     }
@@ -626,19 +640,20 @@ mod tests {
             let authority = Bridge::authorities(collector);
             assert!(authority.is_none());
 
-
             assert_ok!(Bridge::collect_funds(
                 RuntimeOrigin::signed(1),
                 burn_id.clone()
             ));
 
-
             let expected_err = Error::<Test>::InsufficientAuthority;
 
             assert_err!(
-                Bridge::reject_collection(RuntimeOrigin::signed(collector), burn_id, types::FailureReason::BridgeError),
+                Bridge::reject_collection(
+                    RuntimeOrigin::signed(collector),
+                    burn_id,
+                    types::FailureReason::BridgeError
+                ),
                 expected_err
-
             );
         })
     }
