@@ -812,6 +812,11 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
 }
 
+impl bridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -845,6 +850,9 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+
+        // cc2 -> cc3 bridge pallet
+        Bridge: bridge,
     }
 );
 
