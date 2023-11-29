@@ -22,8 +22,8 @@ use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
         AccountIdLookup, BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get,
-        IdentifyAccount, IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf,
-        UniqueSaturatedInto, Verify,
+        IdentifyAccount, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
+        Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
