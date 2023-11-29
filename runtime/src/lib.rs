@@ -21,9 +21,9 @@ use sp_core::{
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
-        IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
-        Verify,
+        AccountIdLookup, BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get,
+        IdentifyAccount, IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf,
+        UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -213,7 +213,7 @@ impl frame_system::Config for Runtime {
     /// The identifier used to distinguish between accounts.
     type AccountId = AccountId;
     /// The lookup mechanism to get account ID from whatever is passed in dispatchers.
-    type Lookup = IdentityLookup<AccountId>;
+    type Lookup = AccountIdLookup<AccountId, AccountIndex>;
     /// The block type.
     type Block = Block;
     /// Maximum number of block number to block hash mappings to keep (oldest pruned first).
@@ -874,7 +874,7 @@ impl fp_rpc::ConvertTransaction<opaque::UncheckedExtrinsic> for TransactionConve
 }
 
 /// The address format for describing accounts.
-pub type Address = AccountId;
+pub type Address = sp_runtime::MultiAddress<AccountId, AccountIndex>;
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 /// Block type as expected by this runtime.
