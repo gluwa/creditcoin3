@@ -3,6 +3,9 @@
 mod types;
 pub use pallet::*;
 
+#[allow(clippy::unnecessary_cast)]
+pub mod weights;
+
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BalanceFor, Cc2BurnId, CollectionInfo};
@@ -13,15 +16,23 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_runtime::traits::{BlockNumberProvider, Zero};
 
-    #[pallet::pallet]
-    pub struct Pallet<T>(_);
-
     #[pallet::config]
     pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId>;
+
+        type WeightInfo: WeightInfo;
     }
+
+    pub trait WeightInfo {
+        fn add_authority() -> Weight;
+        fn approve_collection() -> Weight;
+        fn remove_authority() -> Weight;
+    }
+
+    #[pallet::pallet]
+    pub struct Pallet<T>(_);
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -60,7 +71,7 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
-        #[pallet::weight({0_0})]
+        #[pallet::weight(<T as Config>::WeightInfo::approve_collection())]
         pub fn approve_collection(
             origin: OriginFor<T>,
             burn_id: Cc2BurnId,
@@ -75,7 +86,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight({0_0})]
+        #[pallet::weight(<T as Config>::WeightInfo::add_authority())]
         pub fn add_authority(
             origin: OriginFor<T>,
             who: T::AccountId,
@@ -93,7 +104,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(2)]
-        #[pallet::weight({0_0})]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_authority())]
         pub fn remove_authority(
             origin: OriginFor<T>,
             who: T::AccountId,
@@ -238,6 +249,7 @@ mod tests {
     impl Config for Test {
         type RuntimeEvent = RuntimeEvent;
         type Currency = Balances;
+        type WeightInfo = super::weights::WeightInfo<Test>;
     }
 
     fn new_test_ext() -> sp_io::TestExternalities {
