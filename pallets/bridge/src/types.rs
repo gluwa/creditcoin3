@@ -1,6 +1,6 @@
+use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use sp_core::RuntimeDebug;
-use sp_runtime::codec::{Decode, Encode, MaxEncodedLen};
 use sp_std::prelude::*;
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
