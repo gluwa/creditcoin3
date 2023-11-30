@@ -32,6 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for parity between extrinsics, benchmarks and weights
+        run: |
+          echo "INFO: active pallets are"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets
+          echo "========================"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh
+
       - name: Check migrations
         run: |
           ./.github/check-usage-of-log-warn.sh
