@@ -3,6 +3,10 @@ use scale_info::TypeInfo;
 use sp_core::RuntimeDebug;
 use sp_std::prelude::*;
 
+pub type BalanceOf<T> = <<T as crate::Config>::Currency as frame_support::traits::Currency<
+    <T as frame_system::Config>::AccountId,
+>>::Balance;
+
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
 pub enum CollectionStatus {
     InProgress,
