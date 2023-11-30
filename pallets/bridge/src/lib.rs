@@ -9,7 +9,7 @@ pub mod pallet {
     use frame_support::dispatch::PostDispatchInfo;
     use frame_support::pallet_prelude::DispatchResult;
     use frame_support::traits::{fungible::Mutate, ReservableCurrency};
-    use frame_support::{pallet_prelude::*, Twox64Concat};
+    use frame_support::{fail, pallet_prelude::*, Twox64Concat};
     use frame_system::pallet_prelude::*;
     use sp_runtime::SaturatedConversion;
 
@@ -47,11 +47,6 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn collections)]
     pub(super) type Collections<T: Config> =
-        StorageMap<_, Twox64Concat, BurnId, CollectionInfo, OptionQuery>;
-
-    #[pallet::storage]
-    #[pallet::getter(fn in_progress)]
-    pub(super) type InProgress<T: Config> =
         StorageMap<_, Twox64Concat, BurnId, CollectionInfo, OptionQuery>;
 
     #[pallet::storage]
@@ -146,20 +141,16 @@ pub mod pallet {
         pub fn collect_funds_cc2(origin: OriginFor<T>, burn_id: BurnId) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
-            let completed_collections = Self::collections(burn_id.clone());
-            ensure!(
-                completed_collections.is_none(),
-                Error::<T>::AlreadyCollected
-            );
-
-            let in_progress_collections = Self::in_progress(burn_id.clone());
-            ensure!(
-                in_progress_collections.is_none(),
-                Error::<T>::AlreadyInProgress
-            );
+            if let Some(info) = Self::collections(&burn_id) {
+                let err = match info.status {
+                    CollectionStatus::InProgress => Error::<T>::AlreadyInProgress,
+                    CollectionStatus::Completed => Error::<T>::AlreadyCollected,
+                };
+                fail!(err);
+            }
 
             let new_attempt: CollectionInfo = Default::default();
-            InProgress::<T>::insert(burn_id.clone(), new_attempt);
+            Collections::<T>::insert(&burn_id, new_attempt);
             Self::deposit_event(Event::<T>::CollectionInitiated(burn_id));
 
             Ok(())
@@ -173,19 +164,12 @@ pub mod pallet {
         ) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
-            let in_progress = InProgress::<T>::get(burn_id.clone());
-
-            ensure!(in_progress.is_some(), Error::<T>::CollectionNotFound,);
-
-            let in_progress = in_progress.expect("This should never fail");
+            let in_progress = Self::collections(&burn_id).ok_or(Error::<T>::CollectionNotFound)?;
 
             ensure!(
                 in_progress.status != CollectionStatus::Completed,
                 Error::<T>::AlreadyCollected
             );
-
-            let completed_collection = Collections::<T>::get(burn_id.clone());
-            ensure!(completed_collection.is_none(), Error::<T>::AlreadyCollected);
 
             let amount_128 = amount.saturated_into::<u128>();
 
@@ -194,11 +178,9 @@ pub mod pallet {
 
             let status = CollectionInfo {
                 status: CollectionStatus::Completed,
-                reason: None,
             };
 
-            InProgress::<T>::remove(burn_id.clone());
-            Collections::<T>::insert(burn_id.clone(), status);
+            Collections::<T>::insert(&burn_id, status);
 
             Self::deposit_event(Event::<T>::FundsCollected(burn_id, collector, amount));
             Ok(())
@@ -211,11 +193,8 @@ pub mod pallet {
         ) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
-            let in_progress = InProgress::<T>::get(burn_id.clone());
-
-            ensure!(in_progress.is_some(), Error::<T>::CollectionNotFound);
-
-            let in_progress = in_progress.expect("This should never fail");
+            let in_progress =
+                Collections::<T>::get(&burn_id).ok_or(Error::<T>::CollectionNotFound)?;
 
             ensure!(
                 in_progress.status != CollectionStatus::Completed,
@@ -227,15 +206,10 @@ pub mod pallet {
                 Error::<T>::CollectionNotInProgress,
             );
 
-            let status = CollectionInfo {
-                status: CollectionStatus::Failed,
-                reason: Some(reason.clone()),
-            };
-
-            InProgress::<T>::remove(burn_id.clone());
-            Collections::<T>::insert(burn_id.clone(), status);
+            Collections::<T>::remove(&burn_id);
 
             Self::deposit_event(Event::<T>::CollectionFailed(burn_id, reason));
+
             Ok(())
         }
     }
@@ -351,7 +325,7 @@ mod tests {
 
             let burn_id = BurnId::Creditcoin2(1);
 
-            let existing_attempt = Collections::<Test>::get(burn_id.clone());
+            let existing_attempt = Collections::<Test>::get(&burn_id);
             assert!(existing_attempt.is_none());
 
             assert_ok!(Bridge::collect_funds(
@@ -372,12 +346,11 @@ mod tests {
 
             let attempt = CollectionInfo {
                 status: types::CollectionStatus::Completed,
-                reason: None,
             };
-            Collections::<Test>::insert(burn_id.clone(), attempt);
+            Collections::<Test>::insert(&burn_id, attempt);
 
             let expected_error = Error::<Test>::AlreadyCollected;
-            let error_expression = Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone());
+            let error_expression = Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id);
 
             assert_err!(error_expression, expected_error);
         })
@@ -392,12 +365,11 @@ mod tests {
 
             let progress = CollectionInfo {
                 status: types::CollectionStatus::InProgress,
-                reason: None,
             };
-            InProgress::<Test>::insert(burn_id.clone(), progress);
+            Collections::<Test>::insert(&burn_id, progress);
 
             let expected_error = Error::<Test>::AlreadyInProgress;
-            let error_expression = Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id.clone());
+            let error_expression = Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id);
 
             assert_err!(error_expression, expected_error);
         })
@@ -448,9 +420,8 @@ mod tests {
 
             let in_progress = CollectionInfo {
                 status: types::CollectionStatus::Completed,
-                reason: None,
             };
-            InProgress::<Test>::insert(burn_id.clone(), in_progress);
+            Collections::<Test>::insert(&burn_id, in_progress);
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
 
