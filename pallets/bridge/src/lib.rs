@@ -67,9 +67,6 @@ pub mod pallet {
 
             match burn_id {
                 BurnId::Creditcoin2(_) => Self::collect_funds_cc2(origin.clone(), burn_id),
-                BurnId::Creditcoin3(_) => {
-                    unimplemented!("These burn type have not been implemented")
-                }
             }
         }
 
@@ -89,7 +86,6 @@ pub mod pallet {
                 BurnId::Creditcoin2(_) => {
                     Self::approve_collection_cc2(origin.clone(), burn_id, collector, amount)
                 }
-                BurnId::Creditcoin3(_) => unimplemented!("This has not been implemented"),
             }
         }
 
@@ -106,7 +102,6 @@ pub mod pallet {
 
             match burn_id {
                 BurnId::Creditcoin2(_) => Self::reject_collection_cc2(origin, burn_id, reason),
-                BurnId::Creditcoin3(_) => unimplemented!("This has not been implemented"),
             }
         }
 
