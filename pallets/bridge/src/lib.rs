@@ -5,29 +5,29 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{BurnId, CollectionInfo, CollectionStatus, FailureReason};
+    use crate::types::{BalanceOf, BurnId, CollectionInfo, CollectionStatus, FailureReason};
     use frame_support::dispatch::PostDispatchInfo;
     use frame_support::pallet_prelude::DispatchResult;
-    use frame_support::traits::{fungible::Mutate, ReservableCurrency};
+    use frame_support::traits::Currency;
     use frame_support::{fail, pallet_prelude::*, Twox64Concat};
     use frame_system::pallet_prelude::*;
-    use sp_runtime::SaturatedConversion;
+    use sp_runtime::traits::Zero;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        type Currency: ReservableCurrency<Self::AccountId>;
+        type Currency: Currency<Self::AccountId>;
     }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         CollectionInitiated(BurnId),
-        FundsCollected(BurnId, T::AccountId, T::Balance),
+        FundsCollected(BurnId, T::AccountId, BalanceOf<T>),
         CollectionFailed(BurnId, FailureReason),
         CollectionExpired,
     }
@@ -71,7 +71,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             burn_id: BurnId,
             collector: T::AccountId,
-            amount: T::Balance,
+            amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
 
@@ -160,7 +160,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             burn_id: BurnId,
             collector: T::AccountId,
-            amount: T::Balance,
+            amount: BalanceOf<T>,
         ) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
@@ -171,10 +171,8 @@ pub mod pallet {
                 Error::<T>::AlreadyCollected
             );
 
-            let amount_128 = amount.saturated_into::<u128>();
-
-            ensure!(amount_128.gt(&0u128), Error::<T>::InvalidCollectionAmount);
-            <pallet_balances::Pallet<T> as Mutate<T::AccountId>>::mint_into(&collector, amount)?;
+            ensure!(!amount.is_zero(), Error::<T>::InvalidCollectionAmount);
+            Self::mint_into(&collector, amount);
 
             let status = CollectionInfo {
                 status: CollectionStatus::Completed,
@@ -215,6 +213,10 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        fn mint_into(who: &T::AccountId, amount: BalanceOf<T>) {
+            let minted = <T::Currency as Currency<T::AccountId>>::issue(amount);
+            <T::Currency as Currency<T::AccountId>>::resolve_creating(who, minted);
+        }
         fn is_authority(authority: &T::AccountId) -> bool {
             Authorities::<T>::contains_key(authority)
         }
