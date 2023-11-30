@@ -26,9 +26,9 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        CollectionInitiated,
-        FundsCollected,
-        CollectionFailed(FailureReason),
+        CollectionInitiated(BurnId),
+        FundsCollected(BurnId, T::AccountId, T::Balance),
+        CollectionFailed(BurnId, FailureReason),
         CollectionExpired,
     }
 
@@ -159,8 +159,8 @@ pub mod pallet {
             );
 
             let new_attempt: CollectionInfo = Default::default();
-            InProgress::<T>::insert(burn_id, new_attempt);
-            Self::deposit_event(Event::<T>::CollectionInitiated);
+            InProgress::<T>::insert(burn_id.clone(), new_attempt);
+            Self::deposit_event(Event::<T>::CollectionInitiated(burn_id));
 
             Ok(())
         }
@@ -198,9 +198,9 @@ pub mod pallet {
             };
 
             InProgress::<T>::remove(burn_id.clone());
-            Collections::<T>::insert(burn_id, status);
+            Collections::<T>::insert(burn_id.clone(), status);
 
-            Self::deposit_event(Event::<T>::FundsCollected);
+            Self::deposit_event(Event::<T>::FundsCollected(burn_id, collector, amount));
             Ok(())
         }
 
@@ -233,9 +233,9 @@ pub mod pallet {
             };
 
             InProgress::<T>::remove(burn_id.clone());
-            Collections::<T>::insert(burn_id, status);
+            Collections::<T>::insert(burn_id.clone(), status);
 
-            Self::deposit_event(Event::<T>::CollectionFailed(reason));
+            Self::deposit_event(Event::<T>::CollectionFailed(burn_id, reason));
             Ok(())
         }
     }
@@ -359,7 +359,7 @@ mod tests {
                 burn_id.clone()
             ));
 
-            System::assert_has_event(Event::<Test>::CollectionInitiated.into());
+            System::assert_has_event(Event::<Test>::CollectionInitiated(burn_id).into());
         })
     }
 
@@ -415,7 +415,7 @@ mod tests {
                 burn_id.clone()
             ));
 
-            System::assert_has_event(Event::<Test>::CollectionInitiated.into());
+            System::assert_has_event(Event::<Test>::CollectionInitiated(burn_id).into());
         })
     }
 
