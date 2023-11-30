@@ -815,6 +815,7 @@ impl pallet_nomination_pools::Config for Runtime {
 impl pallet_bridge::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
+    type WeightInfo = pallet_bridge::weights::WeightInfo<Runtime>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
