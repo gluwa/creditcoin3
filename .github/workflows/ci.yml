@@ -95,10 +95,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -130,10 +130,10 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -162,10 +162,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -195,7 +195,12 @@ jobs:
       - name: Set-Up
         run: |
           sudo apt-get update
-          sudo apt install -y curl protobuf-compiler
+          sudo apt install -y curl
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -457,10 +462,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
