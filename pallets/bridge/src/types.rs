@@ -20,7 +20,6 @@ pub enum FailureReason {
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
 pub enum BurnId {
     Creditcoin2(u64),
-    Creditcoin3(u64),
 }
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
