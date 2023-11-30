@@ -112,7 +112,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn approve_collection_cc2(
+        fn approve_collection_cc2(
             origin: OriginFor<T>,
             burn_id: Cc2BurnId,
             collector: T::AccountId,
