@@ -44,7 +44,7 @@ jobs:
             creditcoin-srtool-digest.json
 
   upgrade-devnet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: build
     if: github.ref == 'refs/heads/dev'
     steps:
