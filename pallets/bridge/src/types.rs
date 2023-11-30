@@ -7,13 +7,11 @@ use sp_std::prelude::*;
 pub enum CollectionStatus {
     InProgress,
     Completed,
-    Failed,
 }
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
 pub enum FailureReason {
     UnknownBurn,
-    Unauthorized,
     BridgeError,
 }
 
@@ -25,14 +23,12 @@ pub enum BurnId {
 #[derive(Clone, Encode, Decode, Eq, PartialEq, TypeInfo, MaxEncodedLen, RuntimeDebug)]
 pub struct CollectionInfo {
     pub status: CollectionStatus,
-    pub reason: Option<FailureReason>,
 }
 
 impl Default for CollectionInfo {
     fn default() -> Self {
         Self {
             status: CollectionStatus::InProgress,
-            reason: None,
         }
     }
 }
