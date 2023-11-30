@@ -991,6 +991,8 @@ mod benches {
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
+        // Gluwa
+        [pallet_bridge, Bridge]
     );
 }
 

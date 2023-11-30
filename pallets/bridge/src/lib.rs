@@ -6,6 +6,8 @@ pub use pallet::*;
 #[allow(clippy::unnecessary_cast)]
 pub mod weights;
 
+mod benchmarking;
+
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BalanceFor, Cc2BurnId, CollectionInfo};
