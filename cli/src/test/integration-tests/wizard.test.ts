@@ -1,4 +1,4 @@
-import { commandSync } from 'execa';
+import { execaCommandSync } from 'execa';
 import { parseAmountInternal } from '../../lib/parsing';
 import { signSendAndWatch } from '../../lib/tx';
 import {
@@ -23,7 +23,7 @@ describe('integration test: validator wizard setup', () => {
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Run wizard setup with 1k ctc ang to pair with node Bob
-        commandSync(`node ${CLI_PATH} wizard --amount 1000 --url ${BOB_NODE_URL}`, {
+        execaCommandSync(`node ${CLI_PATH} wizard --amount 1000 --url ${BOB_NODE_URL}`, {
             env: {
                 CC_SECRET: stash.secret,
             },

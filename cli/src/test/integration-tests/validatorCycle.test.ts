@@ -1,5 +1,5 @@
 import { mnemonicValidate } from '@polkadot/util-crypto';
-import { commandSync } from 'execa';
+import { execaCommandSync } from 'execa';
 import { BN, newApi } from '../../lib';
 import { getBalance, printBalance } from '../../lib/balance';
 import { parseAddressInternal, parseAmountInternal, parseHexStringInternal } from '../../lib/parsing';
@@ -18,7 +18,7 @@ describe('integration test: validator manual setup', () => {
         const aliceApi = (await newApi(ALICE_NODE_URL)).api;
 
         const stashSecret = // Creating two accounts using `new` should return two valid mnemonic seeds
-            commandSync(`node ${CLI_PATH} new`).stdout.split('Seed phrase: ')[1];
+            execaCommandSync(`node ${CLI_PATH} new`).stdout.split('Seed phrase: ')[1];
 
         expect(mnemonicValidate(stashSecret)).toBe(true);
 
@@ -26,7 +26,7 @@ describe('integration test: validator manual setup', () => {
 
         // Getting the addresses using `show-address` should return two valid addresses
         const stashAddress = parseAddressInternal(
-            commandSync(`node ${CLI_PATH} show-address`, {
+            execaCommandSync(`node ${CLI_PATH} show-address`, {
                 env: {
                     CC_SECRET: stashSecret,
                 },
@@ -46,7 +46,7 @@ describe('integration test: validator manual setup', () => {
         // - make the stash's controller be the controller address
         // - make controller's stash be the stash address
         const bondAmount = '1000';
-        commandSync(`node ${CLI_PATH} bond --amount ${bondAmount} --url ${BOB_NODE_URL}`, {
+        execaCommandSync(`node ${CLI_PATH} bond --amount ${bondAmount} --url ${BOB_NODE_URL}`, {
             env: {
                 CC_SECRET: stashSecret,
             },
@@ -61,13 +61,13 @@ describe('integration test: validator manual setup', () => {
 
         // Rotating session keys for the node should return a valid hex string
         const newKeys = parseHexStringInternal(
-            commandSync(`node ${CLI_PATH} rotate-keys --url ${BOB_NODE_URL}`).stdout.split('New keys: ')[1],
+            execaCommandSync(`node ${CLI_PATH} rotate-keys --url ${BOB_NODE_URL}`).stdout.split('New keys: ')[1],
         );
 
         // Setting session keys for the controller should
         // - make the validator (stash) next session keys equal to the new keys
         // - make the new keys appear as the node's session keys
-        commandSync(`node ${CLI_PATH} set-keys --keys ${newKeys} --url ${BOB_NODE_URL}`, {
+        execaCommandSync(`node ${CLI_PATH} set-keys --keys ${newKeys} --url ${BOB_NODE_URL}`, {
             env: {
                 CC_SECRET: stashSecret,
             },
@@ -80,7 +80,7 @@ describe('integration test: validator manual setup', () => {
         expect(nodeHasKeys).toBe(true);
 
         // Signaling intention to validate should make the validator (stash) appear as waiting
-        commandSync(`node ${CLI_PATH} validate --commission 1 --url ${BOB_NODE_URL}`, {
+        execaCommandSync(`node ${CLI_PATH} validate --commission 1 --url ${BOB_NODE_URL}`, {
             env: {
                 CC_SECRET: stashSecret,
             },
@@ -110,7 +110,7 @@ describe('integration test: validator manual setup', () => {
         const balanceBeforeRewards = await getBalance(stashAddress, aliceApi);
         console.log(balanceBeforeRewards.bonded.toString());
 
-        commandSync(
+        execaCommandSync(
             `node ${CLI_PATH} distribute-rewards --url ${BOB_NODE_URL} --validator-id ${stashAddress} --era ${startingEra}`,
             {
                 env: {
@@ -127,7 +127,7 @@ describe('integration test: validator manual setup', () => {
         expect(balanceIncreased).toBe(true);
 
         // After executing the chill commmand, the validator should no longer be active nor waiting
-        commandSync(`node ${CLI_PATH} chill --url ${BOB_NODE_URL}`, {
+        execaCommandSync(`node ${CLI_PATH} chill --url ${BOB_NODE_URL}`, {
             env: {
                 CC_SECRET: stashSecret,
             },
@@ -139,7 +139,7 @@ describe('integration test: validator manual setup', () => {
         expect(stashStatusAfterChill.waiting).toBe(false);
 
         // After unbonding, the validator should no longer be bonded
-        commandSync(
+        execaCommandSync(
             // Unbonding defaults to max if it exceeds the bonded amount
             `node ${CLI_PATH} unbond --url ${BOB_NODE_URL} -a 100000`,
             {
@@ -164,7 +164,7 @@ describe('integration test: validator manual setup', () => {
         console.log('Unbonding period: ', unbondingPeriod);
         await waitEras(unbondingPeriod + 1, aliceApi, true);
 
-        commandSync(`node ${CLI_PATH} withdraw-unbonded --url ${BOB_NODE_URL}`, {
+        execaCommandSync(`node ${CLI_PATH} withdraw-unbonded --url ${BOB_NODE_URL}`, {
             env: {
                 CC_SECRET: stashSecret,
             },

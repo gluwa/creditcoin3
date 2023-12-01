@@ -1,4 +1,4 @@
-import { commandSync } from 'execa';
+import { execaCommandSync } from 'execa';
 import { parseAmountInternal } from '../../lib/parsing';
 import { signSendAndWatch } from '../../lib/tx';
 import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH } from './helpers';
@@ -13,7 +13,7 @@ describe('Send command', () => {
         const fundTx = await fundAddressesFromSudo([caller.address], parseAmountInternal('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
-        const result = commandSync(
+        const result = execaCommandSync(
             `node ${CLI_PATH} send --to 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
             {
                 env: {

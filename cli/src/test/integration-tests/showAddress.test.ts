@@ -1,4 +1,4 @@
-import { commandSync } from 'execa';
+import { execaCommandSync } from 'execa';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { CLI_PATH, randomTestAccount } from './helpers';
 
@@ -18,7 +18,7 @@ describe('Show address command', () => {
 
         const caller = randomTestAccount();
 
-        const result = commandSync(`node ${CLI_PATH} show-address`, {
+        const result = execaCommandSync(`node ${CLI_PATH} show-address`, {
             env: {
                 CC_SECRET: caller.secret,
             },
