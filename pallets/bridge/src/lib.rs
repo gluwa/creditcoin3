@@ -5,13 +5,13 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{BalanceOf, BurnId, CollectionInfo, CollectionStatus, FailureReason};
+    use crate::types::{BalanceFor, Cc2BurnId, CollectionInfo};
     use frame_support::dispatch::PostDispatchInfo;
     use frame_support::pallet_prelude::DispatchResult;
     use frame_support::traits::Currency;
-    use frame_support::{fail, pallet_prelude::*, Twox64Concat};
+    use frame_support::{pallet_prelude::*, Twox64Concat};
     use frame_system::pallet_prelude::*;
-    use sp_runtime::traits::Zero;
+    use sp_runtime::traits::{BlockNumberProvider, Zero};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -26,28 +26,32 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        CollectionInitiated(BurnId),
-        FundsCollected(BurnId, T::AccountId, BalanceOf<T>),
-        CollectionFailed(BurnId, FailureReason),
-        CollectionExpired,
+        FundsCollected(Cc2BurnId, T::AccountId, BalanceFor<T>),
     }
 
     #[pallet::error]
     pub enum Error<T> {
+        /// Collection already completed
         AlreadyCollected,
-        AlreadyInProgress,
-        CollectionNotFound,
-        CollectionNotInProgress,
+        /// Invalid collection amount
         InvalidCollectionAmount,
+        /// Not an authority
         NotAnAuthority,
+        /// Already an authority
         AlreadyAuthority,
+        /// Insufficient authority
         InsufficientAuthority,
     }
 
     #[pallet::storage]
     #[pallet::getter(fn collections)]
-    pub(super) type Collections<T: Config> =
-        StorageMap<_, Twox64Concat, BurnId, CollectionInfo, OptionQuery>;
+    pub(super) type Collections<T: Config> = StorageMap<
+        _,
+        Twox64Concat,
+        Cc2BurnId,
+        CollectionInfo<T::AccountId, BalanceFor<T>, BlockNumberFor<T>>,
+        OptionQuery,
+    >;
 
     #[pallet::storage]
     #[pallet::getter(fn authorities)]
@@ -55,52 +59,22 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        #[pallet::call_index(1)]
-        #[pallet::weight({0_0})]
-        pub fn collect_funds(origin: OriginFor<T>, burn_id: BurnId) -> DispatchResult {
-            let _ = ensure_signed(origin.clone())?;
-
-            match burn_id {
-                BurnId::Creditcoin2(_) => Self::collect_funds_cc2(origin.clone(), burn_id),
-            }
-        }
-
-        #[pallet::call_index(2)]
+        #[pallet::call_index(0)]
         #[pallet::weight({0_0})]
         pub fn approve_collection(
             origin: OriginFor<T>,
-            burn_id: BurnId,
+            burn_id: Cc2BurnId,
             collector: T::AccountId,
-            amount: BalanceOf<T>,
+            amount: BalanceFor<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
 
             ensure!(Self::is_authority(&who), Error::<T>::InsufficientAuthority);
 
-            match burn_id {
-                BurnId::Creditcoin2(_) => {
-                    Self::approve_collection_cc2(origin.clone(), burn_id, collector, amount)
-                }
-            }
+            Self::approve_collection_cc2(origin.clone(), burn_id, collector, amount)
         }
 
-        #[pallet::call_index(3)]
-        #[pallet::weight({0_0})]
-        pub fn reject_collection(
-            origin: OriginFor<T>,
-            burn_id: BurnId,
-            reason: FailureReason,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin.clone())?;
-
-            ensure!(Self::is_authority(&who), Error::<T>::InsufficientAuthority);
-
-            match burn_id {
-                BurnId::Creditcoin2(_) => Self::reject_collection_cc2(origin, burn_id, reason),
-            }
-        }
-
-        #[pallet::call_index(4)]
+        #[pallet::call_index(1)]
         #[pallet::weight({0_0})]
         pub fn add_authority(
             origin: OriginFor<T>,
@@ -118,7 +92,7 @@ pub mod pallet {
             })
         }
 
-        #[pallet::call_index(5)]
+        #[pallet::call_index(2)]
         #[pallet::weight({0_0})]
         pub fn remove_authority(
             origin: OriginFor<T>,
@@ -138,82 +112,40 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn collect_funds_cc2(origin: OriginFor<T>, burn_id: BurnId) -> DispatchResult {
-            let _ = ensure_signed(origin)?;
-
-            if let Some(info) = Self::collections(&burn_id) {
-                let err = match info.status {
-                    CollectionStatus::InProgress => Error::<T>::AlreadyInProgress,
-                    CollectionStatus::Completed => Error::<T>::AlreadyCollected,
-                };
-                fail!(err);
-            }
-
-            let new_attempt: CollectionInfo = Default::default();
-            Collections::<T>::insert(&burn_id, new_attempt);
-            Self::deposit_event(Event::<T>::CollectionInitiated(burn_id));
-
-            Ok(())
-        }
-
         pub fn approve_collection_cc2(
             origin: OriginFor<T>,
-            burn_id: BurnId,
+            burn_id: Cc2BurnId,
             collector: T::AccountId,
-            amount: BalanceOf<T>,
+            amount: BalanceFor<T>,
         ) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
-            let in_progress = Self::collections(&burn_id).ok_or(Error::<T>::CollectionNotFound)?;
-
             ensure!(
-                in_progress.status != CollectionStatus::Completed,
+                Self::collections(&burn_id).is_none(),
                 Error::<T>::AlreadyCollected
             );
 
             ensure!(!amount.is_zero(), Error::<T>::InvalidCollectionAmount);
             Self::mint_into(&collector, amount);
 
-            let status = CollectionInfo {
-                status: CollectionStatus::Completed,
+            let info = CollectionInfo {
+                block_number: Self::block_number(),
+                amount,
+                collector: collector.clone(),
             };
 
-            Collections::<T>::insert(&burn_id, status);
+            Collections::<T>::insert(&burn_id, info);
 
             Self::deposit_event(Event::<T>::FundsCollected(burn_id, collector, amount));
-            Ok(())
-        }
-
-        pub fn reject_collection_cc2(
-            origin: OriginFor<T>,
-            burn_id: BurnId,
-            reason: FailureReason,
-        ) -> DispatchResult {
-            let _ = ensure_signed(origin)?;
-
-            let in_progress =
-                Collections::<T>::get(&burn_id).ok_or(Error::<T>::CollectionNotFound)?;
-
-            ensure!(
-                in_progress.status != CollectionStatus::Completed,
-                Error::<T>::AlreadyCollected
-            );
-
-            ensure!(
-                in_progress.status == CollectionStatus::InProgress,
-                Error::<T>::CollectionNotInProgress,
-            );
-
-            Collections::<T>::remove(&burn_id);
-
-            Self::deposit_event(Event::<T>::CollectionFailed(burn_id, reason));
-
             Ok(())
         }
     }
 
     impl<T: Config> Pallet<T> {
-        fn mint_into(who: &T::AccountId, amount: BalanceOf<T>) {
+        fn block_number() -> BlockNumberFor<T> {
+            frame_system::Pallet::<T>::current_block_number()
+        }
+        fn mint_into(who: &T::AccountId, amount: BalanceFor<T>) {
             let minted = <T::Currency as Currency<T::AccountId>>::issue(amount);
             <T::Currency as Currency<T::AccountId>>::resolve_creating(who, minted);
         }
@@ -234,7 +166,7 @@ mod tests {
     use super::*;
     use crate::{
         self as pallet_bridge,
-        types::{BurnId, CollectionInfo},
+        types::{Cc2BurnId, CollectionInfo},
     };
 
     use frame_support::{
@@ -321,109 +253,19 @@ mod tests {
     }
 
     #[test]
-    fn collect_funds_should_create_new_collection_when_burn_id_nonexisting() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let burn_id = BurnId::Creditcoin2(1);
-
-            let existing_attempt = Collections::<Test>::get(&burn_id);
-            assert!(existing_attempt.is_none());
-
-            assert_ok!(Bridge::collect_funds(
-                RuntimeOrigin::signed(1),
-                burn_id.clone()
-            ));
-
-            System::assert_has_event(Event::<Test>::CollectionInitiated(burn_id).into());
-        })
-    }
-
-    #[test]
-    fn collect_funds_should_return_error_when_already_collected() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let burn_id = BurnId::Creditcoin2(1);
-
-            let attempt = CollectionInfo {
-                status: types::CollectionStatus::Completed,
-            };
-            Collections::<Test>::insert(&burn_id, attempt);
-
-            let expected_error = Error::<Test>::AlreadyCollected;
-            let error_expression = Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id);
-
-            assert_err!(error_expression, expected_error);
-        })
-    }
-
-    #[test]
-    fn collect_funds_cc2_should_return_error_when_already_in_progress() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let burn_id = BurnId::Creditcoin2(1);
-
-            let progress = CollectionInfo {
-                status: types::CollectionStatus::InProgress,
-            };
-            Collections::<Test>::insert(&burn_id, progress);
-
-            let expected_error = Error::<Test>::AlreadyInProgress;
-            let error_expression = Bridge::collect_funds(RuntimeOrigin::signed(1), burn_id);
-
-            assert_err!(error_expression, expected_error);
-        })
-    }
-
-    #[test]
-    fn collect_funds_cc2_should_emit_event_when_moved_to_in_progress() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let burn_id = BurnId::Creditcoin2(1);
-
-            assert_ok!(Bridge::collect_funds(
-                RuntimeOrigin::signed(1),
-                burn_id.clone()
-            ));
-
-            System::assert_has_event(Event::<Test>::CollectionInitiated(burn_id).into());
-        })
-    }
-
-    #[test]
-    fn approve_collection_cc2_should_error_when_collection_not_found() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let burn_id = BurnId::Creditcoin2(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
-
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
-
-            let expected_error = Error::<Test>::CollectionNotFound;
-
-            assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 0),
-                expected_error
-            );
-        })
-    }
-
-    #[test]
     fn approve_collection_cc2_should_error_when_collection_completed() {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId::Creditcoin2(1);
+            let burn_id = Cc2BurnId(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let in_progress = CollectionInfo {
-                status: types::CollectionStatus::Completed,
+            let completed = CollectionInfo {
+                amount: 100,
+                block_number: 1,
+                collector,
             };
-            Collections::<Test>::insert(&burn_id, in_progress);
+            Collections::<Test>::insert(&burn_id, completed);
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
 
@@ -440,14 +282,10 @@ mod tests {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId::Creditcoin2(1);
+            let burn_id = Cc2BurnId(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
             let prior_balance = Balances::free_balance(collector);
-            assert_ok!(Bridge::collect_funds(
-                RuntimeOrigin::signed(1),
-                burn_id.clone()
-            ));
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
 
@@ -468,13 +306,8 @@ mod tests {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId::Creditcoin2(1);
+            let burn_id = Cc2BurnId(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
-
-            assert_ok!(Bridge::collect_funds(
-                RuntimeOrigin::signed(1),
-                burn_id.clone()
-            ));
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
 
@@ -572,16 +405,11 @@ mod tests {
         new_test_ext().execute_with(|| {
             System::set_block_number(1);
 
-            let burn_id = BurnId::Creditcoin2(1);
+            let burn_id = Cc2BurnId(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
             let authority = Bridge::authorities(collector);
             assert!(authority.is_none());
-
-            assert_ok!(Bridge::collect_funds(
-                RuntimeOrigin::signed(1),
-                burn_id.clone()
-            ));
 
             let expected_err = Error::<Test>::InsufficientAuthority;
 
@@ -591,35 +419,6 @@ mod tests {
                     burn_id,
                     collector,
                     100
-                ),
-                expected_err
-            );
-        })
-    }
-
-    #[test]
-    fn reject_collection_cc2_should_error_with_insufficient_authority() {
-        new_test_ext().execute_with(|| {
-            System::set_block_number(1);
-
-            let burn_id = BurnId::Creditcoin2(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
-
-            let authority = Bridge::authorities(collector);
-            assert!(authority.is_none());
-
-            assert_ok!(Bridge::collect_funds(
-                RuntimeOrigin::signed(1),
-                burn_id.clone()
-            ));
-
-            let expected_err = Error::<Test>::InsufficientAuthority;
-
-            assert_err!(
-                Bridge::reject_collection(
-                    RuntimeOrigin::signed(collector),
-                    burn_id,
-                    types::FailureReason::BridgeError
                 ),
                 expected_err
             );
