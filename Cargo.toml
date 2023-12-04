@@ -3,7 +3,7 @@ members = ["node", "runtime", "runtime/generate-bags", "pallets/bridge"]
 resolver = "2"
 
 [workspace.package]
-version = "3.8.1"
+version = "3.9.0"
 authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
