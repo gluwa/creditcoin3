@@ -32,7 +32,7 @@ export async function initEthWalletFromEnvOrPrompt(
     const interactive = parseBoolean(options.input);
     const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
     console.log(options.useEcdsa);
-    const validateInput = options.useEcdsa ? () => true : Mnemonic.isValidMnemonic;
+    const validateInput = options.useEcdsa ? () => true : (input: string) => Mnemonic.isValidMnemonic(input);
     const generateKeyring = options.useEcdsa ? initEthWalletFromPK : initEthWalletFromMnemonic;
 
     if (!interactive && !process.env[envVar]) {
