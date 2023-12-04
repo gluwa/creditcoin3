@@ -14,6 +14,7 @@ import { makeValidateCommand } from './commands/staking/validate';
 import { makeDistributeRewardsCommand } from './commands/staking/distribute';
 import { makeWithdrawUnbondedCommand } from './commands/staking/withdraw';
 import { makeWizardCommand } from './commands/staking/wizard';
+import { makeEvmCommand } from './commands/evm';
 
 const program = new Command();
 
@@ -31,7 +32,8 @@ program
     .addCommand(makeUnbondCommand())
     .addCommand(makeValidateCommand())
     .addCommand(makeWithdrawUnbondedCommand())
-    .addCommand(makeWizardCommand());
+    .addCommand(makeWizardCommand())
+    .addCommand(makeEvmCommand());
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');

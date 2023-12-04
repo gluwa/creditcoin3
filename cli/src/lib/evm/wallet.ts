@@ -1,12 +1,12 @@
-import { OptionValues } from "commander";
-import { HDNodeWallet, Wallet } from "ethers";
-import { parseBoolean } from "../parsing";
+import { OptionValues } from 'commander';
+import { HDNodeWallet, Wallet } from 'ethers';
+import { parseBoolean } from '../parsing';
 import { Mnemonic } from 'ethers';
-import { getStringFromEnvVar } from "../account/keyring";
-import prompts from "prompts";
-import { getErrorMessage } from "../error";
+import { getStringFromEnvVar } from '../account/keyring';
+import prompts from 'prompts';
+import { getErrorMessage } from '../error';
 
-export async function initEVMCallerWallet(options: OptionValues): Promise<Wallet|HDNodeWallet> {
+export async function initEVMCallerWallet(options: OptionValues): Promise<Wallet | HDNodeWallet> {
     try {
         return await initEthWalletFromEnvOrPrompt('EVM_SECRET', options);
     } catch (e) {
@@ -28,8 +28,7 @@ function initEthWalletFromMnemonic(mnemonic: string) {
 export async function initEthWalletFromEnvOrPrompt(
     envVar: string,
     options: OptionValues,
-): Promise<Wallet|HDNodeWallet>
-{
+): Promise<Wallet | HDNodeWallet> {
     // General configs
     const interactive = parseBoolean(options.input);
     const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
@@ -66,4 +65,3 @@ export async function initEthWalletFromEnvOrPrompt(
     }
     throw new Error(`Error: Could not retrieve ${inputName}`);
 }
-
