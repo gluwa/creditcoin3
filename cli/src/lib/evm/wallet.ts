@@ -1,7 +1,6 @@
 import { OptionValues } from 'commander';
-import { HDNodeWallet, Wallet } from 'ethers';
+import { HDNodeWallet, Wallet, Mnemonic } from 'ethers';
 import { parseBoolean } from '../parsing';
-import { Mnemonic } from 'ethers';
 import { getStringFromEnvVar } from '../account/keyring';
 import prompts from 'prompts';
 import { getErrorMessage } from '../error';
@@ -32,6 +31,7 @@ export async function initEthWalletFromEnvOrPrompt(
     // General configs
     const interactive = parseBoolean(options.input);
     const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
+    console.log(options.useEcdsa);
     const validateInput = options.useEcdsa ? () => true : Mnemonic.isValidMnemonic;
     const generateKeyring = options.useEcdsa ? initEthWalletFromPK : initEthWalletFromMnemonic;
 

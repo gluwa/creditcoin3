@@ -37,9 +37,7 @@ program
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
-    cmd.option('-u, --evm-url [evm-url]', 'URL for the EVM RPC endpoint', 'http://127.0.0.1:9944');
     cmd.option('-u, --url [url]', 'URL for the Substrate node', 'ws://127.0.0.1:9944');
-    cmd.option('--use-ecdsa', 'Use ECDSA and a private key instead of a mnemonic phrase');
 });
 
 program.parse(process.argv);
