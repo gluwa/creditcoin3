@@ -1,7 +1,4 @@
-import { ApiPromise } from '@polkadot/api';
 import { encodeAddress, decodeAddress, blake2AsHex } from '@polkadot/util-crypto';
-import { initEthKeyringPair } from '../account/keyring';
-import { JsonRpcProvider, ethers } from 'ethers';
 
 export function evmAddressToSubstrateAddress(evmAddress: string) {
     const evmAddressBytes = Buffer.from(evmAddress.replace('0x', ''), 'hex');
