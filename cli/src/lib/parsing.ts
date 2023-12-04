@@ -1,8 +1,10 @@
 import { validateAddress } from '@polkadot/util-crypto/address';
 import { BN, parseUnits } from '.';
+import { isAddress } from 'ethers';
 
 // Parse valid or exit with error
 export const parseAddressOrExit = parseOrExit(parseAddressInternal);
+export const parseEVMAddressOrExit = parseOrExit(parseEVMAddressInternal);
 export const parseAmountOrExit = parseOrExit(parseAmountInternal);
 export const parseHexStringOrExit = parseOrExit(parseHexStringInternal);
 export const parseIntegerOrExit = parseOrExit(parseIntegerInternal);
@@ -35,6 +37,16 @@ function parseChoiceOrExitFn(input: any, choices: string[]): string | never {
 export function parseAddressInternal(input: any): string {
     try {
         validateAddress(input as string);
+    } catch (e: any) {
+        const error = e as Error;
+        throw new Error(`Invalid address: ${error.message}`);
+    }
+    return input as string;
+}
+
+export function parseEVMAddressInternal(input: any): string {
+    try {
+        isAddress(input as string);
     } catch (e: any) {
         const error = e as Error;
         throw new Error(`Invalid address: ${error.message}`);
