@@ -73,7 +73,7 @@ export async function initKeyringFromEnvOrPrompt(
     throw new Error(`Error: Could not retrieve ${inputName}`);
 }
 
-function getStringFromEnvVar(envVar: string | undefined): string {
+export function getStringFromEnvVar(envVar: string | undefined): string {
     if (envVar === undefined) {
         throw new Error('Error: Unexpected type; could not retrieve seed phrase or PK from environment variable.');
     }
