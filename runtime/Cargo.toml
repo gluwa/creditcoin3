@@ -162,4 +162,6 @@ runtime-benchmarks = [
 	"pallet-ethereum/runtime-benchmarks",
 	"pallet-evm/runtime-benchmarks",
 	"pallet-hotfix-sufficients/runtime-benchmarks",
+	# Gluwa
+	"pallet-bridge/runtime-benchmarks",
 ]

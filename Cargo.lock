@@ -5763,6 +5763,7 @@ dependencies = [
 name = "pallet-bridge"
 version = "3.9.1"
 dependencies = [
+ "frame-benchmarking",
  "frame-support",
  "frame-system",
  "pallet-balances",
