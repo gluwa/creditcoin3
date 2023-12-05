@@ -22,20 +22,20 @@ import type {
 } from '@polkadot/types-codec';
 import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
-import {
-    FrameSupportTokensMiscBalanceStatus,
-    EvmCoreErrorExitReason,
+import type {
+    Creditcoin3RuntimeProxyFilter,
     EthereumLog,
-    SpRuntimeDispatchError,
-    SpConsensusGrandpaAppPublic,
+    EvmCoreErrorExitReason,
+    FrameSupportDispatchDispatchInfo,
+    FrameSupportTokensMiscBalanceStatus,
     PalletImOnlineSr25519AppSr25519Public,
-    PalletStakingExposure,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsPoolState,
-    Creditcoin3RuntimeProxyFilter,
+    PalletStakingExposure,
     PalletStakingForcing,
     PalletStakingValidatorPrefs,
-    FrameSupportDispatchDispatchInfo,
+    SpConsensusGrandpaAppPublic,
+    SpRuntimeDispatchError,
 } from '@polkadot/types/lookup';
 
 export type __AugmentedEvent<ApiType extends ApiTypes> = AugmentedEvent<ApiType>;
