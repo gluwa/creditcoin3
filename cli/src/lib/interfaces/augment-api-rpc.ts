@@ -25,7 +25,7 @@ import type {
 import type { AnyNumber, Codec } from '@polkadot/types-codec/types';
 import type { ExtrinsicOrHash, ExtrinsicStatus } from '@polkadot/types/interfaces/author';
 import type { EpochAuthorship } from '@polkadot/types/interfaces/babe';
-import type { BeefySignedCommitment } from '@polkadot/types/interfaces/beefy';
+import type { BeefyVersionedFinalityProof } from '@polkadot/types/interfaces/beefy';
 import type { BlockHash } from '@polkadot/types/interfaces/chain';
 import type { PrefixedStorageKey } from '@polkadot/types/interfaces/childstate';
 import type { AuthorityId } from '@polkadot/types/interfaces/consensus';
@@ -163,9 +163,9 @@ declare module '@polkadot/rpc-core/types/jsonrpc' {
              **/
             getFinalizedHead: AugmentedRpc<() => Observable<H256>>;
             /**
-             * Returns the block most recently finalized by BEEFY, alongside side its justification.
+             * Returns the block most recently finalized by BEEFY, alongside its justification.
              **/
-            subscribeJustifications: AugmentedRpc<() => Observable<BeefySignedCommitment>>;
+            subscribeJustifications: AugmentedRpc<() => Observable<BeefyVersionedFinalityProof>>;
         };
         chain: {
             /**
