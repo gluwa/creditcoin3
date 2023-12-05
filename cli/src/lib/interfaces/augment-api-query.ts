@@ -7,10 +7,11 @@ import '@polkadot/api-base/types/storage';
 
 import type { ApiTypes, AugmentedQuery, QueryableStorageEntry } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
+import type { Bytes, Null, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    BridgeCollectionInfo,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
     EthereumReceiptReceiptV3,
@@ -314,6 +315,24 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             [key: string]: QueryableStorageEntry<ApiType>;
         };
+        bridge: {
+            authorities: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<Null>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            collections: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<BridgeCollectionInfo>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         dynamicFee: {
             minGasPrice: AugmentedQuery<ApiType, () => Observable<U256>, []> & QueryableStorageEntry<ApiType, []>;
             targetMinGasPrice: AugmentedQuery<ApiType, () => Observable<Option<U256>>, []> &
@@ -376,6 +395,8 @@ declare module '@polkadot/api-base/types/storage' {
                 [H160, H256]
             > &
                 QueryableStorageEntry<ApiType, [H160, H256]>;
+            suicided: AugmentedQuery<ApiType, (arg: H160 | string | Uint8Array) => Observable<Option<Null>>, [H160]> &
+                QueryableStorageEntry<ApiType, [H160]>;
             /**
              * Generic query
              **/

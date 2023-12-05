@@ -79,6 +79,32 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             [key: string]: AugmentedError<ApiType>;
         };
+        bridge: {
+            /**
+             * Already an authority
+             **/
+            AlreadyAuthority: AugmentedError<ApiType>;
+            /**
+             * Collection already completed
+             **/
+            AlreadyCollected: AugmentedError<ApiType>;
+            /**
+             * Insufficient authority
+             **/
+            InsufficientAuthority: AugmentedError<ApiType>;
+            /**
+             * Invalid collection amount
+             **/
+            InvalidCollectionAmount: AugmentedError<ApiType>;
+            /**
+             * Not an authority
+             **/
+            NotAnAuthority: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
         ethereum: {
             /**
              * Signature is invalid.
