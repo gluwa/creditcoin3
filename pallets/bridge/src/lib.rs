@@ -8,6 +8,9 @@ pub mod weights;
 
 mod benchmarking;
 
+#[cfg(test)]
+mod mock;
+
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BalanceFor, Cc2BurnId, CollectionInfo};
