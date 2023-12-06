@@ -1013,8 +1013,8 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'NewBaseFeePerGas' | 'BaseFeeOverflow' | 'NewElasticity';
     }
 
-    /** @name BridgeEvent (91) */
-    interface BridgeEvent extends Enum {
+    /** @name PalletBridgeEvent (91) */
+    interface PalletBridgeEvent extends Enum {
         readonly isFundsCollected: boolean;
         readonly asFundsCollected: ITuple<[u64, AccountId32, u128]>;
         readonly type: 'FundsCollected';
@@ -2561,8 +2561,8 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'HotfixIncAccountSufficients';
     }
 
-    /** @name BridgeCall (306) */
-    interface BridgeCall extends Enum {
+    /** @name PalletBridgeCall (306) */
+    interface PalletBridgeCall extends Enum {
         readonly isApproveCollection: boolean;
         readonly asApproveCollection: {
             readonly burnId: u64;
@@ -2953,15 +2953,15 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'MaxAddressCountExceeded';
     }
 
-    /** @name BridgeCollectionInfo (375) */
-    interface BridgeCollectionInfo extends Struct {
+    /** @name PalletBridgeCollectionInfo (375) */
+    interface PalletBridgeCollectionInfo extends Struct {
         readonly amount: u128;
         readonly collector: AccountId32;
         readonly blockNumber: u32;
     }
 
-    /** @name BridgeError (376) */
-    interface BridgeError extends Enum {
+    /** @name PalletBridgeError (376) */
+    interface PalletBridgeError extends Enum {
         readonly isAlreadyCollected: boolean;
         readonly isInvalidCollectionAmount: boolean;
         readonly isNotAnAuthority: boolean;

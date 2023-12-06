@@ -6,10 +6,6 @@
 import '@polkadot/types/types/registry';
 
 import type {
-    BridgeCall,
-    BridgeCollectionInfo,
-    BridgeError,
-    BridgeEvent,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
@@ -81,6 +77,10 @@ import type {
     PalletBalancesReserveData,
     PalletBaseFeeCall,
     PalletBaseFeeEvent,
+    PalletBridgeCall,
+    PalletBridgeCollectionInfo,
+    PalletBridgeError,
+    PalletBridgeEvent,
     PalletDynamicFeeCall,
     PalletEthereumCall,
     PalletEthereumError,
@@ -213,10 +213,6 @@ import type {
 
 declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
-        BridgeCall: BridgeCall;
-        BridgeCollectionInfo: BridgeCollectionInfo;
-        BridgeError: BridgeError;
-        BridgeEvent: BridgeEvent;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;
         Creditcoin3RuntimeProxyFilter: Creditcoin3RuntimeProxyFilter;
@@ -288,6 +284,10 @@ declare module '@polkadot/types/types/registry' {
         PalletBalancesReserveData: PalletBalancesReserveData;
         PalletBaseFeeCall: PalletBaseFeeCall;
         PalletBaseFeeEvent: PalletBaseFeeEvent;
+        PalletBridgeCall: PalletBridgeCall;
+        PalletBridgeCollectionInfo: PalletBridgeCollectionInfo;
+        PalletBridgeError: PalletBridgeError;
+        PalletBridgeEvent: PalletBridgeEvent;
         PalletDynamicFeeCall: PalletDynamicFeeCall;
         PalletEthereumCall: PalletEthereumCall;
         PalletEthereumError: PalletEthereumError;
