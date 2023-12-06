@@ -12,7 +12,6 @@ export function makeEvmCommand() {
 
     cmd.commands.forEach((command) => {
         command.option('--no-input', 'Disable interactive prompts');
-        command.option('--evm-url [evm-url]', 'URL of the EVM RPC endpoint to connect to', 'http://127.0.0.1:9944');
     });
     return cmd;
 }

@@ -5,6 +5,7 @@ import { initCallerKeyring } from '../../lib/account/keyring';
 import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { JsonRpcProvider } from 'ethers';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { getEvmUrl } from 'src/lib/evm/rpc';
 
 export function makeEvmWithdrawCommand() {
     const cmd = new Command('withdraw');
@@ -29,7 +30,7 @@ async function evmWithdrawAction(options: OptionValues) {
         `Withdrawing all funds from associated EVM address ${evmAddress} into Substrate account ${caller.address}`,
     );
 
-    const provider = new JsonRpcProvider(options.evmUrl as string);
+    const provider = new JsonRpcProvider(getEvmUrl(options));
     const balance = await provider.getBalance(evmAddress);
     console.log(balance);
 

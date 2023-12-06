@@ -6,6 +6,7 @@ import { Command, OptionValues } from 'commander';
 import { ethers } from 'ethers';
 import { initEVMCallerWallet } from '../../lib/evm/wallet';
 import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../lib/parsing';
+import { getEvmUrl } from '../../lib/evm/rpc';
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
@@ -20,7 +21,7 @@ export function makeEvmSendCommand() {
 async function evmSendAction(options: OptionValues) {
     const wallet = await initEVMCallerWallet(options);
     const { amount, recipient } = parseOptions(options);
-    const signer = wallet.connect(new ethers.JsonRpcProvider(options.evmUrl as string));
+    const signer = wallet.connect(new ethers.JsonRpcProvider(getEvmUrl(options)));
     const tx = await signer.sendTransaction({
         to: recipient,
         value: amount.toString(),
