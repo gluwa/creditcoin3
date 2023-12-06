@@ -11,7 +11,6 @@ import type { Bytes, Null, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } f
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
-    BridgeCollectionInfo,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
     EthereumReceiptReceiptV3,
@@ -28,6 +27,7 @@ import type {
     PalletBalancesBalanceLock,
     PalletBalancesIdAmount,
     PalletBalancesReserveData,
+    PalletBridgeCollectionInfo,
     PalletEvmCodeMetadata,
     PalletFastUnstakeUnstakeRequest,
     PalletGrandpaStoredPendingChange,
@@ -324,7 +324,7 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             collections: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<BridgeCollectionInfo>>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<PalletBridgeCollectionInfo>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
