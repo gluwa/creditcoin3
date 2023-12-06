@@ -1,7 +1,7 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { Command, OptionValues } from 'commander';
 import { initCallerKeyring } from '../lib/account/keyring';
-import { substrateAddressToEvmAddress } from 'src/lib/evm/address';
+import { substrateAddressToEvmAddress } from '../lib/evm/address';
 
 export function makeShowAddressCommand() {
     const cmd = new Command('show-address');
