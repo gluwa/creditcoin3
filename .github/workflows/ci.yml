@@ -428,7 +428,7 @@ jobs:
         if: ${{ success() && steps.update_typedefs.outputs.git_diff == 'true' }}
         uses: EndBug/add-and-commit@v9
         with:
-          add: 'cli/src/lib/interfaces/'
+          add: 'cli/creditcoin.json cli/src/lib/interfaces/'
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
           message: "Auto-update TypeScript type definitions"
