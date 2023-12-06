@@ -172,7 +172,7 @@ precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "p
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
-bridge = { path = "pallets/bridge", default-features = false }
+pallet-bridge = { path = "pallets/bridge", default-features = false }
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [
