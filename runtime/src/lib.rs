@@ -1388,11 +1388,9 @@ impl_runtime_apis! {
 
             use baseline::Pallet as BaselineBench;
             use frame_system_benchmarking::Pallet as SystemBench;
-            use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficients;
 
             let mut list = Vec::<BenchmarkList>::new();
             list_benchmarks!(list, extra);
-            list_benchmark!(list, extra, pallet_hotfix_sufficients, PalletHotfixSufficients::<Runtime>);
 
             let storage_info = AllPalletsWithSystem::storage_info();
             (list, storage_info)
