@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
  "fp-evm",
  "fp-rpc",
@@ -3440,7 +3440,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -5761,7 +5761,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-bridge"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
  "frame-support",
  "frame-system",
