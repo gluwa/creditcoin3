@@ -7,8 +7,8 @@ export function makeEvmCommand() {
     const cmd = new Command('evm');
     cmd.description('Interact with the EVM side of Creditcoin3');
     cmd.addCommand(makeEvmFundCommand());
-    cmd.addCommand(makeEvmWithdrawCommand());
     cmd.addCommand(makeEvmSendCommand());
+    cmd.addCommand(makeEvmWithdrawCommand());
 
     cmd.commands.forEach((command) => {
         command.option('--no-input', 'Disable interactive prompts');

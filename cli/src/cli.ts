@@ -23,6 +23,7 @@ program
     .addCommand(makeBondCommand())
     .addCommand(makeChillCommand())
     .addCommand(makeDistributeRewardsCommand())
+    .addCommand(makeEvmCommand())
     .addCommand(makeNewSeedCommand())
     .addCommand(makeRotateKeysCommand())
     .addCommand(makeSendCommand())
@@ -32,8 +33,7 @@ program
     .addCommand(makeUnbondCommand())
     .addCommand(makeValidateCommand())
     .addCommand(makeWithdrawUnbondedCommand())
-    .addCommand(makeWizardCommand())
-    .addCommand(makeEvmCommand());
+    .addCommand(makeWizardCommand());
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
