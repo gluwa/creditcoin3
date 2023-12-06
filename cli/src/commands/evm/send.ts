@@ -1,7 +1,3 @@
-// Create the send command for the EVM subcommand
-//
-// Path: cli/src/commands/evm/send.ts
-
 import { Command, OptionValues } from 'commander';
 import { ethers } from 'ethers';
 import { initEVMCallerWallet } from '../../lib/evm/wallet';
