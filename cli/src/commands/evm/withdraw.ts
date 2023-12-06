@@ -5,7 +5,7 @@ import { initCallerKeyring } from '../../lib/account/keyring';
 import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { JsonRpcProvider } from 'ethers';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { getEvmUrl } from 'src/lib/evm/rpc';
+import { getEvmUrl } from '../../lib/evm/rpc';
 
 export function makeEvmWithdrawCommand() {
     const cmd = new Command('withdraw');
