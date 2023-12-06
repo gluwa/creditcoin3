@@ -1406,6 +1406,7 @@ impl_runtime_apis! {
 
             use pallet_evm::Pallet as PalletEvmBench;
             use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
+            use pallet_bridge::Pallet as PalletBridgeBench;
 
             impl baseline::Config for Runtime {}
             impl frame_system_benchmarking::Config for Runtime {}
@@ -1417,6 +1418,8 @@ impl_runtime_apis! {
 
             add_benchmark!(params, batches, pallet_evm, PalletEvmBench::<Runtime>);
             add_benchmark!(params, batches, pallet_hotfix_sufficients, PalletHotfixSufficientsBench::<Runtime>);
+            // Gluwa
+            add_benchmark!(params, batches, pallet_bridge, PalletBridgeBench::<Runtime>);
 
             if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
             Ok(batches)
