@@ -36,12 +36,31 @@ pub(crate) fn migrate<T: Config>() -> Weight {
 pub mod tests {
     use super::{migrate, Weight};
     use crate::mock::{ExtBuilder, Test};
+    use frame_support::{pallet_prelude::StorageMap, Blake2_128Concat};
+
+    struct OldBridgeAuthoritiesPrefix;
+    impl frame_support::traits::StorageInstance for OldBridgeAuthoritiesPrefix {
+        const STORAGE_PREFIX: &'static str = "authorities";
+        fn pallet_prefix() -> &'static str {
+            "bridge"
+        }
+    }
+    type OldBridgeAuthorities = StorageMap<
+        OldBridgeAuthoritiesPrefix,
+        Blake2_128Concat,
+        <Test as frame_system::Config>::AccountId,
+        (),
+    >;
 
     #[test]
     fn migrate_should_not_crash() {
         ExtBuilder.build_and_execute(|| {
-            let weight = migrate::<Test>();
+            // simulate an environment where the old "bridge" pallet has some items in storage
+            // before we apply the migrations
+            OldBridgeAuthorities::insert(1, ());
+            OldBridgeAuthorities::insert(3, ());
 
+            let weight = migrate::<Test>();
             assert_ne!(weight, Weight::zero());
         });
     }

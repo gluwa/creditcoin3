@@ -48,6 +48,7 @@ impl<T: Config> Migrate for Migration<T> {
         }
 
         let old_count = count_storage_items(OLD_PALLET_NAME);
+        assert_ne!(old_count, 0, "Old pallet storage must not be empty");
 
         move_pallet(OLD_PALLET_NAME.as_bytes(), new_pallet_name.as_bytes());
 
