@@ -36,6 +36,7 @@ export interface AccountBalance {
     transferable: BN;
     locked: BN;
     bonded: BN;
+    evm: BN;
     total: BN;
     unbonding: BN;
 }
@@ -48,6 +49,7 @@ export async function getBalance(address: string, api: ApiPromise) {
         address,
         transferable: balacesAll.availableBalance,
         bonded: stakingInfo?.stakingLedger.active?.unwrap() || new BN(0),
+        evm: new BN(0), // Get Balance does not reflect EVM balance, it must be added manually
         locked: balacesAll.lockedBalance,
         total: balacesAll.freeBalance.add(balacesAll.reservedBalance),
         unbonding: calcUnbonding(stakingInfo),
@@ -94,6 +96,7 @@ export function printBalance(balance: AccountBalance) {
         ['Transferable', toCTCString(balance.transferable, 4)],
         ['Locked', toCTCString(balance.locked, 4)],
         ['Bonded', toCTCString(balance.bonded, 4)],
+        ['EVM', toCTCString(balance.evm, 4)],
         ['Unbonding', toCTCString(balance.unbonding, 4)],
         ['Total', toCTCString(balance.total, 4)],
     );
@@ -108,6 +111,7 @@ export function printJsonBalance(balance: AccountBalance) {
             address: balance.address,
             transferable: balance.transferable.toString(),
             bonded: balance.bonded.toString(),
+            evm: balance.evm.toString(),
             locked: balance.locked.toString(),
             unbonding: balance.unbonding.toString(),
             total: balance.total.toString(),
