@@ -23,7 +23,7 @@ async function balanceAction(options: OptionValues) {
         requiredInput(options.address, 'Failed to show balance: Must specify an address'),
     );
 
-    let balance = await getBalance(address, api);
+    const balance = await getBalance(address, api);
 
     const evmAddress = substrateAddressToEvmAddress(address);
     const evmBalance = new BN((await getEVMBalanceOf(evmAddress, getEvmUrl(options))).toString());
