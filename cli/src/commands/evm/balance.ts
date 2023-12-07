@@ -19,9 +19,3 @@ async function evmBalanceAction(address: string, options: OptionValues) {
     console.log('Account balance on EVM: ' + humanBalance.toString());
     process.exit(0);
 }
-
-function parseOptions(options: OptionValues) {
-    const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
-    const recipient = parseEVMAddressOrExit(requiredInput(options.to, 'Failed to send CTC: Must specify a recipient'));
-    return { amount, recipient };
-}
