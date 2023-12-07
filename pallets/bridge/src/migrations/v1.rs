@@ -39,6 +39,8 @@ impl<T: Config> Migrate for Migration<T> {
     fn migrate(&self) -> Weight {
         let new_pallet_name = PalletBridge::<T>::name();
 
+        assert_eq!(new_pallet_name, "test-me", "mismatch in new pallet name");
+
         if OLD_PALLET_NAME.as_bytes() == new_pallet_name.as_bytes() {
             log::info!(
                     target: "runtime::PalletBridge",
