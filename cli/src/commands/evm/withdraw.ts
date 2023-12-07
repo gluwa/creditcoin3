@@ -10,7 +10,6 @@ import { getEvmUrl } from '../../lib/evm/rpc';
 export function makeEvmWithdrawCommand() {
     const cmd = new Command('withdraw');
     cmd.description('Withdraw all funds from an associated EVM account to the owned Subtrate one');
-    cmd.option('--show-address', 'Show the associated EVM address and exit');
     cmd.action(evmWithdrawAction);
     return cmd;
 }
@@ -20,11 +19,6 @@ async function evmWithdrawAction(options: OptionValues) {
 
     const caller = await initCallerKeyring(options);
     const evmAddress = substrateAddressToEvmAddress(caller.address);
-
-    if (options.showAddress) {
-        console.log(`Associated EVM address: ${evmAddress}. Send funds to it before trying to withdraw.`);
-        process.exit(0);
-    }
 
     console.log(
         `Withdrawing all funds from associated EVM address ${evmAddress} into Substrate account ${caller.address}`,
