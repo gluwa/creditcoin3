@@ -47,9 +47,15 @@ impl<T: Config> Migrate for Migration<T> {
             return Weight::zero();
         }
 
+        let old_count = count_storage_items(OLD_PALLET_NAME);
+
         move_pallet(OLD_PALLET_NAME.as_bytes(), new_pallet_name.as_bytes());
 
-        Weight::MAX
+        // (1 read + 1 write) * <number of items>
+        let mut weight: Weight = Weight::zero();
+        let weight_each = T::DbWeight::get().reads_writes(1, 1);
+        weight = weight.saturating_add(weight_each);
+        weight.saturating_mul(old_count as u64)
     }
 
     fn post_upgrade(&self, ctx: Vec<u8>) {
