@@ -16,6 +16,7 @@ export function makeEvmFundCommand() {
 }
 
 async function evmFundAction(options: OptionValues) {
+    console.log(options);
     const { api } = await newApi(options.url as string);
     const { amount, recipient } = parseOptions(options);
 
