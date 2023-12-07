@@ -3,6 +3,7 @@ use super::Vec;
 use crate::Config;
 use crate::Pallet as PalletBridge;
 use frame_support::pallet_prelude::*;
+#[allow(unused_imports)]
 use frame_support::storage::{migration::move_pallet, KeyPrefixIterator};
 use frame_support::weights::Weight;
 use sp_io::hashing::twox_128;
