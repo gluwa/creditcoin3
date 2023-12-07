@@ -1,7 +1,7 @@
 use crate::{Config, Pallet};
 use frame_support::{traits::StorageVersion, weights::Weight};
 use sp_runtime::traits::UniqueSaturatedInto;
-use sp_std::{vec, vec::Vec};
+use sp_std::vec::Vec;
 
 pub(crate) trait Migrate {
     fn pre_upgrade(&self) -> Vec<u8>;
