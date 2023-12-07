@@ -1,10 +1,18 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod migrations;
 mod types;
+use frame_support::traits::StorageVersion;
 pub use pallet::*;
+
+#[cfg(test)]
+mod mock;
+
+pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 #[frame_support::pallet]
 pub mod pallet {
+    use super::*;
     use crate::types::{BalanceFor, Cc2BurnId, CollectionInfo};
     use frame_support::dispatch::PostDispatchInfo;
     use frame_support::pallet_prelude::DispatchResult;
@@ -14,6 +22,7 @@ pub mod pallet {
     use sp_runtime::traits::{BlockNumberProvider, Zero};
 
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
@@ -108,6 +117,13 @@ pub mod pallet {
                 actual_weight: None,
                 pays_fee: Pays::No,
             })
+        }
+    }
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        fn on_runtime_upgrade() -> Weight {
+            migrations::migrate::<T>()
         }
     }
 

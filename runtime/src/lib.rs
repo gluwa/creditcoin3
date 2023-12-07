@@ -812,7 +812,7 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
 }
 
-impl bridge::Config for Runtime {
+impl pallet_bridge::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
 }
@@ -852,7 +852,7 @@ construct_runtime!(
         HotfixSufficients: pallet_hotfix_sufficients,
 
         // cc2 -> cc3 bridge pallet
-        Bridge: bridge,
+        Bridge: pallet_bridge,
     }
 );
 

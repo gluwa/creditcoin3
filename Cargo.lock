@@ -927,21 +927,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bridge"
-version = "3.9.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "pallet-balances",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "bs58"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1493,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -1566,9 +1551,8 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
- "bridge",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",
@@ -1584,6 +1568,7 @@ dependencies = [
  "pallet-bags-list",
  "pallet-balances",
  "pallet-base-fee",
+ "pallet-bridge",
  "pallet-dynamic-fee",
  "pallet-ethereum",
  "pallet-evm",
@@ -3455,7 +3440,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.9.0"
+version = "3.9.1"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -5772,6 +5757,22 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-bridge"
+version = "3.9.1"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]

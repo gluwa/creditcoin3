@@ -814,9 +814,9 @@ export default {
         },
     },
     /**
-     * Lookup91: bridge::pallet::Event<T>
+     * Lookup91: pallet_bridge::pallet::Event<T>
      **/
-    BridgeEvent: {
+    PalletBridgeEvent: {
         _enum: {
             FundsCollected: '(u64,AccountId32,u128)',
         },
@@ -2372,9 +2372,9 @@ export default {
         },
     },
     /**
-     * Lookup306: bridge::pallet::Call<T>
+     * Lookup306: pallet_bridge::pallet::Call<T>
      **/
-    BridgeCall: {
+    PalletBridgeCall: {
         _enum: {
             approve_collection: {
                 burnId: 'u64',
@@ -2710,17 +2710,17 @@ export default {
         _enum: ['MaxAddressCountExceeded'],
     },
     /**
-     * Lookup375: bridge::types::CollectionInfo<sp_core::crypto::AccountId32, Balance, BlockNumber>
+     * Lookup375: pallet_bridge::types::CollectionInfo<sp_core::crypto::AccountId32, Balance, BlockNumber>
      **/
-    BridgeCollectionInfo: {
+    PalletBridgeCollectionInfo: {
         amount: 'u128',
         collector: 'AccountId32',
         blockNumber: 'u32',
     },
     /**
-     * Lookup376: bridge::pallet::Error<T>
+     * Lookup376: pallet_bridge::pallet::Error<T>
      **/
-    BridgeError: {
+    PalletBridgeError: {
         _enum: [
             'AlreadyCollected',
             'InvalidCollectionAmount',
