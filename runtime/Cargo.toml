@@ -48,6 +48,7 @@ pallet-grandpa = { workspace = true }
 pallet-identity = { workspace = true }
 pallet-im-online = { workspace = true }
 pallet-nomination-pools = { workspace = true }
+pallet-nomination-pools-runtime-api = { workspace = true }
 pallet-offences = { workspace = true }
 pallet-proxy = { workspace = true }
 pallet-session = { workspace = true }
@@ -115,6 +116,7 @@ std = [
 	"pallet-identity/std",
 	"pallet-im-online/std",
 	"pallet-nomination-pools/std",
+	"pallet-nomination-pools-runtime-api/std",
 	"pallet-offences/std",
 	"pallet-proxy/std",
 	"pallet-session/std",
