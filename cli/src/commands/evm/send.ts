@@ -30,7 +30,7 @@ async function evmSendAction(options: OptionValues) {
 
     const fees = await getTransferFeeEstimation(getEvmUrl(options));
 
-    if (balance < BigInt(amount.toString()) + fees) {
+    if (balance.ctc < BigInt(amount.toString()) + fees) {
         console.log(`Insufficient balance to send ${toCTCString(amount)}`);
         console.log(`This CC3 CLI considers the transfer fee to be at least twice the base fee`);
         process.exit(1);
