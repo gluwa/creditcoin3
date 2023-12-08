@@ -23,9 +23,11 @@ export async function getEVMBalanceOf(address: string, rpcUrl: string): Promise<
 export async function getTransferFeeEstimation(rpcUrl: string): Promise<bigint> {
     const provider = new JsonRpcProvider(rpcUrl);
     const data = await provider.getFeeData();
+
+    console.log(data);
     const fee = data.maxFeePerGas;
-    const priority = data.maxPriorityFeePerGas;
-    if (!fee || !priority) {
+    const priority = data.maxPriorityFeePerGas ?? BigInt(0);
+    if (!fee) {
         throw new Error('Could not get fee data from RPC at ' + rpcUrl);
     }
     const base = fee - priority;
