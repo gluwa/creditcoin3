@@ -1,6 +1,8 @@
 import { commandSync } from 'execa';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { CLI_PATH, randomTestAccount } from './helpers';
+import { parseAddressInternal, parseEVMAddressInternal } from '../../lib/parsing';
+import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 
 // TODO
 //
@@ -22,8 +24,22 @@ describe('Show address command', () => {
             env: {
                 CC_SECRET: caller.secret,
             },
-        });
+        }).stdout;
 
-        expect(result.stdout.split('Account address: ')[1]).toEqual(caller.address.toString());
+        const substrateAddress = parseAddressInternal(
+            result
+                .split(/\r?\n/)[0] // First line of the output
+                .split('Account Substrate address: ')[1] // Substrate address
+        );
+
+        const evmAddress = parseEVMAddressInternal(
+            result
+                .split(/\r?\n/)[1] // Second line of the output
+                .split('Associated EVM address: ')[1] // EVM address
+        );
+
+
+        expect(substrateAddress).toEqual(caller.address.toString());
+        expect(evmAddress).toEqual(substrateAddressToEvmAddress(caller.address));
     }, 60000);
 });
