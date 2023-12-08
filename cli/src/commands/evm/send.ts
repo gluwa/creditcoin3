@@ -3,6 +3,8 @@ import { ethers } from 'ethers';
 import { initEVMCallerWallet } from '../../lib/evm/wallet';
 import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../lib/parsing';
 import { getEvmUrl } from '../../lib/evm/rpc';
+import { getEVMBalanceOf, getTransferFeeEstimation } from '../../lib/evm/balance';
+import { toCTCString } from '../../lib/balance';
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
@@ -18,15 +20,29 @@ async function evmSendAction(options: OptionValues) {
     const wallet = await initEVMCallerWallet(options);
     const { amount, recipient } = parseOptions(options);
     const signer = wallet.connect(new ethers.JsonRpcProvider(getEvmUrl(options)));
-    const tx = await signer.sendTransaction({
+
+    const tx = {
         to: recipient,
         value: amount.toString(),
-    });
+    };
 
-    const txReceipt = await tx.wait();
+    const balance = await getEVMBalanceOf(wallet.address, getEvmUrl(options));
+
+    const fees = await getTransferFeeEstimation(getEvmUrl(options));
+
+    if (balance < BigInt(amount.toString()) + fees) {
+        console.log(`Insufficient balance to send ${toCTCString(amount)}`);
+        console.log(`This CC3 CLI considers the transfer fee to be at least twice the base fee`);
+        process.exit(1);
+    }
+
+    const result = await signer.sendTransaction(tx);
+
+    const txReceipt = await result.wait();
+
     // Check if txReceipt is not null and then log information
     if (txReceipt) {
-        console.log(`Transaction hash: ${tx.hash}`);
+        console.log(`Transaction hash: ${result.hash}`);
         console.log(`Transaction included in block: ${txReceipt.blockNumber}`);
         console.log(`Gas used: ${txReceipt.gasUsed.toString()}`);
     } else {
