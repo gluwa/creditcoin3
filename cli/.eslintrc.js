@@ -89,8 +89,8 @@ module.exports = {
               selector: "property",
               format: ["strictCamelCase"],
               filter: {
-                // you can expand this regex to add more allowed names
-                regex: "^(CC_SECRET)$",
+                // allow CC_SECRET and EVM_SECRET
+                regex: "^(CC_SECRET|EVM_SECRET)$",
                 match: false,
               },
             },
