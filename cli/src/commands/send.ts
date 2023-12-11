@@ -3,12 +3,13 @@ import { newApi } from '../lib';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../lib/tx';
 import { parseAddressOrExit, parseAmountOrExit, requiredInput } from '../lib/parsing';
 import { initCallerKeyring } from '../lib/account/keyring';
+import { amountOption, recipientOption } from './options';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send CTC from an account');
-    cmd.option('-a, --amount [amount]', 'Amount to send');
-    cmd.option('-t, --to [to]', 'Specify recipient address');
+    cmd.addOption(amountOption);
+    cmd.addOption(recipientOption);
     cmd.action(sendAction);
     return cmd;
 }
@@ -33,7 +34,7 @@ async function sendAction(options: OptionValues) {
 function parseOptions(options: OptionValues) {
     const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
 
-    const recipient = parseAddressOrExit(requiredInput(options.to, 'Failed to send CTC: Must specify a recipient'));
+    const recipient = parseAddressOrExit(requiredInput(options.recipient, 'Failed to send CTC: Must specify a recipient'));
 
     return { amount, recipient };
 }

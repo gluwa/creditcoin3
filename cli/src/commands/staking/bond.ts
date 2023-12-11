@@ -6,11 +6,12 @@ import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/
 
 import { inputOrDefault, parseAmountOrExit, parseBoolean, parseChoiceOrExit, requiredInput } from '../../lib/parsing';
 import { initCallerKeyring } from '../../lib/account/keyring';
+import { amountOption } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
     cmd.description('Bond CTC in an account');
-    cmd.option('-a, --amount [amount]', 'Amount to bond');
+    cmd.addOption(amountOption);
     cmd.option(
         '-r, --reward-destination [reward-destination]',
         'Specify reward destination account to use for new account',
