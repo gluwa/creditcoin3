@@ -1,8 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { parseEVMAddressOrExit } from '../../lib/parsing';
 import { getEvmUrl } from '../../lib/evm/rpc';
-import { toCTCString } from '../../lib/balance';
-import { BN } from '../../lib';
 import { getEVMBalanceOf, logEVMBalance } from '../../lib/evm/balance';
 
 export function makeEvmBalanceCommand() {
@@ -15,9 +13,7 @@ export function makeEvmBalanceCommand() {
 }
 
 async function evmBalanceAction(address: string, options: OptionValues) {
-    const balance = await getEVMBalanceOf(
-        parseEVMAddressOrExit(address), getEvmUrl(options)
-    );
+    const balance = await getEVMBalanceOf(parseEVMAddressOrExit(address), getEvmUrl(options));
 
     logEVMBalance(balance, !options.json);
     process.exit(0);

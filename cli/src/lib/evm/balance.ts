@@ -3,8 +3,7 @@ import { toCTCString } from '../balance';
 import Table from 'cli-table3';
 import { BN } from '..';
 
-interface EVMBalance
-{
+interface EVMBalance {
     address: string;
     ctc: bigint;
 }
@@ -17,8 +16,6 @@ export async function getEVMBalanceOf(address: string, rpcUrl: string): Promise<
     const balance = await provider.getBalance(address);
     return { address, ctc: balance } as EVMBalance;
 }
-
-
 
 export async function getTransferFeeEstimation(rpcUrl: string): Promise<bigint> {
     const provider = new JsonRpcProvider(rpcUrl);
@@ -47,9 +44,7 @@ export function logEVMBalance(balance: EVMBalance, human = true) {
 export function printEVMBalance(balance: EVMBalance) {
     const table = new Table({});
 
-    table.push(
-        ['CTC Balance', toCTCString(new BN(balance.ctc.toString()), 4)],
-    );
+    table.push(['CTC Balance', toCTCString(new BN(balance.ctc.toString()), 4)]);
 
     console.log(`Address: ${balance.address}`);
     console.log(table.toString());

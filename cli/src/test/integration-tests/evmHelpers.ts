@@ -1,7 +1,6 @@
-import { Mnemonic, Wallet } from "ethers";
+import { Mnemonic, Wallet } from 'ethers';
 
-export function randomEvmAccount ()
-{
+export function randomEvmAccount() {
     const mnemonic = Mnemonic.entropyToPhrase(Wallet.createRandom().privateKey);
     console.log(mnemonic);
     const wallet = Wallet.fromPhrase(mnemonic);
@@ -12,5 +11,5 @@ export function randomEvmAccount ()
         mnemonic,
         address: wallet.address,
         privateKey,
-    }
+    };
 }
