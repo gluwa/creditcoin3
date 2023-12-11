@@ -13,12 +13,5 @@ export function getEvmUrl(options: OptionValues): string {
 }
 
 export function convertWsToHttp(url: string): string {
-    let httpUrl = url;
-    if (url.startsWith('ws://')) {
-        httpUrl = url.replace('ws://', 'http://');
-    } else if (url.startsWith('wss://')) {
-        httpUrl = url.replace('wss://', 'https://');
-    }
-
-    return httpUrl;
+    return url.replace('ws://', 'http://').replace('wss://', 'https://');
 }
