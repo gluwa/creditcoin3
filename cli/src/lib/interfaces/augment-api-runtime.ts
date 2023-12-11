@@ -22,6 +22,7 @@ import type { EvmAccount, EvmCallInfoV2, EvmCreateInfoV2 } from '@polkadot/types
 import type { Extrinsic } from '@polkadot/types/interfaces/extrinsics';
 import type { AuthorityList, GrandpaEquivocationProof, SetId } from '@polkadot/types/interfaces/grandpa';
 import type { OpaqueMetadata } from '@polkadot/types/interfaces/metadata';
+import type { NpPoolId } from '@polkadot/types/interfaces/nompools';
 import type { FeeDetails, RuntimeDispatchInfo } from '@polkadot/types/interfaces/payment';
 import type {
     AccountId,
@@ -361,6 +362,37 @@ declare module '@polkadot/api-base/types/calls' {
              * Returns the supported metadata versions.
              **/
             metadataVersions: AugmentedCall<ApiType, () => Observable<Vec<u32>>>;
+            /**
+             * Generic call
+             **/
+            [key: string]: DecoratedCallBase<ApiType>;
+        };
+        /** 0x17a6bc0d0062aeb3/1 */
+        nominationPoolsApi: {
+            /**
+             * Returns the equivalent points of `new_funds` for a given pool.
+             **/
+            balanceToPoints: AugmentedCall<
+                ApiType,
+                (
+                    poolId: NpPoolId | AnyNumber | Uint8Array,
+                    newFunds: Balance | AnyNumber | Uint8Array,
+                ) => Observable<Balance>
+            >;
+            /**
+             * Returns the pending rewards for the given member.
+             **/
+            pendingRewards: AugmentedCall<ApiType, (member: AccountId | string | Uint8Array) => Observable<Balance>>;
+            /**
+             * Returns the equivalent balance of `points` for a given pool.
+             **/
+            pointsToBalance: AugmentedCall<
+                ApiType,
+                (
+                    poolId: NpPoolId | AnyNumber | Uint8Array,
+                    points: Balance | AnyNumber | Uint8Array,
+                ) => Observable<Balance>
+            >;
             /**
              * Generic call
              **/
