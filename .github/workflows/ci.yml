@@ -437,7 +437,9 @@ jobs:
           yarn test:integration
 
       - name: Commit changes for typedefs
-        if: ${{ success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
         with:
           add: 'cli/creditcoin.json cli/src/lib/interfaces/'
