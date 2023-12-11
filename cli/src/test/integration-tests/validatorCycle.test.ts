@@ -156,7 +156,7 @@ describe('integration test: validator manual setup', () => {
         // After unbonding, the validator should no longer be bonded
         commandSync(
             // Unbonding defaults to max if it exceeds the bonded amount
-            `node ${CLI_PATH} unbond --url ${BOB_NODE_URL} -a 100000`,
+            `node ${CLI_PATH} unbond --url ${BOB_NODE_URL} --amount 100000`,
             {
                 env: {
                     CC_SECRET: stashSecret,

@@ -14,7 +14,7 @@ describe('Send command', () => {
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         const result = commandSync(
-            `node ${CLI_PATH} send --to 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
+            `node ${CLI_PATH} send --recipient 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
             {
                 env: {
                     CC_SECRET: caller.secret,
