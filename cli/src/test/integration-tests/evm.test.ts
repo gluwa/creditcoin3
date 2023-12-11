@@ -2,7 +2,7 @@ import { commandSync } from 'execa';
 import { parseAmountInternal } from '../../lib/parsing';
 import { signSendAndWatch } from '../../lib/tx';
 import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH } from './helpers';
-import { newApi } from '../../lib';
+import { MICROUNITS_PER_CTC, newApi } from '../../lib';
 import { randomEvmAccount } from './evmHelpers';
 import { getEVMBalanceOf } from '../../lib/evm/balance';
 import { convertWsToHttp } from '../../lib/evm/rpc';
@@ -58,7 +58,8 @@ describe('EVM commands', () => {
 
         // Check that the second account balance is greater than 0
         const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
-        expect(evmBalance2.ctc).toBeGreaterThan(0);
+        const expectedBalance = BigInt(parseAmountInternal('1').toString()) - BigInt(500); // Remove existential amount from the expected balance
+        expect(evmBalance2.ctc).toBe(expectedBalance);
 
         await api.disconnect();
     }, 60000);
@@ -96,7 +97,7 @@ describe('EVM commands', () => {
 
         // Check that the caller's Substrate account balance is greater than 1
         const balance = await getBalance(substrateAccount.address, api);
-        expect(BigInt(balance.total.toString())).toBeGreaterThan(1);
+        expect(BigInt(balance.total.toString())).toBeGreaterThan(1 * MICROUNITS_PER_CTC); // 1 CTC
 
         await api.disconnect();
     }, 60000);
