@@ -5,13 +5,14 @@ import { parseAddressOrExit, parseBoolean, requiredInput } from '../lib/parsing'
 import { getEvmUrl } from '../lib/evm/rpc';
 import { getEVMBalanceOf } from '../lib/evm/balance';
 import { substrateAddressToEvmAddress } from '../lib/evm/address';
-import { addressOption, jsonOption } from './options';
+import { addressOption, jsonOption, urlOption } from './options';
 
 export function makeBalanceCommand() {
     const cmd = new Command('balance');
     cmd.description('Get balance of an account');
     cmd.addOption(addressOption);
     cmd.addOption(jsonOption);
+    cmd.addOption(urlOption);
     cmd.action(balanceAction);
     return cmd;
 }

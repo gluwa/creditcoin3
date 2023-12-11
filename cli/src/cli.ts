@@ -37,7 +37,6 @@ program
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
-    cmd.option('-u, --url [url]', 'URL for the Substrate node', 'ws://127.0.0.1:9944');
 });
 
 program.parse(process.argv);

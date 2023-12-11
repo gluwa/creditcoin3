@@ -6,7 +6,7 @@ import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/
 
 import { inputOrDefault, parseAmountOrExit, parseBoolean, parseChoiceOrExit, requiredInput } from '../../lib/parsing';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { amountOption } from '../options';
+import { amountOption, urlOption } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
@@ -17,6 +17,7 @@ export function makeBondCommand() {
         'Specify reward destination account to use for new account',
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
+    cmd.addOption(urlOption);
     cmd.action(bondAction);
     return cmd;
 }

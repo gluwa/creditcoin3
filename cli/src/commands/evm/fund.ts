@@ -5,13 +5,14 @@ import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../l
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
-import { amountOption, evmAddressOption, recipientOption } from '../options';
+import { amountOption, recipientOption, urlOption } from '../options';
 
 export function makeEvmFundCommand() {
     const cmd = new Command('fund');
     cmd.description('Fund an EVM account from a Subtrate one');
     cmd.addOption(amountOption);
     cmd.addOption(recipientOption);
+    cmd.addOption(urlOption);
     cmd.action(evmFundAction);
     return cmd;
 }
@@ -37,7 +38,9 @@ async function evmFundAction(options: OptionValues) {
 function parseOptions(options: OptionValues) {
     const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
 
-    const recipient = parseEVMAddressOrExit(requiredInput(options.recipient, 'Failed to send CTC: Must specify a recipient'));
+    const recipient = parseEVMAddressOrExit(
+        requiredInput(options.recipient, 'Failed to send CTC: Must specify a recipient'),
+    );
 
     return { amount, recipient };
 }

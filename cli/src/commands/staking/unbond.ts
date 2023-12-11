@@ -9,12 +9,13 @@ import { parseAmountOrExit, requiredInput } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { amountOption } from '../options';
+import { amountOption, urlOption } from '../options';
 
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');
     cmd.description('Schedule a bonded CTC to be unlocked');
     cmd.addOption(amountOption);
+    cmd.addOption(urlOption);
     cmd.action(unbondAction);
     return cmd;
 }
