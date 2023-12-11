@@ -6,10 +6,12 @@ import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { JsonRpcProvider } from 'ethers';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { getEvmUrl } from '../../lib/evm/rpc';
+import { urlOption } from '../options';
 
 export function makeEvmWithdrawCommand() {
     const cmd = new Command('withdraw');
     cmd.description('Withdraw all funds from an associated EVM account to the owned Subtrate one');
+    cmd.addOption(urlOption);
     cmd.action(evmWithdrawAction);
     return cmd;
 }

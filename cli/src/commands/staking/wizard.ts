@@ -14,7 +14,7 @@ import { percentFromPerbill } from '../../lib/perbill';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
-import { amountOption } from '../options';
+import { amountOption, urlOption } from '../options';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
@@ -23,9 +23,10 @@ export function makeWizardCommand() {
         '-r, --reward-destination [reward-destination]',
         'Specify reward destination account to use for new account',
     );
-    cmd.addOption(amountOption);
     cmd.option('--commission [commission]', 'Specify commission for validator');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
+    cmd.addOption(amountOption);
+    cmd.addOption(urlOption);
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');
 

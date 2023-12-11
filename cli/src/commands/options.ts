@@ -1,4 +1,3 @@
-
 import { Option } from 'commander';
 
 // Most used options are URL, NO INPUT, JSON, eCDSA, aDDRESS, AMOUNT, TO, EMV-ADDRESS
