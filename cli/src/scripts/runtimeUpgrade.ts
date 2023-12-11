@@ -1,4 +1,4 @@
-import { creditcoinApi } from '../lib/api';
+import { creditcoinApi, expectNoDispatchError, expectNoEventError } from '../lib/api';
 import { BN } from '../lib/index';
 import { initKeyringPair } from '../lib/account/keyring';
 import { u8aToHex } from '../lib/common';
@@ -98,7 +98,7 @@ async function doRuntimeUpgrade(
         await new Promise<void>((resolve, reject) => {
             const unsubscribe = api.tx.sudo
                 .sudoUncheckedWeight(callback, overrideWeight)
-                .signAndSend(keyring, { nonce: -1 }, (result) => {
+                .signAndSend(keyring, { nonce: -1 }, async ({ dispatchError, events, status }) => {
                     const finish = (fn: () => void) => {
                         unsubscribe
                             .then((unsub) => {
@@ -107,13 +107,27 @@ async function doRuntimeUpgrade(
                             })
                             .catch(reject);
                     };
-                    if (result.isInBlock && !result.isError) {
-                        console.log('Runtime upgrade successfully scheduled');
-                        finish(resolve);
-                    } else if (result.isError) {
-                        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-                        const error = new Error(`Failed to schedule runtime upgrade: ${result.toString()}`);
+
+                    // these two will throw exceptions in case of errors
+                    try {
+                        expectNoDispatchError(api, dispatchError);
+                        if (events) events.forEach((event) => expectNoEventError(api, event));
+                    } catch (err) {
+                        /* eslint-disable */
+                        // @ts-expect-error: 'err' is of type 'unknown'
+                        const error = new Error(`Failed to schedule runtime upgrade: ${err.toString()}`);
+                        /* eslint-enable */
                         finish(() => reject(error));
+                    }
+
+                    if (status.isInBlock) {
+                        const header = await api.rpc.chain.getHeader(status.asInBlock);
+                        const blockNumber = header.number.toNumber();
+
+                        console.log(
+                            `Runtime upgrade successfully scheduled at block ${blockNumber}, hash ${status.asInBlock.toString()}`,
+                        );
+                        finish(resolve);
                     }
                 });
         });

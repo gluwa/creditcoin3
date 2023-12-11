@@ -21,8 +21,8 @@ use sp_core::{
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
-        IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
+        AccountIdLookup, BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get,
+        IdentifyAccount, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
         Verify,
     },
     transaction_validity::{
@@ -213,7 +213,7 @@ impl frame_system::Config for Runtime {
     /// The identifier used to distinguish between accounts.
     type AccountId = AccountId;
     /// The lookup mechanism to get account ID from whatever is passed in dispatchers.
-    type Lookup = IdentityLookup<AccountId>;
+    type Lookup = AccountIdLookup<AccountId, AccountIndex>;
     /// The block type.
     type Block = Block;
     /// Maximum number of block number to block hash mappings to keep (oldest pruned first).
@@ -810,6 +810,12 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
 }
 
+impl pallet_bridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type WeightInfo = pallet_bridge::weights::WeightInfo<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -843,6 +849,9 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+
+        // cc2 -> cc3 bridge pallet
+        Bridge: pallet_bridge,
     }
 );
 
@@ -872,7 +881,7 @@ impl fp_rpc::ConvertTransaction<opaque::UncheckedExtrinsic> for TransactionConve
 }
 
 /// The address format for describing accounts.
-pub type Address = AccountId;
+pub type Address = sp_runtime::MultiAddress<AccountId, AccountIndex>;
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 /// Block type as expected by this runtime.
@@ -980,6 +989,8 @@ mod benches {
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
+        // Gluwa
+        [pallet_bridge, Bridge]
     );
 }
 
@@ -1375,11 +1386,9 @@ impl_runtime_apis! {
 
             use baseline::Pallet as BaselineBench;
             use frame_system_benchmarking::Pallet as SystemBench;
-            use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficients;
 
             let mut list = Vec::<BenchmarkList>::new();
             list_benchmarks!(list, extra);
-            list_benchmark!(list, extra, pallet_hotfix_sufficients, PalletHotfixSufficients::<Runtime>);
 
             let storage_info = AllPalletsWithSystem::storage_info();
             (list, storage_info)
@@ -1393,6 +1402,7 @@ impl_runtime_apis! {
 
             use pallet_evm::Pallet as PalletEvmBench;
             use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
+            use pallet_bridge::Pallet as PalletBridgeBench;
 
             impl baseline::Config for Runtime {}
             impl frame_system_benchmarking::Config for Runtime {}
@@ -1404,6 +1414,8 @@ impl_runtime_apis! {
 
             add_benchmark!(params, batches, pallet_evm, PalletEvmBench::<Runtime>);
             add_benchmark!(params, batches, pallet_hotfix_sufficients, PalletHotfixSufficientsBench::<Runtime>);
+            // Gluwa
+            add_benchmark!(params, batches, pallet_bridge, PalletBridgeBench::<Runtime>);
 
             if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
             Ok(batches)

@@ -1,9 +1,9 @@
 [workspace]
-members = ["node", "runtime", "runtime/generate-bags"]
+members = ["node", "runtime", "runtime/generate-bags", "pallets/bridge"]
 resolver = "2"
 
 [workspace.package]
-version = "3.6.1"
+version = "3.9.2"
 authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
@@ -13,7 +13,7 @@ repository = "https://github.com/gluwa/creditcoin3/"
 [workspace.dependencies]
 async-trait = "0.1"
 bn = { package = "substrate-bn", version = "0.6", default-features = false }
-clap = { version = "4.4.7", features = ["derive", "deprecated"] }
+clap = { version = "4.4.10", features = ["derive", "deprecated"] }
 derive_more = "0.99"
 environmental = { version = "1.1.4", default-features = false }
 ethereum = { version = "0.14.0", default-features = false }
@@ -33,7 +33,7 @@ num_enum = { version = "0.7.1", default-features = false }
 parity-db = "0.4.12"
 parking_lot = "0.12.1"
 rlp = { version = "0.5.2", default-features = false }
-parity-scale-codec = { version = "3.6.4", default-features = false, features = [
+parity-scale-codec = { version = "3.6.9", default-features = false, features = [
 	"derive",
 ] }
 scale-info = { version = "2.10.0", default-features = false, features = [
@@ -45,9 +45,9 @@ serde = { version = "1.0", default-features = false, features = [
 ] }
 serde_json = "1.0"
 similar-asserts = "1.1.0"
-sqlx = { version = "0.7.2", default-features = false, features = ["macros"] }
+sqlx = { version = "0.7.3", default-features = false, features = ["macros"] }
 thiserror = "1.0"
-tokio = "1.33.0"
+tokio = "1.34.0"
 
 # Substrate Client
 sc-basic-authorship = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
@@ -61,6 +61,7 @@ sc-consensus-babe = { version = "0.10.0-dev", git = "https://github.com/parityte
 sc-consensus-babe-rpc = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 sc-consensus-epochs = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 sc-consensus-grandpa = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+sc-consensus-grandpa-rpc = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 sc-consensus-manual-seal = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 sc-executor = { version = "0.10.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 sc-keystore = { version = "4.0.0-dev", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
@@ -171,6 +172,7 @@ precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "p
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
+pallet-bridge = { path = "pallets/bridge", default-features = false }
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [

@@ -83,7 +83,18 @@ module.exports = {
                 },
             },
         ],
-        '@typescript-eslint/naming-convention': 'error',
+        "@typescript-eslint/naming-convention": [
+            "error",
+            {
+              selector: "property",
+              format: ["strictCamelCase"],
+              filter: {
+                // you can expand this regex to add more allowed names
+                regex: "^(CC_SECRET)$",
+                match: false,
+              },
+            },
+          ],
         '@typescript-eslint/no-empty-function': 'error',
         '@typescript-eslint/no-empty-interface': 'error',
         '@typescript-eslint/no-explicit-any': 'off',

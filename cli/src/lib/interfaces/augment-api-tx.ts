@@ -14,7 +14,16 @@ import type {
 import type { Data } from '@polkadot/types';
 import type { Bytes, Compact, Option, U256, Vec, bool, u128, u16, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
-import type { AccountId32, Call, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
+import type {
+    AccountId32,
+    Call,
+    H160,
+    H256,
+    MultiAddress,
+    Perbill,
+    Percent,
+    Permill,
+} from '@polkadot/types/interfaces/runtime';
 import type {
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -109,82 +118,154 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             forceSetBalance: AugmentedSubmittable<
                 (
-                    who: AccountId32 | string | Uint8Array,
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     newFree: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Compact<u128>]
+                [MultiAddress, Compact<u128>]
             >;
             /**
              * See [`Pallet::force_transfer`].
              **/
             forceTransfer: AugmentedSubmittable<
                 (
-                    source: AccountId32 | string | Uint8Array,
-                    dest: AccountId32 | string | Uint8Array,
+                    source:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    dest:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     value: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, AccountId32, Compact<u128>]
+                [MultiAddress, MultiAddress, Compact<u128>]
             >;
             /**
              * See [`Pallet::force_unreserve`].
              **/
             forceUnreserve: AugmentedSubmittable<
                 (
-                    who: AccountId32 | string | Uint8Array,
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     amount: u128 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, u128]
+                [MultiAddress, u128]
             >;
             /**
              * See [`Pallet::set_balance_deprecated`].
              **/
             setBalanceDeprecated: AugmentedSubmittable<
                 (
-                    who: AccountId32 | string | Uint8Array,
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     newFree: Compact<u128> | AnyNumber | Uint8Array,
                     oldReserved: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Compact<u128>, Compact<u128>]
+                [MultiAddress, Compact<u128>, Compact<u128>]
             >;
             /**
              * See [`Pallet::transfer`].
              **/
             transfer: AugmentedSubmittable<
                 (
-                    dest: AccountId32 | string | Uint8Array,
+                    dest:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     value: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Compact<u128>]
+                [MultiAddress, Compact<u128>]
             >;
             /**
              * See [`Pallet::transfer_all`].
              **/
             transferAll: AugmentedSubmittable<
                 (
-                    dest: AccountId32 | string | Uint8Array,
+                    dest:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     keepAlive: bool | boolean | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, bool]
+                [MultiAddress, bool]
             >;
             /**
              * See [`Pallet::transfer_allow_death`].
              **/
             transferAllowDeath: AugmentedSubmittable<
                 (
-                    dest: AccountId32 | string | Uint8Array,
+                    dest:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     value: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Compact<u128>]
+                [MultiAddress, Compact<u128>]
             >;
             /**
              * See [`Pallet::transfer_keep_alive`].
              **/
             transferKeepAlive: AugmentedSubmittable<
                 (
-                    dest: AccountId32 | string | Uint8Array,
+                    dest:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     value: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Compact<u128>]
+                [MultiAddress, Compact<u128>]
             >;
             /**
              * See [`Pallet::upgrade_accounts`].
@@ -212,6 +293,37 @@ declare module '@polkadot/api-base/types/submittable' {
             setElasticity: AugmentedSubmittable<
                 (elasticity: Permill | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
                 [Permill]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
+        bridge: {
+            /**
+             * See [`Pallet::add_authority`].
+             **/
+            addAuthority: AugmentedSubmittable<
+                (who: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [AccountId32]
+            >;
+            /**
+             * See [`Pallet::approve_collection`].
+             **/
+            approveCollection: AugmentedSubmittable<
+                (
+                    burnId: u64 | AnyNumber | Uint8Array,
+                    collector: AccountId32 | string | Uint8Array,
+                    amount: u128 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32, u128]
+            >;
+            /**
+             * See [`Pallet::remove_authority`].
+             **/
+            removeAuthority: AugmentedSubmittable<
+                (who: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [AccountId32]
             >;
             /**
              * Generic tx
@@ -415,15 +527,33 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::add_registrar`].
              **/
             addRegistrar: AugmentedSubmittable<
-                (account: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    account:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
             >;
             /**
              * See [`Pallet::add_sub`].
              **/
             addSub: AugmentedSubmittable<
                 (
-                    sub: AccountId32 | string | Uint8Array,
+                    sub:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     data:
                         | Data
                         | { None: any }
@@ -435,7 +565,7 @@ declare module '@polkadot/api-base/types/submittable' {
                         | string
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Data]
+                [MultiAddress, Data]
             >;
             /**
              * See [`Pallet::cancel_request`].
@@ -452,8 +582,18 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::kill_identity`].
              **/
             killIdentity: AugmentedSubmittable<
-                (target: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    target:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
             >;
             /**
              * See [`Pallet::provide_judgement`].
@@ -461,7 +601,15 @@ declare module '@polkadot/api-base/types/submittable' {
             provideJudgement: AugmentedSubmittable<
                 (
                     regIndex: Compact<u32> | AnyNumber | Uint8Array,
-                    target: AccountId32 | string | Uint8Array,
+                    target:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     judgement:
                         | PalletIdentityJudgement
                         | { Unknown: any }
@@ -475,7 +623,7 @@ declare module '@polkadot/api-base/types/submittable' {
                         | Uint8Array,
                     identity: H256 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [Compact<u32>, AccountId32, PalletIdentityJudgement, H256]
+                [Compact<u32>, MultiAddress, PalletIdentityJudgement, H256]
             >;
             /**
              * See [`Pallet::quit_sub`].
@@ -485,15 +633,33 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::remove_sub`].
              **/
             removeSub: AugmentedSubmittable<
-                (sub: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    sub:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
             >;
             /**
              * See [`Pallet::rename_sub`].
              **/
             renameSub: AugmentedSubmittable<
                 (
-                    sub: AccountId32 | string | Uint8Array,
+                    sub:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     data:
                         | Data
                         | { None: any }
@@ -505,7 +671,7 @@ declare module '@polkadot/api-base/types/submittable' {
                         | string
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Data]
+                [MultiAddress, Data]
             >;
             /**
              * See [`Pallet::request_judgement`].
@@ -523,9 +689,17 @@ declare module '@polkadot/api-base/types/submittable' {
             setAccountId: AugmentedSubmittable<
                 (
                     index: Compact<u32> | AnyNumber | Uint8Array,
-                    updated: AccountId32 | string | Uint8Array,
+                    updated:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [Compact<u32>, AccountId32]
+                [Compact<u32>, MultiAddress]
             >;
             /**
              * See [`Pallet::set_fee`].
@@ -639,7 +813,15 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             bondExtraOther: AugmentedSubmittable<
                 (
-                    member: AccountId32 | string | Uint8Array,
+                    member:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     extra:
                         | PalletNominationPoolsBondExtra
                         | { FreeBalance: any }
@@ -647,7 +829,7 @@ declare module '@polkadot/api-base/types/submittable' {
                         | string
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, PalletNominationPoolsBondExtra]
+                [MultiAddress, PalletNominationPoolsBondExtra]
             >;
             /**
              * See [`Pallet::chill`].
@@ -677,11 +859,35 @@ declare module '@polkadot/api-base/types/submittable' {
             create: AugmentedSubmittable<
                 (
                     amount: Compact<u128> | AnyNumber | Uint8Array,
-                    root: AccountId32 | string | Uint8Array,
-                    nominator: AccountId32 | string | Uint8Array,
-                    bouncer: AccountId32 | string | Uint8Array,
+                    root:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    nominator:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    bouncer:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [Compact<u128>, AccountId32, AccountId32, AccountId32]
+                [Compact<u128>, MultiAddress, MultiAddress, MultiAddress]
             >;
             /**
              * See [`Pallet::create_with_pool_id`].
@@ -689,12 +895,36 @@ declare module '@polkadot/api-base/types/submittable' {
             createWithPoolId: AugmentedSubmittable<
                 (
                     amount: Compact<u128> | AnyNumber | Uint8Array,
-                    root: AccountId32 | string | Uint8Array,
-                    nominator: AccountId32 | string | Uint8Array,
-                    bouncer: AccountId32 | string | Uint8Array,
+                    root:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    nominator:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    bouncer:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     poolId: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [Compact<u128>, AccountId32, AccountId32, AccountId32, u32]
+                [Compact<u128>, MultiAddress, MultiAddress, MultiAddress, u32]
             >;
             /**
              * See [`Pallet::join`].
@@ -863,10 +1093,18 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             unbond: AugmentedSubmittable<
                 (
-                    memberAccount: AccountId32 | string | Uint8Array,
+                    memberAccount:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     unbondingPoints: Compact<u128> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Compact<u128>]
+                [MultiAddress, Compact<u128>]
             >;
             /**
              * See [`Pallet::update_roles`].
@@ -908,10 +1146,18 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             withdrawUnbonded: AugmentedSubmittable<
                 (
-                    memberAccount: AccountId32 | string | Uint8Array,
+                    memberAccount:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     numSlashingSpans: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, u32]
+                [MultiAddress, u32]
             >;
             /**
              * Generic tx
@@ -924,21 +1170,37 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             addProxy: AugmentedSubmittable<
                 (
-                    delegate: AccountId32 | string | Uint8Array,
+                    delegate:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     proxyType: Creditcoin3RuntimeProxyFilter | 'All' | 'NonTransfer' | 'Staking' | number | Uint8Array,
                     delay: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Creditcoin3RuntimeProxyFilter, u32]
+                [MultiAddress, Creditcoin3RuntimeProxyFilter, u32]
             >;
             /**
              * See [`Pallet::announce`].
              **/
             announce: AugmentedSubmittable<
                 (
-                    real: AccountId32 | string | Uint8Array,
+                    real:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     callHash: H256 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, H256]
+                [MultiAddress, H256]
             >;
             /**
              * See [`Pallet::create_pure`].
@@ -956,20 +1218,36 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             killPure: AugmentedSubmittable<
                 (
-                    spawner: AccountId32 | string | Uint8Array,
+                    spawner:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     proxyType: Creditcoin3RuntimeProxyFilter | 'All' | 'NonTransfer' | 'Staking' | number | Uint8Array,
                     index: u16 | AnyNumber | Uint8Array,
                     height: Compact<u32> | AnyNumber | Uint8Array,
                     extIndex: Compact<u32> | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Creditcoin3RuntimeProxyFilter, u16, Compact<u32>, Compact<u32>]
+                [MultiAddress, Creditcoin3RuntimeProxyFilter, u16, Compact<u32>, Compact<u32>]
             >;
             /**
              * See [`Pallet::proxy`].
              **/
             proxy: AugmentedSubmittable<
                 (
-                    real: AccountId32 | string | Uint8Array,
+                    real:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     forceProxyType:
                         | Option<Creditcoin3RuntimeProxyFilter>
                         | null
@@ -981,15 +1259,31 @@ declare module '@polkadot/api-base/types/submittable' {
                         | number,
                     call: Call | IMethod | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Option<Creditcoin3RuntimeProxyFilter>, Call]
+                [MultiAddress, Option<Creditcoin3RuntimeProxyFilter>, Call]
             >;
             /**
              * See [`Pallet::proxy_announced`].
              **/
             proxyAnnounced: AugmentedSubmittable<
                 (
-                    delegate: AccountId32 | string | Uint8Array,
-                    real: AccountId32 | string | Uint8Array,
+                    delegate:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    real:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     forceProxyType:
                         | Option<Creditcoin3RuntimeProxyFilter>
                         | null
@@ -1001,27 +1295,43 @@ declare module '@polkadot/api-base/types/submittable' {
                         | number,
                     call: Call | IMethod | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, AccountId32, Option<Creditcoin3RuntimeProxyFilter>, Call]
+                [MultiAddress, MultiAddress, Option<Creditcoin3RuntimeProxyFilter>, Call]
             >;
             /**
              * See [`Pallet::reject_announcement`].
              **/
             rejectAnnouncement: AugmentedSubmittable<
                 (
-                    delegate: AccountId32 | string | Uint8Array,
+                    delegate:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     callHash: H256 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, H256]
+                [MultiAddress, H256]
             >;
             /**
              * See [`Pallet::remove_announcement`].
              **/
             removeAnnouncement: AugmentedSubmittable<
                 (
-                    real: AccountId32 | string | Uint8Array,
+                    real:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     callHash: H256 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, H256]
+                [MultiAddress, H256]
             >;
             /**
              * See [`Pallet::remove_proxies`].
@@ -1032,11 +1342,19 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             removeProxy: AugmentedSubmittable<
                 (
-                    delegate: AccountId32 | string | Uint8Array,
+                    delegate:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     proxyType: Creditcoin3RuntimeProxyFilter | 'All' | 'NonTransfer' | 'Staking' | number | Uint8Array,
                     delay: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Creditcoin3RuntimeProxyFilter, u32]
+                [MultiAddress, Creditcoin3RuntimeProxyFilter, u32]
             >;
             /**
              * Generic tx
@@ -1154,15 +1472,41 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::kick`].
              **/
             kick: AugmentedSubmittable<
-                (who: Vec<AccountId32> | (AccountId32 | string | Uint8Array)[]) => SubmittableExtrinsic<ApiType>,
-                [Vec<AccountId32>]
+                (
+                    who:
+                        | Vec<MultiAddress>
+                        | (
+                              | MultiAddress
+                              | { Id: any }
+                              | { Index: any }
+                              | { Raw: any }
+                              | { Address32: any }
+                              | { Address20: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [Vec<MultiAddress>]
             >;
             /**
              * See [`Pallet::nominate`].
              **/
             nominate: AugmentedSubmittable<
-                (targets: Vec<AccountId32> | (AccountId32 | string | Uint8Array)[]) => SubmittableExtrinsic<ApiType>,
-                [Vec<AccountId32>]
+                (
+                    targets:
+                        | Vec<MultiAddress>
+                        | (
+                              | MultiAddress
+                              | { Id: any }
+                              | { Index: any }
+                              | { Raw: any }
+                              | { Address32: any }
+                              | { Address20: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [Vec<MultiAddress>]
             >;
             /**
              * See [`Pallet::payout_stakers`].
@@ -1332,8 +1676,18 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::set_key`].
              **/
             setKey: AugmentedSubmittable<
-                (updated: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    updated:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
             >;
             /**
              * See [`Pallet::sudo`].
@@ -1347,10 +1701,18 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             sudoAs: AugmentedSubmittable<
                 (
-                    who: AccountId32 | string | Uint8Array,
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                     call: Call | IMethod | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, Call]
+                [MultiAddress, Call]
             >;
             /**
              * See [`Pallet::sudo_unchecked_weight`].
@@ -1515,25 +1877,61 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::put_in_front_of`].
              **/
             putInFrontOf: AugmentedSubmittable<
-                (lighter: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    lighter:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
             >;
             /**
              * See [`Pallet::put_in_front_of_other`].
              **/
             putInFrontOfOther: AugmentedSubmittable<
                 (
-                    heavier: AccountId32 | string | Uint8Array,
-                    lighter: AccountId32 | string | Uint8Array,
+                    heavier:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    lighter:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, AccountId32]
+                [MultiAddress, MultiAddress]
             >;
             /**
              * See [`Pallet::rebag`].
              **/
             rebag: AugmentedSubmittable<
-                (dislocated: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    dislocated:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
             >;
             /**
              * Generic tx

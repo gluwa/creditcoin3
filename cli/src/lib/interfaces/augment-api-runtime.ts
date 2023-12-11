@@ -6,7 +6,7 @@
 import '@polkadot/api-base/types/calls';
 
 import type { ApiTypes, AugmentedCall, DecoratedCallBase } from '@polkadot/api-base/types';
-import type { Bytes, Null, Option, Vec } from '@polkadot/types-codec';
+import type { Bytes, Null, Option, Result, U256, Vec, bool, u256, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type {
     BabeEquivocationProof,
@@ -17,12 +17,27 @@ import type {
 import type { CheckInherentsResult, InherentData } from '@polkadot/types/interfaces/blockbuilder';
 import type { BlockHash } from '@polkadot/types/interfaces/chain';
 import type { AuthorityId } from '@polkadot/types/interfaces/consensus';
-import type { TransactionV2 } from '@polkadot/types/interfaces/eth';
+import type { BlockV2, EthReceiptV3, EthTransactionStatus, TransactionV2 } from '@polkadot/types/interfaces/eth';
+import type { EvmAccount, EvmCallInfoV2, EvmCreateInfoV2 } from '@polkadot/types/interfaces/evm';
 import type { Extrinsic } from '@polkadot/types/interfaces/extrinsics';
 import type { AuthorityList, GrandpaEquivocationProof, SetId } from '@polkadot/types/interfaces/grandpa';
-import type { AccountId, Block, Header, Index, KeyTypeId, Slot } from '@polkadot/types/interfaces/runtime';
+import type { OpaqueMetadata } from '@polkadot/types/interfaces/metadata';
+import type { FeeDetails, RuntimeDispatchInfo } from '@polkadot/types/interfaces/payment';
+import type {
+    AccountId,
+    Balance,
+    Block,
+    H160,
+    H256,
+    Header,
+    Index,
+    KeyTypeId,
+    Permill,
+    Slot,
+    Weight,
+} from '@polkadot/types/interfaces/runtime';
 import type { RuntimeVersion } from '@polkadot/types/interfaces/state';
-import type { ApplyExtrinsicResult } from '@polkadot/types/interfaces/system';
+import type { ApplyExtrinsicResult, DispatchError } from '@polkadot/types/interfaces/system';
 import type { TransactionSource, TransactionValidity } from '@polkadot/types/interfaces/txqueue';
 import type { IExtrinsic, Observable } from '@polkadot/types/types';
 
@@ -177,6 +192,119 @@ declare module '@polkadot/api-base/types/calls' {
              **/
             [key: string]: DecoratedCallBase<ApiType>;
         };
+        /** 0x582211f65bb14b89/5 */
+        ethereumRuntimeRPCApi: {
+            /**
+             * Returns pallet_evm::Accounts by address.
+             **/
+            accountBasic: AugmentedCall<ApiType, (address: H160 | string | Uint8Array) => Observable<EvmAccount>>;
+            /**
+             * For a given account address, returns pallet_evm::AccountCodes.
+             **/
+            accountCodeAt: AugmentedCall<ApiType, (address: H160 | string | Uint8Array) => Observable<Bytes>>;
+            /**
+             * Returns the converted FindAuthor::find_author authority id.
+             **/
+            author: AugmentedCall<ApiType, () => Observable<H160>>;
+            /**
+             * Returns a frame_ethereum::call response. If `estimate` is true,
+             **/
+            call: AugmentedCall<
+                ApiType,
+                (
+                    from: H160 | string | Uint8Array,
+                    to: H160 | string | Uint8Array,
+                    data: Bytes | string | Uint8Array,
+                    value: U256 | AnyNumber | Uint8Array,
+                    gasLimit: U256 | AnyNumber | Uint8Array,
+                    maxFeePerGas: Option<U256> | null | Uint8Array | U256 | AnyNumber,
+                    maxPriorityFeePerGas: Option<U256> | null | Uint8Array | U256 | AnyNumber,
+                    nonce: Option<U256> | null | Uint8Array | U256 | AnyNumber,
+                    estimate: bool | boolean | Uint8Array,
+                    accessList:
+                        | Option<Vec<ITuple<[H160, Vec<H256>]>>>
+                        | null
+                        | Uint8Array
+                        | Vec<ITuple<[H160, Vec<H256>]>>
+                        | [H160 | string | Uint8Array, Vec<H256> | (H256 | string | Uint8Array)[]][],
+                ) => Observable<Result<EvmCallInfoV2, DispatchError>>
+            >;
+            /**
+             * Returns runtime defined pallet_evm::ChainId.
+             **/
+            chainId: AugmentedCall<ApiType, () => Observable<u64>>;
+            /**
+             * Returns a frame_ethereum::call response. If `estimate` is true,
+             **/
+            create: AugmentedCall<
+                ApiType,
+                (
+                    from: H160 | string | Uint8Array,
+                    data: Bytes | string | Uint8Array,
+                    value: U256 | AnyNumber | Uint8Array,
+                    gasLimit: U256 | AnyNumber | Uint8Array,
+                    maxFeePerGas: Option<U256> | null | Uint8Array | U256 | AnyNumber,
+                    maxPriorityFeePerGas: Option<U256> | null | Uint8Array | U256 | AnyNumber,
+                    nonce: Option<U256> | null | Uint8Array | U256 | AnyNumber,
+                    estimate: bool | boolean | Uint8Array,
+                    accessList:
+                        | Option<Vec<ITuple<[H160, Vec<H256>]>>>
+                        | null
+                        | Uint8Array
+                        | Vec<ITuple<[H160, Vec<H256>]>>
+                        | [H160 | string | Uint8Array, Vec<H256> | (H256 | string | Uint8Array)[]][],
+                ) => Observable<Result<EvmCreateInfoV2, DispatchError>>
+            >;
+            /**
+             * Return all the current data for a block in a single runtime call.
+             **/
+            currentAll: AugmentedCall<
+                ApiType,
+                () => Observable<
+                    ITuple<[Option<BlockV2>, Option<Vec<EthReceiptV3>>, Option<Vec<EthTransactionStatus>>]>
+                >
+            >;
+            /**
+             * Return the current block.
+             **/
+            currentBlock: AugmentedCall<ApiType, () => Observable<BlockV2>>;
+            /**
+             * Return the current receipt.
+             **/
+            currentReceipts: AugmentedCall<ApiType, () => Observable<Option<Vec<EthReceiptV3>>>>;
+            /**
+             * Return the current transaction status.
+             **/
+            currentTransactionStatuses: AugmentedCall<ApiType, () => Observable<Option<Vec<EthTransactionStatus>>>>;
+            /**
+             * Return the elasticity multiplier.
+             **/
+            elasticity: AugmentedCall<ApiType, () => Observable<Option<Permill>>>;
+            /**
+             * Receives a `Vec<OpaqueExtrinsic>` and filters all the ethereum transactions.
+             **/
+            extrinsicFilter: AugmentedCall<
+                ApiType,
+                (
+                    xts: Vec<Extrinsic> | (Extrinsic | IExtrinsic | string | Uint8Array)[],
+                ) => Observable<Vec<TransactionV2>>
+            >;
+            /**
+             * Returns FixedGasPrice::min_gas_price
+             **/
+            gasPrice: AugmentedCall<ApiType, () => Observable<u256>>;
+            /**
+             * For a given account address and index, returns pallet_evm::AccountStorages.
+             **/
+            storageAt: AugmentedCall<
+                ApiType,
+                (address: H160 | string | Uint8Array, index: u256 | AnyNumber | Uint8Array) => Observable<H256>
+            >;
+            /**
+             * Generic call
+             **/
+            [key: string]: DecoratedCallBase<ApiType>;
+        };
         /** 0xed99c5acb25eedf5/3 */
         grandpaApi: {
             /**
@@ -211,6 +339,28 @@ declare module '@polkadot/api-base/types/calls' {
                     keyOwnerProof: OpaqueKeyOwnershipProof | string | Uint8Array,
                 ) => Observable<Option<Null>>
             >;
+            /**
+             * Generic call
+             **/
+            [key: string]: DecoratedCallBase<ApiType>;
+        };
+        /** 0x37e397fc7c91f5e4/2 */
+        metadata: {
+            /**
+             * Returns the metadata of a runtime
+             **/
+            metadata: AugmentedCall<ApiType, () => Observable<OpaqueMetadata>>;
+            /**
+             * Returns the metadata at a given version.
+             **/
+            metadataAtVersion: AugmentedCall<
+                ApiType,
+                (version: u32 | AnyNumber | Uint8Array) => Observable<Option<OpaqueMetadata>>
+            >;
+            /**
+             * Returns the supported metadata versions.
+             **/
+            metadataVersions: AugmentedCall<ApiType, () => Observable<Vec<u32>>>;
             /**
              * Generic call
              **/
@@ -269,6 +419,44 @@ declare module '@polkadot/api-base/types/calls' {
                     tx: Extrinsic | IExtrinsic | string | Uint8Array,
                     blockHash: BlockHash | string | Uint8Array,
                 ) => Observable<TransactionValidity>
+            >;
+            /**
+             * Generic call
+             **/
+            [key: string]: DecoratedCallBase<ApiType>;
+        };
+        /** 0x37c8bb1350a9a2a8/4 */
+        transactionPaymentApi: {
+            /**
+             * The transaction fee details
+             **/
+            queryFeeDetails: AugmentedCall<
+                ApiType,
+                (
+                    uxt: Extrinsic | IExtrinsic | string | Uint8Array,
+                    len: u32 | AnyNumber | Uint8Array,
+                ) => Observable<FeeDetails>
+            >;
+            /**
+             * The transaction info
+             **/
+            queryInfo: AugmentedCall<
+                ApiType,
+                (
+                    uxt: Extrinsic | IExtrinsic | string | Uint8Array,
+                    len: u32 | AnyNumber | Uint8Array,
+                ) => Observable<RuntimeDispatchInfo>
+            >;
+            /**
+             * Query the output of the current LengthToFee given some input
+             **/
+            queryLengthToFee: AugmentedCall<ApiType, (length: u32 | AnyNumber | Uint8Array) => Observable<Balance>>;
+            /**
+             * Query the output of the current WeightToFee given some input
+             **/
+            queryWeightToFee: AugmentedCall<
+                ApiType,
+                (weight: Weight | { refTime?: any; proofSize?: any } | string | Uint8Array) => Observable<Balance>
             >;
             /**
              * Generic call
