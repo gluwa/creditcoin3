@@ -6,7 +6,6 @@ Currently this directory contains a smart contract test suite, written by the
 SmartContract team at Gluwa. Its purpose is to verify Creditcoin 3 support for
 various smart contract functionalities.
 
-
 ## How to execute
 
 1. Install the dependencies
@@ -15,7 +14,7 @@ various smart contract functionalities.
 npm install
 ```
 
-1. Execute the test suite
+2. Execute the test suite
 
 ```bash
 ./node_modules/.bin/basicTest --rpc <creditcoin-rpc-url> --private_key <private-key-for-a-funded-account>

@@ -242,16 +242,15 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-    pub const MaxAuthorities: u32 = 100;
-
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+    pub const MaxAuthorities: u32 = 100;
 }
 
 impl pallet_grandpa::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
-    type MaxAuthorities = ConstU32<32>;
+    type MaxAuthorities = MaxAuthorities;
     type MaxNominators = ConstU32<0>;
     type MaxSetIdSessionEntries = ();
     type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
@@ -657,7 +656,6 @@ parameter_types! {
     pub const MaxPending: u32 = 64;
     pub const AnnouncementDepositBase: u128 = 500;
     pub const AnnouncementDepositFactor: u128 = 500;
-
 }
 
 impl pallet_proxy::Config for Runtime {
