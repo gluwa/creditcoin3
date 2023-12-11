@@ -22,7 +22,7 @@ describe('EVM commands', () => {
         const evmAccount = randomEvmAccount();
 
         // Fund it with 10 CTC using the CLI
-        const result = commandSync(`node ${CLI_PATH} evm fund --to ${evmAccount.address} --amount 10`, {
+        const result = commandSync(`node ${CLI_PATH} evm fund --recipient ${evmAccount.address} --amount 10`, {
             env: {
                 CC_SECRET: caller.secret,
             },
@@ -50,7 +50,7 @@ describe('EVM commands', () => {
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Send 1 CTC from account 1 to account 2
-        commandSync(`node ${CLI_PATH} evm send --to ${evmAccount2.address} --amount 1`, {
+        commandSync(`node ${CLI_PATH} evm send --recipient ${evmAccount2.address} --amount 1`, {
             env: {
                 EVM_SECRET: evmAccount1.mnemonic,
             },
@@ -82,7 +82,7 @@ describe('EVM commands', () => {
 
         // Send 1 CTC from the EVM account to the Substrate account
         const associatedEvmAccount = substrateAddressToEvmAddress(substrateAccount.address);
-        commandSync(`node ${CLI_PATH} evm send --to ${associatedEvmAccount} --amount 1`, {
+        commandSync(`node ${CLI_PATH} evm send --recipient ${associatedEvmAccount} --amount 1`, {
             env: {
                 EVM_SECRET: evmAccount.mnemonic,
             },
