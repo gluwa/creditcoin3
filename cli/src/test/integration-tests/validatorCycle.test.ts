@@ -55,10 +55,7 @@ describe('integration test: validator manual setup', () => {
         const stashBalance = (await getBalance(substrateAddress, aliceApi)).transferable;
         expect(stashBalance.toString()).toBe(fundAmount.toString());
 
-        // Bonding 1k ctc from stash and setting the controller should
-        // - make the stash bonded balance equal to 1k ctc
-        // - make the stash's controller be the controller address
-        // - make controller's stash be the stash address
+        // Bonding 1k ctc from stash
         const bondAmount = '1000';
         commandSync(`node ${CLI_PATH} bond --amount ${bondAmount} --url ${BOB_NODE_URL}`, {
             env: {
