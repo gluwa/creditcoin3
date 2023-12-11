@@ -5,6 +5,7 @@ import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../l
 import { getEvmUrl } from '../../lib/evm/rpc';
 import { getEVMBalanceOf, getTransferFeeEstimation } from '../../lib/evm/balance';
 import { toCTCString } from '../../lib/balance';
+import { BN } from '@polkadot/util';
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
@@ -26,15 +27,7 @@ async function evmSendAction(options: OptionValues) {
         value: amount.toString(),
     };
 
-    const balance = await getEVMBalanceOf(wallet.address, getEvmUrl(options));
-
-    const fees = await getTransferFeeEstimation(getEvmUrl(options));
-
-    if (balance.ctc < BigInt(amount.toString()) + fees) {
-        console.log(`Insufficient balance to send ${toCTCString(amount)}`);
-        console.log(`This CC3 CLI considers the transfer fee to be at least twice the base fee`);
-        process.exit(1);
-    }
+    await checkIfEnoughBalance(wallet.address, amount, options);
 
     const result = await signer.sendTransaction(tx);
 
@@ -55,4 +48,16 @@ function parseOptions(options: OptionValues) {
     const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
     const recipient = parseEVMAddressOrExit(requiredInput(options.to, 'Failed to send CTC: Must specify a recipient'));
     return { amount, recipient };
+}
+
+async function checkIfEnoughBalance(address: string, amount: BN, options: OptionValues) {
+    const balance = await getEVMBalanceOf(address, getEvmUrl(options));
+
+    const fees = await getTransferFeeEstimation(getEvmUrl(options));
+
+    if (balance.ctc < BigInt(amount.toString()) + fees) {
+        console.log(`Insufficient balance to send ${toCTCString(amount)}`);
+        console.log(`This CC3 CLI considers the transfer fee to be at least twice the base fee`);
+        process.exit(1);
+    }
 }
