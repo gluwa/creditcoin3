@@ -5,7 +5,7 @@ import { getEVMBalanceOf, logEVMBalance } from '../../lib/evm/balance';
 
 export function makeEvmBalanceCommand() {
     const cmd = new Command('balance');
-    cmd.description('Show balance of an EVM accoun');
+    cmd.description('Show balance of an EVM account');
     cmd.argument('<address>', 'Address to check balance of');
     cmd.option('--json', 'Output as JSON');
     cmd.action(evmBalanceAction);
