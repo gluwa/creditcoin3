@@ -21,14 +21,14 @@ use sp_core::{
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        AccountIdLookup, BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get,
-        IdentifyAccount, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
-        Verify,
+        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
+        NumberFor, One, OpaqueKeys, PostDispatchInfoOf, StaticLookup, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
     },
-    ApplyExtrinsicResult, ConsensusEngineId, MultiSignature, Perbill, Permill, SaturatedConversion,
+    ApplyExtrinsicResult, ConsensusEngineId, MultiAddress, MultiSignature, Perbill, Permill,
+    SaturatedConversion,
 };
 use sp_staking::SessionIndex;
 use sp_std::{marker::PhantomData, prelude::*};
@@ -58,7 +58,8 @@ use pallet_ethereum::{
     TransactionData,
 };
 use pallet_evm::{
-    Account as EVMAccount, EnsureAddressTruncated, FeeCalculator, HashedAddressMapping, Runner,
+    Account as EVMAccount, AddressMapping as _, EnsureAddressTruncated, FeeCalculator,
+    HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -189,6 +190,23 @@ parameter_types! {
     pub const SS58Prefix: u8 = 42;
 }
 
+pub struct NativeOrEvmAddressLookup;
+impl StaticLookup for NativeOrEvmAddressLookup {
+    type Source = MultiAddress<AccountId, AccountIndex>;
+    type Target = AccountId;
+    fn lookup(x: Self::Source) -> Result<Self::Target, sp_runtime::traits::LookupError> {
+        match x {
+            MultiAddress::Id(i) => Ok(i),
+            MultiAddress::Address32(i) => Ok(AccountId::from(i)),
+            MultiAddress::Address20(i) => Ok(AddressMapping::into_account_id(H160::from(i))),
+            _ => Err(sp_runtime::traits::LookupError),
+        }
+    }
+    fn unlookup(x: Self::Target) -> Self::Source {
+        MultiAddress::Id(x)
+    }
+}
+
 // Configure FRAME pallets to include in runtime.
 
 impl frame_system::Config for Runtime {
@@ -213,7 +231,7 @@ impl frame_system::Config for Runtime {
     /// The identifier used to distinguish between accounts.
     type AccountId = AccountId;
     /// The lookup mechanism to get account ID from whatever is passed in dispatchers.
-    type Lookup = AccountIdLookup<AccountId, AccountIndex>;
+    type Lookup = NativeOrEvmAddressLookup;
     /// The block type.
     type Block = Block;
     /// Maximum number of block number to block hash mappings to keep (oldest pruned first).
@@ -883,7 +901,7 @@ impl fp_rpc::ConvertTransaction<opaque::UncheckedExtrinsic> for TransactionConve
 }
 
 /// The address format for describing accounts.
-pub type Address = sp_runtime::MultiAddress<AccountId, AccountIndex>;
+pub type Address = MultiAddress<AccountId, AccountIndex>;
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 /// Block type as expected by this runtime.
