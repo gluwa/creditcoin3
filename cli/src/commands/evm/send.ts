@@ -5,14 +5,18 @@ import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../l
 import { getEvmUrl } from '../../lib/evm/rpc';
 import { getEVMBalanceOf, getTransferFeeEstimation } from '../../lib/evm/balance';
 import { toCTCString } from '../../lib/balance';
+<<<<<<< HEAD
 import { BN } from '@polkadot/util';
+=======
+import { amountOption, ecdsaOption, evmAddressOption, recipientOption } from '../options';
+>>>>>>> 25272c1 (refactor: extract common options)
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send funds from an EVM account to another EVM account');
-    cmd.option('-a, --amount [amount]', 'Amount to send');
-    cmd.option('-t, --to [to]', 'Specify recipient address');
-    cmd.option('--use-ecdsa', 'Use ECDSA private key instead of seed phrase');
+    cmd.addOption(amountOption);
+    cmd.addOption(ecdsaOption);
+    cmd.addOption(recipientOption);
     cmd.action(evmSendAction);
     return cmd;
 }
@@ -46,7 +50,7 @@ async function evmSendAction(options: OptionValues) {
 
 function parseOptions(options: OptionValues) {
     const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
-    const recipient = parseEVMAddressOrExit(requiredInput(options.to, 'Failed to send CTC: Must specify a recipient'));
+    const recipient = parseEVMAddressOrExit(requiredInput(options.recipient, 'Failed to send CTC: Must specify a recipient'));
     return { amount, recipient };
 }
 

@@ -3,6 +3,7 @@ import { makeEvmFundCommand } from './fund';
 import { makeEvmWithdrawCommand } from './withdraw';
 import { makeEvmSendCommand } from './send';
 import { makeEvmBalanceCommand } from './balance';
+import { noInputOption, urlOption } from '../options';
 
 export function makeEvmCommand() {
     const cmd = new Command('evm');
@@ -13,8 +14,8 @@ export function makeEvmCommand() {
     cmd.addCommand(makeEvmWithdrawCommand());
 
     cmd.commands.forEach((command) => {
-        command.option('-u, --url [url]', 'URL for the Substrate node', 'ws://127.0.0.1:9944');
-        command.option('--no-input', 'Disable interactive prompts');
+        command.addOption(urlOption)
+        command.addOption(noInputOption)
     });
     return cmd;
 }

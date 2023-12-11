@@ -9,11 +9,12 @@ import { parseAmountOrExit, requiredInput } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
 import { initCallerKeyring } from '../../lib/account/keyring';
+import { amountOption } from '../options';
 
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');
     cmd.description('Schedule a bonded CTC to be unlocked');
-    cmd.option('-a, --amount [amount]', 'Amount to send');
+    cmd.addOption(amountOption);
     cmd.action(unbondAction);
     return cmd;
 }

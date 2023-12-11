@@ -3,11 +3,12 @@ import { newApi } from '../lib';
 import { parseBoolean, parseAddressOrExit } from '../lib/parsing';
 import { getChainStatus, printChainStatus } from '../lib/chain/status';
 import { getValidatorStatus, printValidatorStatus } from '../lib/staking/validatorStatus';
+import { addressOption } from './options';
 
 export function makeStatusCommand() {
     const cmd = new Command('status');
     cmd.description('Get staking status for an address');
-    cmd.option('--address [address]', 'Address to get status for');
+    cmd.addOption(addressOption);
     cmd.option('--chain', 'Show chain status');
     cmd.action(statusAction);
     return cmd;
