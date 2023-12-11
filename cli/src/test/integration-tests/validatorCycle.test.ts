@@ -6,6 +6,7 @@ import { parseAddressInternal, parseAmountInternal, parseEVMAddressInternal, par
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { signSendAndWatch } from '../../lib/tx';
 import { BOB_NODE_URL, ALICE_NODE_URL, fundFromSudo, waitEras, initAliceKeyring, CLI_PATH } from './helpers';
+import { isAddress } from 'ethers';
 
 describe('integration test: validator manual setup', () => {
     it('full validator cycle', async () => {
@@ -43,6 +44,8 @@ describe('integration test: validator manual setup', () => {
                 .split(/\r?\n/)[1] // Second line of the output
                 .split('Associated EVM address: ')[1] // EVM address
         );
+
+        expect(isAddress(evmAddress)).toBe(true);
 
         // Funding the stash account should make its balance equal to the amount funded
         const fundAmount = parseAmountInternal('10000');
