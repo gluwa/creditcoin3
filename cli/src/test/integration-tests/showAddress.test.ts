@@ -29,15 +29,14 @@ describe('Show address command', () => {
         const substrateAddress = parseAddressInternal(
             result
                 .split(/\r?\n/)[0] // First line of the output
-                .split('Account Substrate address: ')[1] // Substrate address
+                .split('Account Substrate address: ')[1], // Substrate address
         );
 
         const evmAddress = parseEVMAddressInternal(
             result
                 .split(/\r?\n/)[1] // Second line of the output
-                .split('Associated EVM address: ')[1] // EVM address
+                .split('Associated EVM address: ')[1], // EVM address
         );
-
 
         expect(substrateAddress).toEqual(caller.address.toString());
         expect(evmAddress).toEqual(substrateAddressToEvmAddress(caller.address));

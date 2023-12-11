@@ -2,7 +2,12 @@ import { mnemonicValidate } from '@polkadot/util-crypto';
 import { commandSync } from 'execa';
 import { BN, newApi } from '../../lib';
 import { getBalance, printBalance } from '../../lib/balance';
-import { parseAddressInternal, parseAmountInternal, parseEVMAddressInternal, parseHexStringInternal } from '../../lib/parsing';
+import {
+    parseAddressInternal,
+    parseAmountInternal,
+    parseEVMAddressInternal,
+    parseHexStringInternal,
+} from '../../lib/parsing';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { signSendAndWatch } from '../../lib/tx';
 import { BOB_NODE_URL, ALICE_NODE_URL, fundFromSudo, waitEras, initAliceKeyring, CLI_PATH } from './helpers';
@@ -26,23 +31,22 @@ describe('integration test: validator manual setup', () => {
         console.log('Stash seed: ', stashSecret);
 
         // Getting both Substrate and EVM addresses using `show-address` should return two valid addresses
-        const showAddressResult = 
-            commandSync(`node ${CLI_PATH} show-address`, {
-                env: {
-                    CC_SECRET: stashSecret,
-                },
-            }).stdout;
-        
+        const showAddressResult = commandSync(`node ${CLI_PATH} show-address`, {
+            env: {
+                CC_SECRET: stashSecret,
+            },
+        }).stdout;
+
         const substrateAddress = parseAddressInternal(
             showAddressResult
                 .split(/\r?\n/)[0] // First line of the output
-                .split('Account Substrate address: ')[1] // Substrate address
+                .split('Account Substrate address: ')[1], // Substrate address
         );
 
         const evmAddress = parseEVMAddressInternal(
             showAddressResult
                 .split(/\r?\n/)[1] // Second line of the output
-                .split('Associated EVM address: ')[1] // EVM address
+                .split('Associated EVM address: ')[1], // EVM address
         );
 
         expect(isAddress(evmAddress)).toBe(true);
