@@ -244,7 +244,7 @@ impl frame_system::Config for Runtime {
 parameter_types! {
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
-    pub const MaxAuthorities: u32 = 32;
+    pub const MaxAuthorities: u32 = 100;
 }
 
 impl pallet_grandpa::Config for Runtime {
