@@ -3,7 +3,7 @@ import { makeEvmFundCommand } from './fund';
 import { makeEvmWithdrawCommand } from './withdraw';
 import { makeEvmSendCommand } from './send';
 import { makeEvmBalanceCommand } from './balance';
-import { noInputOption } from '../options';
+import { noInputOption, urlOption } from '../options';
 
 export function makeEvmCommand() {
     const cmd = new Command('evm');
@@ -15,6 +15,7 @@ export function makeEvmCommand() {
 
     cmd.commands.forEach((command) => {
         command.addOption(noInputOption);
+        command.addOption(urlOption);
     });
     return cmd;
 }

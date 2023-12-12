@@ -3,14 +3,13 @@ import { newApi } from '../lib';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../lib/tx';
 import { parseAddressOrExit, parseAmountOrExit, requiredInput } from '../lib/parsing';
 import { initCallerKeyring } from '../lib/account/keyring';
-import { amountOption, recipientOption, urlOption } from './options';
+import { amountOption, recipientOption } from './options';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send CTC from an account');
     cmd.addOption(amountOption);
     cmd.addOption(recipientOption);
-    cmd.addOption(urlOption);
     cmd.action(sendAction);
     return cmd;
 }

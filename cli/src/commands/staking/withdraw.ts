@@ -2,12 +2,10 @@ import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { urlOption } from '../options';
 
 export function makeWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
     cmd.description('Withdraw unbonded funds from a stash account');
-    cmd.addOption(urlOption);
     cmd.action(withdrawUnbondedAction);
     return cmd;
 }
