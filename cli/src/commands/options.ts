@@ -20,12 +20,3 @@ export const noInputOption = new Option('--no-input', 'Do not prompt for input')
 
 // Crypto
 export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
-
-
-
-
-
-
-
-
-
