@@ -1,6 +1,5 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { urlOption } from '../options';
 
 export function makeRotateKeysCommand() {
     const cmd = new Command('rotate-keys');
