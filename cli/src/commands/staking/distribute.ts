@@ -4,14 +4,12 @@ import { initCallerKeyring } from '../../lib/account/keyring';
 import { parseAddressOrExit, requiredInput, parseIntegerOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
-import { urlOption } from '../options';
 
 export function makeDistributeRewardsCommand() {
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for all validators');
     cmd.option('-v, --validator-id [address]', 'Specify the address of Validator to distribute rewards for');
     cmd.option('-e, --era [era]', 'Specify era to distribute rewards for');
-    cmd.addOption(urlOption);
     cmd.action(distributeRewardsAction);
     return cmd;
 }

@@ -3,14 +3,12 @@ import { newApi } from '../../lib';
 import { parseHexStringOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { urlOption } from '../options';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');
     cmd.description('Set session keys for a bonded account');
     cmd.option('-k, --keys [keys]', 'Specify keys to set');
     cmd.option('-r, --rotate', 'Rotate and set new keys');
-    cmd.addOption(urlOption);
     cmd.action(setKeysAction);
     return cmd;
 }

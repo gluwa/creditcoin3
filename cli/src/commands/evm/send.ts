@@ -6,7 +6,7 @@ import { getEvmUrl } from '../../lib/evm/rpc';
 import { getEVMBalanceOf, getTransferFeeEstimation } from '../../lib/evm/balance';
 import { toCTCString } from '../../lib/balance';
 import { BN } from '@polkadot/util';
-import { amountOption, ecdsaOption, recipientOption, urlOption } from '../options';
+import { amountOption, ecdsaOption, recipientOption } from '../options';
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
@@ -14,7 +14,6 @@ export function makeEvmSendCommand() {
     cmd.addOption(amountOption);
     cmd.addOption(ecdsaOption);
     cmd.addOption(recipientOption);
-    cmd.addOption(urlOption);
     cmd.action(evmSendAction);
     return cmd;
 }

@@ -5,14 +5,13 @@ import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../l
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
-import { amountOption, recipientOption, urlOption } from '../options';
+import { amountOption, recipientOption } from '../options';
 
 export function makeEvmFundCommand() {
     const cmd = new Command('fund');
     cmd.description('Fund an EVM account from a Subtrate one');
     cmd.addOption(amountOption);
     cmd.addOption(recipientOption);
-    cmd.addOption(urlOption);
     cmd.action(evmFundAction);
     return cmd;
 }

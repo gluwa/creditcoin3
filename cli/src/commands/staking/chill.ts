@@ -2,13 +2,10 @@ import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { chill } from '../../lib/staking/chill';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { urlOption } from '../options';
-// import { getValidatorStatus, requireStatus } from '../utils/validatorStatus'
 
 export function makeChillCommand() {
     const cmd = new Command('chill');
     cmd.description('Signal intention to stop validating from a Controller account');
-    cmd.addOption(urlOption);
     cmd.action(chillAction);
     return cmd;
 }

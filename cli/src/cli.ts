@@ -15,6 +15,7 @@ import { makeDistributeRewardsCommand } from './commands/staking/distribute';
 import { makeWithdrawUnbondedCommand } from './commands/staking/withdraw';
 import { makeWizardCommand } from './commands/staking/wizard';
 import { makeEvmCommand } from './commands/evm';
+import { urlOption } from './commands/options';
 
 const program = new Command();
 
@@ -37,6 +38,7 @@ program
 
 program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
+    cmd.addOption(urlOption);
 });
 
 program.parse(process.argv);
