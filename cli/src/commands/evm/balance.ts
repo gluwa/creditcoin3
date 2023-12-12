@@ -7,7 +7,7 @@ import { jsonOption } from '../options';
 export function makeEvmBalanceCommand() {
     const cmd = new Command('balance');
     cmd.description('Show balance of an EVM account');
-    cmd.argument('<address>', 'Address to check balance of');
+    cmd.argument('<address>', 'EVM address to check balance of');
     cmd.addOption(jsonOption);
     cmd.action(evmBalanceAction);
     return cmd;
