@@ -5,15 +5,8 @@ import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../l
 import { getEvmUrl } from '../../lib/evm/rpc';
 import { getEVMBalanceOf, getTransferFeeEstimation } from '../../lib/evm/balance';
 import { toCTCString } from '../../lib/balance';
-<<<<<<< HEAD
-<<<<<<< HEAD
 import { BN } from '@polkadot/util';
-=======
-import { amountOption, ecdsaOption, evmAddressOption, recipientOption } from '../options';
->>>>>>> 25272c1 (refactor: extract common options)
-=======
 import { amountOption, ecdsaOption, recipientOption, urlOption } from '../options';
->>>>>>> b309f8f (refactor: selectively add cmd options (except no-input))
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
