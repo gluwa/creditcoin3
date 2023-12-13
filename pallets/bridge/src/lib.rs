@@ -188,7 +188,7 @@ mod tests {
     use sp_runtime::traits::BadOrigin;
 
     #[test]
-    fn approve_collection_cc2_should_error_when_collection_completed() {
+    fn approve_collection_should_error_when_collection_completed() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_cc2_should_update_balance_and_emit_event_when_successful() {
+    fn approve_collection_should_update_balance_and_emit_event_when_successful() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_cc2_should_error_when_amount_is_invalid() {
+    fn approve_collection_should_error_when_amount_is_invalid() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_cc2_should_error_with_insufficient_authority() {
+    fn approve_collection_should_error_with_insufficient_authority() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
