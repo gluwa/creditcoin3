@@ -180,98 +180,15 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        self as pallet_bridge,
-        types::{Cc2BurnId, CollectionInfo},
-    };
+    use crate::mock::{Balances, Bridge, ExtBuilder, RuntimeOrigin, System, Test};
+    use crate::types::{Cc2BurnId, CollectionInfo};
 
-    use frame_support::{
-        assert_err, assert_ok, ord_parameter_types,
-        traits::{ConstU32, ConstU64},
-    };
-    use sp_core::H256;
-    use sp_runtime::{
-        traits::{BadOrigin, BlakeTwo256, IdentityLookup},
-        BuildStorage,
-    };
-
-    type Block = frame_system::mocking::MockBlock<Test>;
-
-    frame_support::construct_runtime!(
-        pub enum Test
-        {
-            System: frame_system,
-            Balances: pallet_balances,
-            Bridge: pallet_bridge,
-        }
-    );
-
-    impl frame_system::Config for Test {
-        type BaseCallFilter = frame_support::traits::Everything;
-        type BlockWeights = ();
-        type BlockLength = ();
-        type DbWeight = ();
-        type RuntimeOrigin = RuntimeOrigin;
-        type Nonce = u64;
-        type Hash = H256;
-        type RuntimeCall = RuntimeCall;
-        type Hashing = BlakeTwo256;
-        type AccountId = u64;
-        type Lookup = IdentityLookup<Self::AccountId>;
-        type Block = Block;
-        type RuntimeEvent = RuntimeEvent;
-        type BlockHashCount = ConstU64<250>;
-        type Version = ();
-        type PalletInfo = PalletInfo;
-        type AccountData = pallet_balances::AccountData<u64>;
-        type OnNewAccount = ();
-        type OnKilledAccount = ();
-        type SystemWeightInfo = ();
-        type SS58Prefix = ();
-        type OnSetCode = ();
-        type MaxConsumers = ConstU32<16>;
-    }
-
-    impl pallet_balances::Config for Test {
-        type MaxLocks = ();
-        type MaxReserves = ();
-        type ReserveIdentifier = [u8; 8];
-        type Balance = u64;
-        type RuntimeEvent = RuntimeEvent;
-        type DustRemoval = ();
-        type ExistentialDeposit = ConstU64<1>;
-        type AccountStore = System;
-        type WeightInfo = ();
-        type FreezeIdentifier = ();
-        type MaxFreezes = ();
-        type RuntimeHoldReason = ();
-        type MaxHolds = ();
-    }
-
-    ord_parameter_types! {
-        pub const One: u64 = 1;
-    }
-    impl Config for Test {
-        type RuntimeEvent = RuntimeEvent;
-        type Currency = Balances;
-        type WeightInfo = super::weights::WeightInfo<Test>;
-    }
-
-    fn new_test_ext() -> sp_io::TestExternalities {
-        let mut t = frame_system::GenesisConfig::<Test>::default()
-            .build_storage()
-            .unwrap();
-        pallet_balances::GenesisConfig::<Test> {
-            balances: vec![(1, 10), (2, 10)],
-        }
-        .assimilate_storage(&mut t)
-        .unwrap();
-        t.into()
-    }
+    use frame_support::{assert_err, assert_ok};
+    use sp_runtime::traits::BadOrigin;
 
     #[test]
     fn approve_collection_cc2_should_error_when_collection_completed() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
@@ -296,7 +213,7 @@ mod tests {
 
     #[test]
     fn approve_collection_cc2_should_update_balance_when_successful() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
@@ -320,7 +237,7 @@ mod tests {
 
     #[test]
     fn approve_collection_cc2_should_error_when_amount_is_invalid() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
@@ -338,7 +255,7 @@ mod tests {
 
     #[test]
     fn add_authority_should_work() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
@@ -354,7 +271,7 @@ mod tests {
 
     #[test]
     fn add_authority_should_error_when_not_signed_by_root() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
@@ -370,7 +287,7 @@ mod tests {
 
     #[test]
     fn remove_authority_should_error_when_not_signed_by_root() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
@@ -386,7 +303,7 @@ mod tests {
 
     #[test]
     fn add_authority_should_error_when_called_with_existing_authority() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
@@ -403,7 +320,7 @@ mod tests {
 
     #[test]
     fn remove_authority_should_error_when_called_with_nonexisting_authority() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
             let collector = <Test as frame_system::Config>::AccountId::default();
 
@@ -419,7 +336,7 @@ mod tests {
 
     #[test]
     fn approve_collection_cc2_should_error_with_insufficient_authority() {
-        new_test_ext().execute_with(|| {
+        ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
