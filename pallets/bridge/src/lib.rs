@@ -128,7 +128,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        fn approve_collection_cc2(
+        pub(crate) fn approve_collection_cc2(
             origin: OriginFor<T>,
             burn_id: Cc2BurnId,
             collector: T::AccountId,
@@ -180,7 +180,9 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::{Balances, Bridge, ExtBuilder, RuntimeOrigin, System, Test, COLLECTOR};
+    use crate::mock::{
+        Balances, Bridge, ExtBuilder, RuntimeOrigin, System, Test, COLLECTOR, JOHN_DOE,
+    };
     use crate::types::{Cc2BurnId, CollectionInfo};
     use assert_matches::assert_matches;
 
@@ -188,37 +190,51 @@ mod tests {
     use sp_runtime::traits::BadOrigin;
 
     #[test]
-    fn approve_collection_should_error_when_collection_completed() {
+    fn ext_approve_collection_should_error_when_not_signed() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
 
-            let completed = CollectionInfo {
-                amount: 100,
-                block_number: 1,
-                collector: COLLECTOR,
-            };
-            Collections::<Test>::insert(&burn_id, completed);
-
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
-
-            let expected_error = Error::<Test>::AlreadyCollected;
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(COLLECTOR), burn_id, COLLECTOR, 0),
-                expected_error
+                Bridge::approve_collection(RuntimeOrigin::none(), burn_id, COLLECTOR, 100),
+                BadOrigin
             );
         })
     }
 
     #[test]
-    fn approve_collection_should_update_balance_and_emit_event_when_successful() {
+    fn ext_approve_collection_should_error_when_signed_by_a_non_authority() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            let burn_id = Cc2BurnId(1);
+
+            // make sure the signer of this extrinsic isn't an authority
+            let authority = Bridge::authorities(COLLECTOR);
+            assert!(authority.is_none());
+
+            assert_err!(
+                Bridge::approve_collection(
+                    RuntimeOrigin::signed(COLLECTOR),
+                    burn_id,
+                    COLLECTOR,
+                    100
+                ),
+                Error::<Test>::InsufficientAuthority
+            );
+        })
+    }
+
+    #[test]
+    fn ext_approve_collection_should_update_balance_and_emit_event_when_successful() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
             let prior_balance = Balances::free_balance(COLLECTOR);
 
+            // make sure the signer of this extrinsic is an authority
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
 
             let amount = 100;
@@ -230,7 +246,10 @@ mod tests {
             ));
 
             let ending_balance = Balances::free_balance(COLLECTOR);
+            // collector was given more funds
             assert!(ending_balance > prior_balance);
+            // the amount given was actually the amount requested
+            assert!(ending_balance == prior_balance + amount);
 
             let event = <frame_system::Pallet<Test>>::events().pop().expect("an event").event;
             assert_matches!(
@@ -245,27 +264,113 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_should_error_when_amount_is_invalid() {
+    fn func_approve_collection_cc2_should_error_when_not_signed() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
 
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
-
-            let expected_error = Error::<Test>::InvalidCollectionAmount;
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(COLLECTOR), burn_id, COLLECTOR, 0),
-                expected_error,
+                Bridge::approve_collection_cc2(RuntimeOrigin::none(), burn_id, COLLECTOR, 100),
+                BadOrigin
             );
         })
     }
 
     #[test]
-    fn add_authority_should_work() {
+    fn func_approve_collection_cc2_should_error_when_already_collected() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
+            // setup
+            let burn_id = Cc2BurnId(1);
+            let completed = CollectionInfo {
+                amount: 100,
+                block_number: 1,
+                collector: COLLECTOR,
+            };
+            Collections::<Test>::insert(&burn_id, completed);
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
+
+            // test
+            assert_err!(
+                Bridge::approve_collection_cc2(
+                    RuntimeOrigin::signed(COLLECTOR),
+                    burn_id,
+                    COLLECTOR,
+                    100
+                ),
+                Error::<Test>::AlreadyCollected
+            );
+        })
+    }
+
+    #[test]
+    fn func_approve_collection_cc2_should_error_when_amount_is_zero() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            let burn_id = Cc2BurnId(1);
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
+
+            assert_err!(
+                Bridge::approve_collection_cc2(
+                    RuntimeOrigin::signed(COLLECTOR),
+                    burn_id,
+                    COLLECTOR,
+                    0
+                ),
+                Error::<Test>::InvalidCollectionAmount,
+            );
+        })
+    }
+
+    // NOTE: the rest of the functional testing for approve_collection_cc2() is implicitly covered
+    // as part of the happy-path scenario for approve_collection() extrinsic!
+
+    #[test]
+    fn add_authority_should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::none(), COLLECTOR),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn add_authority_should_error_when_not_signed_by_root() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::signed(JOHN_DOE), COLLECTOR),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn add_authority_should_error_when_called_with_existing_authority() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
+            assert_err!(
+                Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR),
+                Error::<Test>::AlreadyAuthority
+            );
+        })
+    }
+
+    #[test]
+    fn add_authority_should_update_the_authorities() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            // make sure collector isn't an auhority yet
             let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
@@ -277,15 +382,12 @@ mod tests {
     }
 
     #[test]
-    fn add_authority_should_error_when_not_signed_by_root() {
+    fn remove_authority_should_error_when_not_signed() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
-            let authority = Bridge::authorities(COLLECTOR);
-            assert!(authority.is_none());
-
             assert_err!(
-                Bridge::add_authority(RuntimeOrigin::signed(1), COLLECTOR),
+                Bridge::remove_authority(RuntimeOrigin::none(), COLLECTOR),
                 BadOrigin
             );
         })
@@ -296,9 +398,6 @@ mod tests {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
-            let authority = Bridge::authorities(COLLECTOR);
-            assert!(authority.is_none());
-
             assert_err!(
                 Bridge::remove_authority(RuntimeOrigin::signed(1), COLLECTOR),
                 BadOrigin
@@ -307,26 +406,11 @@ mod tests {
     }
 
     #[test]
-    fn add_authority_should_error_when_called_with_existing_authority() {
+    fn remove_authority_should_error_when_called_with_non_existing_authority() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
-            let authority = Bridge::authorities(COLLECTOR);
-            assert!(authority.is_none());
-
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
-            assert_err!(
-                Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR),
-                Error::<Test>::AlreadyAuthority
-            );
-        })
-    }
-
-    #[test]
-    fn remove_authority_should_error_when_called_with_nonexisting_authority() {
-        ExtBuilder.build_and_execute(|| {
-            System::set_block_number(1);
-
+            // make sure collector isn't an authority
             let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
@@ -338,26 +422,20 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_should_error_with_insufficient_authority() {
+    fn remove_authority_should_update_the_authorities() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
-            let burn_id = Cc2BurnId(1);
+            // setup - make sure collector is an authority
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
+            let authority = Bridge::authorities(COLLECTOR);
+            assert!(authority.is_some());
 
+            assert_ok!(Bridge::remove_authority(RuntimeOrigin::root(), COLLECTOR));
+
+            // make sure collector is not an authority anymore
             let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
-
-            let expected_err = Error::<Test>::InsufficientAuthority;
-
-            assert_err!(
-                Bridge::approve_collection(
-                    RuntimeOrigin::signed(COLLECTOR),
-                    burn_id,
-                    COLLECTOR,
-                    100
-                ),
-                expected_err
-            );
         })
     }
 }

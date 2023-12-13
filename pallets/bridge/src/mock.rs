@@ -83,6 +83,7 @@ impl pallet_bridge::Config for Test {
 // add more accounts when you need them
 // and update balances genesis below
 pub(crate) const COLLECTOR: AccountId = 0;
+pub(crate) const JOHN_DOE: AccountId = 5;
 
 #[derive(Default)]
 pub struct ExtBuilder;
@@ -100,7 +101,7 @@ impl ExtBuilder {
                 (2, 20_000_000_000_000_000_000),
                 (3, 30_000_000_000_000_000_000),
                 (4, 40_000_000_000_000_000_000),
-                (5, 50_000_000_000_000_000_000),
+                (JOHN_DOE, 50_000_000_000_000_000_000),
             ],
         }
         .assimilate_storage(&mut t)
