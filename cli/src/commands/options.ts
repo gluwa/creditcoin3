@@ -9,7 +9,6 @@ export const urlOption = new Option('-u, --url [url]', 'URL of the node to conne
 // Addresses
 export const evmAddressOption = new Option('--evm-address [address]', 'Specify EVM address');
 export const substrateAddressOption = new Option('--substrate-address [address]', 'Specify Substrate address');
-export const recipientOption = new Option('--recipient [recipient]', 'Specify recipient address');
 
 // Amounts
 export const amountOption = new Option('--amount [amount]', 'CTC amount');
