@@ -85,10 +85,23 @@ pub struct ExtBuilder;
 
 impl ExtBuilder {
     pub fn build(self) -> sp_io::TestExternalities {
-        let t = system::GenesisConfig::<Test>::default()
+        let mut t = system::GenesisConfig::<Test>::default()
             .build_storage()
             .unwrap();
-        sp_io::TestExternalities::new(t)
+        // accounts 0 to 5 have initial balances
+        pallet_balances::GenesisConfig::<Test> {
+            balances: vec![
+                (0, 9_000_000_000_000_000_000),
+                (1, 10_000_000_000_000_000_000),
+                (2, 20_000_000_000_000_000_000),
+                (3, 30_000_000_000_000_000_000),
+                (4, 40_000_000_000_000_000_000),
+                (5, 50_000_000_000_000_000_000),
+            ],
+        }
+        .assimilate_storage(&mut t)
+        .unwrap();
+        t.into()
     }
 
     pub fn build_and_execute<R>(self, test: impl FnOnce() -> R) -> R {
