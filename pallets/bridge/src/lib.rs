@@ -182,6 +182,7 @@ mod tests {
     use super::*;
     use crate::mock::{Balances, Bridge, ExtBuilder, RuntimeOrigin, System, Test, COLLECTOR};
     use crate::types::{Cc2BurnId, CollectionInfo};
+    use assert_matches::assert_matches;
 
     use frame_support::{assert_err, assert_ok};
     use sp_runtime::traits::BadOrigin;
@@ -211,25 +212,35 @@ mod tests {
     }
 
     #[test]
-    fn approve_collection_cc2_should_update_balance_when_successful() {
+    fn approve_collection_cc2_should_update_balance_and_emit_event_when_successful() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
-
             let prior_balance = Balances::free_balance(COLLECTOR);
 
             assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
 
+            let amount = 100;
             assert_ok!(Bridge::approve_collection(
                 RuntimeOrigin::signed(COLLECTOR),
-                burn_id,
+                burn_id.clone(),
                 COLLECTOR,
-                100
-            ),);
+                amount
+            ));
 
             let ending_balance = Balances::free_balance(COLLECTOR);
             assert!(ending_balance > prior_balance);
+
+            let event = <frame_system::Pallet<Test>>::events().pop().expect("an event").event;
+            assert_matches!(
+                    event,
+                    crate::mock::RuntimeEvent::Bridge(crate::Event::<Test>::FundsCollected(actual_burn_id, actual_collector, actual_amount)) => {
+                            assert_eq!(actual_burn_id, burn_id);
+                            assert_eq!(actual_collector, COLLECTOR);
+                            assert_eq!(actual_amount, amount);
+                    }
+            );
         })
     }
 
