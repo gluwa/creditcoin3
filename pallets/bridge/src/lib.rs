@@ -180,7 +180,7 @@ pub mod pallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock::{Balances, Bridge, ExtBuilder, RuntimeOrigin, System, Test};
+    use crate::mock::{Balances, Bridge, ExtBuilder, RuntimeOrigin, System, Test, COLLECTOR};
     use crate::types::{Cc2BurnId, CollectionInfo};
 
     use frame_support::{assert_err, assert_ok};
@@ -192,20 +192,19 @@ mod tests {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
             let completed = CollectionInfo {
                 amount: 100,
                 block_number: 1,
-                collector,
+                collector: COLLECTOR,
             };
             Collections::<Test>::insert(&burn_id, completed);
 
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
 
             let expected_error = Error::<Test>::AlreadyCollected;
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 0),
+                Bridge::approve_collection(RuntimeOrigin::signed(COLLECTOR), burn_id, COLLECTOR, 0),
                 expected_error
             );
         })
@@ -217,20 +216,19 @@ mod tests {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let prior_balance = Balances::free_balance(collector);
+            let prior_balance = Balances::free_balance(COLLECTOR);
 
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
 
             assert_ok!(Bridge::approve_collection(
-                RuntimeOrigin::signed(collector),
+                RuntimeOrigin::signed(COLLECTOR),
                 burn_id,
-                collector,
+                COLLECTOR,
                 100
             ),);
 
-            let ending_balance = Balances::free_balance(collector);
+            let ending_balance = Balances::free_balance(COLLECTOR);
             assert!(ending_balance > prior_balance);
         })
     }
@@ -241,13 +239,12 @@ mod tests {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
 
             let expected_error = Error::<Test>::InvalidCollectionAmount;
             assert_err!(
-                Bridge::approve_collection(RuntimeOrigin::signed(collector), burn_id, collector, 0),
+                Bridge::approve_collection(RuntimeOrigin::signed(COLLECTOR), burn_id, COLLECTOR, 0),
                 expected_error,
             );
         })
@@ -257,14 +254,13 @@ mod tests {
     fn add_authority_should_work() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_some());
         })
     }
@@ -273,13 +269,12 @@ mod tests {
     fn add_authority_should_error_when_not_signed_by_root() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
             assert_err!(
-                Bridge::add_authority(RuntimeOrigin::signed(1), collector),
+                Bridge::add_authority(RuntimeOrigin::signed(1), COLLECTOR),
                 BadOrigin
             );
         })
@@ -289,13 +284,12 @@ mod tests {
     fn remove_authority_should_error_when_not_signed_by_root() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
             assert_err!(
-                Bridge::remove_authority(RuntimeOrigin::signed(1), collector),
+                Bridge::remove_authority(RuntimeOrigin::signed(1), COLLECTOR),
                 BadOrigin
             );
         })
@@ -305,14 +299,13 @@ mod tests {
     fn add_authority_should_error_when_called_with_existing_authority() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
-            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), collector));
+            assert_ok!(Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR));
             assert_err!(
-                Bridge::add_authority(RuntimeOrigin::root(), collector),
+                Bridge::add_authority(RuntimeOrigin::root(), COLLECTOR),
                 Error::<Test>::AlreadyAuthority
             );
         })
@@ -322,13 +315,12 @@ mod tests {
     fn remove_authority_should_error_when_called_with_nonexisting_authority() {
         ExtBuilder.build_and_execute(|| {
             System::set_block_number(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
             assert_err!(
-                Bridge::remove_authority(RuntimeOrigin::root(), collector),
+                Bridge::remove_authority(RuntimeOrigin::root(), COLLECTOR),
                 Error::<Test>::NotAnAuthority
             );
         })
@@ -340,18 +332,17 @@ mod tests {
             System::set_block_number(1);
 
             let burn_id = Cc2BurnId(1);
-            let collector = <Test as frame_system::Config>::AccountId::default();
 
-            let authority = Bridge::authorities(collector);
+            let authority = Bridge::authorities(COLLECTOR);
             assert!(authority.is_none());
 
             let expected_err = Error::<Test>::InsufficientAuthority;
 
             assert_err!(
                 Bridge::approve_collection(
-                    RuntimeOrigin::signed(collector),
+                    RuntimeOrigin::signed(COLLECTOR),
                     burn_id,
-                    collector,
+                    COLLECTOR,
                     100
                 ),
                 expected_err

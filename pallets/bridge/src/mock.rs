@@ -80,6 +80,10 @@ impl pallet_bridge::Config for Test {
     type WeightInfo = pallet_bridge::weights::WeightInfo<Test>;
 }
 
+// add more accounts when you need them
+// and update balances genesis below
+pub(crate) const COLLECTOR: AccountId = 0;
+
 #[derive(Default)]
 pub struct ExtBuilder;
 
@@ -91,7 +95,7 @@ impl ExtBuilder {
         // accounts 0 to 5 have initial balances
         pallet_balances::GenesisConfig::<Test> {
             balances: vec![
-                (0, 9_000_000_000_000_000_000),
+                (COLLECTOR, 9_000_000_000_000_000_000),
                 (1, 10_000_000_000_000_000_000),
                 (2, 20_000_000_000_000_000_000),
                 (3, 30_000_000_000_000_000_000),
