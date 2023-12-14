@@ -122,7 +122,7 @@ describe('integration test: validator manual setup', () => {
         console.log(balanceBeforeRewards.bonded.toString());
 
         commandSync(
-            `node ${CLI_PATH} distribute-rewards --url ${BOB_NODE_URL} --validator-id ${substrateAddress} --era ${startingEra}`,
+            `node ${CLI_PATH} distribute-rewards --url ${BOB_NODE_URL} --substrate-address ${substrateAddress} --era ${startingEra}`,
             {
                 env: {
                     CC_SECRET: stashSecret,
