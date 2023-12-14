@@ -26,7 +26,8 @@
         "typecheck": "tsc --noEmit",
         "prepare": "yarn build",
         "test:unit": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts src/test/unit-tests",
-        "test:integration": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests"
+        "test:integration": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests",
+        "test:blockchain": "jest --silent --verbose --runInBand --forceExit src/test/blockchain-tests"
     },
     "devDependencies": {
         "@polkadot/typegen": "^10.11.1",
