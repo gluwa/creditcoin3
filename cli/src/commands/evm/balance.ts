@@ -1,20 +1,19 @@
 import { Command, OptionValues } from 'commander';
-import { parseEVMAddressOrExit } from '../../lib/parsing';
 import { getEvmUrl } from '../../lib/evm/rpc';
 import { getEVMBalanceOf, logEVMBalance } from '../../lib/evm/balance';
-import { jsonOption } from '../options';
+import { evmAddressOption, jsonOption } from '../options';
 
 export function makeEvmBalanceCommand() {
     const cmd = new Command('balance');
     cmd.description('Show balance of an EVM account');
-    cmd.argument('<address>', 'EVM address to check balance of');
+    cmd.addOption(evmAddressOption.makeOptionMandatory());
     cmd.addOption(jsonOption);
     cmd.action(evmBalanceAction);
     return cmd;
 }
 
-async function evmBalanceAction(address: string, options: OptionValues) {
-    const balance = await getEVMBalanceOf(parseEVMAddressOrExit(address), getEvmUrl(options));
+async function evmBalanceAction(options: OptionValues) {
+    const balance = await getEVMBalanceOf(options.evmAddress as string, getEvmUrl(options));
 
     logEVMBalance(balance, !options.json);
     process.exit(0);

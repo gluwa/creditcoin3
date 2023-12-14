@@ -1,6 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../lib';
-import { parseBoolean, parseAddressOrExit } from '../lib/parsing';
+import { parseBoolean } from '../lib/parsing';
 import { getChainStatus, printChainStatus } from '../lib/chain/status';
 import { getValidatorStatus, printValidatorStatus } from '../lib/staking/validatorStatus';
 import { substrateAddressOption } from './options';
@@ -17,7 +17,7 @@ export function makeStatusCommand() {
 async function statusAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const showValidatorStatus = parseBoolean(options.address);
+    const showValidatorStatus = parseBoolean(options.substrateAddress);
     let showChainStatus = parseBoolean(options.chain);
 
     if (!showValidatorStatus && !showChainStatus) {
@@ -30,7 +30,7 @@ async function statusAction(options: OptionValues) {
     }
 
     if (showValidatorStatus) {
-        const validator = parseAddressOrExit(options.address);
+        const validator = options.substrateAddress as string;
         const validatorStatus = await getValidatorStatus(validator, api);
         console.log(`Validator ${validator}:`);
         await printValidatorStatus(validatorStatus, api);

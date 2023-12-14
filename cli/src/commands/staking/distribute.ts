@@ -1,14 +1,15 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { parseAddressOrExit, requiredInput, parseIntegerOrExit } from '../../lib/parsing';
+import { requiredInput, parseIntegerOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
+import { substrateAddressOption } from '../options';
 
 export function makeDistributeRewardsCommand() {
     const cmd = new Command('distribute-rewards');
-    cmd.description('Distribute all pending rewards for all validators');
-    cmd.option('-v, --validator-id [address]', 'Specify the address of Validator to distribute rewards for');
+    cmd.description('Distribute all pending rewards for a particular validator');
+    cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.option('-e, --era [era]', 'Specify era to distribute rewards for');
     cmd.action(distributeRewardsAction);
     return cmd;
@@ -41,9 +42,7 @@ async function distributeRewardsAction(options: OptionValues) {
 }
 
 function parseOptions(options: OptionValues) {
-    const validator = parseAddressOrExit(
-        requiredInput(options.validatorId, 'Failed to distribute rewards: Must specify a validator address'),
-    );
+    const validator = options.substrateAddress as string;
 
     const era = parseIntegerOrExit(requiredInput(options.era, 'Failed to distribute rewards: Must specify an era'));
 

@@ -1,19 +1,19 @@
 import { Command, OptionValues } from 'commander';
 import { ethers } from 'ethers';
 import { initEVMCallerWallet } from '../../lib/evm/wallet';
-import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../lib/parsing';
+import { parseAmountOrExit, requiredInput } from '../../lib/parsing';
 import { getEvmUrl } from '../../lib/evm/rpc';
 import { getEVMBalanceOf, getTransferFeeEstimation } from '../../lib/evm/balance';
 import { toCTCString } from '../../lib/balance';
 import { BN } from '@polkadot/util';
-import { amountOption, ecdsaOption, recipientOption } from '../options';
+import { amountOption, ecdsaOption, evmAddressOption } from '../options';
 
 export function makeEvmSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send funds from an EVM account to another EVM account');
     cmd.addOption(amountOption);
     cmd.addOption(ecdsaOption);
-    cmd.addOption(recipientOption);
+    cmd.addOption(evmAddressOption.makeOptionMandatory());
     cmd.action(evmSendAction);
     return cmd;
 }
@@ -47,9 +47,7 @@ async function evmSendAction(options: OptionValues) {
 
 function parseOptions(options: OptionValues) {
     const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
-    const recipient = parseEVMAddressOrExit(
-        requiredInput(options.recipient, 'Failed to send CTC: Must specify a recipient'),
-    );
+    const recipient = options.evmAddress as string;
     return { amount, recipient };
 }
 
