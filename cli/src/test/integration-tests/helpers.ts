@@ -1,6 +1,5 @@
 import { ApiPromise } from '@polkadot/api';
-import { mnemonicGenerate } from '@polkadot/util-crypto';
-import { BN, newApi } from '../../lib';
+import { BN, mnemonicGenerate, newApi } from '../../lib';
 import { initKeyringPair } from '../../lib/account/keyring';
 import { signSendAndWatch } from '../../lib/tx';
 

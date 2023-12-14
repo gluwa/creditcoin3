@@ -1,13 +1,17 @@
-import { Keyring, KeyringPair, Wallet, POINT_01_CTC } from '../lib';
+import { KeyringPair, Wallet, POINT_01_CTC, mnemonicGenerate } from '../lib';
+import { initKeyringPair } from '../lib/account/keyring';
 
-const createSigner = (keyring: Keyring, who: 'lender' | 'borrower' | 'sudo'): KeyringPair => {
+const createSigner = (who: 'lender' | 'borrower' | 'random' | 'sudo'): KeyringPair => {
     switch (who) {
         case 'lender':
-            return keyring.addFromUri('//Alice');
+            return initKeyringPair('//Alice');
         case 'borrower':
-            return keyring.addFromUri('//Bob');
+            return initKeyringPair('//Bob');
+        case 'random':
+            const secret = mnemonicGenerate();
+            return initKeyringPair(secret);
         case 'sudo':
-            return keyring.addFromUri('//Alice');
+            return initKeyringPair('//Alice');
         default:
             throw new Error(`Unexpected value "${who}"`); // eslint-disable-line
     }

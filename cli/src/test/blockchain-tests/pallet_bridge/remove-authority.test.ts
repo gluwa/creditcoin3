@@ -1,13 +1,28 @@
-import { expectNoEventError, expectNoDispatchError, newApi, ApiPromise, Balance, KeyringPair } from '../../../lib';
+import {
+    expectNoEventError,
+    expectNoDispatchError,
+    newApi,
+    AccountId,
+    ApiPromise,
+    Balance,
+    KeyringPair,
+} from '../../../lib';
 import { describeIf, testIf } from '../../utils';
 
-describeIf((global as any).CREDITCOIN_HAS_SUDO, 'addAuthority', (): void => {
+describeIf((global as any).CREDITCOIN_HAS_SUDO, 'removeAuthority', (): void => {
+    let accountId: AccountId;
     let api: ApiPromise;
     let sudoSigner: KeyringPair;
 
     beforeAll(async () => {
         api = (await newApi((global as any).CREDITCOIN_API_URL)).api;
         sudoSigner = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        // insert an authority in order to be able to remove it later
+        const randomAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
+        accountId = randomAccount.address;
+
+        await api.tx.sudo.sudo(api.tx.bridge.addAuthority(accountId)).signAndSend(sudoSigner);
     });
 
     afterAll(async () => {
@@ -15,9 +30,7 @@ describeIf((global as any).CREDITCOIN_HAS_SUDO, 'addAuthority', (): void => {
     });
 
     testIf((global as any).CREDITCOIN_HAS_SUDO, 'fee is 0', async (): Promise<void> => {
-        const randomAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
-        const accountId = randomAccount.address;
-        const sudoCall = api.tx.sudo.sudo(api.tx.bridge.addAuthority(accountId));
+        const sudoCall = api.tx.sudo.sudo(api.tx.bridge.removeAuthority(accountId));
         const predicate = (fee: unknown) => expect(fee).toEqual(BigInt(0));
 
         return new Promise((resolve, _reject) => {
