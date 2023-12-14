@@ -5,7 +5,7 @@ import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_
 import { newApi } from '../../lib';
 
 describe('Send command', () => {
-    it('should be able to send CTC when %s', async () => {
+    it('should be able to send CTC', async () => {
         const { api } = await newApi(ALICE_NODE_URL);
 
         const caller = randomTestAccount();
@@ -14,7 +14,7 @@ describe('Send command', () => {
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         const result = commandSync(
-            `node ${CLI_PATH} send --recipient 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
+            `node ${CLI_PATH} send --substrate-address 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
             {
                 env: {
                     CC_SECRET: caller.secret,
