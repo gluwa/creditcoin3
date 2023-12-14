@@ -1,14 +1,13 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../lib';
+import { BN, newApi } from '../lib';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../lib/tx';
-import { parseAmountOrExit, requiredInput } from '../lib/parsing';
 import { initCallerKeyring } from '../lib/account/keyring';
 import { amountOption, substrateAddressOption } from './options';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send CTC from an account');
-    cmd.addOption(amountOption);
+    cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.action(sendAction);
     return cmd;
@@ -32,7 +31,7 @@ async function sendAction(options: OptionValues) {
 }
 
 function parseOptions(options: OptionValues) {
-    const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
+    const amount = options.amount as BN;
 
     const recipient = options.substrateAddress as string;
 

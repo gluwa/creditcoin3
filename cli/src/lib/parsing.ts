@@ -3,7 +3,6 @@ import { BN, parseUnits } from '.';
 import { isAddress } from 'ethers';
 
 // Parse valid or exit with error
-export const parseAmountOrExit = parseOrExit(parseAmountInternal);
 export const parseHexStringOrExit = parseOrExit(parseHexStringInternal);
 export const parseIntegerOrExit = parseOrExit(parseIntegerInternal);
 export const parsePercentAsPerbillOrExit = parseOrExit(parsePercentAsPerbillInternal);

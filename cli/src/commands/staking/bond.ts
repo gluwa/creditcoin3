@@ -4,14 +4,14 @@ import { bond, parseRewardDestination } from '../../lib/staking';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
 
-import { inputOrDefault, parseAmountOrExit, parseBoolean, parseChoiceOrExit, requiredInput } from '../../lib/parsing';
+import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { amountOption } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
     cmd.description('Bond CTC in an account');
-    cmd.addOption(amountOption);
+    cmd.addOption(amountOption.makeOptionMandatory());
     cmd.option(
         '-r, --reward-destination [reward-destination]',
         'Specify reward destination account to use for new account',
@@ -62,7 +62,7 @@ function checkBalanceAgainstBondAmount(balance: AccountBalance, amount: BN) {
 }
 
 function parseOptions(options: OptionValues) {
-    const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to bond: Must specify an amount to bond'));
+    const amount = options.amount as BN;
     checkAmount(amount);
 
     const rewardDestination = parseRewardDestination(

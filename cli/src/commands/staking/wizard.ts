@@ -1,13 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { newApi, bond, MICROUNITS_PER_CTC, parseRewardDestination, BN } from '../../lib';
-import {
-    parseChoiceOrExit,
-    inputOrDefault,
-    parsePercentAsPerbillOrExit,
-    parseBoolean,
-    parseAmountOrExit,
-    requiredInput,
-} from '../../lib/parsing';
+import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBoolean } from '../../lib/parsing';
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
@@ -147,7 +140,7 @@ function checkIfAlreadyBonded(balance: AccountBalance) {
 function parseOptions(options: OptionValues) {
     const interactive = setInteractivity(options);
 
-    const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to setup wizard: Bond amount required'));
+    const amount = options.amount as BN;
     if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
         console.log('Failed to setup wizard: Bond amount must be at least 1 CTC');
         process.exit(1);
