@@ -16,14 +16,14 @@ export const substrateAddressOption = new Option(
     'Specify Substrate address',
 ).argParser(parseSubstrateAddress);
 // Address parsing
-function parseEVMAddress(value: string): string {
+export function parseEVMAddress(value: string): string {
     if (isAddress(value)) {
         return value;
     } else {
         throw new InvalidArgumentError('Not a valid EVM address.');
     }
 }
-function parseSubstrateAddress(value: string): string {
+export function parseSubstrateAddress(value: string): string {
     try {
         validateAddress(value);
     } catch (e: any) {
@@ -35,7 +35,7 @@ function parseSubstrateAddress(value: string): string {
 // Amounts
 export const amountOption = new Option('--amount [amount]', 'CTC amount').argParser(parseAmount);
 // Amount parsing
-function parseAmount(value: string): BN {
+export function parseAmount(value: string): BN {
     try {
         const parsed = positiveBigNumberFromString(value);
         return new BN(parsed.toString());

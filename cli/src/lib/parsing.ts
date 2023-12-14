@@ -1,6 +1,4 @@
-import { validateAddress } from '@polkadot/util-crypto/address';
-import { BN, parseUnits } from '.';
-import { isAddress } from 'ethers';
+import { parseUnits } from '.';
 
 // Parse valid or exit with error
 export const parseHexStringOrExit = parseOrExit(parseHexStringInternal);
@@ -28,36 +26,6 @@ function parseChoiceOrExitFn(input: any, choices: string[]): string | never {
         const error = e as Error;
         console.error(`Unable to parse input. ${error.message}`);
         process.exit(1);
-    }
-}
-
-export function parseAddressInternal(input: any): string {
-    try {
-        validateAddress(input as string);
-    } catch (e: any) {
-        const error = e as Error;
-        throw new Error(`Invalid address: ${error.message}`);
-    }
-    return input as string;
-}
-
-export function parseEVMAddressInternal(input: any): string {
-    try {
-        isAddress(input as string);
-    } catch (e: any) {
-        const error = e as Error;
-        throw new Error(`Invalid address: ${error.message}`);
-    }
-    return input as string;
-}
-
-export function parseAmountInternal(input: any): BN {
-    try {
-        const parsed = positiveBigNumberFromString(input);
-        return new BN(parsed.toString());
-    } catch (e: any) {
-        const error = e as Error;
-        throw new Error(`Invalid amount: ${error.message}`);
     }
 }
 
@@ -100,20 +68,6 @@ export function parsePercentAsPerbillInternal(input: any): number {
         throw new Error('Percent value must be between 0 and 100');
     }
     return Math.floor(value * 10_000_000);
-}
-
-function positiveBigNumberFromString(amount: any) {
-    const parsedValue = parseUnits(amount as string, 18);
-
-    if (parsedValue === BigInt(0)) {
-        throw new Error('Must be greater than 0');
-    }
-
-    if (parsedValue < BigInt(0)) {
-        throw new Error('Must be a positive number');
-    }
-
-    return parsedValue;
 }
 
 export function inputOrDefault(input: any, defaultValue: string): string {
