@@ -1,5 +1,3 @@
-import { parseUnits } from '.';
-
 // Parse valid or exit with error
 export const parseHexStringOrExit = parseOrExit(parseHexStringInternal);
 export const parseIntegerOrExit = parseOrExit(parseIntegerInternal);
