@@ -1,5 +1,5 @@
 import { commandSync } from 'execa';
-import { parseAmountInternal } from '../../lib/parsing';
+import { parseAmount } from '../../commands/options';
 import { signSendAndWatch } from '../../lib/tx';
 import {
     randomTestAccount,
@@ -19,7 +19,7 @@ describe('integration test: validator wizard setup', () => {
         // Fund stash and controller
         const stash = randomTestAccount();
 
-        const fundTx = await fundAddressesFromSudo([stash.address], parseAmountInternal('10000'));
+        const fundTx = await fundAddressesFromSudo([stash.address], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Run wizard setup with 1k ctc ang to pair with node Bob

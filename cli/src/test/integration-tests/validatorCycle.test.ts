@@ -2,16 +2,12 @@ import { mnemonicValidate } from '@polkadot/util-crypto';
 import { commandSync } from 'execa';
 import { BN, newApi } from '../../lib';
 import { getBalance, printBalance } from '../../lib/balance';
-import {
-    parseAddressInternal,
-    parseAmountInternal,
-    parseEVMAddressInternal,
-    parseHexStringInternal,
-} from '../../lib/parsing';
+import { parseHexStringInternal } from '../../lib/parsing';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { signSendAndWatch } from '../../lib/tx';
 import { BOB_NODE_URL, ALICE_NODE_URL, fundFromSudo, waitEras, initAliceKeyring, CLI_PATH } from './helpers';
 import { isAddress } from 'ethers';
+import { parseAmount, parseEVMAddress, parseSubstrateAddress } from '../../commands/options';
 
 describe('integration test: validator manual setup', () => {
     it('full validator cycle', async () => {
@@ -37,13 +33,13 @@ describe('integration test: validator manual setup', () => {
             },
         }).stdout;
 
-        const substrateAddress = parseAddressInternal(
+        const substrateAddress = parseSubstrateAddress(
             showAddressResult
                 .split(/\r?\n/)[0] // First line of the output
                 .split('Account Substrate address: ')[1], // Substrate address
         );
 
-        const evmAddress = parseEVMAddressInternal(
+        const evmAddress = parseEVMAddress(
             showAddressResult
                 .split(/\r?\n/)[1] // Second line of the output
                 .split('Associated EVM address: ')[1], // EVM address
@@ -52,7 +48,7 @@ describe('integration test: validator manual setup', () => {
         expect(isAddress(evmAddress)).toBe(true);
 
         // Funding the stash account should make its balance equal to the amount funded
-        const fundAmount = parseAmountInternal('10000');
+        const fundAmount = parseAmount('10000');
 
         const fundTx = await fundFromSudo(substrateAddress, fundAmount);
         await signSendAndWatch(fundTx, aliceApi, initAliceKeyring());
@@ -72,7 +68,7 @@ describe('integration test: validator manual setup', () => {
         expect(stashStatus.bonded).toBe(true);
 
         const stashBondedBalance = (await getBalance(substrateAddress, aliceApi)).bonded;
-        expect(stashBondedBalance.toString()).toBe(parseAmountInternal(bondAmount).toString());
+        expect(stashBondedBalance.toString()).toBe(parseAmount(bondAmount).toString());
 
         // Rotating session keys for the node should return a valid hex string
         const newKeys = parseHexStringInternal(

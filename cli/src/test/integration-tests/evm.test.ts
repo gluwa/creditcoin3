@@ -1,5 +1,4 @@
 import { commandSync } from 'execa';
-import { parseAmountInternal } from '../../lib/parsing';
 import { signSendAndWatch } from '../../lib/tx';
 import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH } from './helpers';
 import { MICROUNITS_PER_CTC, newApi } from '../../lib';
@@ -8,6 +7,7 @@ import { getEVMBalanceOf } from '../../lib/evm/balance';
 import { convertWsToHttp } from '../../lib/evm/rpc';
 import { evmAddressToSubstrateAddress, substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { getBalance } from '../../lib/balance';
+import { parseAmount } from '../../commands/options';
 
 describe('EVM commands', () => {
     it('should be able to fund an EVM account', async () => {
@@ -15,7 +15,7 @@ describe('EVM commands', () => {
 
         // Create and fund a random Substrate account
         const caller = randomTestAccount();
-        const fundTx = await fundAddressesFromSudo([caller.address], parseAmountInternal('10000'));
+        const fundTx = await fundAddressesFromSudo([caller.address], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Create a random EVM account
@@ -46,7 +46,7 @@ describe('EVM commands', () => {
 
         // Create and fund one of them through its associated Substrate account
         const substrateAddress = evmAddressToSubstrateAddress(evmAccount1.address);
-        const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmountInternal('10000'));
+        const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Send 1 CTC from account 1 to account 2
@@ -58,7 +58,7 @@ describe('EVM commands', () => {
 
         // Check that the second account balance is greater than 0
         const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
-        const expectedBalance = BigInt(parseAmountInternal('1').toString()) - BigInt(500); // Remove existential amount from the expected balance
+        const expectedBalance = BigInt(parseAmount('1').toString()) - BigInt(500); // Remove existential amount from the expected balance
         expect(evmBalance2.ctc).toBe(expectedBalance);
 
         await api.disconnect();
@@ -73,11 +73,11 @@ describe('EVM commands', () => {
 
         // Create and fund the EVM account through its associated Substrate account
         const substrateAddress = evmAddressToSubstrateAddress(evmAccount.address);
-        const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmountInternal('10000'));
+        const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
         // Fund the Substrate account with 0.1 CTC to pay for fees
-        const fundTx2 = await fundAddressesFromSudo([substrateAccount.address], parseAmountInternal('0.1'));
+        const fundTx2 = await fundAddressesFromSudo([substrateAccount.address], parseAmount('0.1'));
         await signSendAndWatch(fundTx2, api, initAliceKeyring());
 
         // Send 1 CTC from the EVM account to the Substrate account

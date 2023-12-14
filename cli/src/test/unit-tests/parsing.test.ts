@@ -1,6 +1,4 @@
 import {
-    parseAddressInternal,
-    parseAmountInternal,
     parseChoiceInternal,
     parseBoolean,
     parseIntegerInternal,
@@ -8,17 +6,19 @@ import {
     parsePercentAsPerbillInternal,
 } from '../../lib/parsing';
 
+import { parseAmount, parseSubstrateAddress } from '../../commands/options';
+
 describe('parseAddress', () => {
     test('with valid argument returns the same address', () => {
         const substrateAddress = '5EACfEfYjfg5ZHpzp9uoMCR68UNGBUAu5AYjvZdM5aLYaojx';
-        const parsedAddress = parseAddressInternal(substrateAddress);
+        const parsedAddress = parseSubstrateAddress(substrateAddress);
         expect(parsedAddress).toBe(substrateAddress);
     });
 
     test('with invalid argument throws an error', () => {
         // address is too short
         const substrateAddress = '5EACfEfYjfg5ZHpzp9uoMCZdM5aLYaojx';
-        const parsedInvalid = () => parseAddressInternal(substrateAddress);
+        const parsedInvalid = () => parseSubstrateAddress(substrateAddress);
         expect(parsedInvalid).toThrowError(Error);
     });
 });
@@ -26,37 +26,37 @@ describe('parseAddress', () => {
 describe('parseAmount', () => {
     test('with valid integer argument returns the same amount * 10^^18', () => {
         const amount = '1';
-        const parsedAmount = parseAmountInternal(amount);
+        const parsedAmount = parseAmount(amount);
         expect(parsedAmount.toString()).toBe('1000000000000000000');
     });
 
     test('with valid float argument returns the same amount * 10^^18', () => {
         const amount = '0.4';
-        const parsedAmount = parseAmountInternal(amount);
+        const parsedAmount = parseAmount(amount);
         expect(parsedAmount.toString()).toBe('400000000000000000');
     });
 
     test('with negative argument throws an error', () => {
         const amount = '-1';
-        const parsedInvalid = () => parseAmountInternal(amount);
+        const parsedInvalid = () => parseAmount(amount);
         expect(parsedInvalid).toThrowError(Error);
     });
 
     test('with argument containing decimal comma throws an error', () => {
         const amount = '100,1';
-        const parsedInvalid = () => parseAmountInternal(amount);
+        const parsedInvalid = () => parseAmount(amount);
         expect(parsedInvalid).toThrowError(Error);
     });
 
     test('with 0 as argument throws an error', () => {
         const amount = '0';
-        const parsedInvalid = () => parseAmountInternal(amount);
+        const parsedInvalid = () => parseAmount(amount);
         expect(parsedInvalid).toThrowError(Error);
     });
 
     test('with string argument throws an error', () => {
         const amount = 'abcdef';
-        const parsedInvalid = () => parseAmountInternal(amount);
+        const parsedInvalid = () => parseAmount(amount);
         expect(parsedInvalid).toThrowError(Error);
     });
 });
