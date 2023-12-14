@@ -1,17 +1,17 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { parseAmountOrExit, parseEVMAddressOrExit, requiredInput } from '../../lib/parsing';
+import { parseAmountOrExit, requiredInput } from '../../lib/parsing';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
-import { amountOption, recipientOption } from '../options';
+import { amountOption, evmAddressOption } from '../options';
 
 export function makeEvmFundCommand() {
     const cmd = new Command('fund');
     cmd.description('Fund an EVM account from a Subtrate one');
     cmd.addOption(amountOption);
-    cmd.addOption(recipientOption);
+    cmd.addOption(evmAddressOption.makeOptionMandatory());
     cmd.action(evmFundAction);
     return cmd;
 }
@@ -37,9 +37,7 @@ async function evmFundAction(options: OptionValues) {
 function parseOptions(options: OptionValues) {
     const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to send CTC: Must specify an amount'));
 
-    const recipient = parseEVMAddressOrExit(
-        requiredInput(options.recipient, 'Failed to send CTC: Must specify a recipient'),
-    );
+    const recipient = options.evmAddress as string;
 
     return { amount, recipient };
 }
