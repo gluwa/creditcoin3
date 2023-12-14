@@ -5,7 +5,6 @@ import { newApi, BN } from '../../lib';
 import { ApiPromise } from '@polkadot/api';
 import { getBalance } from '../../lib/balance';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
-import { parseAmountOrExit, requiredInput } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
 import { initCallerKeyring } from '../../lib/account/keyring';
@@ -14,7 +13,7 @@ import { amountOption } from '../options';
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');
     cmd.description('Schedule a bonded CTC to be unlocked');
-    cmd.addOption(amountOption);
+    cmd.addOption(amountOption.makeOptionMandatory());
     cmd.action(unbondAction);
     return cmd;
 }
@@ -24,7 +23,7 @@ async function unbondAction(options: OptionValues) {
 
     const interactive = setInteractivity(options);
 
-    const amount = parseAmountOrExit(requiredInput(options.amount, 'Failed to unbond: Must specify an amount'));
+    const amount = options.amount as BN;
 
     // Build account
     const caller = await initCallerKeyring(options);
