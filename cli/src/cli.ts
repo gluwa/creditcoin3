@@ -19,12 +19,12 @@ import { urlOption } from './commands/options';
 
 const program = new Command();
 
+// Add commands
 program
     .addCommand(makeBalanceCommand())
     .addCommand(makeBondCommand())
     .addCommand(makeChillCommand())
     .addCommand(makeDistributeRewardsCommand())
-    .addCommand(makeEvmCommand())
     .addCommand(makeNewSeedCommand())
     .addCommand(makeRotateKeysCommand())
     .addCommand(makeSendCommand())
@@ -40,5 +40,8 @@ program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
     cmd.addOption(urlOption);
 });
+
+// Add Subcommands
+program.addCommand(makeEvmCommand());
 
 program.parse(process.argv);
