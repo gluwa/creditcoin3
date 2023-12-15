@@ -24,8 +24,24 @@ jobs:
         run: |
           docker build -t gluwa/creditcoin3 .
 
-    # TODO: sanity check that container includes a creditcoin3 binary once
-    # work on CSUB-857 starts
+      # TODO: properly start a node once work on CSUB-857 starts
+      - name: Start a container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d gluwa/creditcoin3
+
+      - name: Sanity test creditcoin3 inside the container
+        run: |
+          docker exec creditcoin-validator which creditcoin3
+          docker exec creditcoin-validator creditcoin3 wizard --help
+
+      - name: Kill the container
+        run: |
+          # NOTE: inside the container creditcoin3-node is called creditcoin-node
+          sudo killall -9 creditcoin-node
 
   sanity-tests:
     runs-on: ubuntu-22.04
