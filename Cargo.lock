@@ -2540,7 +2540,7 @@ checksum = "6999dc1837253364c2ebb0704ba97994bd874e8f195d665c50b7548f6ea92764"
 [[package]]
 name = "fc-api"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "async-trait",
  "fp-storage",
@@ -2552,7 +2552,7 @@ dependencies = [
 [[package]]
 name = "fc-cli"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "clap",
  "ethereum-types",
@@ -2570,7 +2570,7 @@ dependencies = [
 [[package]]
 name = "fc-consensus"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "async-trait",
  "fp-consensus",
@@ -2586,7 +2586,7 @@ dependencies = [
 [[package]]
 name = "fc-db"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "async-trait",
  "ethereum",
@@ -2617,7 +2617,7 @@ dependencies = [
 [[package]]
 name = "fc-mapping-sync"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "fc-db",
  "fc-storage",
@@ -2640,7 +2640,7 @@ dependencies = [
 [[package]]
 name = "fc-rpc"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "ethereum-types",
@@ -2694,7 +2694,7 @@ dependencies = [
 [[package]]
 name = "fc-rpc-core"
 version = "1.1.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "ethereum-types",
@@ -2707,7 +2707,7 @@ dependencies = [
 [[package]]
 name = "fc-storage"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "ethereum-types",
@@ -2881,7 +2881,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "fork-tree"
 version = "3.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
 ]
@@ -2898,7 +2898,7 @@ dependencies = [
 [[package]]
 name = "fp-account"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "hex",
  "impl-serde",
@@ -2917,7 +2917,7 @@ dependencies = [
 [[package]]
 name = "fp-consensus"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "parity-scale-codec",
@@ -2929,7 +2929,7 @@ dependencies = [
 [[package]]
 name = "fp-dynamic-fee"
 version = "1.0.0"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "async-trait",
  "sp-core",
@@ -2939,7 +2939,7 @@ dependencies = [
 [[package]]
 name = "fp-ethereum"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "ethereum-types",
@@ -2952,7 +2952,7 @@ dependencies = [
 [[package]]
 name = "fp-evm"
 version = "3.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "evm",
  "frame-support",
@@ -2968,7 +2968,7 @@ dependencies = [
 [[package]]
 name = "fp-rpc"
 version = "3.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "ethereum-types",
@@ -2985,7 +2985,7 @@ dependencies = [
 [[package]]
 name = "fp-self-contained"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
@@ -2997,7 +2997,7 @@ dependencies = [
 [[package]]
 name = "fp-storage"
 version = "2.0.0"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "parity-scale-codec",
  "serde",
@@ -3012,7 +3012,7 @@ checksum = "6c2141d6d6c8512188a7891b4b01590a45f6dac67afb4f255c4124dbb86d4eaa"
 [[package]]
 name = "frame-benchmarking"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-support-procedural",
@@ -3037,7 +3037,7 @@ dependencies = [
 [[package]]
 name = "frame-benchmarking-cli"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "Inflector",
  "array-bytes",
@@ -3085,7 +3085,7 @@ dependencies = [
 [[package]]
 name = "frame-election-provider-solution-type"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "proc-macro-crate 1.1.3",
  "proc-macro2",
@@ -3096,7 +3096,7 @@ dependencies = [
 [[package]]
 name = "frame-election-provider-support"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-election-provider-solution-type",
  "frame-support",
@@ -3113,7 +3113,7 @@ dependencies = [
 [[package]]
 name = "frame-executive"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -3143,7 +3143,7 @@ dependencies = [
 [[package]]
 name = "frame-support"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "aquamarine",
  "bitflags 1.3.2",
@@ -3183,7 +3183,7 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "Inflector",
  "cfg-expr",
@@ -3201,7 +3201,7 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural-tools"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support-procedural-tools-derive",
  "proc-macro-crate 1.1.3",
@@ -3213,7 +3213,7 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural-tools-derive"
 version = "3.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3223,7 +3223,7 @@ dependencies = [
 [[package]]
 name = "frame-system"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "cfg-if",
  "frame-support",
@@ -3242,7 +3242,7 @@ dependencies = [
 [[package]]
 name = "frame-system-benchmarking"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -3257,7 +3257,7 @@ dependencies = [
 [[package]]
 name = "frame-system-rpc-runtime-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "sp-api",
@@ -3266,7 +3266,7 @@ dependencies = [
 [[package]]
 name = "frame-try-runtime"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
@@ -3451,7 +3451,7 @@ dependencies = [
 [[package]]
 name = "generate-bags"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "chrono",
  "frame-election-provider-support",
@@ -5674,7 +5674,7 @@ dependencies = [
 [[package]]
 name = "pallet-authorship"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -5688,7 +5688,7 @@ dependencies = [
 [[package]]
 name = "pallet-babe"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -5712,7 +5712,7 @@ dependencies = [
 [[package]]
 name = "pallet-bags-list"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "aquamarine",
  "docify",
@@ -5734,7 +5734,7 @@ dependencies = [
 [[package]]
 name = "pallet-balances"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -5749,7 +5749,7 @@ dependencies = [
 [[package]]
 name = "pallet-base-fee"
 version = "1.0.0"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "fp-evm",
  "frame-support",
@@ -5779,7 +5779,7 @@ dependencies = [
 [[package]]
 name = "pallet-dynamic-fee"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "fp-dynamic-fee",
  "fp-evm",
@@ -5796,7 +5796,7 @@ dependencies = [
 [[package]]
 name = "pallet-ethereum"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "ethereum",
  "ethereum-types",
@@ -5819,7 +5819,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm"
 version = "6.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "environmental",
  "evm",
@@ -5845,7 +5845,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-chain-id"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -5857,7 +5857,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-modexp"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "fp-evm",
  "num",
@@ -5866,7 +5866,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-sha3fips"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "fp-evm",
  "tiny-keccak",
@@ -5875,7 +5875,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-simple"
 version = "2.0.0-dev"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "fp-evm",
  "ripemd",
@@ -5885,7 +5885,7 @@ dependencies = [
 [[package]]
 name = "pallet-fast-unstake"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "docify",
  "frame-benchmarking",
@@ -5904,7 +5904,7 @@ dependencies = [
 [[package]]
 name = "pallet-grandpa"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -5927,7 +5927,7 @@ dependencies = [
 [[package]]
 name = "pallet-hotfix-sufficients"
 version = "1.0.0"
-source = "git+https://github.com/paritytech/frontier?branch=polkadot-v1.1.0#de5a3df59d3ada67c8cacdb79e607ad0b229ec5b"
+source = "git+https://github.com/frankli-dev/frontier?rev=3b1fa157010c9536863e099c8362234d513423ee#3b1fa157010c9536863e099c8362234d513423ee"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -5943,7 +5943,7 @@ dependencies = [
 [[package]]
 name = "pallet-identity"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "enumflags2",
  "frame-benchmarking",
@@ -5959,7 +5959,7 @@ dependencies = [
 [[package]]
 name = "pallet-im-online"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -5979,7 +5979,7 @@ dependencies = [
 [[package]]
 name = "pallet-nomination-pools"
 version = "1.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -5998,7 +5998,7 @@ dependencies = [
 [[package]]
 name = "pallet-nomination-pools-runtime-api"
 version = "1.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "pallet-nomination-pools",
  "parity-scale-codec",
@@ -6009,7 +6009,7 @@ dependencies = [
 [[package]]
 name = "pallet-offences"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6026,7 +6026,7 @@ dependencies = [
 [[package]]
 name = "pallet-proxy"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6041,7 +6041,7 @@ dependencies = [
 [[package]]
 name = "pallet-session"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6063,7 +6063,7 @@ dependencies = [
 [[package]]
 name = "pallet-staking"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -6086,7 +6086,7 @@ dependencies = [
 [[package]]
 name = "pallet-sudo"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6101,7 +6101,7 @@ dependencies = [
 [[package]]
 name = "pallet-timestamp"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6120,7 +6120,7 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6136,7 +6136,7 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment-rpc"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "jsonrpsee",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -6152,7 +6152,7 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment-rpc-runtime-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
@@ -6164,7 +6164,7 @@ dependencies = [
 [[package]]
 name = "pallet-utility"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -7425,7 +7425,7 @@ dependencies = [
 [[package]]
 name = "sc-allocator"
 version = "4.1.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "log",
  "sp-core",
@@ -7436,7 +7436,7 @@ dependencies = [
 [[package]]
 name = "sc-basic-authorship"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "futures",
  "futures-timer",
@@ -7459,7 +7459,7 @@ dependencies = [
 [[package]]
 name = "sc-block-builder"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "sc-client-api",
@@ -7474,7 +7474,7 @@ dependencies = [
 [[package]]
 name = "sc-chain-spec"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "memmap2",
  "sc-chain-spec-derive",
@@ -7493,7 +7493,7 @@ dependencies = [
 [[package]]
 name = "sc-chain-spec-derive"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "proc-macro-crate 1.1.3",
  "proc-macro2",
@@ -7504,7 +7504,7 @@ dependencies = [
 [[package]]
 name = "sc-cli"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "chrono",
@@ -7543,7 +7543,7 @@ dependencies = [
 [[package]]
 name = "sc-client-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "fnv",
  "futures",
@@ -7569,7 +7569,7 @@ dependencies = [
 [[package]]
 name = "sc-client-db"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "hash-db 0.16.0",
  "kvdb",
@@ -7595,7 +7595,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "futures",
@@ -7620,7 +7620,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-aura"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "futures",
@@ -7649,7 +7649,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-babe"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "fork-tree",
@@ -7685,7 +7685,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-babe-rpc"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "futures",
  "jsonrpsee",
@@ -7707,7 +7707,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-epochs"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "fork-tree",
  "parity-scale-codec",
@@ -7720,7 +7720,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-grandpa"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "ahash 0.8.6",
  "array-bytes",
@@ -7761,7 +7761,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-grandpa-rpc"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "finality-grandpa",
  "futures",
@@ -7781,7 +7781,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-manual-seal"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -7816,7 +7816,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-slots"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "futures",
@@ -7839,7 +7839,7 @@ dependencies = [
 [[package]]
 name = "sc-executor"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.1",
@@ -7861,7 +7861,7 @@ dependencies = [
 [[package]]
 name = "sc-executor-common"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "sc-allocator",
  "sp-maybe-compressed-blob",
@@ -7873,7 +7873,7 @@ dependencies = [
 [[package]]
 name = "sc-executor-wasmtime"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -7890,7 +7890,7 @@ dependencies = [
 [[package]]
 name = "sc-informant"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "ansi_term",
  "futures",
@@ -7906,7 +7906,7 @@ dependencies = [
 [[package]]
 name = "sc-keystore"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "parking_lot 0.12.1",
@@ -7920,7 +7920,7 @@ dependencies = [
 [[package]]
 name = "sc-network"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "async-channel",
@@ -7961,7 +7961,7 @@ dependencies = [
 [[package]]
 name = "sc-network-bitswap"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-channel",
  "cid",
@@ -7981,7 +7981,7 @@ dependencies = [
 [[package]]
 name = "sc-network-common"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "bitflags 1.3.2",
@@ -7998,7 +7998,7 @@ dependencies = [
 [[package]]
 name = "sc-network-gossip"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "ahash 0.8.6",
  "futures",
@@ -8016,7 +8016,7 @@ dependencies = [
 [[package]]
 name = "sc-network-light"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "async-channel",
@@ -8037,7 +8037,7 @@ dependencies = [
 [[package]]
 name = "sc-network-sync"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "async-channel",
@@ -8071,7 +8071,7 @@ dependencies = [
 [[package]]
 name = "sc-network-transactions"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "futures",
@@ -8089,7 +8089,7 @@ dependencies = [
 [[package]]
 name = "sc-offchain"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "bytes",
@@ -8123,7 +8123,7 @@ dependencies = [
 [[package]]
 name = "sc-proposer-metrics"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "log",
  "substrate-prometheus-endpoint",
@@ -8132,7 +8132,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "futures",
  "jsonrpsee",
@@ -8163,7 +8163,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc-api"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "jsonrpsee",
  "parity-scale-codec",
@@ -8182,7 +8182,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc-server"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "http",
  "jsonrpsee",
@@ -8197,7 +8197,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc-spec-v2"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "futures",
@@ -8225,7 +8225,7 @@ dependencies = [
 [[package]]
 name = "sc-service"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "directories",
@@ -8289,7 +8289,7 @@ dependencies = [
 [[package]]
 name = "sc-state-db"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -8300,7 +8300,7 @@ dependencies = [
 [[package]]
 name = "sc-sysinfo"
 version = "6.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "futures",
  "libc",
@@ -8319,7 +8319,7 @@ dependencies = [
 [[package]]
 name = "sc-telemetry"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "chrono",
  "futures",
@@ -8338,7 +8338,7 @@ dependencies = [
 [[package]]
 name = "sc-tracing"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "ansi_term",
  "atty",
@@ -8367,7 +8367,7 @@ dependencies = [
 [[package]]
 name = "sc-tracing-proc-macro"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "proc-macro-crate 1.1.3",
  "proc-macro2",
@@ -8378,7 +8378,7 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "futures",
@@ -8404,7 +8404,7 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "futures",
@@ -8420,7 +8420,7 @@ dependencies = [
 [[package]]
 name = "sc-utils"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-channel",
  "futures",
@@ -8899,7 +8899,7 @@ dependencies = [
 [[package]]
 name = "sp-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "hash-db 0.16.0",
  "log",
@@ -8920,7 +8920,7 @@ dependencies = [
 [[package]]
 name = "sp-api-proc-macro"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "Inflector",
  "blake2",
@@ -8934,7 +8934,7 @@ dependencies = [
 [[package]]
 name = "sp-application-crypto"
 version = "23.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -8947,7 +8947,7 @@ dependencies = [
 [[package]]
 name = "sp-arithmetic"
 version = "16.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "integer-sqrt",
  "num-traits",
@@ -8961,7 +8961,7 @@ dependencies = [
 [[package]]
 name = "sp-block-builder"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "sp-api",
  "sp-inherents",
@@ -8972,7 +8972,7 @@ dependencies = [
 [[package]]
 name = "sp-blockchain"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "futures",
  "log",
@@ -8990,7 +8990,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "futures",
@@ -9005,7 +9005,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-aura"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9022,7 +9022,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-babe"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9041,7 +9041,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-grandpa"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "finality-grandpa",
  "log",
@@ -9059,7 +9059,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-slots"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9071,7 +9071,7 @@ dependencies = [
 [[package]]
 name = "sp-core"
 version = "21.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "array-bytes",
  "arrayvec 0.7.4",
@@ -9118,7 +9118,7 @@ dependencies = [
 [[package]]
 name = "sp-core-hashing"
 version = "9.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "blake2b_simd",
  "byteorder",
@@ -9131,7 +9131,7 @@ dependencies = [
 [[package]]
 name = "sp-core-hashing-proc-macro"
 version = "9.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "quote",
  "sp-core-hashing",
@@ -9141,7 +9141,7 @@ dependencies = [
 [[package]]
 name = "sp-database"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "kvdb",
  "parking_lot 0.12.1",
@@ -9150,7 +9150,7 @@ dependencies = [
 [[package]]
 name = "sp-debug-derive"
 version = "8.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9160,7 +9160,7 @@ dependencies = [
 [[package]]
 name = "sp-externalities"
 version = "0.19.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "environmental",
  "parity-scale-codec",
@@ -9171,7 +9171,7 @@ dependencies = [
 [[package]]
 name = "sp-genesis-builder"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "serde_json",
  "sp-api",
@@ -9182,7 +9182,7 @@ dependencies = [
 [[package]]
 name = "sp-inherents"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "impl-trait-for-tuples",
@@ -9196,7 +9196,7 @@ dependencies = [
 [[package]]
 name = "sp-io"
 version = "23.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "bytes",
  "ed25519-dalek",
@@ -9220,7 +9220,7 @@ dependencies = [
 [[package]]
 name = "sp-keyring"
 version = "24.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "lazy_static",
  "sp-core",
@@ -9231,7 +9231,7 @@ dependencies = [
 [[package]]
 name = "sp-keystore"
 version = "0.27.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.1",
@@ -9243,7 +9243,7 @@ dependencies = [
 [[package]]
 name = "sp-maybe-compressed-blob"
 version = "4.1.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "thiserror",
  "zstd 0.12.4",
@@ -9252,7 +9252,7 @@ dependencies = [
 [[package]]
 name = "sp-metadata-ir"
 version = "0.1.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-metadata",
  "parity-scale-codec",
@@ -9263,7 +9263,7 @@ dependencies = [
 [[package]]
 name = "sp-npos-elections"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9277,7 +9277,7 @@ dependencies = [
 [[package]]
 name = "sp-offchain"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "sp-api",
  "sp-core",
@@ -9287,7 +9287,7 @@ dependencies = [
 [[package]]
 name = "sp-panic-handler"
 version = "8.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -9297,7 +9297,7 @@ dependencies = [
 [[package]]
 name = "sp-rpc"
 version = "6.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "rustc-hash",
  "serde",
@@ -9307,7 +9307,7 @@ dependencies = [
 [[package]]
 name = "sp-runtime"
 version = "24.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "either",
  "hash256-std-hasher",
@@ -9329,7 +9329,7 @@ dependencies = [
 [[package]]
 name = "sp-runtime-interface"
 version = "17.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "bytes",
  "impl-trait-for-tuples",
@@ -9347,7 +9347,7 @@ dependencies = [
 [[package]]
 name = "sp-runtime-interface-proc-macro"
 version = "11.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "Inflector",
  "proc-macro-crate 1.1.3",
@@ -9359,7 +9359,7 @@ dependencies = [
 [[package]]
 name = "sp-session"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9374,7 +9374,7 @@ dependencies = [
 [[package]]
 name = "sp-staking"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "impl-trait-for-tuples",
  "parity-scale-codec",
@@ -9388,7 +9388,7 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.28.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "hash-db 0.16.0",
  "log",
@@ -9409,7 +9409,7 @@ dependencies = [
 [[package]]
 name = "sp-statement-store"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "aes-gcm 0.10.3",
  "curve25519-dalek 4.1.1",
@@ -9433,12 +9433,12 @@ dependencies = [
 [[package]]
 name = "sp-std"
 version = "8.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 
 [[package]]
 name = "sp-storage"
 version = "13.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "impl-serde",
  "parity-scale-codec",
@@ -9451,7 +9451,7 @@ dependencies = [
 [[package]]
 name = "sp-timestamp"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9464,7 +9464,7 @@ dependencies = [
 [[package]]
 name = "sp-tracing"
 version = "10.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "sp-std",
@@ -9476,7 +9476,7 @@ dependencies = [
 [[package]]
 name = "sp-transaction-pool"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "sp-api",
  "sp-runtime",
@@ -9485,7 +9485,7 @@ dependencies = [
 [[package]]
 name = "sp-transaction-storage-proof"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9500,7 +9500,7 @@ dependencies = [
 [[package]]
 name = "sp-trie"
 version = "22.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "ahash 0.8.6",
  "hash-db 0.16.0",
@@ -9523,7 +9523,7 @@ dependencies = [
 [[package]]
 name = "sp-version"
 version = "22.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "impl-serde",
  "parity-scale-codec",
@@ -9540,7 +9540,7 @@ dependencies = [
 [[package]]
 name = "sp-version-proc-macro"
 version = "8.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "proc-macro2",
@@ -9551,7 +9551,7 @@ dependencies = [
 [[package]]
 name = "sp-wasm-interface"
 version = "14.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "anyhow",
  "impl-trait-for-tuples",
@@ -9564,7 +9564,7 @@ dependencies = [
 [[package]]
 name = "sp-weights"
 version = "20.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9852,12 +9852,12 @@ dependencies = [
 [[package]]
 name = "substrate-build-script-utils"
 version = "3.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 
 [[package]]
 name = "substrate-frame-rpc-system"
 version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "frame-system-rpc-runtime-api",
  "futures",
@@ -9876,7 +9876,7 @@ dependencies = [
 [[package]]
 name = "substrate-prometheus-endpoint"
 version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "hyper",
  "log",
@@ -9888,7 +9888,7 @@ dependencies = [
 [[package]]
 name = "substrate-wasm-builder"
 version = "5.0.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#c8d2251cafadc108ba2f1f8a3208dc547ff38901"
+source = "git+https://github.com/frankli-dev/polkadot-sdk?rev=eb828ee49b9b7353aad4878428b87f41a4943841#eb828ee49b9b7353aad4878428b87f41a4943841"
 dependencies = [
  "ansi_term",
  "build-helper",
