@@ -1,5 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
-import { parseAmountInternal } from '../../../lib/parsing';
+import { parseAmount } from '../../../commands/options';
 import { describeIf, testIf, extractFee, forElapsedBlocks } from '../../utils';
 
 describeIf((global as any).CREDITCOIN_HAS_SUDO, 'approveCollection', (): void => {
@@ -17,7 +17,7 @@ describeIf((global as any).CREDITCOIN_HAS_SUDO, 'approveCollection', (): void =>
             .signAndSend(sudoSigner, { nonce: -1 });
 
         // give funds
-        const amount = parseAmountInternal('1000000');
+        const amount = parseAmount('1000000');
         await api.tx.sudo
             .sudo(api.tx.balances.forceSetBalance(authoritySigner.address, amount))
             .signAndSend(sudoSigner, { nonce: -1 });
@@ -37,7 +37,7 @@ describeIf((global as any).CREDITCOIN_HAS_SUDO, 'approveCollection', (): void =>
             const burnId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
             const collector = (global as any).CREDITCOIN_CREATE_SIGNER('random');
             const collectorId = collector.address;
-            const amount = parseAmountInternal('999');
+            const amount = parseAmount('999');
 
             // collector starts with 0 CTC
             let balance = await api.derive.balances.all(collector.address);
