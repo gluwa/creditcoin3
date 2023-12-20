@@ -836,6 +836,20 @@ impl pallet_bridge::Config for Runtime {
     type WeightInfo = pallet_bridge::weights::WeightInfo<Runtime>;
 }
 
+impl pallet_multisig::Config for Runtime {
+    type Currency = Balances;
+    type DepositBase = ProxyDepositBase;
+    type DepositFactor = ProxyDepositFactor;
+
+    type RuntimeEvent = RuntimeEvent;
+
+    type RuntimeCall = RuntimeCall;
+
+    type MaxSignatories = ConstU32<10>;
+
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -862,6 +876,7 @@ construct_runtime!(
         Identity: pallet_identity,
         FastUnstake: pallet_fast_unstake,
         NominationPools: pallet_nomination_pools,
+        Multisig: pallet_multisig,
 
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
