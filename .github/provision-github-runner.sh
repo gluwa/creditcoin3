@@ -3,7 +3,7 @@
 mkdir actions-runner
 pushd actions-runner || exit 1
 
-curl -L https://github.com/actions/runner/releases/download/v2.302.1/actions-runner-linux-x64-2.302.1.tar.gz > runner.tar.gz
+curl -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz > runner.tar.gz
 
 tar xzf ./runner.tar.gz
 sudo ./bin/installdependencies.sh
