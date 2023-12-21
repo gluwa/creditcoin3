@@ -57,8 +57,8 @@ if git --no-pager diff --name-only "${FROM}"..."${TO}" | grep -e '^runtime'; the
     check_version "${FROM}" "${TO}"
 else
     greenprint "INFO: runtime/src/ didn't change. Will inspect Cargo.lock"
-    if git --no-pager diff "${FROM}"..."${TO}" Cargo.lock | grep '+source = "git+https://github.com/paritytech'; then
-        echo "INFO: Cargo.lock references to 'frontier' or 'polkadot-sdk' have been modified"
+    if git --no-pager diff "${FROM}"..."${TO}" Cargo.lock | grep '+source = "git+https://github.com/'; then
+        echo "INFO: Cargo.lock references to dependencies via GitHub have been modified"
         check_version "${FROM}" "${TO}"
     else
         greenprint "INFO: Cargo.lock references to Substrate did not change"
