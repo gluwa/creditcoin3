@@ -826,6 +826,8 @@ resource publicIP 'Microsoft.Network/publicIPAddresses@2021-05-01' = {
 }
 
 resource vm 'Microsoft.Compute/virtualMachines@2021-11-01' = {
+  // checkov:skip=CKV_AZURE_151:This an ephemeral Linux VM, no need fo rencryption
+  // checkov:skip=CKV_AZURE_97:This an ephemeral Linux VM, no need fo rencryption
   name: vmName
   location: location
   properties: {
@@ -855,6 +857,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2021-11-01' = {
       ]
     }
     osProfile: {
+      allowExtensionOperations: false
       computerName: vmName
       adminUsername: adminUsername
       adminPassword: adminPasswordOrKey
