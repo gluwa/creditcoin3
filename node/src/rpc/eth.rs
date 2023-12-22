@@ -67,8 +67,7 @@ pub struct EthDeps<B: BlockT, C, P, A: ChainApi, CT, CIDP> {
     /// Something that can create the inherent data providers for pending state
     pub pending_create_inherent_data_providers: CIDP,
 
-    pub pending_consensus_data_provider:
-        Option<consensus_data_provider::BabeConsensusDataProvider<B, C>>,
+    pub pending_consensus_data_provider: Option<consensus_data_provider::BabeConsensusDataProvider>,
 }
 
 /// Instantiate Ethereum-compatible RPC extensions.

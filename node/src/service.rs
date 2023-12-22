@@ -501,7 +501,6 @@ where
         };
         let select_chain = select_chain.clone();
         let keystore = keystore_container.keystore();
-        let epoch_changes = babe_link.epoch_changes().clone();
 
         let shared_authority_set = grandpa_link.shared_authority_set().clone();
         let finality_provider = sc_consensus_grandpa::FinalityProofProvider::new_for_service(
@@ -536,12 +535,7 @@ where
                     forced_parent_hashes: None,
                     pending_create_inherent_data_providers,
                     pending_consensus_data_provider: Some(
-                        crate::rpc::BabeConsensusDataProvider::new(
-                            client.clone(),
-                            keystore.clone(),
-                            epoch_changes.clone(),
-                            vec![],
-                        )?,
+                        crate::rpc::BabeConsensusDataProvider::new(),
                     ),
                 };
                 let deps = crate::rpc::FullDeps {
