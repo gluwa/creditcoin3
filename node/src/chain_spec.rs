@@ -105,6 +105,10 @@ pub fn devnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/devnetSpecRaw.json")[..])
 }
 
+pub fn testnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/testnetSpecRaw.json")[..])
+}
+
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
