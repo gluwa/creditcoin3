@@ -123,7 +123,7 @@ jobs:
           exclusions: "creditcoin3-node.d"
 
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           path: "creditcoin-${{ env.TAG_NAME }}-*.zip"
           if-no-files-found: error
@@ -168,7 +168,7 @@ jobs:
           mv ${{ steps.srtool_build.outputs.wasm }} creditcoin-${{ env.TAG_NAME }}-runtime.wasm
 
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           path: "*.wasm"
           if-no-files-found: error
