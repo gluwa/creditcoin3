@@ -200,7 +200,7 @@ jobs:
           BRANCH_NAME=auto-update-weights-for-dev-${{ github.sha }}
 
           git checkout -b "$BRANCH_NAME" origin/dev
-          git cherry-pick "$LAST_COMMIT"
+          git cherry-pick "$LAST_COMMIT" --allow-empty
           git push origin "$BRANCH_NAME"
 
       - name: Open PR against dev
