@@ -4,7 +4,7 @@
 //! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 4.0.0-dev
 //! DATE: 2024-01-04, STEPS: `50`, REPEAT: `30`, LOW RANGE: `[]`, HIGH RANGE: `[]`
 //! WORST CASE MAP SIZE: `1000000`
-//! HOSTNAME: `github-runner-7401546037-attempt-3`, CPU: `AMD EPYC 7452 32-Core Processor`
+//! HOSTNAME: `github-runner-7412575794-attempt-1`, CPU: `AMD EPYC 7452 32-Core Processor`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `Some("dev")`, DB CACHE: 1024
 
 // Executed Command:
@@ -64,8 +64,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `320`
 		//  Estimated: `3533`
-		// Minimum execution time: 76_002_000 picoseconds.
-		Weight::from_parts(77_702_000, 0)
+		// Minimum execution time: 78_002_000 picoseconds.
+		Weight::from_parts(79_303_000, 0)
 			.saturating_add(Weight::from_parts(0, 3533))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
@@ -76,8 +76,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `79`
 		//  Estimated: `3513`
-		// Minimum execution time: 13_800_000 picoseconds.
-		Weight::from_parts(14_201_000, 0)
+		// Minimum execution time: 13_501_000 picoseconds.
+		Weight::from_parts(13_900_000, 0)
 			.saturating_add(Weight::from_parts(0, 3513))
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
