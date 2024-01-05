@@ -1,5 +1,5 @@
 [workspace]
-members = ["node", "runtime", "runtime/generate-bags", "pallets/bridge"]
+members = ["node", "runtime", "runtime/generate-bags"]
 resolver = "2"
 
 [workspace.package]
@@ -174,7 +174,6 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
-pallet-bridge = { path = "pallets/bridge", default-features = false }
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [
