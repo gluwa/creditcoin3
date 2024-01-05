@@ -77,10 +77,6 @@ import type {
     PalletBalancesReserveData,
     PalletBaseFeeCall,
     PalletBaseFeeEvent,
-    PalletBridgeCall,
-    PalletBridgeCollectionInfo,
-    PalletBridgeError,
-    PalletBridgeEvent,
     PalletDynamicFeeCall,
     PalletEthereumCall,
     PalletEthereumError,
@@ -284,10 +280,6 @@ declare module '@polkadot/types/types/registry' {
         PalletBalancesReserveData: PalletBalancesReserveData;
         PalletBaseFeeCall: PalletBaseFeeCall;
         PalletBaseFeeEvent: PalletBaseFeeEvent;
-        PalletBridgeCall: PalletBridgeCall;
-        PalletBridgeCollectionInfo: PalletBridgeCollectionInfo;
-        PalletBridgeError: PalletBridgeError;
-        PalletBridgeEvent: PalletBridgeEvent;
         PalletDynamicFeeCall: PalletDynamicFeeCall;
         PalletEthereumCall: PalletEthereumCall;
         PalletEthereumError: PalletEthereumError;
