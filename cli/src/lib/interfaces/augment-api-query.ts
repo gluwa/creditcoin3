@@ -27,7 +27,6 @@ import type {
     PalletBalancesBalanceLock,
     PalletBalancesIdAmount,
     PalletBalancesReserveData,
-    PalletBridgeCollectionInfo,
     PalletEvmCodeMetadata,
     PalletFastUnstakeUnstakeRequest,
     PalletGrandpaStoredPendingChange,
@@ -310,24 +309,6 @@ declare module '@polkadot/api-base/types/storage' {
         baseFee: {
             baseFeePerGas: AugmentedQuery<ApiType, () => Observable<U256>, []> & QueryableStorageEntry<ApiType, []>;
             elasticity: AugmentedQuery<ApiType, () => Observable<Permill>, []> & QueryableStorageEntry<ApiType, []>;
-            /**
-             * Generic query
-             **/
-            [key: string]: QueryableStorageEntry<ApiType>;
-        };
-        bridge: {
-            authorities: AugmentedQuery<
-                ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<Option<Null>>,
-                [AccountId32]
-            > &
-                QueryableStorageEntry<ApiType, [AccountId32]>;
-            collections: AugmentedQuery<
-                ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<PalletBridgeCollectionInfo>>,
-                [u64]
-            > &
-                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Generic query
              **/
