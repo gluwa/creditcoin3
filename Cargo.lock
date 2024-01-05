@@ -1567,7 +1567,6 @@ dependencies = [
  "pallet-bags-list",
  "pallet-balances",
  "pallet-base-fee",
- "pallet-bridge",
  "pallet-dynamic-fee",
  "pallet-ethereum",
  "pallet-evm",
@@ -5757,24 +5756,6 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-runtime",
-]
-
-[[package]]
-name = "pallet-bridge"
-version = "3.12.1"
-dependencies = [
- "assert_matches",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "pallet-balances",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
