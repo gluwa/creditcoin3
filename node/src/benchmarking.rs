@@ -25,12 +25,11 @@ use parity_scale_codec::Encode;
 // Substrate
 use sc_cli::Result;
 use sc_client_api::BlockBackend;
-use sp_core::{ecdsa, Pair};
+use sp_core::{sr25519, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
-use sp_runtime::{generic::Era, OpaqueExtrinsic, SaturatedConversion};
+use sp_runtime::{generic::Era, AccountId32, MultiAddress, OpaqueExtrinsic, SaturatedConversion};
 // Frontier
-use fp_account::AccountId20;
-use frontier_template_runtime::{self as runtime, AccountId, Balance, BalancesCall, SystemCall};
+use creditcoin3_runtime::{self as runtime, AccountId, Address, Balance, BalancesCall, SystemCall};
 
 use crate::client::Client;
 
@@ -58,7 +57,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
     }
 
     fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-        let acc = ecdsa::Pair::from_string("//Bob", None).expect("static values are valid; qed");
+        let acc = sr25519::Pair::from_string("//Bob", None).expect("static values are valid; qed");
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
@@ -76,7 +75,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
 /// Note: Should only be used for benchmarking.
 pub struct TransferKeepAliveBuilder {
     client: Arc<Client>,
-    dest: AccountId,
+    dest: Address,
     value: Balance,
 }
 
@@ -85,7 +84,7 @@ impl TransferKeepAliveBuilder {
     pub fn new(client: Arc<Client>, dest: AccountId, value: Balance) -> Self {
         Self {
             client,
-            dest,
+            dest: MultiAddress::Id(dest),
             value,
         }
     }
@@ -101,12 +100,12 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
     }
 
     fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-        let acc = ecdsa::Pair::from_string("//Bob", None).expect("static values are valid; qed");
+        let acc = sr25519::Pair::from_string("//Bob", None).expect("static values are valid; qed");
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
             BalancesCall::transfer_keep_alive {
-                dest: self.dest,
+                dest: self.dest.clone(),
                 value: self.value,
             }
             .into(),
@@ -123,7 +122,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 /// Note: Should only be used for benchmarking.
 pub fn create_benchmark_extrinsic(
     client: &Client,
-    sender: ecdsa::Pair,
+    sender: sr25519::Pair,
     call: runtime::RuntimeCall,
     nonce: u32,
 ) -> runtime::UncheckedExtrinsic {
@@ -171,8 +170,8 @@ pub fn create_benchmark_extrinsic(
 
     runtime::UncheckedExtrinsic::new_signed(
         call,
-        AccountId20::from(sender.public()),
-        runtime::Signature::new(signature),
+        Address::Id(AccountId32::from(sender.public())),
+        runtime::Signature::from(signature),
         extra,
     )
 }

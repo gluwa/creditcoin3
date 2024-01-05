@@ -1,12 +1,14 @@
 [package]
-name = "frontier-template-runtime"
-version = "0.0.0"
-license = "Unlicense"
-description = "A fresh FRAME-based Substrate runtime, ready for hacking."
-publish = false
+name = "creditcoin3-runtime"
+description = "Creditcoin3 Runtime"
+
 authors = { workspace = true }
 edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
+version = { workspace = true }
+
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -14,6 +16,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 parity-scale-codec = { workspace = true }
 scale-info = { workspace = true }
+smallvec = "1.11.2"
 
 # Substrate
 sp-api = { workspace = true }
@@ -40,18 +43,25 @@ pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-bags-list = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-fast-unstake = { workspace = true }
 pallet-grandpa = { workspace = true }
+pallet-identity = { workspace = true }
 pallet-im-online = { workspace = true }
+pallet-nomination-pools = { workspace = true }
+pallet-nomination-pools-runtime-api = { workspace = true }
 pallet-offences = { workspace = true }
+pallet-proxy = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
+pallet-utility = { workspace = true }
+# Gluwa
+pallet-bridge = { workspace = true }
 
 # Frontier
-fp-account = { workspace = true, features = ["serde"] }
 fp-evm = { workspace = true, features = ["serde"] }
 fp-rpc = { workspace = true }
 fp-self-contained = { workspace = true, features = ["serde"] }
@@ -101,17 +111,22 @@ std = [
 	"pallet-babe/std",
 	"pallet-bags-list/std",
 	"pallet-balances/std",
+	"pallet-fast-unstake/std",
 	"pallet-grandpa/std",
+	"pallet-identity/std",
 	"pallet-im-online/std",
+	"pallet-nomination-pools/std",
+	"pallet-nomination-pools-runtime-api/std",
 	"pallet-offences/std",
+	"pallet-proxy/std",
 	"pallet-session/std",
 	"pallet-staking/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
+	"pallet-utility/std",
 	# Frontier
-	"fp-account/std",
 	"fp-evm/std",
 	"fp-rpc/std",
 	"fp-self-contained/std",
@@ -125,6 +140,8 @@ std = [
 	"pallet-evm-precompile-sha3fips/std",
 	"pallet-evm-precompile-simple/std",
 	"pallet-hotfix-sufficients/std",
+	# Gluwa
+	"pallet-bridge/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -133,14 +150,20 @@ runtime-benchmarks = [
 	"pallet-babe/runtime-benchmarks",
 	"pallet-bags-list/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"pallet-fast-unstake/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
+	"pallet-identity/runtime-benchmarks",
 	"pallet-im-online/runtime-benchmarks",
+	"pallet-nomination-pools/runtime-benchmarks",
 	"pallet-offences/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
+	"pallet-utility/runtime-benchmarks",
+	"pallet-proxy/runtime-benchmarks",
 	"pallet-ethereum/runtime-benchmarks",
 	"pallet-evm/runtime-benchmarks",
 	"pallet-hotfix-sufficients/runtime-benchmarks",
-
+	# Gluwa
+	"pallet-bridge/runtime-benchmarks",
 ]

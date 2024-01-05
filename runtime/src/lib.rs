@@ -10,6 +10,8 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+mod output;
+
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
 use sp_core::{
@@ -19,31 +21,36 @@ use sp_core::{
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
-        IdentityLookup, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto,
-        Verify,
+        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
+        NumberFor, One, OpaqueKeys, PostDispatchInfoOf, StaticLookup, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
     },
-    ApplyExtrinsicResult, ConsensusEngineId, Perbill, Permill,
+    ApplyExtrinsicResult, ConsensusEngineId, MultiAddress, MultiSignature, Perbill, Permill,
+    SaturatedConversion,
 };
 use sp_staking::SessionIndex;
 use sp_std::{marker::PhantomData, prelude::*};
 use sp_version::RuntimeVersion;
 // Substrate FRAME
-use frame_support::weights::constants::ParityDbWeight as RuntimeDbWeight;
+use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, WeightToFeePolynomial};
 use frame_support::{
     construct_runtime, parameter_types,
-    traits::{ConstU32, ConstU8, FindAuthor, KeyOwnerProofSystem, OnFinalize, OnTimestampSet},
-    weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, IdentityFee, Weight},
+    traits::{
+        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        OnTimestampSet,
+    },
+    weights::{
+        constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
+    },
+    PalletId,
 };
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
-use fp_account::EthereumSignature;
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -51,7 +58,8 @@ use pallet_ethereum::{
     TransactionData,
 };
 use pallet_evm::{
-    Account as EVMAccount, EnsureAccountId20, FeeCalculator, IdentityAddressMapping, Runner,
+    Account as EVMAccount, AddressMapping as _, EnsureAddressTruncated, FeeCalculator,
+    HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -59,6 +67,7 @@ use pallet_session::historical as session_historical;
 pub use frame_system::Call as SystemCall;
 pub use pallet_babe::AuthorityId as BabeId;
 pub use pallet_balances::Call as BalancesCall;
+pub use pallet_evm;
 pub use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
@@ -71,7 +80,7 @@ use precompiles::FrontierPrecompiles;
 pub type BlockNumber = u32;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = EthereumSignature;
+pub type Signature = MultiSignature;
 
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
@@ -94,6 +103,8 @@ pub type Hash = H256;
 
 /// Digest item type.
 pub type DigestItem = generic::DigestItem;
+
+pub type AddressMapping = HashedAddressMapping<BlakeTwo256>;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -179,6 +190,23 @@ parameter_types! {
     pub const SS58Prefix: u8 = 42;
 }
 
+pub struct NativeOrEvmAddressLookup;
+impl StaticLookup for NativeOrEvmAddressLookup {
+    type Source = MultiAddress<AccountId, AccountIndex>;
+    type Target = AccountId;
+    fn lookup(x: Self::Source) -> Result<Self::Target, sp_runtime::traits::LookupError> {
+        match x {
+            MultiAddress::Id(i) => Ok(i),
+            MultiAddress::Address32(i) => Ok(AccountId::from(i)),
+            MultiAddress::Address20(i) => Ok(AddressMapping::into_account_id(H160::from(i))),
+            _ => Err(sp_runtime::traits::LookupError),
+        }
+    }
+    fn unlookup(x: Self::Target) -> Self::Source {
+        MultiAddress::Id(x)
+    }
+}
+
 // Configure FRAME pallets to include in runtime.
 
 impl frame_system::Config for Runtime {
@@ -203,7 +231,7 @@ impl frame_system::Config for Runtime {
     /// The identifier used to distinguish between accounts.
     type AccountId = AccountId;
     /// The lookup mechanism to get account ID from whatever is passed in dispatchers.
-    type Lookup = IdentityLookup<AccountId>;
+    type Lookup = NativeOrEvmAddressLookup;
     /// The block type.
     type Block = Block;
     /// Maximum number of block number to block hash mappings to keep (oldest pruned first).
@@ -295,6 +323,31 @@ impl pallet_balances::Config for Runtime {
     type MaxFreezes = ();
 }
 
+pub const TARGET_FEE_CREDO: Balance = 10_000_000_000_000_000;
+pub struct WeightToCtcFee<T>(PhantomData<T>);
+
+impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
+    type Balance = Balance;
+
+    fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
+        // Copied from the weights for the lock deal order extrinsic which is what is referenced in cc2
+        let deal_order_weight = Weight::from_parts(30_601_000, 0)
+            .saturating_add(Weight::from_parts(0, 4089))
+            .saturating_add(T::DbWeight::get().reads(1))
+            .saturating_add(T::DbWeight::get().writes(1));
+
+        let base = Balance::from(deal_order_weight.ref_time());
+        let ratio = TARGET_FEE_CREDO / base;
+        let rem = TARGET_FEE_CREDO % base;
+        smallvec::smallvec!(WeightToFeeCoefficient {
+            coeff_integer: ratio,
+            coeff_frac: Perbill::from_rational(rem, base),
+            negative: false,
+            degree: 1,
+        })
+    }
+}
+
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
 }
@@ -302,9 +355,9 @@ parameter_types! {
 impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
-    type OperationalFeeMultiplier = ConstU8<5>;
-    type WeightToFee = IdentityFee<Balance>;
-    type LengthToFee = IdentityFee<Balance>;
+    type OperationalFeeMultiplier = ConstU8<1u8>;
+    type WeightToFee = WeightToCtcFee<Runtime>;
+    type LengthToFee = ConstantMultiplier<u128, ConstU128<1_500_000_000u128>>;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
@@ -345,9 +398,9 @@ impl pallet_evm::Config for Runtime {
     type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
     type WeightPerGas = WeightPerGas;
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
-    type CallOrigin = EnsureAccountId20;
-    type WithdrawOrigin = EnsureAccountId20;
-    type AddressMapping = IdentityAddressMapping;
+    type CallOrigin = EnsureAddressTruncated;
+    type WithdrawOrigin = EnsureAddressTruncated;
+    type AddressMapping = AddressMapping;
     type Currency = Balances;
     type RuntimeEvent = RuntimeEvent;
     type PrecompilesType = FrontierPrecompiles<Self>;
@@ -408,7 +461,7 @@ impl pallet_base_fee::Config for Runtime {
 }
 
 impl pallet_hotfix_sufficients::Config for Runtime {
-    type AddressMapping = IdentityAddressMapping;
+    type AddressMapping = AddressMapping;
     type WeightInfo = pallet_hotfix_sufficients::weights::SubstrateWeight<Self>;
 }
 
@@ -473,6 +526,26 @@ impl pallet_staking::BenchmarkingConfig for StakingBenchmarkingConfig {
     type MaxNominators = ConstU32<1000>;
 }
 
+pub const CTC: Balance = 1_000_000_000_000_000_000;
+
+const CTC_REWARD_PER_BLOCK: Balance = 2 * CTC;
+
+pub struct EraPayout;
+impl pallet_staking::EraPayout<Balance> for EraPayout {
+    fn era_payout(
+        _total_staked: Balance,
+        _total_issuance: Balance,
+        _era_duration_millis: u64,
+    ) -> (Balance, Balance) {
+        (
+            CTC_REWARD_PER_BLOCK
+                * (EPOCH_DURATION_IN_BLOCKS as Balance)
+                * (SessionsPerEra::get() as Balance),
+            0,
+        )
+    }
+}
+
 impl pallet_staking::Config for Runtime {
     type Currency = Balances;
     type CurrencyBalance = Balance;
@@ -490,7 +563,7 @@ impl pallet_staking::Config for Runtime {
     type SlashDeferDuration = SlashDeferDuration;
     type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
     type SessionInterface = Self;
-    type EraPayout = ();
+    type EraPayout = EraPayout;
     type NextNewSession = Session;
     type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
     type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
@@ -527,12 +600,16 @@ impl frame_election_provider_support::onchain::Config for OnChainSeqPhragmen {
     type Bounds = ElectionBounds;
 }
 
+parameter_types! {
+    pub const BagThresholds: &'static [u64] = &output::THRESHOLDS;
+}
+
 type VoterBagsListInstance = pallet_bags_list::Instance1;
 impl pallet_bags_list::Config<VoterBagsListInstance> for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ScoreProvider = Staking;
     type WeightInfo = ();
-    type BagThresholds = ();
+    type BagThresholds = BagThresholds;
     type Score = u64;
 }
 
@@ -584,6 +661,181 @@ where
     type Extrinsic = UncheckedExtrinsic;
 }
 
+impl pallet_utility::Config for Runtime {
+    type PalletsOrigin = OriginCaller;
+    type RuntimeCall = RuntimeCall;
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
+}
+
+parameter_types! {
+    pub const ProxyDepositBase: u128 = 500;
+    pub const ProxyDepositFactor: u128 = 500;
+    pub const MaxProxies: u32 = 64;
+    pub const MaxPending: u32 = 64;
+    pub const AnnouncementDepositBase: u128 = 500;
+    pub const AnnouncementDepositFactor: u128 = 500;
+
+}
+
+impl pallet_proxy::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type WeightInfo = ();
+    type RuntimeCall = RuntimeCall;
+    type ProxyDepositBase = ProxyDepositBase; // TODO: proxy deposit base?
+    type MaxProxies = MaxProxies; // TODO: max proxies?
+    type MaxPending = MaxPending; // TODO: max pending?
+    type ProxyDepositFactor = ProxyDepositFactor; // TODO: proxy deposit factor?
+    type CallHasher = BlakeTwo256;
+    type AnnouncementDepositBase = AnnouncementDepositBase;
+    type AnnouncementDepositFactor = AnnouncementDepositFactor;
+    type ProxyType = ProxyFilter;
+}
+
+#[derive(
+    Default,
+    Encode,
+    Decode,
+    parity_scale_codec::MaxEncodedLen,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Debug,
+    scale_info::TypeInfo,
+    PartialOrd,
+    Ord,
+)]
+pub enum ProxyFilter {
+    #[default]
+    All,
+    NonTransfer,
+    Staking,
+}
+
+impl InstanceFilter<RuntimeCall> for ProxyFilter {
+    fn filter(&self, call: &RuntimeCall) -> bool {
+        match self {
+            ProxyFilter::All => true,
+            ProxyFilter::Staking => matches!(
+                call,
+                RuntimeCall::Staking(_)
+                    | RuntimeCall::Session(_)
+                    | RuntimeCall::Utility(_)
+                    | RuntimeCall::VoterList(_)
+            ),
+            ProxyFilter::NonTransfer => matches!(
+                call,
+                RuntimeCall::Grandpa(_)
+                    | RuntimeCall::ImOnline(_)
+                    | RuntimeCall::Proxy(_)
+                    | RuntimeCall::Session(_)
+                    | RuntimeCall::Staking(_)
+                    | RuntimeCall::System(_)
+                    | RuntimeCall::Timestamp(_)
+                    | RuntimeCall::Utility(_)
+                    | RuntimeCall::VoterList(_)
+            ),
+        }
+    }
+
+    fn is_superset(&self, o: &Self) -> bool {
+        match (self, o) {
+            (ProxyFilter::All, _) => true,
+            (ProxyFilter::NonTransfer, ProxyFilter::Staking) => true,
+            (a, b) if a == b => true,
+            _ => false,
+        }
+    }
+}
+
+parameter_types! {
+    pub const BasicDeposit: Balance = 500;
+    pub const FieldDeposit: Balance = 500;
+    pub const SubAccountDeposit: Balance = 500;
+    pub const MaxSubAccounts: u32 = 10;
+    pub const MaxAdditionalFields: u32 = 10;
+    pub const MaxRegistrars: u32 = 15;
+}
+
+impl pallet_identity::Config for Runtime {
+    type Currency = Balances;
+    type BasicDeposit = BasicDeposit;
+    type FieldDeposit = FieldDeposit;
+    type SubAccountDeposit = SubAccountDeposit;
+    type MaxSubAccounts = MaxSubAccounts;
+    type MaxAdditionalFields = MaxAdditionalFields;
+    type MaxRegistrars = MaxRegistrars;
+    type RuntimeEvent = RuntimeEvent;
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+    type RegistrarOrigin = frame_system::EnsureRoot<AccountId>;
+    type Slashed = ();
+    type WeightInfo = ();
+}
+
+parameter_types! {
+    pub const FastUnstakeDeposit: u128 = 500;
+    pub const FastUnstakeBatchSize: u32 = 100;
+    pub const MaxErasToCheckPerBlock: u32 = 100;
+}
+
+impl pallet_fast_unstake::Config for Runtime {
+    type BatchSize = FastUnstakeBatchSize;
+    type Currency = Balances;
+    type ControlOrigin = frame_system::EnsureRoot<AccountId>;
+    type Deposit = FastUnstakeDeposit;
+    type RuntimeEvent = RuntimeEvent;
+    type MaxErasToCheckPerBlock = MaxErasToCheckPerBlock;
+    type WeightInfo = ();
+    type Staking = Staking;
+    #[cfg(feature = "runtime-benchmarks")]
+    type MaxBackersPerValidator = ConstU32<10000>;
+}
+
+parameter_types! {
+    pub const NomPoolsPalletId: PalletId = PalletId(*b"ctcnopls");
+    pub const MaxPointsToBalance: u8 = 100;
+    pub const PostUnbondingPoolsWindow: u32 = 4;
+}
+
+pub struct BalanceToU256;
+
+impl Convert<Balance, U256> for BalanceToU256 {
+    fn convert(x: Balance) -> U256 {
+        U256::from(x)
+    }
+}
+
+pub struct U256ToBalance;
+
+impl Convert<U256, Balance> for U256ToBalance {
+    fn convert(x: U256) -> Balance {
+        x.saturated_into()
+    }
+}
+
+impl pallet_nomination_pools::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
+    type Currency = Balances;
+    type RewardCounter = sp_runtime::FixedU128;
+    type PalletId = NomPoolsPalletId;
+    type MaxPointsToBalance = MaxPointsToBalance;
+    type BalanceToU256 = BalanceToU256;
+    type U256ToBalance = U256ToBalance;
+    type Staking = Staking;
+    type PostUnbondingPoolsWindow = PostUnbondingPoolsWindow;
+    type MaxMetadataLen = ConstU32<256>;
+    type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
+}
+
+impl pallet_bridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type WeightInfo = pallet_bridge::weights::WeightInfo<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -605,12 +857,21 @@ construct_runtime!(
         Historical: session_historical,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
+        Utility: pallet_utility,
+        Proxy: pallet_proxy,
+        Identity: pallet_identity,
+        FastUnstake: pallet_fast_unstake,
+        NominationPools: pallet_nomination_pools,
+
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
         EVMChainId: pallet_evm_chain_id,
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+
+        // cc2 -> cc3 bridge pallet
+        Bridge: pallet_bridge,
     }
 );
 
@@ -640,7 +901,7 @@ impl fp_rpc::ConvertTransaction<opaque::UncheckedExtrinsic> for TransactionConve
 }
 
 /// The address format for describing accounts.
-pub type Address = AccountId;
+pub type Address = MultiAddress<AccountId, AccountIndex>;
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 /// Block type as expected by this runtime.
@@ -748,6 +1009,8 @@ mod benches {
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
+        // Gluwa
+        [pallet_bridge, Bridge]
     );
 }
 
@@ -1143,11 +1406,9 @@ impl_runtime_apis! {
 
             use baseline::Pallet as BaselineBench;
             use frame_system_benchmarking::Pallet as SystemBench;
-            use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficients;
 
             let mut list = Vec::<BenchmarkList>::new();
             list_benchmarks!(list, extra);
-            list_benchmark!(list, extra, pallet_hotfix_sufficients, PalletHotfixSufficients::<Runtime>);
 
             let storage_info = AllPalletsWithSystem::storage_info();
             (list, storage_info)
@@ -1161,6 +1422,7 @@ impl_runtime_apis! {
 
             use pallet_evm::Pallet as PalletEvmBench;
             use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
+            use pallet_bridge::Pallet as PalletBridgeBench;
 
             impl baseline::Config for Runtime {}
             impl frame_system_benchmarking::Config for Runtime {}
@@ -1172,9 +1434,25 @@ impl_runtime_apis! {
 
             add_benchmark!(params, batches, pallet_evm, PalletEvmBench::<Runtime>);
             add_benchmark!(params, batches, pallet_hotfix_sufficients, PalletHotfixSufficientsBench::<Runtime>);
+            // Gluwa
+            add_benchmark!(params, batches, pallet_bridge, PalletBridgeBench::<Runtime>);
 
             if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
             Ok(batches)
+        }
+    }
+
+    impl pallet_nomination_pools_runtime_api::NominationPoolsApi<Block, AccountId, Balance> for Runtime {
+        fn pending_rewards(who: AccountId) -> Balance {
+            NominationPools::api_pending_rewards(who).unwrap_or_default()
+        }
+
+        fn points_to_balance(pool_id: pallet_nomination_pools::PoolId, points: Balance) -> Balance {
+            NominationPools::api_points_to_balance(pool_id, points)
+        }
+
+        fn balance_to_points(pool_id: pallet_nomination_pools::PoolId, new_funds: Balance) -> Balance {
+            NominationPools::api_balance_to_points(pool_id, new_funds)
         }
     }
 }

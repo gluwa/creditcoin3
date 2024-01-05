@@ -30,20 +30,31 @@ updates:
       interval: "monthly"
 
   - package-ecosystem: "cargo"
+    directory: "/pallets/bridge"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
     directory: "/runtime"
     schedule:
       interval: "monthly"
 
+  - package-ecosystem: "cargo"
+    directory: "/runtime/generate-bags"
+    schedule:
+      interval: "monthly"
+
   - package-ecosystem: "npm"
-    directory: "/examples/contract-erc20"
+    directory: "/testing"
     schedule:
       interval: "monthly"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
 
+  # Maintain dependencies for Node.js
   - package-ecosystem: "npm"
-    directory: "/examples/contract-hello"
+    directory: "/cli"
     schedule:
       interval: "monthly"
     ignore:

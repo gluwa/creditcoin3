@@ -8,9 +8,10 @@ use jsonrpsee::RpcModule;
 use sc_client_api::{
     backend::{Backend, StorageProvider},
     client::BlockchainEvents,
-    AuxStore, UsageProvider,
+    AuxStore, StateBackend, UsageProvider,
 };
 use sc_consensus_babe::BabeWorkerHandle;
+use sc_consensus_grandpa::FinalityProofProvider;
 use sc_consensus_manual_seal::rpc::EngineCommand;
 use sc_rpc::SubscriptionTaskExecutor;
 use sc_rpc_api::DenyUnsafe;
@@ -19,9 +20,9 @@ use sc_transaction_pool::ChainApi;
 use sp_api::{CallApiAt, ProvideRuntimeApi};
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_inherents::CreateInherentDataProviders;
-use sp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
-use frontier_template_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};
+use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
 
 mod eth;
 pub use self::eth::{
@@ -29,8 +30,10 @@ pub use self::eth::{
     create_eth, overrides_handle, EthDeps,
 };
 
+type HasherFor<Block> = <<Block as BlockT>::Header as HeaderT>::Hashing;
+
 /// Full client dependencies.
-pub struct FullDeps<C, P, SC, A: ChainApi, CT, CIDP> {
+pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     /// The client instance to use.
     pub client: Arc<C>,
     /// Transaction pool instance.
@@ -44,7 +47,23 @@ pub struct FullDeps<C, P, SC, A: ChainApi, CT, CIDP> {
 
     pub babe: BabeDeps,
 
+    pub grandpa: Option<GrandpaDeps<BE>>,
+
     pub select_chain: SC,
+}
+
+/// Dependencies for GRANDPA
+pub struct GrandpaDeps<BE> {
+    /// Voting round info.
+    pub shared_voter_state: sc_consensus_grandpa::SharedVoterState,
+    /// Authority set info.
+    pub shared_authority_set: sc_consensus_grandpa::SharedAuthoritySet<Hash, BlockNumber>,
+    /// Receives notifications about justification events from Grandpa.
+    pub justification_stream: sc_consensus_grandpa::GrandpaJustificationStream<Block>,
+    /// Executor to drive the subscription manager in the Grandpa RPC handler.
+    pub subscription_executor: sc_rpc::SubscriptionTaskExecutor,
+    /// Finality proof provider.
+    pub finality_provider: Arc<FinalityProofProvider<BE, Block>>,
 }
 
 pub struct BabeDeps {
@@ -66,7 +85,7 @@ where
 
 /// Instantiate all Full RPC extensions.
 pub fn create_full<C, P, SC, BE, A, CT, CIDP>(
-    deps: FullDeps<C, P, SC, A, CT, CIDP>,
+    deps: FullDeps<C, P, SC, BE, A, CT, CIDP>,
     subscription_task_executor: SubscriptionTaskExecutor,
     pubsub_notification_sinks: Arc<
         fc_mapping_sync::EthereumBlockNotificationSinks<
@@ -85,6 +104,7 @@ where
     C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
     C: BlockchainEvents<Block> + AuxStore + UsageProvider<Block> + StorageProvider<Block, BE>,
     BE: Backend<Block> + 'static,
+    BE::State: StateBackend<HasherFor<Block>>,
     P: TransactionPool<Block = Block> + 'static,
     A: ChainApi<Block = Block> + 'static,
     CIDP: CreateInherentDataProviders<Block, ()> + Send + 'static,
@@ -93,6 +113,7 @@ where
 {
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
+    use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
     use sc_consensus_manual_seal::rpc::{ManualSeal, ManualSealApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
@@ -108,6 +129,7 @@ where
             keystore,
         },
         select_chain,
+        grandpa,
     } = deps;
 
     io.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
@@ -123,6 +145,26 @@ where
 
     if let Some(babe_worker) = babe_worker {
         io.merge(Babe::new(client, babe_worker, keystore, select_chain, deny_unsafe).into_rpc())?;
+    }
+
+    if let Some(GrandpaDeps {
+        finality_provider,
+        justification_stream,
+        shared_authority_set,
+        shared_voter_state,
+        subscription_executor,
+    }) = grandpa
+    {
+        io.merge(
+            Grandpa::new(
+                subscription_executor,
+                shared_authority_set,
+                shared_voter_state,
+                justification_stream,
+                finality_provider,
+            )
+            .into_rpc(),
+        )?;
     }
 
     // Ethereum compatibility RPCs

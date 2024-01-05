@@ -62,6 +62,8 @@ impl SubstrateCli for Cli {
                 let enable_manual_seal = self.sealing.map(|_| true);
                 Box::new(chain_spec::development_config(enable_manual_seal))
             }
+            "devnet" => Box::new(chain_spec::devnet_config()?),
+            "testnet" => Box::new(chain_spec::testnet_config()?),
             "" | "local" => Box::new(chain_spec::local_testnet_config()),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
@@ -176,10 +178,10 @@ pub fn run() -> sc_cli::Result<()> {
             use crate::benchmarking::{
                 inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder,
             };
+            use creditcoin3_runtime::{Block, ExistentialDeposit};
             use frame_benchmarking_cli::{
                 BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE,
             };
-            use frontier_template_runtime::{Block, ExistentialDeposit};
 
             let runner = cli.create_runner(cmd)?;
             match cmd {

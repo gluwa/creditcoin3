@@ -1,7 +1,7 @@
 // Substrate
 use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion};
 // Local
-use frontier_template_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Nonce};
 
 use crate::eth::EthCompatRuntimeApiCollection;
 
@@ -11,7 +11,7 @@ pub type FullBackend = sc_service::TFullBackend<Block>;
 pub type FullClient<RuntimeApi, Executor> =
     sc_service::TFullClient<Block, RuntimeApi, NativeElseWasmExecutor<Executor>>;
 
-pub type Client = FullClient<frontier_template_runtime::RuntimeApi, TemplateRuntimeExecutor>;
+pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>;
 
 /// Only enable the benchmarking host functions when we actually want to benchmark.
 #[cfg(feature = "runtime-benchmarks")]
@@ -25,11 +25,11 @@ impl NativeExecutionDispatch for TemplateRuntimeExecutor {
     type ExtendHostFunctions = HostFunctions;
 
     fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        frontier_template_runtime::api::dispatch(method, data)
+        creditcoin3_runtime::api::dispatch(method, data)
     }
 
     fn native_version() -> NativeVersion {
-        frontier_template_runtime::native_version()
+        creditcoin3_runtime::native_version()
     }
 }
 

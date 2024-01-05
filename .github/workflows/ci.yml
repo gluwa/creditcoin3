@@ -15,9 +15,81 @@ permissions: read-all
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
+  docker-build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build docker image
+        run: |
+          docker build -t gluwa/creditcoin3 .
+
+      # TODO: properly start a node once work on CSUB-857 starts
+      - name: Start a container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d gluwa/creditcoin3
+
+      - name: Sanity test creditcoin3 inside the container
+        run: |
+          docker exec creditcoin-validator which creditcoin3
+          docker exec creditcoin-validator creditcoin3 wizard --help
+
+      - name: Kill the container
+        run: |
+          # NOTE: inside the container creditcoin3-node is called creditcoin-node
+          sudo killall -9 creditcoin-node
+
+  sanity-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for parity between extrinsics, benchmarks and weights
+        run: |
+          echo "INFO: active pallets are"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets
+          echo "========================"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh
+
+      - name: Check migrations
+        run: |
+          ./.github/check-usage-of-log-warn.sh
+
+      - name: Check if Cargo.toml specifies dependencies from forks
+        run: |
+          ./.github/check-for-used-forks.sh
+
+  sanity-test-cli:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install creditcoin3-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Execute creditcoin3 command
+        run: |
+          # this makes sure we have a creditcoin3 entrypoint in the standard PATH
+          which creditcoin3
+          creditcoin3 help
+
   fmt:
     name: Rustfmt
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -42,14 +114,14 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -74,17 +146,17 @@ jobs:
 
   check:
     # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -109,14 +181,14 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   unit-test-creditcoin:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y protobuf-compiler
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -132,43 +204,345 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v2
 
-      - name: Configure flags for collecting coverage
-        run: |
-          # shellcheck disable=SC2129
-          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
-          echo "RUSTFLAGS=-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests" >> "$GITHUB_ENV"
-          echo "RUSTDOCFLAGS=-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests" >> "$GITHUB_ENV"
-
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
-        env:
-          CARGO_INCREMENTAL: ${{ env.CARGO_INCREMENTAL }}
-          RUSTFLAGS: ${{ env.RUSTFLAGS }}
-          RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }}
-      - id: coverage
-        uses: actions-rs/grcov@v0.1
-        with:
-          config: .grcov.yml
 
-      - uses: codecov/codecov-action@v3
-        with:
-          files: ${{ steps.coverage.outputs.report }}
-          fail_ci_if_error: false
-          verbose: true
-
-  audit:
-    name: cargo audit
-    runs-on: ubuntu-latest
+  build-creditcoin-node:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Set-Up
         run: |
           sudo apt-get update
-          sudo apt install -y protobuf-compiler
+          sudo apt install -y curl
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build SUT
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --features fast-runtime
+
+      - name: Upload creditcoin-node binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release/creditcoin3-node
+
+      - name: Upload WASM runtime
+        uses: actions/upload-artifact@v3
+        with:
+          name: creditcoin_node_runtime.compact.compressed.wasm
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+  integration-test-smart-contract:
+    needs:
+      - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Start Node 1 - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s) to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install smart contract test tool
+        working-directory: ./testing
+        run: |
+          npm install
+
+      - name: Execute smart contract basicTest
+        working-directory: ./testing
+        run: |
+          # note: this is Alith (Alice) private key, see README.md and
+          # https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
+          ./node_modules/.bin/basicTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+
+      # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
+      #- name: Execute smart contract advancedTest
+      #  working-directory: ./testing
+      #  run: |
+      #    # note: this is Alith (Alice) private key, see README.md
+      #    ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+
+  integration-test-check-extrinsics:
+    needs:
+      - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node Dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Run Extrinsics Ordering
+        shell: bash
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./.github/check-extrinsics.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      #Upload logs if nodes are not connecting.
+      #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
+      - name: Upload logs
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          if-no-files-found: warn
+          name: "extrinsic-logs"
+          path: |
+            head-node.log
+            release-node.log
+            # disabled until we have mainnet and testnet
+            # metadata-cmp-with-mainnet.txt
+            # metadata-cmp-with-testnet.txt
+
+
+  unit-test-cli:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Execute tests
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:unit
+
+      - uses: codecov/codecov-action@v3
+        with:
+          files: cli/coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+
+
+  integration-test-cli:
+    needs:
+      - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start Node 1
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Start Node 2
+        run: |
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --bob --pruning archive \
+            --base-path ./bob-data \
+            --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au \
+            --port 30335 --rpc-port 9955 &
+
+      - name: Wait for nodes to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
+
+      - name: Install creditcoin3-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Auto-update typedefs
+        id: update_typedefs
+        working-directory: ./cli
+        run: |
+          ./get-metadata.sh
+          yarn build:types
+          yarn format
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short
+          git diff
+          echo "======================================="
+
+          if [ -n "$(git status --short)" ]; then
+              git diff
+              echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build creditcoin3-cli
+        working-directory: ./cli
+        run: |
+          yarn build
+
+      - name: Run integration tests
+        working-directory: ./cli
+        run: |
+          yarn test:integration
+
+      - name: Commit changes for typedefs
+        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: 'cli/creditcoin.json cli/src/lib/interfaces/'
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update TypeScript type definitions"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload code coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: cli/coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+  integration-test-blockchain:
+    needs:
+      - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v3
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start Node 1
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s)s to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install creditcoin3-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Run blockchain tests
+        working-directory: ./cli
+        run: |
+          yarn test:blockchain
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -191,7 +565,7 @@ jobs:
       - name: Run cargo audit
         run: |
           cargo audit || true
-          CC_MATCH=$(cargo audit --color never | grep -E "^.── frontier-template-node" || true)
+          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin3-node" || true)
 
           # fail for anything which is a 1st level dependency of Creditcoin
           if [ -n "$CC_MATCH" ]; then
@@ -205,10 +579,95 @@ jobs:
 
   shellcheck:
     name: "🐚 Shellcheck"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         env:
           SHELLCHECK_OPTS: -e SC2002 # allow useless cat commands
+
+  javascript-checks:
+    name: javascript-${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        directory:
+          [cli]
+        command:
+          [lint, typecheck, check-format]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Run tools
+        working-directory: ${{ matrix.directory }}
+        run: |
+          yarn install
+          yarn ${{ matrix.command }}
+
+  benchmark:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect benchmark CI config
+        run: |
+          # WARNING: Command below may differ depending on which workflow config file
+          # your job is defined in !!! Don't copy&paste it blindly !!!
+          PALLETS_IN_CI_CONFIG=$(grep "./.github/bench.sh -p" .github/workflows/ci.yml | grep -v PALLETS_IN_CI_CONFIG | tr -s ' ' | cut -d' ' -f4 | sort | xargs)
+
+          PALLETS_IN_SOURCE=$(./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets)
+          if [ "$PALLETS_IN_CI_CONFIG" != "$PALLETS_IN_SOURCE" ]; then
+              echo "FAIL: Pallet mismatch between source code and benchmark CI config"
+              echo "INFO: in source: '$PALLETS_IN_SOURCE'"
+              echo "INFO: CI config: '$PALLETS_IN_CI_CONFIG'"
+              exit 1
+          fi
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build benchmarks
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --features runtime-benchmarks
+
+      - name: Check if runner machine meets chain's requirements
+        continue-on-error: true
+        run: |
+          ./.github/check-hardware.sh
+
+      - name: Run benchmarks to generate dummy weights
+        run: |
+          ./.github/bench.sh -p bridge -b -r 1 -s 2
+
+      # check if automatically generated weights compile
+      - name: Rebuild SUT with newly generated weights
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release

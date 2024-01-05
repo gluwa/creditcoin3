@@ -1,13 +1,15 @@
 [package]
-name = "frontier-template-node"
-version = "0.0.0"
-license = "Unlicense"
-build = "build.rs"
-description = "A fresh FRAME-based Substrate node, ready for hacking."
-publish = false
+name = "creditcoin3-node"
+description = "Creditcoin3"
+
 authors = { workspace = true }
 edition = { workspace = true }
+license = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
+version = { workspace = true }
+
+build = "build.rs"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -32,8 +34,8 @@ sc-client-api = { workspace = true }
 sc-consensus = { workspace = true }
 sc-consensus-babe = { workspace = true }
 sc-consensus-babe-rpc = { workspace = true }
-sc-consensus-epochs = { workspace = true }
 sc-consensus-grandpa = { workspace = true }
+sc-consensus-grandpa-rpc = { workspace = true }
 sc-consensus-manual-seal = { workspace = true }
 sc-executor = { workspace = true }
 sc-network = { workspace = true }
@@ -80,19 +82,18 @@ fc-mapping-sync = { workspace = true }
 fc-rpc = { workspace = true }
 fc-rpc-core = { workspace = true }
 fc-storage = { workspace = true }
-fp-account = { workspace = true }
 fp-dynamic-fee = { workspace = true, features = ["default"] }
 fp-evm = { workspace = true, features = ["default"] }
 fp-rpc = { workspace = true, features = ["default"] }
-frontier-template-runtime = { workspace = true, features = [
-	"std",
-], optional = true }
+
+# Gluwa
+creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 
 [features]
-default = ["frontier-template-runtime", "rocksdb", "sql", "txpool"]
+default = ["creditcoin3-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
 	"sc-cli/rocksdb",
 	"sc-service/rocksdb",
@@ -108,5 +109,5 @@ runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-benchmarking-cli/runtime-benchmarks",
 	"sc-service/runtime-benchmarks",
-	"frontier-template-runtime/runtime-benchmarks",
+	"creditcoin3-runtime/runtime-benchmarks",
 ]

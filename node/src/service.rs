@@ -17,7 +17,7 @@ use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
 // Runtime
-use frontier_template_runtime::{opaque::Block, Hash, TransactionConverter};
+use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
 
 use crate::{
     cli::Sealing,
@@ -461,6 +461,8 @@ where
     // for ethereum-compatibility rpc.
     config.rpc_id_provider = Some(Box::new(fc_rpc::EthereumSubIdProvider));
 
+    let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
+
     let rpc_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
@@ -499,60 +501,74 @@ where
         };
         let select_chain = select_chain.clone();
         let keystore = keystore_container.keystore();
-        let epoch_changes = babe_link.epoch_changes().clone();
-        Box::new(move |deny_unsafe, subscription_task_executor| {
-            let eth_deps = crate::rpc::EthDeps {
-                client: client.clone(),
-                pool: pool.clone(),
-                graph: pool.pool().clone(),
-                converter: Some(TransactionConverter),
-                is_authority,
-                enable_dev_signer,
-                network: network.clone(),
-                sync: sync_service.clone(),
-                frontier_backend: match frontier_backend.clone() {
-                    fc_db::Backend::KeyValue(b) => Arc::new(b),
-                    fc_db::Backend::Sql(b) => Arc::new(b),
-                },
-                overrides: overrides.clone(),
-                block_data_cache: block_data_cache.clone(),
-                filter_pool: filter_pool.clone(),
-                max_past_logs,
-                fee_history_cache: fee_history_cache.clone(),
-                fee_history_cache_limit,
-                execute_gas_limit_multiplier,
-                forced_parent_hashes: None,
-                pending_create_inherent_data_providers,
-                pending_consensus_data_provider: Some(crate::rpc::BabeConsensusDataProvider::new(
-                    client.clone(),
-                    keystore.clone(),
-                    epoch_changes.clone(),
-                    vec![],
-                )?),
-            };
-            let deps = crate::rpc::FullDeps {
-                client: client.clone(),
-                pool: pool.clone(),
-                deny_unsafe,
-                command_sink: if sealing.is_some() {
-                    Some(command_sink.clone())
-                } else {
-                    None
-                },
-                eth: eth_deps,
-                babe: crate::rpc::BabeDeps {
-                    babe_worker: babe_worker.clone(),
-                    keystore: keystore.clone(),
-                },
-                select_chain: select_chain.clone(),
-            };
-            crate::rpc::create_full(
-                deps,
-                subscription_task_executor,
-                pubsub_notification_sinks.clone(),
-            )
-            .map_err(Into::into)
-        })
+
+        let shared_authority_set = grandpa_link.shared_authority_set().clone();
+        let finality_provider = sc_consensus_grandpa::FinalityProofProvider::new_for_service(
+            backend.clone(),
+            Some(shared_authority_set.clone()),
+        );
+        let justification_stream = grandpa_link.justification_stream();
+        let shared_voter_state = shared_voter_state.clone();
+
+        Box::new(
+            move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
+                let eth_deps = crate::rpc::EthDeps {
+                    client: client.clone(),
+                    pool: pool.clone(),
+                    graph: pool.pool().clone(),
+                    converter: Some(TransactionConverter),
+                    is_authority,
+                    enable_dev_signer,
+                    network: network.clone(),
+                    sync: sync_service.clone(),
+                    frontier_backend: match frontier_backend.clone() {
+                        fc_db::Backend::KeyValue(b) => Arc::new(b),
+                        fc_db::Backend::Sql(b) => Arc::new(b),
+                    },
+                    overrides: overrides.clone(),
+                    block_data_cache: block_data_cache.clone(),
+                    filter_pool: filter_pool.clone(),
+                    max_past_logs,
+                    fee_history_cache: fee_history_cache.clone(),
+                    fee_history_cache_limit,
+                    execute_gas_limit_multiplier,
+                    forced_parent_hashes: None,
+                    pending_create_inherent_data_providers,
+                    pending_consensus_data_provider: Some(
+                        crate::rpc::BabeConsensusDataProvider::new(),
+                    ),
+                };
+                let deps = crate::rpc::FullDeps {
+                    client: client.clone(),
+                    pool: pool.clone(),
+                    deny_unsafe,
+                    command_sink: if sealing.is_some() {
+                        Some(command_sink.clone())
+                    } else {
+                        None
+                    },
+                    eth: eth_deps,
+                    babe: crate::rpc::BabeDeps {
+                        babe_worker: babe_worker.clone(),
+                        keystore: keystore.clone(),
+                    },
+                    select_chain: select_chain.clone(),
+                    grandpa: enable_grandpa.then(|| crate::rpc::GrandpaDeps {
+                        finality_provider: finality_provider.clone(),
+                        justification_stream: justification_stream.clone(),
+                        shared_authority_set: shared_authority_set.clone(),
+                        shared_voter_state: shared_voter_state.clone(),
+                        subscription_executor: subscription_task_executor.clone(),
+                    }),
+                };
+                crate::rpc::create_full(
+                    deps,
+                    subscription_task_executor,
+                    pubsub_notification_sinks.clone(),
+                )
+                .map_err(Into::into)
+            },
+        )
     };
 
     let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
@@ -688,7 +704,7 @@ where
                 sync: sync_service,
                 voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
                 prometheus_registry,
-                shared_voter_state: sc_consensus_grandpa::SharedVoterState::empty(),
+                shared_voter_state,
                 telemetry: telemetry.as_ref().map(|x| x.handle()),
                 offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
             })?;
@@ -743,7 +759,7 @@ where
             inherent_data: &mut sp_inherents::InherentData,
         ) -> Result<(), sp_inherents::Error> {
             TIMESTAMP.with(|x| {
-                *x.borrow_mut() += frontier_template_runtime::SLOT_DURATION;
+                *x.borrow_mut() += creditcoin3_runtime::SLOT_DURATION;
                 inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &*x.borrow())
             })
         }
@@ -803,7 +819,7 @@ pub async fn build_full(
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full::<frontier_template_runtime::RuntimeApi, TemplateRuntimeExecutor>(
+    new_full::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>(
         config, eth_config, sealing,
     )
     .await
@@ -830,7 +846,7 @@ pub fn new_chain_ops(
         task_manager,
         other,
         ..
-    } = new_partial::<frontier_template_runtime::RuntimeApi, TemplateRuntimeExecutor, _>(
+    } = new_partial::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor, _>(
         config,
         eth_config,
         build_babe_grandpa_import_queue,
