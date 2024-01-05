@@ -299,37 +299,6 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
-        bridge: {
-            /**
-             * See [`Pallet::add_authority`].
-             **/
-            addAuthority: AugmentedSubmittable<
-                (who: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
-            >;
-            /**
-             * See [`Pallet::approve_collection`].
-             **/
-            approveCollection: AugmentedSubmittable<
-                (
-                    burnId: u64 | AnyNumber | Uint8Array,
-                    collector: AccountId32 | string | Uint8Array,
-                    amount: u128 | AnyNumber | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u64, AccountId32, u128]
-            >;
-            /**
-             * See [`Pallet::remove_authority`].
-             **/
-            removeAuthority: AugmentedSubmittable<
-                (who: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
-            >;
-            /**
-             * Generic tx
-             **/
-            [key: string]: SubmittableExtrinsicFunction<ApiType>;
-        };
         dynamicFee: {
             /**
              * See [`Pallet::note_min_gas_price_target`].
