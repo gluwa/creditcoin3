@@ -169,13 +169,6 @@ declare module '@polkadot/api-base/types/events' {
              **/
             [key: string]: AugmentedEvent<ApiType>;
         };
-        bridge: {
-            FundsCollected: AugmentedEvent<ApiType, [u64, AccountId32, u128]>;
-            /**
-             * Generic event
-             **/
-            [key: string]: AugmentedEvent<ApiType>;
-        };
         ethereum: {
             /**
              * An ethereum transaction was successfully executed.
