@@ -76,7 +76,7 @@ jobs:
           args: --release --features runtime-benchmarks
 
       - name: Upload benchmark binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: creditcoin3-node
           path: target/release/creditcoin3-node
@@ -248,7 +248,7 @@ jobs:
           az group delete --yes -n "${{ steps.get-env.outputs.resource_group }}"
 
       - name: Upload logs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: "Azure resources"
