@@ -108,8 +108,7 @@ x: eth.getBalance
 > Further reading:
 > [EVM accounts](https://github.com/danforbes/danforbes/blob/master/writings/eth-dev.md#Accounts)
 
-Alice's EVM account ID was calculated using
-[an included utility script](utils/README.md#--evm-address-address).
+Alice's EVM account ID was calculated using a utility script.
 
 ## Example 1: Deploy basic contract using Remix & Metamask
 
