@@ -49,6 +49,14 @@ similar-asserts = "1.1.0"
 sqlx = { version = "0.7.3", default-features = false, features = ["macros"] }
 thiserror = "1.0"
 tokio = "1.35.1"
+sha3 = { version = "0.10", default-features = false }
+tracing = "0.1.34"
+tracing-core = "0.1.29"
+bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
+primitive-types = "0.12.0"
+tiny-bip39 = { version = "0.8", default-features = false }
+url = "2.2.2"
+blake2-rfc = { version = "0.2.18", default-features = false }
 
 # Substrate Client
 sc-basic-authorship = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
@@ -184,6 +192,28 @@ ark-bw6-761 = { version = "0.4.0", default-features = false }
 ark-ec = { version = "0.4.0", default-features = false }
 ark-ff = { version = "0.4.0", default-features = false }
 ark-std = { version = "0.4.0", default-features = false }
+
+# Moonbeam
+evm-gasometer = { version = "0.40.0", default-features = false }
+evm-runtime = { version = "0.40.0", default-features = false }
+
+account = { path = "primitives/account", default-features = false }
+evm-tracing-events = { path = "primitives/rpc/evm-tracing-events", default-features = false }
+moonbeam-primitives-ext = { path = "primitives/ext", default-features = false }
+moonbeam-rpc-primitives-debug = { path = "primitives/rpc/debug", default-features = false }
+moonbeam-rpc-primitives-txpool = { path = "primitives/rpc/txpool", default-features = false }
+
+moonbeam-evm-tracer = { path = "runtime/evm_tracer", default-features = false }
+moonbeam-cli-opt = { path = "node/cli-opt", default-features = false }
+moonbeam-client-evm-tracing = { path = "client/evm-tracing" }
+moonbeam-finality-rpc = { path = "client/rpc/finality" }
+moonbeam-rpc-core-debug = { path = "client/rpc-core/debug" }
+moonbeam-rpc-core-trace = { path = "client/rpc-core/trace" }
+moonbeam-rpc-core-txpool = { path = "client/rpc-core/txpool" }
+moonbeam-rpc-core-types = { path = "client/rpc-core/types" }
+moonbeam-rpc-debug = { path = "client/rpc/debug" }
+moonbeam-rpc-trace = { path = "client/rpc/trace" }
+moonbeam-rpc-txpool = { path = "client/rpc/txpool" }
 
 [profile.release]
 # Substrate runtime requires unwinding.
