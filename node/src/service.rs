@@ -471,14 +471,14 @@ where
                 &eth_config,
                 prometheus_registry.clone(),
                 crate::rpc::SpawnTasksParams {
-                    // task_manager: &task_manager,
+                    task_manager: &task_manager,
                     client: client.clone(),
-                    // substrate_backend: backend.clone(),
-                    // frontier_backend: frontier_backend.clone(),
-                    // filter_pool: filter_pool.clone(),
-                    // overrides: overrides.clone(),
+                    substrate_backend: backend.clone(),
+                    frontier_backend: frontier_backend.clone(),
+                    filter_pool: filter_pool.clone(),
+                    overrides: overrides.clone(),
                     fee_history_limit: fee_history_limit.clone(),
-                    // fee_history_cache: fee_history_cache.clone(),
+                    fee_history_cache: fee_history_cache.clone(),
                 },
             )
         } else {
