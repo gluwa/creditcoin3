@@ -6,6 +6,7 @@ use std::{
 };
 
 use futures::{future, prelude::*};
+use moonbeam_cli_opt::EthApi;
 // Substrate
 use sc_client_api::BlockchainEvents;
 use sc_executor::NativeExecutionDispatch;
@@ -49,6 +50,11 @@ pub struct EthConfiguration {
     #[arg(long, default_value = "2048")]
     pub fee_history_limit: u64,
 
+    /// Size in bytes of data a raw tracing request is allowed to use.
+    /// Bound the size of memory, stack and storage data.
+    #[clap(long, default_value = "20000000")]
+    pub tracing_raw_max_memory_usage: usize,
+
     #[arg(long)]
     pub enable_dev_signer: bool,
 
@@ -60,6 +66,24 @@ pub struct EthConfiguration {
     /// when using eth_call/eth_estimateGas.
     #[arg(long, default_value = "10")]
     pub execute_gas_limit_multiplier: u64,
+
+    #[arg(long, value_delimiter = ',')]
+    pub ethapi: Vec<EthApi>,
+
+    /// Number of concurrent tracing tasks. Meant to be shared by both "debug" and "trace" modules.
+    #[arg(long, default_value = "10")]
+    pub ethapi_max_permits: u32,
+
+    /// Maximum number of trace entries a single request of `trace_filter` is allowed to return.
+    /// A request asking for more or an unbounded one going over this limit will both return an
+    /// error.
+    #[arg(long, default_value = "500")]
+    pub ethapi_trace_max_count: u32,
+
+    /// Duration (in seconds) after which the cache of `trace_filter` for a given block will be
+    /// discarded.
+    #[arg(long, default_value = "300")]
+    pub ethapi_trace_cache_duration: u64,
 
     /// Size in bytes of the LRU cache for block data.
     #[arg(long, default_value = "50")]

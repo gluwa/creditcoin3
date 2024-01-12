@@ -18,6 +18,7 @@ use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
 // Runtime
 use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
+use moonbeam_cli_opt::EthApi as EthApiCmd;
 
 use crate::{
     cli::Sealing,
@@ -462,6 +463,30 @@ where
     config.rpc_id_provider = Some(Box::new(fc_rpc::EthereumSubIdProvider));
 
     let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
+    let ethapi_cmd = eth_config.ethapi.clone();
+
+    let tracing_requesters =
+        if ethapi_cmd.contains(&EthApiCmd::Debug) || ethapi_cmd.contains(&EthApiCmd::Trace) {
+            crate::rpc::tracing::spawn_tracing_tasks(
+                &eth_config,
+                prometheus_registry.clone(),
+                crate::rpc::SpawnTasksParams {
+                    // task_manager: &task_manager,
+                    client: client.clone(),
+                    // substrate_backend: backend.clone(),
+                    // frontier_backend: frontier_backend.clone(),
+                    // filter_pool: filter_pool.clone(),
+                    // overrides: overrides.clone(),
+                    fee_history_limit: fee_history_limit.clone(),
+                    // fee_history_cache: fee_history_cache.clone(),
+                },
+            )
+        } else {
+            crate::rpc::tracing::RpcRequesters {
+                debug: None,
+                trace: None,
+            }
+        };
 
     let rpc_builder = {
         let client = client.clone();
@@ -509,6 +534,9 @@ where
         );
         let justification_stream = grandpa_link.justification_stream();
         let shared_voter_state = shared_voter_state.clone();
+        let ethapi_cmd = eth_config.ethapi.clone();
+        let fee_history_limit = eth_config.fee_history_limit;
+        let backend = backend.clone();
 
         Box::new(
             move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
@@ -539,9 +567,17 @@ where
                     ),
                 };
                 let deps = crate::rpc::FullDeps {
+                    backend: backend.clone(),
                     client: client.clone(),
                     pool: pool.clone(),
                     deny_unsafe,
+                    ethapi_cmd: ethapi_cmd.clone(),
+                    filter_pool: filter_pool.clone(),
+                    frontier_backend: match frontier_backend.clone() {
+                        fc_db::Backend::KeyValue(b) => Arc::new(b),
+                        fc_db::Backend::Sql(b) => Arc::new(b),
+                    },
+                    graph: pool.pool().clone(),
                     command_sink: if sealing.is_some() {
                         Some(command_sink.clone())
                     } else {
@@ -560,10 +596,19 @@ where
                         shared_voter_state: shared_voter_state.clone(),
                         subscription_executor: subscription_task_executor.clone(),
                     }),
+                    overrides: overrides.clone(),
+                    block_data_cache: block_data_cache.clone(),
+                    max_past_logs,
+                    fee_history_limit,
+                    fee_history_cache: fee_history_cache.clone(),
                 };
                 crate::rpc::create_full(
                     deps,
                     subscription_task_executor,
+                    Some(crate::rpc::TracingConfig {
+                        tracing_requesters: tracing_requesters.clone(),
+                        trace_filter_max_count: eth_config.ethapi_trace_max_count,
+                    }),
                     pubsub_notification_sinks.clone(),
                 )
                 .map_err(Into::into)
