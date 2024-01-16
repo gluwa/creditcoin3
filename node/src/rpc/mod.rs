@@ -3,7 +3,6 @@
 pub mod tracing;
 
 use fp_rpc::EthereumRuntimeRPCApi;
-use moonbeam_rpc_txpool::TxPoolServer;
 use std::sync::Arc;
 
 use futures::channel::mpsc;
@@ -28,14 +27,10 @@ use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
-use fc_rpc::{EthBlockDataCacheTask, EthFilter, OverrideHandle};
-use fc_rpc_core::{
-    types::{CallRequest, FeeHistoryCache, FilterPool},
-    EthFilterApiServer,
-};
+use fc_rpc::OverrideHandle;
+use fc_rpc_core::types::{CallRequest, FeeHistoryCache, FilterPool};
 use moonbeam_cli_opt::EthApi as EthApiCmd;
 use sc_client_api::BlockOf;
-use sc_transaction_pool::Pool;
 use sp_block_builder::BlockBuilder;
 use sp_core::H256;
 use sp_runtime::traits::BlakeTwo256;
@@ -104,26 +99,6 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     pub grandpa: Option<GrandpaDeps<BE>>,
 
     pub select_chain: SC,
-    /// EthFilterApi pool.
-    pub filter_pool: Option<FilterPool>,
-    /// The list of optional RPC extensions.
-    pub ethapi_cmd: Vec<EthApiCmd>,
-    /// Ethereum data access overrides.
-    pub overrides: Arc<OverrideHandle<Block>>,
-    /// Cache for Ethereum block data.
-    pub block_data_cache: Arc<EthBlockDataCacheTask<Block>>,
-    /// Maximum number of logs in a query.
-    pub max_past_logs: u32,
-    /// Maximum fee history cache size.
-    pub fee_history_limit: u64,
-    /// Fee history cache.
-    pub fee_history_cache: FeeHistoryCache,
-    /// Frontier Backend.
-    pub frontier_backend: Arc<dyn fc_api::Backend<Block>>,
-    /// Backend.
-    pub backend: Arc<BE>,
-    /// Graph pool instance.
-    pub graph: Arc<Pool<A>>,
 }
 
 /// Dependencies for GRANDPA
@@ -205,7 +180,6 @@ where
 {
     use moonbeam_rpc_debug::{Debug, DebugServer};
     use moonbeam_rpc_trace::{Trace, TraceServer};
-    use moonbeam_rpc_txpool::TxPool;
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
@@ -225,35 +199,10 @@ where
         },
         select_chain,
         grandpa,
-        filter_pool,
-        ethapi_cmd,
-        overrides,
-        block_data_cache,
-        max_past_logs,
-        fee_history_limit,
-        fee_history_cache,
-        frontier_backend,
-        backend,
-        graph,
     } = deps;
 
     io.merge(System::new(Arc::clone(&client), Arc::clone(&pool), deny_unsafe).into_rpc())?;
     io.merge(TransactionPayment::new(Arc::clone(&client)).into_rpc())?;
-
-    // if let Some(filter_pool) = filter_pool {
-    //     io.merge(
-    //         EthFilter::new(
-    //             client.clone(),
-    //             frontier_backend.clone(),
-    //             graph.clone(),
-    //             filter_pool,
-    //             500_usize, // max stored filters
-    //             max_past_logs,
-    //             block_data_cache,
-    //         )
-    //         .into_rpc(),
-    //     )?;
-    // }
 
     if let Some(command_sink) = command_sink {
         io.merge(
@@ -295,10 +244,6 @@ where
             .into_rpc(),
         )?;
     }
-
-    // if ethapi_cmd.contains(&EthApiCmd::Txpool) {
-    //     io.merge(TxPool::new(Arc::clone(&client), graph).into_rpc())?;
-    // }
 
     if let Some(tracing_config) = maybe_tracing_config {
         if let Some(trace_filter_requester) = tracing_config.tracing_requesters.trace {

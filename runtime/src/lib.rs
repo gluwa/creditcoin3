@@ -54,7 +54,6 @@ use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
-use moonbeam_rpc_primitives_txpool::TxPoolResponse;
 use pallet_ethereum::{
     Call::transact, PostLogContent, Transaction as EthereumTransaction, TransactionAction,
     TransactionData,
@@ -1456,30 +1455,6 @@ impl_runtime_apis! {
 
         fn balance_to_points(pool_id: pallet_nomination_pools::PoolId, new_funds: Balance) -> Balance {
             NominationPools::api_balance_to_points(pool_id, new_funds)
-        }
-    }
-
-    impl moonbeam_rpc_primitives_txpool::TxPoolRuntimeApi<Block> for Runtime {
-        fn extrinsic_filter(
-            xts_ready: Vec<<Block as BlockT>::Extrinsic>,
-            xts_future: Vec<<Block as BlockT>::Extrinsic>,
-        ) -> TxPoolResponse {
-            TxPoolResponse {
-                ready: xts_ready
-                    .into_iter()
-                    .filter_map(|xt| match xt.0.function {
-                        RuntimeCall::Ethereum(transact { transaction }) => Some(transaction),
-                        _ => None,
-                    })
-                    .collect(),
-                future: xts_future
-                    .into_iter()
-                    .filter_map(|xt| match xt.0.function {
-                        RuntimeCall::Ethereum(transact { transaction }) => Some(transaction),
-                        _ => None,
-                    })
-                    .collect(),
-            }
         }
     }
 
