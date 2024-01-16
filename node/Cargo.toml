@@ -93,13 +93,10 @@ creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 
 # Moonbeam
 moonbeam-cli-opt = { workspace = true }
-moonbeam-finality-rpc = { workspace = true }
 moonbeam-primitives-ext = { workspace = true }
 moonbeam-rpc-debug = { workspace = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
-moonbeam-rpc-primitives-txpool = { workspace = true }
 moonbeam-rpc-trace = { workspace = true }
-moonbeam-rpc-txpool = { workspace = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
