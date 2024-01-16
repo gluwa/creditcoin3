@@ -1,4 +1,4 @@
-use crate::service::EthConfiguration;
+use crate::eth::EthConfiguration;
 
 /// Available Sealing methods.
 #[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]

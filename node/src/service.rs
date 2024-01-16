@@ -20,17 +20,18 @@ use substrate_prometheus_endpoint::Registry;
 use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
 use moonbeam_cli_opt::EthApi as EthApiCmd;
 
+use crate::rpc;
 use crate::{
     cli::Sealing,
-    client::{BaseRuntimeApiCollection, FullBackend, FullClient, RuntimeApiCollection},
-    eth::{
-        new_frontier_partial, spawn_frontier_tasks, BackendType, EthCompatRuntimeApiCollection,
-        FrontierBackend, FrontierBlockImport, FrontierPartialComponents,
+    client::{
+        BaseRuntimeApiCollection, Client, FullBackend, FullClient, RuntimeApiCollection,
+        TemplateRuntimeExecutor,
     },
-};
-pub use crate::{
-    client::{Client, TemplateRuntimeExecutor},
-    eth::{db_config_dir, EthConfiguration},
+    eth::{
+        db_config_dir, new_frontier_partial, spawn_frontier_tasks, BackendType,
+        EthCompatRuntimeApiCollection, EthConfiguration, FrontierBackend, FrontierBlockImport,
+        FrontierPartialComponents,
+    },
 };
 
 type BasicImportQueue = sc_consensus::DefaultImportQueue<Block>;
@@ -147,7 +148,7 @@ where
         telemetry.as_ref().map(|x| x.handle()),
     )?;
 
-    let overrides = crate::rpc::overrides_handle(client.clone());
+    let overrides = rpc::overrides_handle(client.clone());
     let frontier_backend = match eth_config.frontier_backend_type {
         BackendType::KeyValue => FrontierBackend::KeyValue(fc_db::kv::Backend::open(
             Arc::clone(&client),
@@ -464,13 +465,14 @@ where
 
     let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
     let ethapi_cmd = eth_config.ethapi.clone();
+    let fee_history_limit = eth_config.fee_history_limit.clone();
 
     let tracing_requesters =
         if ethapi_cmd.contains(&EthApiCmd::Debug) || ethapi_cmd.contains(&EthApiCmd::Trace) {
-            crate::rpc::tracing::spawn_tracing_tasks(
+            rpc::tracing::spawn_tracing_tasks(
                 &eth_config,
                 prometheus_registry.clone(),
-                crate::rpc::SpawnTasksParams {
+                rpc::SpawnTasksParams {
                     task_manager: &task_manager,
                     client: client.clone(),
                     substrate_backend: backend.clone(),
@@ -482,7 +484,7 @@ where
                 },
             )
         } else {
-            crate::rpc::tracing::RpcRequesters {
+            rpc::tracing::RpcRequesters {
                 debug: None,
                 trace: None,
             }
@@ -540,7 +542,7 @@ where
 
         Box::new(
             move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
-                let eth_deps = crate::rpc::EthDeps {
+                let eth_deps = rpc::EthDeps {
                     client: client.clone(),
                     pool: pool.clone(),
                     graph: pool.pool().clone(),
@@ -562,11 +564,9 @@ where
                     execute_gas_limit_multiplier,
                     forced_parent_hashes: None,
                     pending_create_inherent_data_providers,
-                    pending_consensus_data_provider: Some(
-                        crate::rpc::BabeConsensusDataProvider::new(),
-                    ),
+                    pending_consensus_data_provider: Some(rpc::BabeConsensusDataProvider::new()),
                 };
-                let deps = crate::rpc::FullDeps {
+                let deps = rpc::FullDeps {
                     backend: backend.clone(),
                     client: client.clone(),
                     pool: pool.clone(),
@@ -584,12 +584,12 @@ where
                         None
                     },
                     eth: eth_deps,
-                    babe: crate::rpc::BabeDeps {
+                    babe: rpc::BabeDeps {
                         babe_worker: babe_worker.clone(),
                         keystore: keystore.clone(),
                     },
                     select_chain: select_chain.clone(),
-                    grandpa: enable_grandpa.then(|| crate::rpc::GrandpaDeps {
+                    grandpa: enable_grandpa.then(|| rpc::GrandpaDeps {
                         finality_provider: finality_provider.clone(),
                         justification_stream: justification_stream.clone(),
                         shared_authority_set: shared_authority_set.clone(),
@@ -602,10 +602,10 @@ where
                     fee_history_limit,
                     fee_history_cache: fee_history_cache.clone(),
                 };
-                crate::rpc::create_full(
+                rpc::create_full(
                     deps,
                     subscription_task_executor,
-                    Some(crate::rpc::TracingConfig {
+                    Some(rpc::TracingConfig {
                         tracing_requesters: tracing_requesters.clone(),
                         trace_filter_max_count: eth_config.ethapi_trace_max_count,
                     }),

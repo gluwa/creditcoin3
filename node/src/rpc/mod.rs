@@ -2,6 +2,8 @@
 
 pub mod tracing;
 
+use fp_rpc::EthereumRuntimeRPCApi;
+use moonbeam_rpc_txpool::TxPoolServer;
 use std::sync::Arc;
 
 use futures::channel::mpsc;
@@ -26,12 +28,22 @@ use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
-use fc_rpc::{EthBlockDataCacheTask, OverrideHandle};
-use fc_rpc_core::types::{CallRequest, FeeHistoryCache, FilterPool};
+use fc_rpc::{EthBlockDataCacheTask, EthFilter, OverrideHandle};
+use fc_rpc_core::{
+    types::{CallRequest, FeeHistoryCache, FilterPool},
+    EthFilterApiServer,
+};
 use moonbeam_cli_opt::EthApi as EthApiCmd;
+use sc_client_api::BlockOf;
 use sc_transaction_pool::Pool;
+use sp_block_builder::BlockBuilder;
+use sp_core::H256;
+use sp_runtime::traits::BlakeTwo256;
+use std::time::Duration;
 
 mod eth;
+
+use crate::client::RuntimeApiCollection;
 
 pub use self::eth::{
     consensus_data_provider::{self, BabeConsensusDataProvider},
@@ -180,6 +192,7 @@ where
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
     C::Api: fp_rpc::ConvertTransactionRuntimeApi<Block>,
     C::Api: fp_rpc::EthereumRuntimeRPCApi<Block>,
+    C::Api: RuntimeApiCollection,
     C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
     C: BlockchainEvents<Block> + AuxStore + UsageProvider<Block> + StorageProvider<Block, BE>,
     BE: Backend<Block> + 'static,
@@ -190,14 +203,9 @@ where
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
-    use fc_rpc::{
-        Eth, EthApiServer, EthFilter, EthFilterApiServer, EthPubSub, EthPubSubApiServer, Net,
-        NetApiServer, Web3, Web3ApiServer,
-    };
-    use moonbeam_finality_rpc::{MoonbeamFinality, MoonbeamFinalityApiServer};
     use moonbeam_rpc_debug::{Debug, DebugServer};
     use moonbeam_rpc_trace::{Trace, TraceServer};
-    use moonbeam_rpc_txpool::{TxPool, TxPoolServer};
+    use moonbeam_rpc_txpool::TxPool;
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
@@ -256,7 +264,16 @@ where
     }
 
     if let Some(babe_worker) = babe_worker {
-        io.merge(Babe::new(client, babe_worker, keystore, select_chain, deny_unsafe).into_rpc())?;
+        io.merge(
+            Babe::new(
+                client.clone(),
+                babe_worker,
+                keystore,
+                select_chain,
+                deny_unsafe,
+            )
+            .into_rpc(),
+        )?;
     }
 
     if let Some(GrandpaDeps {
@@ -287,7 +304,7 @@ where
         if let Some(trace_filter_requester) = tracing_config.tracing_requesters.trace {
             io.merge(
                 Trace::new(
-                    client,
+                    client.clone(),
                     trace_filter_requester,
                     tracing_config.trace_filter_max_count,
                 )
