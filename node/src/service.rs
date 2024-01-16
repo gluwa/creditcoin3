@@ -536,9 +536,6 @@ where
         );
         let justification_stream = grandpa_link.justification_stream();
         let shared_voter_state = shared_voter_state.clone();
-        let ethapi_cmd = eth_config.ethapi.clone();
-        let fee_history_limit = eth_config.fee_history_limit;
-        let backend = backend.clone();
 
         Box::new(
             move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
@@ -567,17 +564,9 @@ where
                     pending_consensus_data_provider: Some(rpc::BabeConsensusDataProvider::new()),
                 };
                 let deps = rpc::FullDeps {
-                    backend: backend.clone(),
                     client: client.clone(),
                     pool: pool.clone(),
                     deny_unsafe,
-                    ethapi_cmd: ethapi_cmd.clone(),
-                    filter_pool: filter_pool.clone(),
-                    frontier_backend: match frontier_backend.clone() {
-                        fc_db::Backend::KeyValue(b) => Arc::new(b),
-                        fc_db::Backend::Sql(b) => Arc::new(b),
-                    },
-                    graph: pool.pool().clone(),
                     command_sink: if sealing.is_some() {
                         Some(command_sink.clone())
                     } else {
@@ -596,11 +585,6 @@ where
                         shared_voter_state: shared_voter_state.clone(),
                         subscription_executor: subscription_task_executor.clone(),
                     }),
-                    overrides: overrides.clone(),
-                    block_data_cache: block_data_cache.clone(),
-                    max_past_logs,
-                    fee_history_limit,
-                    fee_history_cache: fee_history_cache.clone(),
                 };
                 rpc::create_full(
                     deps,
