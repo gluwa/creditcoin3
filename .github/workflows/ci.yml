@@ -237,6 +237,8 @@ jobs:
           profile: minimal
           override: true
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Build SUT
         uses: actions-rs/cargo@v1
@@ -257,6 +259,8 @@ jobs:
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
   build-creditcoin-node-fast-runtime:
+    needs:
+      - build-creditcoin-node
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -284,6 +288,8 @@ jobs:
           profile: minimal
           override: true
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Build SUT
         uses: actions-rs/cargo@v1
