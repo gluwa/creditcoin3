@@ -1567,13 +1567,10 @@ dependencies = [
  "jsonrpsee",
  "log",
  "moonbeam-cli-opt",
- "moonbeam-finality-rpc",
  "moonbeam-primitives-ext",
  "moonbeam-rpc-debug",
  "moonbeam-rpc-primitives-debug",
- "moonbeam-rpc-primitives-txpool",
  "moonbeam-rpc-trace",
- "moonbeam-rpc-txpool",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -1638,7 +1635,6 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",
- "moonbeam-rpc-primitives-txpool",
  "pallet-authorship",
  "pallet-babe",
  "pallet-bags-list",
@@ -5395,23 +5391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moonbeam-finality-rpc"
-version = "0.1.0"
-dependencies = [
- "fc-api",
- "fc-db",
- "fc-rpc",
- "futures 0.3.30",
- "jsonrpsee",
- "parity-scale-codec",
- "sp-api",
- "sp-blockchain",
- "sp-core",
- "sp-runtime",
- "tokio",
-]
-
-[[package]]
 name = "moonbeam-primitives-ext"
 version = "0.1.0"
 dependencies = [
@@ -5445,18 +5424,6 @@ dependencies = [
  "jsonrpsee",
  "moonbeam-client-evm-tracing",
  "moonbeam-rpc-core-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "moonbeam-rpc-core-txpool"
-version = "0.6.0"
-dependencies = [
- "ethereum",
- "ethereum-types",
- "fc-rpc-core",
- "jsonrpsee",
  "serde",
  "serde_json",
 ]
@@ -5518,19 +5485,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moonbeam-rpc-primitives-txpool"
-version = "0.6.0"
-dependencies = [
- "ethereum",
- "parity-scale-codec",
- "scale-info",
- "sp-api",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "moonbeam-rpc-trace"
 version = "0.6.0"
 dependencies = [
@@ -5563,28 +5517,6 @@ dependencies = [
  "substrate-prometheus-endpoint",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "moonbeam-rpc-txpool"
-version = "0.6.0"
-dependencies = [
- "ethereum-types",
- "fc-rpc",
- "frame-system",
- "jsonrpsee",
- "moonbeam-rpc-core-txpool",
- "moonbeam-rpc-primitives-txpool",
- "rlp",
- "sc-transaction-pool",
- "sc-transaction-pool-api",
- "serde",
- "sha3",
- "sp-api",
- "sp-blockchain",
- "sp-io",
- "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
