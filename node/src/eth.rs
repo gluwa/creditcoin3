@@ -52,7 +52,7 @@ pub struct EthConfiguration {
 
     /// Size in bytes of data a raw tracing request is allowed to use.
     /// Bound the size of memory, stack and storage data.
-    #[clap(long, default_value = "20000000")]
+    #[arg(long, default_value = "20000000")]
     pub tracing_raw_max_memory_usage: usize,
 
     #[arg(long)]
@@ -136,6 +136,8 @@ pub trait EthCompatRuntimeApiCollection:
     sp_api::ApiExt<Block>
     + fp_rpc::ConvertTransactionRuntimeApi<Block>
     + fp_rpc::EthereumRuntimeRPCApi<Block>
+    + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
+    + moonbeam_rpc_primitives_txpool::TxPoolRuntimeApi<Block>
 {
 }
 
@@ -143,6 +145,8 @@ impl<Api> EthCompatRuntimeApiCollection for Api where
     Api: sp_api::ApiExt<Block>
         + fp_rpc::ConvertTransactionRuntimeApi<Block>
         + fp_rpc::EthereumRuntimeRPCApi<Block>
+        + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
+        + moonbeam_rpc_primitives_txpool::TxPoolRuntimeApi<Block>
 {
 }
 
