@@ -14,21 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with Moonbeam.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::eth::EthConfiguration;
+
 use super::*;
 
-pub use crate::eth::EthConfiguration;
-use ethereum_types::H256;
-use fp_rpc::EthereumRuntimeRPCApi;
 use moonbeam_rpc_debug::{DebugHandler, DebugRequester};
 use moonbeam_rpc_trace::{CacheRequester as TraceFilterCacheRequester, CacheTask};
-use sc_client_api::{
-    backend::{Backend, StateBackend, StorageProvider},
-    client::BlockchainEvents,
-    BlockOf,
-};
-use sp_block_builder::BlockBuilder;
-use sp_runtime::traits::{BlakeTwo256, Block as BlockT};
-use std::{sync::Arc, time::Duration};
 use substrate_prometheus_endpoint::Registry as PrometheusRegistry;
 use tokio::sync::Semaphore;
 
