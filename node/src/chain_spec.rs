@@ -19,8 +19,9 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, AccountId, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
-    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
+    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping, BabeConfig,
+    Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig, SS58Prefix, SessionConfig,
+    Signature, StakingConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -132,6 +133,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                         get_account_id_from_seed::<sr25519::Public>("Dave"),
                         get_account_id_from_seed::<sr25519::Public>("Eve"),
                         get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                        eth_acct(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
                     ],
                     vec![
                         hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
@@ -225,6 +227,10 @@ fn genesis_account(balance: U256) -> fp_evm::GenesisAccount {
         storage: Default::default(),
         code: Default::default(),
     }
+}
+
+fn eth_acct(b: [u8; 20]) -> AccountId {
+    AddressMapping::into_account_id(H160::from(b))
 }
 
 /// Configure initial storage state for FRAME modules.
@@ -333,6 +339,7 @@ fn testnet_genesis(
                     let acct = H160::from(acct);
                     map.insert(acct, genesis_account(one_mil));
                 }
+                eprintln!("EVM accounts: {:?}", map);
                 map
             },
             ..Default::default()
