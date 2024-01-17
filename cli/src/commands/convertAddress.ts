@@ -10,8 +10,7 @@ export function makeConvertAddressCommand() {
     return cmd;
 }
 
-function convertAddressAction (options: OptionValues)
-{
+function convertAddressAction(options: OptionValues) {
     const address = options.address as ValidatedAddress;
     const type = address.type;
     if (type === 'EVM') {
@@ -19,8 +18,8 @@ function convertAddressAction (options: OptionValues)
     } else if (type === 'Substrate') {
         console.log(`Associated EVM address: ${substrateAddressToEvmAddress(address.address)}`);
     } else {
-            console.error('Invalid address type');
-            process.exit(1);
+        console.error('Invalid address type');
+        process.exit(1);
     }
     process.exit(0);
 }
