@@ -14,6 +14,7 @@ import type {
     FrameSystemLimitsBlockWeights,
     SpVersionRuntimeVersion,
     SpWeightsRuntimeDbWeight,
+    SpWeightsWeightV2Weight,
 } from '@polkadot/types/lookup';
 
 export type __AugmentedConst<ApiType extends ApiTypes> = AugmentedConst<ApiType>;
@@ -226,6 +227,24 @@ declare module '@polkadot/api-base/types/consts' {
              * into account `32 + proxy_type.encode().len()` bytes of data.
              **/
             proxyDepositFactor: u128 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
+        scheduler: {
+            /**
+             * The maximum weight that may be scheduled per block for any dispatchables.
+             **/
+            maximumWeight: SpWeightsWeightV2Weight & AugmentedConst<ApiType>;
+            /**
+             * The maximum number of scheduled calls in the queue for a single block.
+             *
+             * NOTE:
+             * + Dependent pallets' benchmarks might require a higher limit for the setting. Set a
+             * higher limit under `runtime-benchmarks` feature.
+             **/
+            maxScheduledPerBlock: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/
