@@ -79,6 +79,7 @@ pallet-hotfix-sufficients = { workspace = true }
 evm-tracing-events = { workspace = true, optional = true }
 moonbeam-evm-tracer = { workspace = true, optional = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
+xcm-primitives = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -148,6 +149,7 @@ std = [
 	"evm-tracing-events/std",
 	"moonbeam-evm-tracer/std",
 	"moonbeam-rpc-primitives-debug/std",
+	"xcm-primitives/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
