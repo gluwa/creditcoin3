@@ -92,6 +92,8 @@ pub mod tracer {
         /// Proxies `evm::tracing::Event` to the host.
         fn event(&mut self, event: evm::tracing::Event) {
             let event: EvmEvent = event.into();
+            log::info!("Evm event: {:?}", event);
+
             let message = event.encode();
             moonbeam_primitives_ext::moonbeam_ext::evm_event(message);
         }
@@ -101,6 +103,7 @@ pub mod tracer {
         /// Proxies `evm_gasometer::tracing::Event` to the host.
         fn event(&mut self, event: evm_gasometer::tracing::Event) {
             let event: GasometerEvent = event.into();
+            log::info!("Gasometer event: {:?}", event);
             let message = event.encode();
             moonbeam_primitives_ext::moonbeam_ext::gasometer_event(message);
         }
@@ -110,6 +113,7 @@ pub mod tracer {
         /// Proxies `evm_runtime::tracing::Event` to the host.
         fn event(&mut self, event: evm_runtime::tracing::Event) {
             let event = RuntimeEvent::from_evm_event(event, self.step_event_filter);
+            log::info!("Runtime event: {:?}", event);
             let message = event.encode();
             moonbeam_primitives_ext::moonbeam_ext::runtime_event(message);
         }

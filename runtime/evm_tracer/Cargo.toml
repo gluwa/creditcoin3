@@ -10,7 +10,7 @@ version = "0.1.0"
 [dependencies]
 
 # Moonbeam
-evm-tracing-events = { workspace = true, features = [ "evm-tracing" ] }
+evm-tracing-events = { workspace = true, features = ["evm-tracing"] }
 moonbeam-primitives-ext = { workspace = true }
 
 # Substrate
@@ -26,10 +26,10 @@ evm = { workspace = true }
 evm-gasometer = { workspace = true }
 evm-runtime = { workspace = true }
 fp-evm = { workspace = true }
-pallet-evm = { workspace = true, features = [ "forbid-evm-reentrancy" ] }
-
+pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
+log = { workspace = true }
 [features]
-default = [ "std" ]
+default = ["std"]
 std = [
 	"ethereum-types/std",
 	"evm-gasometer/std",

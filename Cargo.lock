@@ -16,7 +16,6 @@ dependencies = [
 name = "account"
 version = "0.1.1"
 dependencies = [
- "blake2-rfc",
  "hex",
  "impl-serde",
  "libsecp256k1",
@@ -498,15 +497,6 @@ checksum = "6b4930d2cb77ce62f89ee5d5289b4ac049559b1c45539271f5ed4fdc7db34545"
 
 [[package]]
 name = "arrayvec"
-version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd9fd44efafa8690358b7408d253adf110036b88f55672a933f01d616ad9b1b9"
-dependencies = [
- "nodrop",
-]
-
-[[package]]
-name = "arrayvec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
@@ -871,16 +861,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2-rfc"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6d530bdd2d52966a6d03b7a964add7ae1a288d25214066fd4b600f0f796400"
-dependencies = [
- "arrayvec 0.4.12",
- "constant_time_eq 0.1.5",
-]
-
-[[package]]
 name = "blake2b_simd"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -888,7 +868,7 @@ checksum = "23285ad32269793932e830392f2fe2f83e26488fd3ec778883a93c8323735780"
 dependencies = [
  "arrayref",
  "arrayvec 0.7.4",
- "constant_time_eq 0.3.0",
+ "constant_time_eq",
 ]
 
 [[package]]
@@ -899,7 +879,7 @@ checksum = "94230421e395b9920d23df13ea5d77a20e1725331f90fbbf6df6040b33f756ae"
 dependencies = [
  "arrayref",
  "arrayvec 0.7.4",
- "constant_time_eq 0.3.0",
+ "constant_time_eq",
 ]
 
 [[package]]
@@ -912,7 +892,7 @@ dependencies = [
  "arrayvec 0.7.4",
  "cc",
  "cfg-if",
- "constant_time_eq 0.3.0",
+ "constant_time_eq",
 ]
 
 [[package]]
@@ -1364,12 +1344,6 @@ dependencies = [
 
 [[package]]
 name = "constant_time_eq"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
-
-[[package]]
-name = "constant_time_eq"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7144d30dcf0fafbce74250a3963025d8d52177934239851c917d29f1df280c2"
@@ -1567,13 +1541,10 @@ dependencies = [
  "jsonrpsee",
  "log",
  "moonbeam-cli-opt",
- "moonbeam-finality-rpc",
  "moonbeam-primitives-ext",
  "moonbeam-rpc-debug",
  "moonbeam-rpc-primitives-debug",
- "moonbeam-rpc-primitives-txpool",
  "moonbeam-rpc-trace",
- "moonbeam-rpc-txpool",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -1606,6 +1577,7 @@ dependencies = [
  "sp-consensus-babe",
  "sp-consensus-grandpa",
  "sp-core",
+ "sp-debug-derive",
  "sp-inherents",
  "sp-keystore",
  "sp-offchain",
@@ -1636,9 +1608,9 @@ dependencies = [
  "frame-system",
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
+ "log",
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",
- "moonbeam-rpc-primitives-txpool",
  "pallet-authorship",
  "pallet-babe",
  "pallet-bags-list",
@@ -5367,6 +5339,7 @@ dependencies = [
  "ethereum-types",
  "evm-tracing-events",
  "hex",
+ "log",
  "moonbeam-rpc-primitives-debug",
  "parity-scale-codec",
  "serde",
@@ -5385,6 +5358,7 @@ dependencies = [
  "evm-runtime 0.40.0",
  "evm-tracing-events",
  "fp-evm",
+ "log",
  "moonbeam-primitives-ext",
  "pallet-evm",
  "parity-scale-codec",
@@ -5392,23 +5366,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
-]
-
-[[package]]
-name = "moonbeam-finality-rpc"
-version = "0.1.0"
-dependencies = [
- "fc-api",
- "fc-db",
- "fc-rpc",
- "futures 0.3.30",
- "jsonrpsee",
- "parity-scale-codec",
- "sp-api",
- "sp-blockchain",
- "sp-core",
- "sp-runtime",
- "tokio",
 ]
 
 [[package]]
@@ -5450,18 +5407,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moonbeam-rpc-core-txpool"
-version = "0.6.0"
-dependencies = [
- "ethereum",
- "ethereum-types",
- "fc-rpc-core",
- "jsonrpsee",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "moonbeam-rpc-core-types"
 version = "0.1.0"
 dependencies = [
@@ -5485,6 +5430,7 @@ dependencies = [
  "futures 0.3.30",
  "hex-literal",
  "jsonrpsee",
+ "log",
  "moonbeam-client-evm-tracing",
  "moonbeam-rpc-core-debug",
  "moonbeam-rpc-core-types",
@@ -5512,19 +5458,6 @@ dependencies = [
  "serde",
  "sp-api",
  "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "moonbeam-rpc-primitives-txpool"
-version = "0.6.0"
-dependencies = [
- "ethereum",
- "parity-scale-codec",
- "scale-info",
- "sp-api",
  "sp-io",
  "sp-runtime",
  "sp-std",
@@ -5563,28 +5496,6 @@ dependencies = [
  "substrate-prometheus-endpoint",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "moonbeam-rpc-txpool"
-version = "0.6.0"
-dependencies = [
- "ethereum-types",
- "fc-rpc",
- "frame-system",
- "jsonrpsee",
- "moonbeam-rpc-core-txpool",
- "moonbeam-rpc-primitives-txpool",
- "rlp",
- "sc-transaction-pool",
- "sc-transaction-pool-api",
- "serde",
- "sha3",
- "sp-api",
- "sp-blockchain",
- "sp-io",
- "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -5810,12 +5721,6 @@ dependencies = [
  "cfg-if",
  "libc",
 ]
-
-[[package]]
-name = "nodrop"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "nohash-hasher"

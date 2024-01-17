@@ -1466,20 +1466,14 @@ impl_runtime_apis! {
             (),
             sp_runtime::DispatchError,
         > {
+            log::info!("Running trace_transaction, beginning");
             #[cfg(feature = "evm-tracing")]
             {
                 use moonbeam_evm_tracer::tracer::EvmTracer;
-                use xcm_primitives::{
-                    ETHEREUM_XCM_TRACING_STORAGE_KEY,
-                    EthereumXcmTracingStatus
-                };
+
                 use frame_support::storage::unhashed;
 
-                // Tell the CallDispatcher we are tracing a specific Transaction.
-                unhashed::put::<EthereumXcmTracingStatus>(
-                    ETHEREUM_XCM_TRACING_STORAGE_KEY,
-                    &EthereumXcmTracingStatus::Transaction(traced_transaction.hash()),
-                );
+                log::info!("Running trace_transaction");
 
                 // Apply the a subset of extrinsics: all the substrate-specific or ethereum
                 // transactions that preceded the requested transaction.
@@ -1487,20 +1481,18 @@ impl_runtime_apis! {
                     let _ = match &ext.0.function {
                         RuntimeCall::Ethereum(transact { transaction }) => {
                             if transaction == traced_transaction {
+                                log::info!("Found the traced transaction!");
                                 EvmTracer::new().trace(|| Executive::apply_extrinsic(ext));
                                 return Ok(());
                             } else {
+                                log::info!("Applying extrinsic: {:?}", transaction);
                                 Executive::apply_extrinsic(ext)
                             }
                         }
-                        _ => Executive::apply_extrinsic(ext),
+                        _ => {log::info!("Non eth transaction"); Executive::apply_extrinsic(ext)},
                     };
-                    if let Some(EthereumXcmTracingStatus::TransactionExited) = unhashed::get(
-                        ETHEREUM_XCM_TRACING_STORAGE_KEY
-                    ) {
-                        return Ok(());
-                    }
                 }
+                log::info!("Failed to find Ethereum transaction among the extrinsics.");
                 Err(sp_runtime::DispatchError::Other(
                     "Failed to find Ethereum transaction among the extrinsics.",
                 ))
@@ -1521,13 +1513,6 @@ impl_runtime_apis! {
             #[cfg(feature = "evm-tracing")]
             {
                 use moonbeam_evm_tracer::tracer::EvmTracer;
-                use xcm_primitives::EthereumXcmTracingStatus;
-
-                // Tell the CallDispatcher we are tracing a full Block.
-                frame_support::storage::unhashed::put::<EthereumXcmTracingStatus>(
-                    xcm_primitives::ETHEREUM_XCM_TRACING_STORAGE_KEY,
-                    &EthereumXcmTracingStatus::Block,
-                );
 
                 let mut config = <Runtime as pallet_evm::Config>::config().clone();
                 config.estimate = true;
