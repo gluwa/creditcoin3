@@ -9,12 +9,20 @@ import { BN } from '..';
 // Connection
 export const urlOption = new Option('-u, --url [url]', 'URL of the node to connect to').default('ws://127.0.0.1:9944');
 
+
+
 // Addresses
+export interface ValidatedAddress {
+    address: string;
+    type: 'Substrate' | 'EVM';
+}
+
 export const evmAddressOption = new Option('--evm-address [address]', 'Specify EVM address').argParser(parseEVMAddress);
 export const substrateAddressOption = new Option(
     '--substrate-address [address]',
     'Specify Substrate address',
 ).argParser(parseSubstrateAddress);
+export const unknownAddressOption = new Option('--address [address]', 'Specify address').argParser(parseAddress);
 // Address parsing
 export function parseEVMAddress(value: string): string {
     if (isAddress(value)) {
@@ -30,6 +38,25 @@ export function parseSubstrateAddress(value: string): string {
         throw new InvalidArgumentError('Not a valid Substrate address.');
     }
     return value;
+}
+
+export function parseAddress(value: string): ValidatedAddress {
+    // Parsed has to be one of EVM or Substrate addresses
+    try {
+        return {
+            address: parseEVMAddress(value),
+            type: 'EVM'
+        }
+    } catch {
+        try {
+            return {
+                address: parseSubstrateAddress(value),
+                type: 'Substrate'
+            }
+        } catch {
+            throw new InvalidArgumentError('Not a valid Substrate or EVM address.');
+        }
+    }
 }
 
 // Amounts

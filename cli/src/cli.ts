@@ -16,6 +16,7 @@ import { makeWithdrawUnbondedCommand } from './commands/staking/withdraw';
 import { makeWizardCommand } from './commands/staking/wizard';
 import { makeEvmCommand } from './commands/evm';
 import { urlOption } from './commands/options';
+import { makeConvertAddressCommand } from './commands/convertAddress';
 
 const program = new Command();
 
@@ -24,6 +25,7 @@ program
     .addCommand(makeBalanceCommand())
     .addCommand(makeBondCommand())
     .addCommand(makeChillCommand())
+    .addCommand(makeConvertAddressCommand())
     .addCommand(makeDistributeRewardsCommand())
     .addCommand(makeNewSeedCommand())
     .addCommand(makeRotateKeysCommand())
