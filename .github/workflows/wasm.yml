@@ -78,4 +78,4 @@ jobs:
           SUDO_SEED: ${{ secrets.DEVNET_SUDO_SEED }}
         run: |
           node dist/scripts/runtimeUpgrade.js "$DEVNET_URL" \
-          ../wasm/runtime/target/srtool/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm "$SUDO_SEED" 0
+          ../wasm/runtime/target/srtool/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm "$SUDO_SEED" 5
