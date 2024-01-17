@@ -9,8 +9,6 @@ import { BN } from '..';
 // Connection
 export const urlOption = new Option('-u, --url [url]', 'URL of the node to connect to').default('ws://127.0.0.1:9944');
 
-
-
 // Addresses
 export interface ValidatedAddress {
     address: string;
@@ -45,14 +43,14 @@ export function parseAddress(value: string): ValidatedAddress {
     try {
         return {
             address: parseEVMAddress(value),
-            type: 'EVM'
-        }
+            type: 'EVM',
+        };
     } catch {
         try {
             return {
                 address: parseSubstrateAddress(value),
-                type: 'Substrate'
-            }
+                type: 'Substrate',
+            };
         } catch {
             throw new InvalidArgumentError('Not a valid Substrate or EVM address.');
         }
