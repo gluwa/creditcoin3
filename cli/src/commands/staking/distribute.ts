@@ -1,7 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { requiredInput, parseIntegerOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
 import { eraOption, substrateAddressOption } from '../options';
