@@ -574,6 +574,52 @@ declare module '@polkadot/api-base/types/events' {
              **/
             [key: string]: AugmentedEvent<ApiType>;
         };
+        scheduler: {
+            /**
+             * The call for the provided hash was not found so the task has been aborted.
+             **/
+            CallUnavailable: AugmentedEvent<
+                ApiType,
+                [task: ITuple<[u32, u32]>, id: Option<U8aFixed>],
+                { task: ITuple<[u32, u32]>; id: Option<U8aFixed> }
+            >;
+            /**
+             * Canceled some task.
+             **/
+            Canceled: AugmentedEvent<ApiType, [when: u32, index: u32], { when: u32; index: u32 }>;
+            /**
+             * Dispatched some task.
+             **/
+            Dispatched: AugmentedEvent<
+                ApiType,
+                [task: ITuple<[u32, u32]>, id: Option<U8aFixed>, result: Result<Null, SpRuntimeDispatchError>],
+                { task: ITuple<[u32, u32]>; id: Option<U8aFixed>; result: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * The given task was unable to be renewed since the agenda is full at that block.
+             **/
+            PeriodicFailed: AugmentedEvent<
+                ApiType,
+                [task: ITuple<[u32, u32]>, id: Option<U8aFixed>],
+                { task: ITuple<[u32, u32]>; id: Option<U8aFixed> }
+            >;
+            /**
+             * The given task can never be executed since it is overweight.
+             **/
+            PermanentlyOverweight: AugmentedEvent<
+                ApiType,
+                [task: ITuple<[u32, u32]>, id: Option<U8aFixed>],
+                { task: ITuple<[u32, u32]>; id: Option<U8aFixed> }
+            >;
+            /**
+             * Scheduled some task.
+             **/
+            Scheduled: AugmentedEvent<ApiType, [when: u32, index: u32], { when: u32; index: u32 }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         session: {
             /**
              * New session has happened. Note that the argument is the session index, not the
