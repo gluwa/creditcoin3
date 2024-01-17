@@ -60,6 +60,7 @@ pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-utility = { workspace = true }
 pallet-scheduler = { workspace = true }
 
+log = { workspace = true }
 # Frontier
 fp-evm = { workspace = true, features = ["serde"] }
 fp-rpc = { workspace = true }
@@ -85,6 +86,7 @@ substrate-wasm-builder = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
+evm-tracing = ["evm-tracing-events", "moonbeam-evm-tracer"]
 fast-runtime = []
 std = [
 	"parity-scale-codec/std",
