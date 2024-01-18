@@ -1466,14 +1466,9 @@ impl_runtime_apis! {
             (),
             sp_runtime::DispatchError,
         > {
-            log::info!("Running trace_transaction, beginning");
             #[cfg(feature = "evm-tracing")]
             {
                 use moonbeam_evm_tracer::tracer::EvmTracer;
-
-                use frame_support::storage::unhashed;
-
-                log::info!("Running trace_transaction");
 
                 // Apply the a subset of extrinsics: all the substrate-specific or ethereum
                 // transactions that preceded the requested transaction.
@@ -1481,18 +1476,15 @@ impl_runtime_apis! {
                     let _ = match &ext.0.function {
                         RuntimeCall::Ethereum(transact { transaction }) => {
                             if transaction == traced_transaction {
-                                log::info!("Found the traced transaction!");
                                 EvmTracer::new().trace(|| Executive::apply_extrinsic(ext));
                                 return Ok(());
                             } else {
-                                log::info!("Applying extrinsic: {:?}", transaction);
                                 Executive::apply_extrinsic(ext)
                             }
                         }
-                        _ => {log::info!("Non eth transaction"); Executive::apply_extrinsic(ext)},
+                        _ => Executive::apply_extrinsic(ext),
                     };
                 }
-                log::info!("Failed to find Ethereum transaction among the extrinsics.");
                 Err(sp_runtime::DispatchError::Other(
                     "Failed to find Ethereum transaction among the extrinsics.",
                 ))

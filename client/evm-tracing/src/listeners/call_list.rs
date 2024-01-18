@@ -129,7 +129,6 @@ impl Listener {
     /// Allow to insert the pending entries regardless of which runtime version
     /// is used (with or without EvmEvent::Exit).
     pub fn finish_transaction(&mut self) {
-        log::info!("finish_transaction");
         // remove any leftover context
         let mut context_stack = vec![];
         core::mem::swap(&mut self.context_stack, &mut context_stack);
@@ -217,8 +216,6 @@ impl Listener {
     }
 
     pub fn gasometer_event(&mut self, event: GasometerEvent) {
-        log::info!("gasometer_event: {:?}", event);
-
         match event {
             GasometerEvent::RecordCost { snapshot, .. }
             | GasometerEvent::RecordDynamicCost { snapshot, .. }
@@ -241,7 +238,6 @@ impl Listener {
     }
 
     pub fn runtime_event(&mut self, event: RuntimeEvent) {
-        log::info!("runtime_event: {:?}", event);
         match event {
             RuntimeEvent::StepResult {
                 result: Err(Capture::Trap(opcode)),
@@ -279,8 +275,6 @@ impl Listener {
     }
 
     pub fn evm_event(&mut self, event: EvmEvent) {
-        log::info!("evm_event: {:?}", event);
-
         match event {
             EvmEvent::TransactCall {
                 caller,
