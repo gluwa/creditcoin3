@@ -38,6 +38,18 @@ jobs:
           docker exec creditcoin-validator which creditcoin3
           docker exec creditcoin-validator creditcoin3 wizard --help
 
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: docker-*.log
+
       - name: Kill the container
         run: |
           sudo killall -9 creditcoin3-node
