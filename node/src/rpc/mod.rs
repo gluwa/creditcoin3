@@ -26,10 +26,10 @@ use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
+use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
 use fc_rpc::OverrideHandle;
 use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
-use moonbeam_cli_opt::EthApi as EthApiCmd;
 use sc_client_api::BlockOf;
 use sp_block_builder::BlockBuilder;
 use sp_core::H256;
@@ -144,8 +144,8 @@ where
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
-    use moonbeam_rpc_debug::{Debug, DebugServer};
-    use moonbeam_rpc_trace::{Trace, TraceServer};
+    use creditcoin3_rpc_debug::{Debug, DebugServer};
+    use creditcoin3_rpc_trace::{Trace, TraceServer};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};

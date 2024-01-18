@@ -48,13 +48,13 @@ use ethereum_types::H256;
 use fc_rpc::OverrideHandle;
 use fp_rpc::EthereumRuntimeRPCApi;
 
-use moonbeam_client_evm_tracing::{
+use creditcoin3_client_evm_tracing::{
     formatters::ResponseFormatter,
     types::block::{self, TransactionTrace},
 };
-pub use moonbeam_rpc_core_trace::{FilterRequest, TraceServer};
-use moonbeam_rpc_core_types::{RequestBlockId, RequestBlockTag};
-use moonbeam_rpc_primitives_debug::DebugRuntimeApi;
+pub use creditcoin3_rpc_core_trace::{FilterRequest, TraceServer};
+use creditcoin3_rpc_core_types::{RequestBlockId, RequestBlockTag};
+use creditcoin3_rpc_primitives_debug::DebugRuntimeApi;
 
 type TxsTraceRes = Result<Vec<TransactionTrace>, String>;
 
@@ -866,13 +866,13 @@ where
                         height, e
                     )
                 })?;
-            Ok(moonbeam_rpc_primitives_debug::Response::Block)
+            Ok(creditcoin3_rpc_primitives_debug::Response::Block)
         };
 
-        let mut proxy = moonbeam_client_evm_tracing::listeners::CallList::default();
+        let mut proxy = creditcoin3_client_evm_tracing::listeners::CallList::default();
         proxy.using(f)?;
         let mut traces: Vec<_> =
-            moonbeam_client_evm_tracing::formatters::TraceFilter::format(proxy)
+            creditcoin3_client_evm_tracing::formatters::TraceFilter::format(proxy)
                 .ok_or("Fail to format proxy")?;
         // Fill missing data.
         for trace in traces.iter_mut() {

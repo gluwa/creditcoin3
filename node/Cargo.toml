@@ -95,12 +95,12 @@ fp-rpc = { workspace = true, features = ["default"] }
 # Gluwa
 creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 
-# Moonbeam
-moonbeam-cli-opt = { workspace = true }
-moonbeam-primitives-ext = { workspace = true }
-moonbeam-rpc-debug = { workspace = true }
-moonbeam-rpc-primitives-debug = { workspace = true }
-moonbeam-rpc-trace = { workspace = true }
+# Tracing
+creditcoin3-cli-opt = { workspace = true }
+creditcoin3-primitives-ext = { workspace = true }
+creditcoin3-rpc-debug = { workspace = true }
+creditcoin3-rpc-primitives-debug = { workspace = true }
+creditcoin3-rpc-trace = { workspace = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }

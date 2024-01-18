@@ -1,10 +1,11 @@
 [package]
-name = "moonbeam-cli-opt"
+name = "creditcoin3-cli-opt"
 authors = { workspace = true }
-edition = "2021"
-homepage = "https://moonbeam.network"
+edition = { workspace = true }
+publish = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
 license = "GPL-3.0-only"
-version = "0.35.0"
 
 [dependencies]
 bip32 = { workspace = true, features = ["bip39"] }
