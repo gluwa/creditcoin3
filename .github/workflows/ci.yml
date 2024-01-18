@@ -45,7 +45,7 @@ jobs:
           sleep 60
           .github/check-health.sh
 
-      - name: Sanity test creditcoin3 inside the container
+      - name: Sanity test creditcoin3-cli inside the container
         run: |
           docker exec creditcoin-validator which creditcoin3
           docker exec creditcoin-validator creditcoin3 wizard --help
@@ -54,6 +54,28 @@ jobs:
         if: always()
         run: |
           docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start docker-compose
+        run: |
+          docker-compose up -d
+
+      - name: Sanity check for persistently mounted directory
+        run: |
+          sleep 60
+          docker exec creditcoin-validator ls -ld /creditcoin-node/data
+          docker exec creditcoin-validator ls -la /creditcoin-node/data
+
+      - name: Collect docker-compose logs
+        if: always()
+        run: |
+          docker-compose logs --no-color > docker-compose.log
 
       - name: Upload logs
         if: always()
