@@ -41,7 +41,6 @@ impl super::ResponseFormatter for Formatter {
         listener.entries.retain(|x| !x.is_empty());
         let mut traces = Vec::new();
         for entry in listener.entries.iter() {
-            log::info!("entry: {:?}", entry);
             let mut result: Vec<Call> = entry
                 .into_iter()
                 .map(|(_, it)| {

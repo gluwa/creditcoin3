@@ -646,7 +646,6 @@ where
             )?;
 
             network_starter.start_network();
-            log::info!("Manual Seal Ready");
             return Ok(task_manager);
         }
 
