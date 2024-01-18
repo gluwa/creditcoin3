@@ -13,25 +13,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "account"
-version = "0.1.1"
-dependencies = [
- "hex",
- "impl-serde",
- "libsecp256k1",
- "log",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sha3",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-runtime-interface",
- "sp-std",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5263,7 +5244,6 @@ dependencies = [
 name = "moonbeam-cli-opt"
 version = "0.35.0"
 dependencies = [
- "account",
  "bip32",
  "clap",
  "libsecp256k1",

@@ -28,7 +28,7 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
 use fc_rpc::OverrideHandle;
-use fc_rpc_core::types::{CallRequest, FeeHistoryCache, FilterPool};
+use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
 use moonbeam_cli_opt::EthApi as EthApiCmd;
 use sc_client_api::BlockOf;
 use sp_block_builder::BlockBuilder;
@@ -46,40 +46,6 @@ pub use self::eth::{
 };
 
 type HasherFor<Block> = <<Block as BlockT>::Header as HeaderT>::Hashing;
-
-pub struct MoonbeamEGA;
-
-impl fc_rpc::EstimateGasAdapter for MoonbeamEGA {
-    fn adapt_request(mut request: CallRequest) -> CallRequest {
-        // Redirect any call to batch precompile:
-        // force usage of batchAll method for estimation
-        use sp_core::H160;
-        const BATCH_PRECOMPILE_ADDRESS: H160 = H160(hex_literal::hex!(
-            "0000000000000000000000000000000000000808"
-        ));
-        const BATCH_PRECOMPILE_BATCH_ALL_SELECTOR: [u8; 4] = hex_literal::hex!("96e292b8");
-        if request.to == Some(BATCH_PRECOMPILE_ADDRESS) {
-            if let Some(ref mut data) = request.data {
-                if data.0.len() >= 4 {
-                    data.0[..4].copy_from_slice(&BATCH_PRECOMPILE_BATCH_ALL_SELECTOR);
-                }
-            }
-        }
-        request
-    }
-}
-
-pub struct MoonbeamEthConfig<C, BE>(std::marker::PhantomData<(C, BE)>);
-
-impl<C, BE> fc_rpc::EthConfig<Block, C> for MoonbeamEthConfig<C, BE>
-where
-    C: sc_client_api::StorageProvider<Block, BE> + Sync + Send + 'static,
-    BE: Backend<Block> + 'static,
-{
-    type EstimateGasAdapter = MoonbeamEGA;
-    type RuntimeStorageOverride =
-        fc_rpc::frontier_backend_client::SystemAccountId20StorageOverride<Block, C, BE>;
-}
 
 /// Full client dependencies.
 pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
@@ -143,7 +109,7 @@ where
     C: StorageProvider<Block, BE> + Sync + Send + 'static,
     BE: Backend<Block> + 'static,
 {
-    type EstimateGasAdapter = MoonbeamEGA;
+    type EstimateGasAdapter = ();
     type RuntimeStorageOverride =
         fc_rpc::frontier_backend_client::SystemAccountId20StorageOverride<Block, C, BE>;
 }
