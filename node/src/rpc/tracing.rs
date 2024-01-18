@@ -18,8 +18,8 @@ use crate::eth::EthConfiguration;
 
 use super::*;
 
-use moonbeam_rpc_debug::{DebugHandler, DebugRequester};
-use moonbeam_rpc_trace::{CacheRequester as TraceFilterCacheRequester, CacheTask};
+use creditcoin3_rpc_debug::{DebugHandler, DebugRequester};
+use creditcoin3_rpc_trace::{CacheRequester as TraceFilterCacheRequester, CacheTask};
 use substrate_prometheus_endpoint::Registry as PrometheusRegistry;
 use tokio::sync::Semaphore;
 
@@ -41,7 +41,7 @@ where
     C: HeaderBackend<B> + HeaderMetadata<B, Error = BlockChainError> + 'static,
     C: BlockchainEvents<B>,
     C: Send + Sync + 'static,
-    C::Api: EthereumRuntimeRPCApi<B> + moonbeam_rpc_primitives_debug::DebugRuntimeApi<B>,
+    C::Api: EthereumRuntimeRPCApi<B> + creditcoin3_rpc_primitives_debug::DebugRuntimeApi<B>,
     C::Api: BlockBuilder<B>,
     B: BlockT<Hash = H256> + Send + Sync + 'static,
     B::Header: HeaderT<Number = u32>,

@@ -1,17 +1,17 @@
 [package]
-name = "moonbeam-rpc-core-trace"
+name = "creditcoin3-rpc-core-trace"
 authors = { workspace = true }
-edition = "2021"
-homepage = "https://moonbeam.network"
-license = "GPL-3.0-only"
+edition = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
-version = "0.6.0"
+version = { workspace = true }
+license = "GPL-3.0-only"
 
 [dependencies]
-ethereum-types = { workspace = true, features = [ "std" ] }
-futures = { workspace = true, features = [ "compat" ] }
-jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
-moonbeam-client-evm-tracing = { workspace = true }
-moonbeam-rpc-core-types = { workspace = true }
-serde = { workspace = true, features = [ "derive" ] }
+ethereum-types = { workspace = true, features = ["std"] }
+futures = { workspace = true, features = ["compat"] }
+jsonrpsee = { workspace = true, features = ["macros", "server"] }
+creditcoin3-client-evm-tracing = { workspace = true }
+creditcoin3-rpc-core-types = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

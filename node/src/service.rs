@@ -17,8 +17,8 @@ use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
 // Runtime
+use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
-use moonbeam_cli_opt::EthApi as EthApiCmd;
 
 use crate::rpc;
 use crate::{

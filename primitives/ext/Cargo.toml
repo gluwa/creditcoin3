@@ -1,16 +1,16 @@
 [package]
-name = "moonbeam-primitives-ext"
+name = "creditcoin3-primitives-ext"
 authors = { workspace = true }
-edition = "2021"
-homepage = "https://moonbeam.network"
-license = "GPL-3.0-only"
+edition = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
-version = "0.1.0"
+version = { workspace = true }
+license = "GPL-3.0-only"
 
 [dependencies]
 ethereum-types = { workspace = true }
 
-# Moonbeam
+# Tracing
 evm-tracing-events = { workspace = true }
 
 # Substrate
