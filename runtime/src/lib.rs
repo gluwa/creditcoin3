@@ -1458,7 +1458,7 @@ impl_runtime_apis! {
         }
     }
 
-    impl moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
+    impl creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
         fn trace_transaction(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
@@ -1468,7 +1468,7 @@ impl_runtime_apis! {
         > {
             #[cfg(feature = "evm-tracing")]
             {
-                use moonbeam_evm_tracer::tracer::EvmTracer;
+                use creditcoin3_evm_tracer::tracer::EvmTracer;
 
                 // Apply the a subset of extrinsics: all the substrate-specific or ethereum
                 // transactions that preceded the requested transaction.
@@ -1504,7 +1504,7 @@ impl_runtime_apis! {
         > {
             #[cfg(feature = "evm-tracing")]
             {
-                use moonbeam_evm_tracer::tracer::EvmTracer;
+                use creditcoin3_evm_tracer::tracer::EvmTracer;
 
                 let mut config = <Runtime as pallet_evm::Config>::config().clone();
                 config.estimate = true;

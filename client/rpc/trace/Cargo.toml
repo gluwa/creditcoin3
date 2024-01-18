@@ -1,29 +1,29 @@
 [package]
-name = "moonbeam-rpc-trace"
+name = "creditcoin3-rpc-trace"
 authors = { workspace = true }
-edition = "2021"
-homepage = "https://moonbeam.network"
-license = "GPL-3.0-only"
+edition = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
-version = "0.6.0"
+version = { workspace = true }
+license = "GPL-3.0-only"
 
 [dependencies]
-ethereum = { workspace = true, features = [ "with-codec" ] }
+ethereum = { workspace = true, features = ["with-codec"] }
 ethereum-types = { workspace = true }
 futures = { workspace = true }
-jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
+jsonrpsee = { workspace = true, features = ["macros", "server"] }
 log = { workspace = true }
-serde = { workspace = true, features = [ "derive" ] }
+serde = { workspace = true, features = ["derive"] }
 sha3 = { workspace = true }
 substrate-prometheus-endpoint = { workspace = true }
-tokio = { workspace = true, features = [ "sync", "time" ] }
+tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { workspace = true }
 
-# Moonbeam
-moonbeam-client-evm-tracing = { workspace = true }
-moonbeam-rpc-core-trace = { workspace = true }
-moonbeam-rpc-core-types = { workspace = true }
-moonbeam-rpc-primitives-debug = { workspace = true }
+# Tracing
+creditcoin3-client-evm-tracing = { workspace = true }
+creditcoin3-rpc-core-trace = { workspace = true }
+creditcoin3-rpc-core-types = { workspace = true }
+creditcoin3-rpc-primitives-debug = { workspace = true }
 
 # Substrate
 sc-client-api = { workspace = true }
@@ -39,7 +39,7 @@ sp-transaction-pool = { workspace = true }
 
 # Frontier
 fc-consensus = { workspace = true }
-fc-rpc = { workspace = true, features = [ "rpc-binary-search-estimate" ] }
+fc-rpc = { workspace = true, features = ["rpc-binary-search-estimate"] }
 fc-rpc-core = { workspace = true }
 fc-storage = { workspace = true }
 fp-rpc = { workspace = true }

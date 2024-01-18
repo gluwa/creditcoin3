@@ -76,17 +76,17 @@ pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
-# Moonbeam tracing
+# Tracing
 evm-tracing-events = { workspace = true, optional = true }
-moonbeam-evm-tracer = { workspace = true, optional = true }
-moonbeam-rpc-primitives-debug = { workspace = true }
+creditcoin3-evm-tracer = { workspace = true, optional = true }
+creditcoin3-rpc-primitives-debug = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
-evm-tracing = ["evm-tracing-events", "moonbeam-evm-tracer"]
+evm-tracing = ["evm-tracing-events", "creditcoin3-evm-tracer"]
 fast-runtime = []
 std = [
 	"parity-scale-codec/std",
@@ -148,8 +148,8 @@ std = [
 	"pallet-hotfix-sufficients/std",
 	"pallet-scheduler/std",
 	"evm-tracing-events/std",
-	"moonbeam-evm-tracer/std",
-	"moonbeam-rpc-primitives-debug/std",
+	"creditcoin3-evm-tracer/std",
+	"creditcoin3-rpc-primitives-debug/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

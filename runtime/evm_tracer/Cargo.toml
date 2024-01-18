@@ -1,17 +1,17 @@
 [package]
-name = "moonbeam-evm-tracer"
+name = "creditcoin3-evm-tracer"
 authors = { workspace = true }
-edition = "2021"
-homepage = "https://moonbeam.network"
-license = "GPL-3.0-only"
+edition = { workspace = true }
+publish = { workspace = true }
 repository = { workspace = true }
-version = "0.1.0"
+version = { workspace = true }
+license = "GPL-3.0-only"
 
 [dependencies]
 
-# Moonbeam
+# Tracing
 evm-tracing-events = { workspace = true, features = ["evm-tracing"] }
-moonbeam-primitives-ext = { workspace = true }
+creditcoin3-primitives-ext = { workspace = true }
 
 # Substrate
 parity-scale-codec = { workspace = true }
@@ -38,7 +38,7 @@ std = [
 	"evm/std",
 	"evm/with-serde",
 	"fp-evm/std",
-	"moonbeam-primitives-ext/std",
+	"creditcoin3-primitives-ext/std",
 	"pallet-evm/std",
 	"parity-scale-codec/std",
 	"sp-core/std",

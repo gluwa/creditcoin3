@@ -1495,11 +1495,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "creditcoin3-cli-opt"
+version = "3.14.0"
+dependencies = [
+ "bip32",
+ "clap",
+ "libsecp256k1",
+ "primitive-types",
+ "sha3",
+ "sp-runtime",
+ "tiny-bip39 0.8.2",
+ "url",
+]
+
+[[package]]
+name = "creditcoin3-client-evm-tracing"
+version = "3.14.0"
+dependencies = [
+ "creditcoin3-rpc-primitives-debug",
+ "ethereum-types",
+ "evm-tracing-events",
+ "hex",
+ "log",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "creditcoin3-evm-tracer"
+version = "3.14.0"
+dependencies = [
+ "creditcoin3-primitives-ext",
+ "ethereum-types",
+ "evm",
+ "evm-gasometer",
+ "evm-runtime",
+ "evm-tracing-events",
+ "fp-evm",
+ "log",
+ "pallet-evm",
+ "parity-scale-codec",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "creditcoin3-node"
 version = "3.14.0"
 dependencies = [
  "async-trait",
  "clap",
+ "creditcoin3-cli-opt",
+ "creditcoin3-primitives-ext",
+ "creditcoin3-rpc-debug",
+ "creditcoin3-rpc-primitives-debug",
+ "creditcoin3-rpc-trace",
  "creditcoin3-runtime",
  "ethereum-types",
  "fc-api",
@@ -1521,11 +1576,6 @@ dependencies = [
  "hex-literal",
  "jsonrpsee",
  "log",
- "moonbeam-cli-opt",
- "moonbeam-primitives-ext",
- "moonbeam-rpc-debug",
- "moonbeam-rpc-primitives-debug",
- "moonbeam-rpc-trace",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -1575,9 +1625,141 @@ dependencies = [
 ]
 
 [[package]]
+name = "creditcoin3-primitives-ext"
+version = "3.14.0"
+dependencies = [
+ "ethereum-types",
+ "evm-tracing-events",
+ "parity-scale-codec",
+ "sp-runtime-interface",
+ "sp-std",
+]
+
+[[package]]
+name = "creditcoin3-rpc-core-debug"
+version = "3.14.0"
+dependencies = [
+ "creditcoin3-client-evm-tracing",
+ "creditcoin3-rpc-core-types",
+ "ethereum-types",
+ "futures 0.3.30",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "sp-core",
+]
+
+[[package]]
+name = "creditcoin3-rpc-core-trace"
+version = "3.14.0"
+dependencies = [
+ "creditcoin3-client-evm-tracing",
+ "creditcoin3-rpc-core-types",
+ "ethereum-types",
+ "futures 0.3.30",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "creditcoin3-rpc-core-types"
+version = "3.14.0"
+dependencies = [
+ "ethereum-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "creditcoin3-rpc-debug"
+version = "3.14.0"
+dependencies = [
+ "creditcoin3-client-evm-tracing",
+ "creditcoin3-rpc-core-debug",
+ "creditcoin3-rpc-core-types",
+ "creditcoin3-rpc-primitives-debug",
+ "ethereum",
+ "ethereum-types",
+ "fc-api",
+ "fc-consensus",
+ "fc-db",
+ "fc-rpc",
+ "fc-storage",
+ "fp-rpc",
+ "futures 0.3.30",
+ "hex-literal",
+ "jsonrpsee",
+ "log",
+ "sc-client-api",
+ "sc-utils",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "tokio",
+]
+
+[[package]]
+name = "creditcoin3-rpc-primitives-debug"
+version = "3.14.0"
+dependencies = [
+ "environmental",
+ "ethereum",
+ "ethereum-types",
+ "hex",
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "creditcoin3-rpc-trace"
+version = "3.14.0"
+dependencies = [
+ "creditcoin3-client-evm-tracing",
+ "creditcoin3-rpc-core-trace",
+ "creditcoin3-rpc-core-types",
+ "creditcoin3-rpc-primitives-debug",
+ "ethereum",
+ "ethereum-types",
+ "fc-consensus",
+ "fc-rpc",
+ "fc-rpc-core",
+ "fc-storage",
+ "fp-rpc",
+ "futures 0.3.30",
+ "jsonrpsee",
+ "log",
+ "sc-client-api",
+ "sc-network",
+ "sc-utils",
+ "serde",
+ "sha3",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "sp-transaction-pool",
+ "substrate-prometheus-endpoint",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "creditcoin3-runtime"
 version = "3.14.0"
 dependencies = [
+ "creditcoin3-evm-tracer",
+ "creditcoin3-rpc-primitives-debug",
  "evm-tracing-events",
  "fp-evm",
  "fp-rpc",
@@ -1590,8 +1772,6 @@ dependencies = [
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "log",
- "moonbeam-evm-tracer",
- "moonbeam-rpc-primitives-debug",
  "pallet-authorship",
  "pallet-babe",
  "pallet-bags-list",
@@ -2519,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "evm-tracing-events"
-version = "0.1.0"
+version = "3.14.0"
 dependencies = [
  "environmental",
  "ethereum",
@@ -5238,186 +5418,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "moonbeam-cli-opt"
-version = "0.35.0"
-dependencies = [
- "bip32",
- "clap",
- "libsecp256k1",
- "primitive-types",
- "sha3",
- "sp-runtime",
- "tiny-bip39 0.8.2",
- "url",
-]
-
-[[package]]
-name = "moonbeam-client-evm-tracing"
-version = "0.1.0"
-dependencies = [
- "ethereum-types",
- "evm-tracing-events",
- "hex",
- "log",
- "moonbeam-rpc-primitives-debug",
- "parity-scale-codec",
- "serde",
- "serde_json",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "moonbeam-evm-tracer"
-version = "0.1.0"
-dependencies = [
- "ethereum-types",
- "evm",
- "evm-gasometer",
- "evm-runtime",
- "evm-tracing-events",
- "fp-evm",
- "log",
- "moonbeam-primitives-ext",
- "pallet-evm",
- "parity-scale-codec",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "moonbeam-primitives-ext"
-version = "0.1.0"
-dependencies = [
- "ethereum-types",
- "evm-tracing-events",
- "parity-scale-codec",
- "sp-runtime-interface",
- "sp-std",
-]
-
-[[package]]
-name = "moonbeam-rpc-core-debug"
-version = "0.1.0"
-dependencies = [
- "ethereum-types",
- "futures 0.3.30",
- "jsonrpsee",
- "moonbeam-client-evm-tracing",
- "moonbeam-rpc-core-types",
- "serde",
- "serde_json",
- "sp-core",
-]
-
-[[package]]
-name = "moonbeam-rpc-core-trace"
-version = "0.6.0"
-dependencies = [
- "ethereum-types",
- "futures 0.3.30",
- "jsonrpsee",
- "moonbeam-client-evm-tracing",
- "moonbeam-rpc-core-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "moonbeam-rpc-core-types"
-version = "0.1.0"
-dependencies = [
- "ethereum-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "moonbeam-rpc-debug"
-version = "0.1.0"
-dependencies = [
- "ethereum",
- "ethereum-types",
- "fc-api",
- "fc-consensus",
- "fc-db",
- "fc-rpc",
- "fc-storage",
- "fp-rpc",
- "futures 0.3.30",
- "hex-literal",
- "jsonrpsee",
- "log",
- "moonbeam-client-evm-tracing",
- "moonbeam-rpc-core-debug",
- "moonbeam-rpc-core-types",
- "moonbeam-rpc-primitives-debug",
- "sc-client-api",
- "sc-utils",
- "sp-api",
- "sp-block-builder",
- "sp-blockchain",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "tokio",
-]
-
-[[package]]
-name = "moonbeam-rpc-primitives-debug"
-version = "0.1.0"
-dependencies = [
- "environmental",
- "ethereum",
- "ethereum-types",
- "hex",
- "parity-scale-codec",
- "serde",
- "sp-api",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "moonbeam-rpc-trace"
-version = "0.6.0"
-dependencies = [
- "ethereum",
- "ethereum-types",
- "fc-consensus",
- "fc-rpc",
- "fc-rpc-core",
- "fc-storage",
- "fp-rpc",
- "futures 0.3.30",
- "jsonrpsee",
- "log",
- "moonbeam-client-evm-tracing",
- "moonbeam-rpc-core-trace",
- "moonbeam-rpc-core-types",
- "moonbeam-rpc-primitives-debug",
- "sc-client-api",
- "sc-network",
- "sc-utils",
- "serde",
- "sha3",
- "sp-api",
- "sp-block-builder",
- "sp-blockchain",
- "sp-io",
- "sp-runtime",
- "sp-std",
- "sp-transaction-pool",
- "substrate-prometheus-endpoint",
- "tokio",
- "tracing",
 ]
 
 [[package]]

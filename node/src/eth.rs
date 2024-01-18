@@ -5,8 +5,8 @@ use std::{
     time::Duration,
 };
 
+use creditcoin3_cli_opt::EthApi;
 use futures::{future, prelude::*};
-use moonbeam_cli_opt::EthApi;
 // Substrate
 use sc_client_api::BlockchainEvents;
 use sc_executor::NativeExecutionDispatch;
@@ -136,7 +136,7 @@ pub trait EthCompatRuntimeApiCollection:
     sp_api::ApiExt<Block>
     + fp_rpc::ConvertTransactionRuntimeApi<Block>
     + fp_rpc::EthereumRuntimeRPCApi<Block>
-    + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
+    + creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block>
 {
 }
 
@@ -144,7 +144,7 @@ impl<Api> EthCompatRuntimeApiCollection for Api where
     Api: sp_api::ApiExt<Block>
         + fp_rpc::ConvertTransactionRuntimeApi<Block>
         + fp_rpc::EthereumRuntimeRPCApi<Block>
-        + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
+        + creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block>
 {
 }
 
