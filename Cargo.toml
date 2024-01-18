@@ -196,7 +196,6 @@ ark-std = { version = "0.4.0", default-features = false }
 evm-gasometer = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
 evm-runtime = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
 
-account = { path = "primitives/account", default-features = false }
 evm-tracing-events = { path = "primitives/rpc/evm-tracing-events", default-features = false }
 moonbeam-primitives-ext = { path = "primitives/ext", default-features = false }
 moonbeam-rpc-primitives-debug = { path = "primitives/rpc/debug", default-features = false }
