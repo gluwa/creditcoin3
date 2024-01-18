@@ -74,7 +74,6 @@ impl DebugServer for Debug {
         let requester = self.requester.clone();
 
         let (tx, rx) = oneshot::channel();
-        log::info!("Sending request to debug service, transaction_hash: {transaction_hash:?}");
         // Send a message from the rpc handler to the service level task.
         requester
             .unbounded_send(((RequesterInput::Transaction(transaction_hash), params), tx))
@@ -86,9 +85,6 @@ impl DebugServer for Debug {
             })?;
 
         // Receive a message from the service level task and send the rpc response.
-        log::info!(
-            "Waiting for response from debug service, transaction_hash: {transaction_hash:?}"
-        );
         rx.await
             .map_err(|err| {
                 log::error!("Debug service errored: {err:?}");
@@ -164,7 +160,6 @@ where
                         (RequesterInput::Transaction(transaction_hash), params),
                         response_tx,
                     )) => {
-                        log::info!("Received request from debug service, transaction_hash: {transaction_hash:?}");
                         let client = client.clone();
                         let backend = backend.clone();
                         let frontier_backend = frontier_backend.clone();
@@ -176,7 +171,6 @@ where
                                 async {
                                     let _permit = permit_pool.acquire().await;
                                     tokio::task::spawn_blocking(move || {
-										log::info!("calling handle_transaction_request: {transaction_hash:?}");
                                         Self::handle_transaction_request(
                                             client.clone(),
                                             backend.clone(),
@@ -296,7 +290,6 @@ where
         params: Option<TraceParams>,
         overrides: Arc<OverrideHandle<B>>,
     ) -> RpcResult<Response> {
-        log::info!("handle_block_request");
         let (tracer_input, trace_type) = Self::handle_params(params)?;
 
         let reference_id: BlockId<B> = match request_block_id {
@@ -513,7 +506,6 @@ where
                         .map_err(|e| internal_err(format!("Runtime api access error: {:?}", e)))?;
 
                     if trace_api_version >= 4 {
-                        log::info!("trace_api_version >= 4, parent_block_hash: {parent_block_hash:?}, exts: {exts:?}, transaction: {transaction:?}");
                         let _result = api
                             .trace_transaction(parent_block_hash, exts, &transaction)
                             .map_err(|e| {
