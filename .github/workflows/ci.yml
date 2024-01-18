@@ -24,14 +24,26 @@ jobs:
         run: |
           docker build -t gluwa/creditcoin3 .
 
-      # TODO: properly start a node once work on CSUB-857 starts
       - name: Start a container from image
         run: |
           # see https://opensource.com/article/18/5/how-find-ip-address-linux
           IP_ADDRESS=$(curl https://ifconfig.me)
           echo "INFO: IP_ADDRESS=$IP_ADDRESS"
 
-          docker run --rm --name creditcoin-validator -d gluwa/creditcoin3
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain testnet                                   \
+              --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --prometheus-external \
+              --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
+              --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+              --bootnodes "/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" \
+              --port 30333 --unsafe-rpc-external
+
+      - name: Healtcheck
+        run: |
+          sleep 60
+          .github/check-health.sh
 
       - name: Sanity test creditcoin3 inside the container
         run: |
