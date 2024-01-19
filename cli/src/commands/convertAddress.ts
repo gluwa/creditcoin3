@@ -15,11 +15,21 @@ function convertAddressAction(options: OptionValues) {
     const type = address.type;
     if (type === 'EVM') {
         console.log(`AssociatedSubstrate address: ${evmAddressToSubstrateAddress(address.address)}`);
+        printUsageWarning();
     } else if (type === 'Substrate') {
         console.log(`Associated EVM address: ${substrateAddressToEvmAddress(address.address)}`);
+        printUsageWarning();
     } else {
         console.error('Invalid address type');
         process.exit(1);
     }
     process.exit(0);
+}
+
+function printUsageWarning ()
+{
+    console.log("");
+    console.log(
+        '⚠️ Warning: This command is not cyclical. You will NOT get the original address back by running this command with the converted address.',
+    );
 }
