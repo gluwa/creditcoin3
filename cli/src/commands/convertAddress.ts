@@ -14,7 +14,7 @@ function convertAddressAction(options: OptionValues) {
     const address = options.address as ValidatedAddress;
     const type = address.type;
     if (type === 'EVM') {
-        console.log(`AssociatedSubstrate address: ${evmAddressToSubstrateAddress(address.address)}`);
+        console.log(`Associated Substrate address: ${evmAddressToSubstrateAddress(address.address)}`);
         printUsageWarning();
     } else if (type === 'Substrate') {
         console.log(`Associated EVM address: ${substrateAddressToEvmAddress(address.address)}`);
@@ -30,6 +30,6 @@ function printUsageWarning ()
 {
     console.log("");
     console.log(
-        '⚠️ Warning: This command is not cyclical. You will NOT get the original address back by running this command with the converted address.',
+        '⚠️ Warning: This command is not cyclical. You will NOT get the original address back by running this command with the associated address.',
     );
 }
