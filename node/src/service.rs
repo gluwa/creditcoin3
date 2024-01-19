@@ -465,7 +465,7 @@ where
 
     let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
     let ethapi_cmd = eth_config.ethapi.clone();
-    let fee_history_limit = eth_config.fee_history_limit.clone();
+    let fee_history_limit = eth_config.fee_history_limit;
 
     let tracing_requesters =
         if ethapi_cmd.contains(&EthApiCmd::Debug) || ethapi_cmd.contains(&EthApiCmd::Trace) {
@@ -479,7 +479,7 @@ where
                     frontier_backend: frontier_backend.clone(),
                     filter_pool: filter_pool.clone(),
                     overrides: overrides.clone(),
-                    fee_history_limit: fee_history_limit.clone(),
+                    fee_history_limit,
                     fee_history_cache: fee_history_cache.clone(),
                 },
             )
