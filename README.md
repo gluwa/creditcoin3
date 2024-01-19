@@ -32,6 +32,8 @@ To execute the chain, run:
 ./target/release/creditcoin3-node --dev
 ```
 
+_WARNING: running natively on Windows [is unsupported](https://github.com/gluwa/creditcoin/security/advisories/GHSA-cx5c-xwcv-vhmq)._
+
 The node also supports to use manual seal (to produce block manually through RPC).
 This is also used by the ts-tests:
 
