@@ -42,7 +42,7 @@ impl super::ResponseFormatter for Formatter {
         let mut traces = Vec::new();
         for entry in listener.entries.iter() {
             let mut result: Vec<Call> = entry
-                .into_iter()
+                .iter()
                 .map(|(_, it)| {
                     let from = it.from;
                     let trace_address = it.trace_address.clone();
@@ -51,9 +51,9 @@ impl super::ResponseFormatter for Formatter {
                     let gas_used = it.gas_used;
                     let inner = it.inner.clone();
                     Call::CallTracer(CallTracerCall {
-                        from: from,
-                        gas: gas,
-                        gas_used: gas_used,
+                        from,
+                        gas,
+                        gas_used,
                         trace_address: Some(trace_address.clone()),
                         inner: match inner.clone() {
                             BlockscoutCallInner::Call {
@@ -93,7 +93,7 @@ impl super::ResponseFormatter for Formatter {
                                     } => Some(created_contract_code),
                                     CreateResult::Error { .. } => None,
                                 },
-                                value: value,
+                                value,
                                 call_type: "CREATE".as_bytes().to_vec(),
                             },
                             BlockscoutCallInner::SelfDestruct { balance, to } => {
@@ -169,6 +169,7 @@ impl super::ResponseFormatter for Formatter {
                         let b_len = b.len();
                         let sibling_greater_than = |a: &Vec<u32>, b: &Vec<u32>| -> bool {
                             for (i, a_value) in a.iter().enumerate() {
+                                #[allow(clippy::comparison_chain)]
                                 if a_value > &b[i] {
                                     return true;
                                 } else if a_value < &b[i] {
@@ -177,9 +178,9 @@ impl super::ResponseFormatter for Formatter {
                                     continue;
                                 }
                             }
-                            return false;
+                            false
                         };
-                        if b_len > a_len || (a_len == b_len && sibling_greater_than(&a, &b)) {
+                        if b_len > a_len || (a_len == b_len && sibling_greater_than(a, b)) {
                             Ordering::Less
                         } else {
                             Ordering::Greater
@@ -246,7 +247,7 @@ impl super::ResponseFormatter for Formatter {
         if traces.is_empty() {
             return None;
         }
-        return Some(traces);
+        Some(traces)
     }
 }
 

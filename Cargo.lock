@@ -1757,7 +1757,6 @@ version = "3.14.0"
 dependencies = [
  "creditcoin3-evm-tracer",
  "creditcoin3-rpc-primitives-debug",
- "evm-tracing-events",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",

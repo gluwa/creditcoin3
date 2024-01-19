@@ -51,7 +51,9 @@ pub enum FrontierBackendType {
 }
 
 /// Defines the frontier backend configuration.
+#[derive(Default)]
 pub enum FrontierBackendConfig {
+    #[default]
     KeyValue,
     Sql {
         pool_size: u32,
@@ -59,12 +61,6 @@ pub enum FrontierBackendConfig {
         thread_count: u32,
         cache_size: u64,
     },
-}
-
-impl Default for FrontierBackendConfig {
-    fn default() -> FrontierBackendConfig {
-        FrontierBackendConfig::KeyValue
-    }
 }
 
 pub struct RpcConfig {
