@@ -147,8 +147,8 @@ std = [
 	"pallet-evm-precompile-simple/std",
 	"pallet-hotfix-sufficients/std",
 	"pallet-scheduler/std",
-	"evm-tracing-events/std",
-	"creditcoin3-evm-tracer/std",
+	"evm-tracing-events?/std",
+	"creditcoin3-evm-tracer?/std",
 	"creditcoin3-rpc-primitives-debug/std",
 ]
 runtime-benchmarks = [
