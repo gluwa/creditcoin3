@@ -45,7 +45,7 @@ $ ./target/release/creditcoin3-node --dev --sealing=instant
 
 ### Docker Based Development
 
-Optionally, You can build and run the frontier node within Docker directly.
+Optionally, you can build and run creditcoin3-node within Docker directly.
 The Dockerfile is optimized for development speed.
 (Running the `docker run...` command will recompile the binaries but not the dependencies)
 
