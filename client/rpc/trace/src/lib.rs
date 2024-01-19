@@ -244,7 +244,7 @@ where
         self.clone()
             .filter(filter)
             .await
-            .map_err(|e| fc_rpc::internal_err(e))
+            .map_err(fc_rpc::internal_err)
     }
 }
 
@@ -710,7 +710,7 @@ where
                     tracing::trace!("Pooled block {} is no longer requested.", block);
                     // Remove block from the cache. Drops the value,
                     // closing all the channels contained in it.
-                    let _ = self.cached_blocks.remove(&block);
+                    let _ = self.cached_blocks.remove(block);
                 }
             }
         }
@@ -852,7 +852,7 @@ where
             api.initialize_block(substrate_parent_hash, &block_header)
                 .map_err(|e| format!("Runtime api access error: {:?}", e))?;
 
-            let _result = api
+            api
                 .trace_block(substrate_parent_hash, extrinsics, eth_tx_hashes)
                 .map_err(|e| format!("Blockchain error when replaying block {} : {:?}", height, e))?
                 .map_err(|e| {
