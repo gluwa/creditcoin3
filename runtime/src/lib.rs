@@ -1460,7 +1460,9 @@ impl_runtime_apis! {
 
     impl creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
         fn trace_transaction(
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             traced_transaction: &EthereumTransaction,
         ) -> Result<
             (),
@@ -1496,7 +1498,9 @@ impl_runtime_apis! {
         }
 
         fn trace_block(
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             known_transactions: Vec<H256>,
         ) -> Result<
             (),
