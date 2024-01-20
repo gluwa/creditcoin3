@@ -852,8 +852,7 @@ where
             api.initialize_block(substrate_parent_hash, &block_header)
                 .map_err(|e| format!("Runtime api access error: {:?}", e))?;
 
-            api
-                .trace_block(substrate_parent_hash, extrinsics, eth_tx_hashes)
+            api.trace_block(substrate_parent_hash, extrinsics, eth_tx_hashes)
                 .map_err(|e| format!("Blockchain error when replaying block {} : {:?}", height, e))?
                 .map_err(|e| {
                     tracing::warn!(
