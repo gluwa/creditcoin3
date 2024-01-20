@@ -367,8 +367,7 @@ where
             api.initialize_block(parent_block_hash, &header)
                 .map_err(|e| internal_err(format!("Runtime api access error: {:?}", e)))?;
 
-            api
-                .trace_block(parent_block_hash, exts, eth_tx_hashes)
+            api.trace_block(parent_block_hash, exts, eth_tx_hashes)
                 .map_err(|e| {
                     internal_err(format!(
                         "Blockchain error when replaying block {} : {:?}",
@@ -506,8 +505,7 @@ where
                         .map_err(|e| internal_err(format!("Runtime api access error: {:?}", e)))?;
 
                     if trace_api_version >= 4 {
-                        api
-                            .trace_transaction(parent_block_hash, exts, transaction)
+                        api.trace_transaction(parent_block_hash, exts, transaction)
                             .map_err(|e| {
                                 internal_err(format!(
                                     "Runtime api access error (version {:?}): {:?}",
