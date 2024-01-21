@@ -22,11 +22,16 @@ function formatDaysHoursMinutes(ms: number) {
     return `${daysString}${hoursString}${minutesString}${secString}`;
 }
 
-export async function getValidatorStatus(address: string, api: ApiPromise) {
+export async function getValidatorStatus(address: string | undefined, api: ApiPromise) {
+    if (!address) {
+        return;
+    }
+
     const stash = address;
 
     // Get the staking information for the stash
     const res = await api.derive.staking.account(stash);
+    console.log(res.stakingLedger.toHuman())
 
     // Get the total staked amount
     const totalStaked = readAmount(res.stakingLedger.total.toString());
@@ -94,7 +99,10 @@ export async function getValidatorStatus(address: string, api: ApiPromise) {
     return validatorStatus;
 }
 
-export async function printValidatorStatus(status: Status, api: ApiPromise) {
+export async function printValidatorStatus(status: Status | undefined, api: ApiPromise) {
+    if (!status) {
+        throw new Error('Status was undefined');
+    }
     const table = new Table({
         head: ['Status'],
     });
@@ -121,7 +129,11 @@ export async function printValidatorStatus(status: Status, api: ApiPromise) {
     console.log(table.toString());
 }
 
-export function requireStatus(status: Status, condition: keyof Status, message?: string) {
+export function requireStatus(status: Status | undefined, condition: keyof Status, message?: string) {
+    if (!status) {
+        console.error('ERROR: Status was undefined');
+        process.exit(1);
+    }
     if (!status[condition]) {
         console.error(message ?? `Cannot perform action, validator is not ${condition.toString()}`);
         process.exit(1);

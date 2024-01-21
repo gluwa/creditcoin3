@@ -8,7 +8,13 @@ export interface StakingPalletValidatorPrefs {
     blocked: boolean;
 }
 
-export async function validate(account: KeyringPair, prefs: StakingPalletValidatorPrefs, api: ApiPromise) {
+export async function validate(
+    account: KeyringPair,
+    prefs: StakingPalletValidatorPrefs,
+    api: ApiPromise,
+    proxyKeyring: KeyringPair | null,
+    address: string | null,
+) {
     console.log('Creating validate transaction with params:');
 
     const preferences: StakingPalletValidatorPrefs = prefs || {
@@ -19,11 +25,22 @@ export async function validate(account: KeyringPair, prefs: StakingPalletValidat
     console.log(`Comission: ${preferences.commission}`);
     console.log(`Blocked for new nominators: ${preferences.blocked.toString()}`);
 
-    const validateTx = api.tx.staking.validate(preferences);
+    let validateTx = api.tx.staking.validate(preferences);
+    let callerAddress = account.address;
+    let caller = account;
 
-    await requireEnoughFundsToSend(validateTx, account.address, api);
+    if (proxyKeyring) {
+        if (!address) {
+            console.log("ERROR: Address not supplied, provide with '--address <address>'");
+            process.exit(1);
+        }
 
-    const result = await signSendAndWatch(validateTx, api, account);
+        validateTx = api.tx.proxy.proxy(address, null, validateTx);
+        callerAddress = proxyKeyring.address;
+        caller = proxyKeyring;
+    }
 
+    await requireEnoughFundsToSend(validateTx, callerAddress, api);
+    const result = await signSendAndWatch(validateTx, api, caller);
     return result;
 }

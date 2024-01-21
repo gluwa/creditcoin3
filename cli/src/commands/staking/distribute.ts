@@ -1,26 +1,31 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
 import { eraOption, substrateAddressOption } from '../options';
 
-export function makeDistributeRewardsCommand() {
+export function makeDistributeRewardsCommand ()
+{
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.addOption(eraOption.makeOptionMandatory());
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy)');
     cmd.action(distributeRewardsAction);
     return cmd;
 }
 
-async function distributeRewardsAction(options: OptionValues) {
+async function distributeRewardsAction (options: OptionValues)
+{
     const { api } = await newApi(options.url as string);
 
     const { validator, era } = parseOptions(options);
 
     const eraIsValid = await checkEraIsInHistory(era, api);
-    if (!eraIsValid) {
+    if (!eraIsValid)
+    {
         console.error(
             `Failed to distribute rewards: Era ${era} is not included in history; only the past 84 eras are eligible`,
         );
@@ -29,18 +34,48 @@ async function distributeRewardsAction(options: OptionValues) {
 
     // Any account can call the distribute_rewards extrinsic
     const caller = await initCallerKeyring(options);
+    const proxy = await initProxyKeyring(options);
 
-    const distributeTx = api.tx.staking.payoutStakers(validator, era);
+    let distributeTx = api.tx.staking.payoutStakers(validator, era);
+    let callerAddress = caller?.address;
+    let callerKeyring = caller;
 
-    await requireEnoughFundsToSend(distributeTx, caller.address, api);
+    if (proxy)
+    {
+        if (!options.address)
+        {
+            console.log("ERROR: Address not supplied, provide with '--address <address>'");
+            process.exit(1);
+        }
+        if (!proxy)
+        {
+            console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
+            process.exit(1);
+        }
+        distributeTx = api.tx.proxy.proxy(options.address, null, distributeTx);
+        callerAddress = proxy.address;
+        callerKeyring = proxy;
+    }
 
-    const result = await signSendAndWatch(distributeTx, api, caller);
+    if (!callerAddress)
+    {
+        console.log('ERROR: caller address not initialized');
+        process.exit(1);
+    }
+    if (!callerKeyring)
+    {
+        console.log('ERROR: caller keyring not initialized');
+        process.exit(1);
+    }
 
+    await requireEnoughFundsToSend(distributeTx, callerAddress, api);
+    const result = await signSendAndWatch(distributeTx, api, callerKeyring);
     console.log(result.info);
     process.exit(0);
 }
 
-function parseOptions(options: OptionValues) {
+function parseOptions (options: OptionValues)
+{
     const validator = options.substrateAddress as string;
     const era = options.era as number;
     return { validator, era };

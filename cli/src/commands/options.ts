@@ -107,3 +107,38 @@ export const noInputOption = new Option('--no-input', 'Do not prompt for input')
 
 // Crypto
 export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
+
+export const proxyOption = new Option('-p, --proxy <proxy addr>', 'The proxy address to use for this call').argParser(
+    parseProxy,
+);
+export function parseProxy(value: string): string {
+    try {
+        validateAddress(value);
+    } catch (e: any) {
+        throw new InvalidArgumentError('Not a valid Substrate address.');
+    }
+    return value;
+}
+
+export const proxyTypeOption = new Option('--type [type]', 'The type of proxy');
+
+export const delayOption = new Option('--delay [delay]', 'The delay for the proxy').argParser(parseProxyDelay);
+export function parseProxyDelay(value: string): number {
+    const parsedValue = parseInt(value, 10);
+    if (isNaN(parsedValue)) {
+        throw new Error(`ERROR: Could not parse delay: ${value}`);
+    }
+    return parsedValue;
+}
+
+export const proxy2Option = new Option('-p, --proxy <proxy addr>', 'The proxy address to use for this call').argParser(
+    parseProxy,
+);
+export function parseProxy2(value: string): string {
+    try {
+        validateAddress(value);
+    } catch (e: any) {
+        throw new InvalidArgumentError('Not a valid Substrate address.');
+    }
+    return value;
+}

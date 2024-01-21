@@ -5,8 +5,8 @@ import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
-import { initCallerKeyring } from '../../lib/account/keyring';
-import { amountOption } from '../options';
+import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { amountOption, parseSubstrateAddress } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
@@ -17,6 +17,8 @@ export function makeBondCommand() {
         'Specify reward destination account to use for new account',
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.action(bondAction);
     return cmd;
 }
@@ -24,12 +26,13 @@ export function makeBondCommand() {
 async function bondAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const { amount, rewardDestination, extra, interactive } = parseOptions(options);
+    const { amount, rewardDestination, extra, interactive, proxy, address } = parseOptions(options);
 
     const callerKeyring = await initCallerKeyring(options);
-    const callerAddress = callerKeyring.address;
+    const proxyKeyring = await initProxyKeyring(options);
+    const callerAddress = proxy ? proxyKeyring?.address : callerKeyring?.address;
 
-    // Check if caller has enough balance
+    // Check if caller has enough balance, caller may be a proxy account
     await checkBalance(amount, api, callerAddress);
 
     console.log('Creating bond transaction...');
@@ -41,13 +44,17 @@ async function bondAction(options: OptionValues) {
 
     await promptContinue(interactive);
 
-    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra);
+    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra, proxy, proxyKeyring, address);
 
     console.log(bondTxResult.info);
     process.exit(0);
 }
 
-async function checkBalance(amount: BN, api: ApiPromise, address: string) {
+async function checkBalance(amount: BN, api: ApiPromise, address: string | undefined) {
+    console.log(amount, address);
+    if (!address) {
+        return;
+    }
     const balance = await getBalance(address, api);
     checkBalanceAgainstBondAmount(balance, amount);
 }
@@ -73,5 +80,8 @@ function parseOptions(options: OptionValues) {
 
     const interactive = setInteractivity(options);
 
-    return { amount, rewardDestination, extra, interactive };
+    const proxy = options.proxy ? options.proxy : null;
+    const address = options.address ? options.address : null;
+
+    return { amount, rewardDestination, extra, interactive, proxy, address };
 }

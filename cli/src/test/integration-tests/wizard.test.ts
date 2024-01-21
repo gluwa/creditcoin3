@@ -31,8 +31,8 @@ describe('integration test: validator wizard setup', () => {
 
         const validatorStatus = await getValidatorStatus(stash.address, api);
 
-        expect(validatorStatus.waiting).toBe(true);
-        console.log('Validator waiting status is: ', validatorStatus.waiting);
+        expect(validatorStatus?.waiting).toBe(true);
+        console.log('Validator waiting status is: ', validatorStatus?.waiting);
 
         await api.disconnect();
     }, 120000);

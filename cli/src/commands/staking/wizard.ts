@@ -4,7 +4,7 @@ import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBo
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption } from '../options';
@@ -18,11 +18,13 @@ export function makeWizardCommand() {
     );
     cmd.option('--commission [commission]', 'Specify commission for validator');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.addOption(amountOption);
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');
 
-        const { amount, rewardDestination, commission, blocked, interactive } = parseOptions(options);
+        const { amount, rewardDestination, commission, blocked, interactive, proxeeAddress } = parseOptions(options);
 
         // Node settings
         const nodeUrl: string = options.url as string;
@@ -32,6 +34,8 @@ export function makeWizardCommand() {
 
         // Generate keyring
         const keyring = await initCallerKeyring(options);
+        const proxy = await initProxyKeyring(options);
+
         const address = keyring.address;
 
         // Validate prefs
@@ -69,7 +73,16 @@ export function makeWizardCommand() {
                 checkStashBalance(address, stashBalance, amount);
                 // Bond extra
                 console.log('Sending bond transaction...');
-                const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
+                const bondTxResult = await bond(
+                    keyring,
+                    amount,
+                    rewardDestination,
+                    api,
+                    bondExtra,
+                    options.proxy,
+                    proxy,
+                    options.address,
+                );
                 console.log(bondTxResult.info);
                 if (bondTxResult.status === TxStatus.failed) {
                     console.log('Bond transaction failed. Exiting.');
@@ -79,7 +92,16 @@ export function makeWizardCommand() {
         } else {
             // Bond
             console.log('Sending bond transaction...');
-            const bondTxResult = await bond(keyring, amount, rewardDestination, api);
+            const bondTxResult = await bond(
+                keyring,
+                amount,
+                rewardDestination,
+                api,
+                bondExtra,
+                options.proxy,
+                proxy,
+                options.address,
+            );
             console.log(bondTxResult.info);
             if (bondTxResult.status === TxStatus.failed) {
                 console.log('Bond transaction failed. Exiting.');
@@ -154,5 +176,8 @@ function parseOptions(options: OptionValues) {
 
     const blocked = parseBoolean(options.blocked);
 
-    return { amount, rewardDestination, commission, blocked, interactive };
+    const proxy = options.proxy;
+    const proxeeAddress = options.address;
+
+    return { amount, rewardDestination, commission, blocked, interactive, proxy, proxeeAddress };
 }
