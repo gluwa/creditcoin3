@@ -25,7 +25,7 @@ export function makeBondCommand() {
 async function bondAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const { amount, rewardDestination, extra, interactive, proxy, address } = parseOptions(options);
+    const { amount, rewardDestination, extra, interactive, proxy } = parseOptions(options);
 
     const callerKeyring = await initCallerKeyring(options);
     const proxyKeyring = await initProxyKeyring(options);

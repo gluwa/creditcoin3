@@ -1,7 +1,14 @@
 import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { signSendAndWatch } from '../../lib/tx';
-import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH, waitEras } from './helpers';
+import {
+    randomTestAccount,
+    fundAddressesFromSudo,
+    initAliceKeyring,
+    ALICE_NODE_URL,
+    CLI_PATH,
+    waitEras,
+} from './helpers';
 import { ApiPromise, BN, KeyringPair, newApi } from '../../lib';
 
 async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPair, amount: BN = parseAmount('1000')) {
