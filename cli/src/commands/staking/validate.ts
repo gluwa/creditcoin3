@@ -10,7 +10,6 @@ export function makeValidateCommand() {
     cmd.option('--commission [commission]', 'Specify commission for validator in percent');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.action(validateAction);
     return cmd;
 }
@@ -30,7 +29,7 @@ async function validateAction(options: OptionValues) {
 
     console.log('Creating validate transaction...');
 
-    const result = await validate(account, preferences, api, proxy, options.address);
+    const result = await validate(account, preferences, api, proxy, account.address);
 
     console.log(result.info);
     process.exit(0);

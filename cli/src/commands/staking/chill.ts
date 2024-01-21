@@ -7,7 +7,6 @@ export function makeChillCommand() {
     const cmd = new Command('chill');
     cmd.description('Signal intention to stop validating from a Controller account');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.action(chillAction);
     return cmd;
 }
@@ -26,7 +25,7 @@ async function chillAction(options: OptionValues) {
 
     console.log('Creating chill transaction...');
 
-    const result = await chill(keyring, api, proxy, options.address);
+    const result = await chill(keyring, api, proxy, keyring.address);
 
     console.log(result.info);
     process.exit(0);

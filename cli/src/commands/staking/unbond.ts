@@ -15,7 +15,6 @@ export function makeUnbondCommand() {
     cmd.description('Schedule a bonded CTC to be unlocked');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.action(unbondAction);
     return cmd;
 }
@@ -45,11 +44,7 @@ async function unbondAction(options: OptionValues) {
             console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
             process.exit(1);
         }
-        if (!options.address) {
-            console.log("ERROR: Address not supplied, provide with '--address <address>'");
-            process.exit(1);
-        }
-        tx = api.tx.proxy.proxy(options.address, null, tx);
+        tx = api.tx.proxy.proxy(caller.address, null, tx);
         await requireEnoughFundsToSend(tx, proxy.address, api, amount);
         const result = await signSendAndWatch(tx, api, proxy);
         console.log(result.info);

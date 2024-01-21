@@ -52,7 +52,7 @@ async function distributeRewardsAction (options: OptionValues)
             console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
             process.exit(1);
         }
-        distributeTx = api.tx.proxy.proxy(options.address, null, distributeTx);
+        distributeTx = api.tx.proxy.proxy(caller.address, null, distributeTx);
         callerAddress = proxy.address;
         callerKeyring = proxy;
     }

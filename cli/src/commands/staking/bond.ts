@@ -18,7 +18,6 @@ export function makeBondCommand() {
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.action(bondAction);
     return cmd;
 }
@@ -44,7 +43,16 @@ async function bondAction(options: OptionValues) {
 
     await promptContinue(interactive);
 
-    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra, proxy, proxyKeyring, address);
+    const bondTxResult = await bond(
+        callerKeyring,
+        amount,
+        rewardDestination,
+        api,
+        extra,
+        proxy,
+        proxyKeyring,
+        callerKeyring.address,
+    );
 
     console.log(bondTxResult.info);
     process.exit(0);

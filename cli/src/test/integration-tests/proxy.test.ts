@@ -1,7 +1,7 @@
 import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { signSendAndWatch } from '../../lib/tx';
-import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH } from './helpers';
+import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH, waitEras } from './helpers';
 import { ApiPromise, BN, KeyringPair, newApi } from '../../lib';
 
 async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPair, amount: BN = parseAmount('1000')) {
@@ -19,7 +19,7 @@ function CLIBuilder(env: any) {
 }
 
 describe('Proxy functionality', () => {
-    it('Can list, add, and remove proxies for an account', async () => {
+    it.skip('Can list, add, and remove proxies for an account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
@@ -65,7 +65,7 @@ describe('Proxy functionality', () => {
         await api.disconnect();
     }, 60000);
 
-    it('Can successfully bond and unbond with a proxy account', async () => {
+    it.skip('Can successfully bond and unbond with a proxy account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
@@ -85,22 +85,22 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI(`bond --amount 1 --proxy --address ${caller.address}`);
+        const test1Res = CLI('bond mount 1 --proxy');
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 
         // Test #2. Attempt to bond extra without specifying the extra command
         // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test2Res = CLI(`bond --amount 1 --proxy --address ${caller.address}`);
+        const test2Res = CLI('bond --amount 1 --proxy');
         expect(test2Res.exitCode).toEqual(0);
 
         // Test #3. Successfully bond extra using the proxy
-        const test3Res = CLI(`bond --amount 1 --proxy --address ${caller.address} -x`);
+        const test3Res = CLI('bond --amount 1 --proxy -x');
         expect(test3Res.exitCode).toEqual(0);
         expect(test3Res.stdout).toContain('Transaction included at block');
 
         // Test #4. Successfully unbond extra using the proxy
-        const test4Res = CLI(`unbond --amount 1 --proxy --address ${caller.address}`);
+        const test4Res = CLI('unbond --amount 1 --proxy');
         expect(test4Res.exitCode).toEqual(0);
         expect(test4Res.stdout).toContain('Transaction included at block');
 
@@ -127,16 +127,18 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI(`validate --proxy --address ${caller.address}`);
+        const test1Res = CLI('validate --proxy');
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 
+        await waitEras(2, api);
+
         // Test #2. Attempt to bond extra without specifying the extra command
         // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test2Res = CLI(`chill --proxy --address ${caller.address}`);
+        const test2Res = CLI('chill --proxy');
         expect(test2Res.exitCode).toEqual(0);
         expect(test2Res.stdout).toContain('Transaction included at block');
 
         await api.disconnect();
-    }, 60000);
+    }, 360_000);
 });

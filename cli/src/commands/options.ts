@@ -130,15 +130,3 @@ export function parseProxyDelay(value: string): number {
     }
     return parsedValue;
 }
-
-export const proxy2Option = new Option('-p, --proxy <proxy addr>', 'The proxy address to use for this call').argParser(
-    parseProxy,
-);
-export function parseProxy2(value: string): string {
-    try {
-        validateAddress(value);
-    } catch (e: any) {
-        throw new InvalidArgumentError('Not a valid Substrate address.');
-    }
-    return value;
-}

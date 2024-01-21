@@ -7,7 +7,6 @@ export function makeWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
     cmd.description('Withdraw unbonded funds from a stash account');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.action(withdrawUnbondedAction);
     return cmd;
 }
@@ -30,16 +29,12 @@ async function withdrawUnbondedAction(options: OptionValues) {
     let callerAddress = keyring?.address;
 
     if (options.proxy) {
-        if (!options.address) {
-            console.log("ERROR: Address not supplied, provide with '--address <address>'");
-            process.exit(1);
-        }
         if (!proxy) {
             console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
             process.exit(1);
         }
 
-        withdrawUnbondTx = api.tx.proxy.proxy(options.address, null, withdrawUnbondTx);
+        withdrawUnbondTx = api.tx.proxy.proxy(keyring.address, null, withdrawUnbondTx);
         callerAddress = proxy.address;
         callerKeyring = proxy;
     }
