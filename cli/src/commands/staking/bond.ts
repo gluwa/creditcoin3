@@ -6,7 +6,7 @@ import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
 import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
-import { amountOption, parseSubstrateAddress } from '../options';
+import { amountOption } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
@@ -51,7 +51,6 @@ async function bondAction(options: OptionValues) {
 }
 
 async function checkBalance(amount: BN, api: ApiPromise, address: string | undefined) {
-    console.log(amount, address);
     if (!address) {
         return;
     }

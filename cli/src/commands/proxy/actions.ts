@@ -44,14 +44,14 @@ export async function removeProxyAction(opts: OptionValues) {
     const callerKeyring = await initCallerKeyring(opts);
     const callerAddress = callerKeyring.address;
 
-    let [defArray, _] = await await api.query.proxy.proxies(callerAddress);
+    const [defArray, _] = await api.query.proxy.proxies(callerAddress);
     if (defArray.toArray().length === 0) {
         console.log(`ERROR: No proxies has been set for ${callerAddress}`);
         process.exit(1);
     }
 
-    const proxy = opts.proxy;
-    const type = opts.type;
+    const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
+    const type = opts.type; // proxy is validated as a substrate address and type is also validated prior to us using it here
     const delay = opts.delay ? opts.delay : 0;
 
     const call = api.tx.proxy.removeProxy(proxy, type, delay);

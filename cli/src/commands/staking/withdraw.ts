@@ -22,7 +22,7 @@ async function withdrawUnbondedAction(options: OptionValues) {
     const status = await getValidatorStatus(addr, api);
     requireStatus(status, 'canWithdraw', 'Cannot perform action, there are no unlocked funds to withdraw');
 
-    const slashingSpans = await api.query.staking.slashingSpans(keyring?.address as string);
+    const slashingSpans = await api.query.staking.slashingSpans(keyring?.address);
     const slashingSpansCount = slashingSpans.isSome ? slashingSpans.unwrap().lastNonzeroSlash : 0;
 
     let withdrawUnbondTx = api.tx.staking.withdrawUnbonded(slashingSpansCount);

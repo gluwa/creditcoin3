@@ -22,13 +22,13 @@ export function initEthKeyringPair(seed: string, accIndex = 0) {
     return pair;
 }
 
-export async function initCallerKeyring(options: OptionValues, ignore: boolean=false): Promise<KeyringPair> {
+export async function initCallerKeyring(options: OptionValues): Promise<KeyringPair> {
     // If we are using a proxy and provided the proxied address we don't need to initialize the keyring
     // Return an empty keyring to satisfy types, the proxy calls won't use it
     if (options.proxy && options.address) {
         const keyring = new Keyring({ type: 'sr25519' });
         const pair = keyring.addFromUri('//Alice');
-        return pair; 
+        return pair;
     }
     try {
         return await initKeyringFromEnvOrPrompt('CC_SECRET', 'caller', options);

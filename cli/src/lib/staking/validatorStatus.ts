@@ -31,7 +31,7 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
 
     // Get the staking information for the stash
     const res = await api.derive.staking.account(stash);
-    console.log(res.stakingLedger.toHuman())
+    console.log(res.stakingLedger.toHuman());
 
     // Get the total staked amount
     const totalStaked = readAmount(res.stakingLedger.total.toString());

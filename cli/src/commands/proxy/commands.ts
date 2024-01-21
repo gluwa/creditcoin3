@@ -1,4 +1,4 @@
-import { Command, Option, OptionValues } from 'commander';
+import { Command } from 'commander';
 import { proxyOption, proxyTypeOption, delayOption } from '../options';
 import { setProxyAction, viewProxyAction, removeProxyAction } from './actions';
 import { ProxyTypes } from './types';

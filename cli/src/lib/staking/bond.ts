@@ -56,7 +56,7 @@ export async function bond(
         throw new Error('ERROR: Caller address was not valid');
     }
     if (!callerKeyring) {
-        throw new Error('ERROR: Caller keyring was not valid')
+        throw new Error('ERROR: Caller keyring was not valid');
     }
 
     await requireEnoughFundsToSend(bondTx, callerAddress, api, amount);

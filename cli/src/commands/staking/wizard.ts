@@ -24,7 +24,7 @@ export function makeWizardCommand() {
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');
 
-        const { amount, rewardDestination, commission, blocked, interactive, proxeeAddress } = parseOptions(options);
+        const { amount, rewardDestination, commission, blocked, interactive } = parseOptions(options);
 
         // Node settings
         const nodeUrl: string = options.url as string;
