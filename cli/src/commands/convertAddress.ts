@@ -26,9 +26,8 @@ function convertAddressAction(options: OptionValues) {
     process.exit(0);
 }
 
-function printUsageWarning ()
-{
-    console.log("");
+function printUsageWarning() {
+    console.log('');
     console.log(
         '⚠️ Warning: This command is not cyclical. You will NOT get the original address back by running this command with the associated address.',
     );
