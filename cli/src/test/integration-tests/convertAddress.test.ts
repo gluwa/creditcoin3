@@ -1,45 +1,59 @@
 import { commandSync } from 'execa';
 import { CLI_PATH } from './helpers';
+import { initEthKeyringPair, initKeyringPair } from '../../lib/account/keyring';
+
+import { cryptoWaitReady } from '@polkadot/util-crypto';
+
+let substrateSeedPhrase = '';
+let substrateAccount = null;
+let substrateAddress = '';
+let expectedAssociatedEvmAddress = '';
+
+let evmSeedPhrase = '';
+let evmAccount = null;
+let evmAddress = '';
+let expectedAssociatedSubtrateAddress = '';
+
+beforeAll(async () => {
+    // Wait for crypto to be ready
+    await cryptoWaitReady();
+
+    substrateSeedPhrase = 'wheel practice idle spin artefact unlock coffee yellow mirror pudding fetch supreme';
+    substrateAccount = initKeyringPair(substrateSeedPhrase);
+    substrateAddress = substrateAccount.address;
+    expectedAssociatedEvmAddress = '0x347557916f6abfc2b0862514b0e90708b422d992';
+
+    // EVM address (uses index 0)
+    evmSeedPhrase = 'drift glove bar million spare better spot afford pave horn annual bunker';
+    evmAccount = initEthKeyringPair(evmSeedPhrase);
+    evmAddress = evmAccount.address;
+    expectedAssociatedSubtrateAddress = '5FQMKPxJuFBCeH7zQvwuKiRa3bMU41uYiumTkjXb1WeQxvf8';
+});
 
 describe('Convert Address command', () => {
-    it('should convert a valid Substrate address', () => {
-        const result = commandSync(
-            `node ${CLI_PATH} convert-address --address 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq`,
-        );
-
-        expect(result.stdout).toContain('0x');
-    }, 60000);
-
-    it('should convert a valid EVM address', () => {
-        const result = commandSync(
-            `node ${CLI_PATH} convert-address --address 0xCb5705FbB64F1336c7cBaC018FB251930A753333`,
-        );
-
-        expect(result.stdout).toContain('5');
-    }, 60000);
-
-    it('should NOT convert an invalid address', () => {
-        // Test that command fails with an invalid address
+    it('should NOT convert an invalid EVM address', () => {
         const result = commandSync(`node ${CLI_PATH} convert-address --address 0x123`, { reject: false });
 
         expect(result.stderr).toContain('Not a valid Substrate or EVM address.');
     }, 60000);
 
-    // Test a known convertion from Substrate to EVM works
-    it('should convert a known Substrate address to a known EVM address', () => {
-        const result = commandSync(
-            `node ${CLI_PATH} convert-address --address 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq`,
-        );
+    it('should NOT convert an invalid Substrate address', () => {
+        const result = commandSync(`node ${CLI_PATH} convert-address --address 5FQMKPxJuFBCeH7zQvw0xa>>!jXb1WeQxvf8`, {
+            reject: false,
+        });
 
-        expect(result.stdout.toLowerCase()).toContain('0xe3d237ebd67e011dbf48c34e5e4e936c5debe205');
+        expect(result.stderr).toContain('Not a valid Substrate or EVM address.');
     }, 60000);
 
-    // Test a known convertion from EVM to Substrate works
-    it('should convert a known EVM address to a known Substrate address', () => {
-        const result = commandSync(
-            `node ${CLI_PATH} convert-address --address 0xCb5705FbB64F1336c7cBaC018FB251930A753333`,
-        );
+    it('should convert a known Substrate address to a known EVM address', () => {
+        const result = commandSync(`node ${CLI_PATH} convert-address --address ${substrateAddress}`);
 
-        expect(result.stdout).toContain('5EaVMBYdtn7jwhmtF17YYkYaju74hA5FZZuCWjHmwaWeMbK1');
+        expect(result.stdout.toLowerCase()).toContain(expectedAssociatedEvmAddress.toLowerCase());
+    }, 60000);
+
+    it('should convert a known EVM address to a known Substrate address', () => {
+        const result = commandSync(`node ${CLI_PATH} convert-address --address ${evmAddress}`);
+
+        expect(result.stdout.toLowerCase()).toContain(expectedAssociatedSubtrateAddress.toLowerCase());
     }, 60000);
 });
