@@ -38,7 +38,7 @@ export async function bond(
             throw new Error('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
         }
         if (!address) {
-            throw new Error("ERROR: Address is null but proxy specified");
+            throw new Error('ERROR: Address is null but proxy specified');
         }
         console.log(`Using proxy ${proxyKeyring.address} for address ${address}`);
         bondTx = api.tx.proxy.proxy(address, null, bondTx);

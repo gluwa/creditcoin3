@@ -1,6 +1,5 @@
 import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { parseSubstrateAddress } from '../options';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
 

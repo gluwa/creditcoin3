@@ -42,7 +42,7 @@ program
     .addCommand(makeUnbondCommand())
     .addCommand(makeValidateCommand())
     .addCommand(makeWithdrawUnbondedCommand())
-    .addCommand(makeWizardCommand())
+    .addCommand(makeWizardCommand());
 
 program.commands.forEach((cmd) =>
 {

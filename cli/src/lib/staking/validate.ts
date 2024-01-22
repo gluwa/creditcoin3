@@ -31,8 +31,7 @@ export async function validate(
 
     if (proxyKeyring) {
         if (!address) {
-            console.log("ERROR: Address not supplied, provide with '--address <address>'");
-            process.exit(1);
+            throw new Error("ERROR: Address not supplied, provide with '--address <address>'");
         }
 
         validateTx = api.tx.proxy.proxy(address, null, validateTx);
@@ -41,6 +40,5 @@ export async function validate(
     }
 
     await requireEnoughFundsToSend(validateTx, callerAddress, api);
-    const result = await signSendAndWatch(validateTx, api, caller);
-    return result;
+    return await signSendAndWatch(validateTx, api, caller);
 }

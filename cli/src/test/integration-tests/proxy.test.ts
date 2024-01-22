@@ -1,29 +1,5 @@
-import { commandSync } from 'execa';
-import { parseAmount } from '../../commands/options';
-import { signSendAndWatch } from '../../lib/tx';
-import {
-    randomTestAccount,
-    fundAddressesFromSudo,
-    initAliceKeyring,
-    ALICE_NODE_URL,
-    CLI_PATH,
-    waitEras,
-} from './helpers';
-import { ApiPromise, BN, KeyringPair, newApi } from '../../lib';
-
-async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPair, amount: BN = parseAmount('1000')) {
-    const account = randomTestAccount();
-    const fundTx = await fundAddressesFromSudo([account.address], amount);
-    await signSendAndWatch(fundTx, api, sudoSigner);
-    return account;
-}
-
-function CLIBuilder(env: any) {
-    function CLICmd(cmd: string) {
-        return commandSync(`node ${CLI_PATH} ${cmd}`, { env });
-    }
-    return CLICmd;
-}
+import { initAliceKeyring, ALICE_NODE_URL, waitEras, randomFundedAccount, CLIBuilder } from './helpers';
+import { newApi } from '../../lib';
 
 describe('Proxy functionality', () => {
     it.skip('Can list, add, and remove proxies for an account', async () => {
