@@ -78,12 +78,12 @@ describe('Proxy functionality', () => {
         expect(test2Res.exitCode).toEqual(0);
 
         // Test #3. Successfully bond extra using the proxy
-        const test3Res = CLI(`bond --amount 1 --proxy -x ${caller.address}`);
+        const test3Res = CLI(`bond --amount 1 --proxy -x --address ${caller.address}`);
         expect(test3Res.exitCode).toEqual(0);
         expect(test3Res.stdout).toContain('Transaction included at block');
 
         // Test #4. Successfully unbond extra using the proxy
-        const test4Res = CLI(`unbond --amount 1 --proxy ${caller.address}`);
+        const test4Res = CLI(`unbond --amount 1 --proxy --address ${caller.address}`);
         expect(test4Res.exitCode).toEqual(0);
         expect(test4Res.stdout).toContain('Transaction included at block');
 

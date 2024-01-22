@@ -19,18 +19,7 @@ export async function signSendAndWatch(
             resolve(result);
         };
         // Sign and send with callback
-        tx.signAndSend(signer, { nonce: -1 }, ({ status, dispatchError, events }) => {
-            if (status.isInBlock || status.isFinalized) {
-                events
-                    // We know this tx should result in `Sudid` event.
-                    .filter(({ event }) => api.events.proxy.ProxyExecuted.is(event))
-                    // We know that `Sudid` returns just a `Result`
-                    .forEach((event) => {
-                        const index = event.event.data.pop()?.toJSON();
-                        console.log(index?.valueOf());
-                    });
-            }
-
+        tx.signAndSend(signer, { nonce: -1 }, ({ status, dispatchError}) => {
             // Called every time the status changes
             if (status.isFinalized) {
                 const result = {

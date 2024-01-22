@@ -2,11 +2,13 @@ import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { parseSubstrateAddress } from '../options';
 
 export function makeWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
     cmd.description('Withdraw unbonded funds from a stash account');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(withdrawUnbondedAction);
     return cmd;
 }

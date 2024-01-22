@@ -15,7 +15,7 @@ export function makeUnbondCommand() {
     cmd.description('Schedule a bonded CTC to be unlocked');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.option('-a, --address [address]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(unbondAction);
     return cmd;
 }
@@ -28,7 +28,7 @@ async function unbondAction(options: OptionValues) {
     const amount = options.amount as BN;
 
     // Build account
-    const caller = await initCallerKeyring(options);
+    const caller = await initCallerKeyring(options, true);
     const proxy = await initProxyKeyring(options);
 
     // We need to check the staking ledger of the caller even if we are using a proxy

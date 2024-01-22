@@ -26,6 +26,7 @@ export function parseEVMAddress(value: string): string {
     if (isAddress(value)) {
         return value;
     } else {
+        console.log(value)
         throw new InvalidArgumentError('Not a valid EVM address.');
     }
 }

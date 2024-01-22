@@ -2,12 +2,13 @@ import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
+import { parseSetProxyOptions } from './utils';
 
 export async function setProxyAction(opts: OptionValues) {
     const { proxyAddr, proxyType, url, delay } = parseSetProxyOptions(opts);
 
     const { api } = await newApi(url);
-    const callerKeyring = await initCallerKeyring(opts);
+    const callerKeyring = await initCallerKeyring(opts, true);
 
     if (!callerKeyring) {
         throw new Error('Keyring not initialized and not using a proxy');
@@ -21,19 +22,12 @@ export async function setProxyAction(opts: OptionValues) {
     process.exit(0);
 }
 
-function parseSetProxyOptions(opts: OptionValues) {
-    const proxyAddr = opts.proxy;
-    const proxyType = opts.type;
-    const url = opts.url;
-    const delay = opts.delay ? opts.delay : 0;
 
-    return { proxyAddr, proxyType, url, delay };
-}
 
 export async function viewProxyAction(opts: OptionValues) {
     const { api } = await newApi(opts.url);
 
-    const callerKeyring = await initCallerKeyring(opts);
+    const callerKeyring = await initCallerKeyring(opts, true);
     if (!callerKeyring) {
         throw new Error('Keyring not initialized and not using a proxy');
     }
@@ -41,6 +35,7 @@ export async function viewProxyAction(opts: OptionValues) {
     const callerAddress = callerKeyring.address;
     const callerProxy = await api.query.proxy.proxies(callerAddress);
 
+    console.log(`Proxies for address ${callerKeyring.address}`)
     console.log(callerProxy.toJSON());
     process.exit(0);
 }
@@ -48,7 +43,8 @@ export async function viewProxyAction(opts: OptionValues) {
 export async function removeProxyAction(opts: OptionValues) {
     const { api } = await newApi(opts.url);
 
-    const callerKeyring = await initCallerKeyring(opts);
+    // force=true means we get back the keyring even though we enabled the --proxy flag
+    const callerKeyring = await initCallerKeyring(opts, true);
     if (!callerKeyring) {
         throw new Error('Keyring not initialized and not using a proxy');
     }
@@ -63,8 +59,8 @@ export async function removeProxyAction(opts: OptionValues) {
     const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
     const type = opts.type; // proxy is validated as a substrate address and type is also validated prior to us using it here
     const delay = opts.delay ? opts.delay : 0;
-
     const call = api.tx.proxy.removeProxy(proxy, type, delay);
+
     await requireEnoughFundsToSend(call, callerAddress, api);
     const result = await signSendAndWatch(call, api, callerKeyring);
 

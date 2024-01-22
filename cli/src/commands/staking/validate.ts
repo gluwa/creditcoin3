@@ -11,7 +11,7 @@ export function makeValidateCommand() {
     cmd.option('--commission [commission]', 'Specify commission for validator in percent');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.option('-a, --address [address]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(validateAction);
     return cmd;
 }

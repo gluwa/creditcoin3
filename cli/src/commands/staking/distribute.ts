@@ -11,7 +11,7 @@ export function makeDistributeRewardsCommand ()
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.option('-a, --address [address]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.addOption(eraOption.makeOptionMandatory());
     cmd.action(distributeRewardsAction);
     return cmd;

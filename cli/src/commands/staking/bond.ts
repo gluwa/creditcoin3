@@ -18,7 +18,7 @@ export function makeBondCommand() {
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(bondAction);
     return cmd;
 }
@@ -26,7 +26,7 @@ export function makeBondCommand() {
 async function bondAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const { amount, rewardDestination, extra, interactive, proxy } = parseOptions(options);
+    const { amount, rewardDestination, extra, interactive, proxy, address } = parseOptions(options);
 
     const callerKeyring = await initCallerKeyring(options);
     const proxyKeyring = await initProxyKeyring(options);
@@ -57,7 +57,7 @@ async function bondAction(options: OptionValues) {
         extra,
         proxy,
         proxyKeyring,
-        options.address,
+        address,
     );
 
     console.log(bondTxResult.info);
@@ -91,7 +91,7 @@ function parseOptions(options: OptionValues) {
     const extra = parseBoolean(options.extra);
     const interactive = setInteractivity(options);
 
-    const proxy = options.proxy ? options.proxy : null;
+    const proxy = options.proxy ? options.proxy : null; // already checked using parseSubstrateAddress
     const address = options.address ? options.address : null;
 
     return { amount, rewardDestination, extra, interactive, proxy, address };
