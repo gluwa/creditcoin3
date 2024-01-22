@@ -6,7 +6,7 @@ import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
 type RewardDestination = 'Staked' | 'Stash';
 
 export async function bond(
-    stashKeyring: KeyringPair | null,
+    stashKeyring: KeyringPair,
     amount: BN,
     rewardDestination: RewardDestination,
     api: ApiPromise,
@@ -24,7 +24,7 @@ export async function bond(
     const amountInMicroUnits = amount;
 
     let bondTx: SubmittableExtrinsic<'promise', ISubmittableResult>;
-    let callerAddress = stashKeyring?.address;
+    let callerAddress = stashKeyring.address;
     let callerKeyring = stashKeyring;
 
     if (extra) {
@@ -35,30 +35,16 @@ export async function bond(
 
     if (proxy) {
         if (!proxyKeyring) {
-            console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
-            process.exit(1);
+            throw new Error('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
         }
         if (!address) {
-            console.log("ERROR: Address not supplied, provide with '--address <address>'");
-            process.exit(1);
+            throw new Error("ERROR: Address is null but proxy specified");
         }
         console.log(`Using proxy ${proxyKeyring.address} for address ${address}`);
         bondTx = api.tx.proxy.proxy(address, null, bondTx);
         callerAddress = proxyKeyring.address;
         callerKeyring = proxyKeyring;
     }
-
-    // catch cases where no proxy was provided and no stash keyring was initialized
-    if (!stashKeyring) {
-        throw new Error('ERROR: No proxy or stash keyring was provided!');
-    }
-    if (!callerAddress) {
-        throw new Error('ERROR: Caller address was not valid');
-    }
-    if (!callerKeyring) {
-        throw new Error('ERROR: Caller keyring was not valid');
-    }
-
     await requireEnoughFundsToSend(bondTx, callerAddress, api, amount);
     return await signSendAndWatch(bondTx, api, callerKeyring);
 }

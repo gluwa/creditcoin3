@@ -43,6 +43,16 @@ async function bondAction(options: OptionValues) {
 
     await promptContinue(interactive);
 
+    if (proxy && !proxyKeyring) {
+        console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
+        process.exit(1);
+    }
+
+    if (proxy && !callerKeyring.address) {
+        console.log("ERROR: Address not supplied, provide with '--address <address>'");
+        process.exit(1); 
+    }
+
     const bondTxResult = await bond(
         callerKeyring,
         amount,
