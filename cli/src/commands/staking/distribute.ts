@@ -37,35 +37,14 @@ async function distributeRewardsAction (options: OptionValues)
     const proxy = await initProxyKeyring(options);
 
     let distributeTx = api.tx.staking.payoutStakers(validator, era);
-    let callerAddress = caller?.address;
+    let callerAddress = caller.address;
     let callerKeyring = caller;
 
     if (proxy)
     {
-        if (!options.address)
-        {
-            console.log("ERROR: Address not supplied, provide with '--address <address>'");
-            process.exit(1);
-        }
-        if (!proxy)
-        {
-            console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
-            process.exit(1);
-        }
         distributeTx = api.tx.proxy.proxy(caller.address, null, distributeTx);
         callerAddress = proxy.address;
         callerKeyring = proxy;
-    }
-
-    if (!callerAddress)
-    {
-        console.log('ERROR: caller address not initialized');
-        process.exit(1);
-    }
-    if (!callerKeyring)
-    {
-        console.log('ERROR: caller keyring not initialized');
-        process.exit(1);
     }
 
     await requireEnoughFundsToSend(distributeTx, callerAddress, api);

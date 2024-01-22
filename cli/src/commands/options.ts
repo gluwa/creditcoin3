@@ -113,8 +113,12 @@ export const proxyOption = new Option('-p, --proxy <proxy addr>', 'The proxy add
 );
 
 export const proxyTypeOption = new Option('--type [type]', 'The type of proxy');
+export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
 
-export const delayOption = new Option('--delay [delay]', 'The delay for the proxy').argParser(parseProxyDelay);
+export const delayOption = new Option(
+    '--delay [delay]',
+    'The time delay for the proxy action, measured in blocks',
+).argParser(parseProxyDelay);
 export function parseProxyDelay(value: string): number {
     const parsedValue = parseInt(value, 10);
     if (isNaN(parsedValue)) {

@@ -2,7 +2,7 @@ import { initAliceKeyring, ALICE_NODE_URL, waitEras, randomFundedAccount, CLIBui
 import { newApi } from '../../lib';
 
 describe('Proxy functionality', () => {
-    it.skip('Can list, add, and remove proxies for an account', async () => {
+    it('Can list, add, and remove proxies for an account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
@@ -15,7 +15,7 @@ describe('Proxy functionality', () => {
 
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, PROXY_SECRET: proxy.secret });
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
 
         // Test #1. List proxies, should be empty
         const test1Res = CLI('proxy list');
@@ -48,7 +48,7 @@ describe('Proxy functionality', () => {
         await api.disconnect();
     }, 60000);
 
-    it.skip('Can successfully bond and unbond with a proxy account', async () => {
+    it('Can successfully bond and unbond with a proxy account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
@@ -61,7 +61,7 @@ describe('Proxy functionality', () => {
 
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, PROXY_SECRET: proxy.secret });
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
 
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);
@@ -103,7 +103,7 @@ describe('Proxy functionality', () => {
 
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, PROXY_SECRET: proxy.secret });
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
 
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);

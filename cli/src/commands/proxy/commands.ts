@@ -1,7 +1,6 @@
 import { Command } from 'commander';
-import { proxyOption, proxyTypeOption, delayOption } from '../options';
+import { proxyOption, ProxyTypes, proxyTypeOption, delayOption } from '../options';
 import { setProxyAction, viewProxyAction, removeProxyAction } from './actions';
-import { ProxyTypes } from './types';
 
 export function makeProxyCommands() {
     return new Command('proxy')

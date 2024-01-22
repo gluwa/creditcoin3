@@ -37,7 +37,7 @@ export async function initProxyKeyring(options: OptionValues): Promise<KeyringPa
     }
 
     try {
-        return await initKeyringFromEnvOrPrompt('PROXY_SECRET', 'proxy', options);
+        return await initKeyringFromEnvOrPrompt('CC_PROXY_SECRET', 'proxy', options);
     } catch (e) {
         console.error(getErrorMessage(e));
         process.exit(1);
