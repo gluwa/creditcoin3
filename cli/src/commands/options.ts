@@ -109,7 +109,10 @@ export const noInputOption = new Option('--no-input', 'Do not prompt for input')
 export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
 
 export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
-export const proxyTypeOption = new Option('--type [type]', 'The type of proxy')
+export const proxyTypeOption = new Option(
+    '--type [type]',
+    'The type dictates the actions that this proxy can perform on your behalf. \nFor more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+)
     .choices(ProxyTypes)
     .makeOptionMandatory();
 
@@ -122,7 +125,7 @@ mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
     '--delay [delay]',
-    'The time delay for the proxy action, measured in blocks',
+    'The time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
 ).argParser(parseProxyDelay);
 export function parseProxyDelay(value: string): number {
     const parsedValue = parseInt(value, 10);

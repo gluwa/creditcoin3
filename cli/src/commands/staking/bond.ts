@@ -44,7 +44,7 @@ async function bondAction(options: OptionValues) {
     await promptContinue(interactive);
 
     if (proxy && !proxyKeyring) {
-        console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
+        console.log('ERROR: proxy keyring not provided through $CC_PROXY_SECRET or interactive prompt');
         process.exit(1);
     }
 
