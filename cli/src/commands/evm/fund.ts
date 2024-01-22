@@ -25,6 +25,11 @@ async function evmFundAction(options: OptionValues) {
     console.log(`Sending to associated Substrate address ${asociatedSubstrateAddress}`);
 
     const caller = await initCallerKeyring(options);
+
+    if (!caller) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
+
     const tx = api.tx.balances.transfer(asociatedSubstrateAddress, amount.toString());
     await requireEnoughFundsToSend(tx, caller.address, api, amount);
     const result = await signSendAndWatch(tx, api, caller);

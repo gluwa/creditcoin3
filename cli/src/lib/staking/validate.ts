@@ -9,7 +9,7 @@ export interface StakingPalletValidatorPrefs {
 }
 
 export async function validate(
-    account: KeyringPair,
+    account: KeyringPair | null,
     prefs: StakingPalletValidatorPrefs,
     api: ApiPromise,
     proxyKeyring: KeyringPair | null,
@@ -26,7 +26,7 @@ export async function validate(
     console.log(`Blocked for new nominators: ${preferences.blocked.toString()}`);
 
     let validateTx = api.tx.staking.validate(preferences);
-    let callerAddress = account.address;
+    let callerAddress = account?.address;
     let caller = account;
 
     if (proxyKeyring) {
@@ -39,6 +39,12 @@ export async function validate(
         caller = proxyKeyring;
     }
 
+    if (!caller) {
+        throw new Error('ERROR: keyring not initialized and proxy not selected');
+    }
+    if (!callerAddress) {
+        throw new Error('ERROR: keyring not initialized and proxy not selected');
+    }
     await requireEnoughFundsToSend(validateTx, callerAddress, api);
     return await signSendAndWatch(validateTx, api, caller);
 }

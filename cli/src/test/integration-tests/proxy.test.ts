@@ -68,22 +68,22 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI('bond --amount 1 --proxy');
+        const test1Res = CLI(`bond --amount 1 --proxy --address ${caller.address}`);
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 
         // Test #2. Attempt to bond extra without specifying the extra command
         // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test2Res = CLI('bond --amount 1 --proxy');
+        const test2Res = CLI(`bond --amount 1 --proxy --address ${caller.address}`);
         expect(test2Res.exitCode).toEqual(0);
 
         // Test #3. Successfully bond extra using the proxy
-        const test3Res = CLI('bond --amount 1 --proxy -x');
+        const test3Res = CLI(`bond --amount 1 --proxy -x ${caller.address}`);
         expect(test3Res.exitCode).toEqual(0);
         expect(test3Res.stdout).toContain('Transaction included at block');
 
         // Test #4. Successfully unbond extra using the proxy
-        const test4Res = CLI('unbond --amount 1 --proxy');
+        const test4Res = CLI(`unbond --amount 1 --proxy ${caller.address}`);
         expect(test4Res.exitCode).toEqual(0);
         expect(test4Res.stdout).toContain('Transaction included at block');
 
@@ -110,7 +110,7 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI('validate --proxy');
+        const test1Res = CLI(`validate --proxy ${caller.address}`);
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 
@@ -118,7 +118,7 @@ describe('Proxy functionality', () => {
 
         // Test #2. Attempt to bond extra without specifying the extra command
         // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test2Res = CLI('chill --proxy');
+        const test2Res = CLI(`chill --proxy ${caller.address}`);
         expect(test2Res.exitCode).toEqual(0);
         expect(test2Res.stdout).toContain('Transaction included at block');
 

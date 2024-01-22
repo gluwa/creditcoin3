@@ -2,11 +2,13 @@ import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { chill } from '../../lib/staking/chill';
 import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { parseSubstrateAddress } from '../options';
 
 export function makeChillCommand() {
     const cmd = new Command('chill');
     cmd.description('Signal intention to stop validating from a Controller account');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(chillAction);
     return cmd;
 }
@@ -17,7 +19,7 @@ async function chillAction(options: OptionValues) {
     const keyring = await initCallerKeyring(options);
     const proxy = await initProxyKeyring(options);
 
-    const address = keyring.address;
+    const address = keyring?.address;
 
     const status = await getValidatorStatus(address, api);
 
@@ -25,7 +27,7 @@ async function chillAction(options: OptionValues) {
 
     console.log('Creating chill transaction...');
 
-    const result = await chill(keyring, api, proxy, keyring.address);
+    const result = await chill(keyring, api, proxy, options.address);
 
     console.log(result.info);
     process.exit(0);

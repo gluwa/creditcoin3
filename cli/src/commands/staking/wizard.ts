@@ -4,7 +4,7 @@ import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBo
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { initCallerKeyring } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption } from '../options';
@@ -18,8 +18,6 @@ export function makeWizardCommand() {
     );
     cmd.option('--commission [commission]', 'Specify commission for validator');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
-    cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy');
     cmd.addOption(amountOption);
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');
@@ -34,9 +32,11 @@ export function makeWizardCommand() {
 
         // Generate keyring
         const keyring = await initCallerKeyring(options);
-        const proxy = await initProxyKeyring(options);
 
-        const address = keyring.address;
+        if (!keyring) {
+            throw new Error('Keyring is empty');
+        }
+        const address = keyring?.address;
 
         // Validate prefs
         const preferences: StakingPalletValidatorPrefs = {
@@ -80,8 +80,8 @@ export function makeWizardCommand() {
                     api,
                     bondExtra,
                     options.proxy,
-                    proxy,
-                    options.address,
+                    null,
+                    '',
                 );
                 console.log(bondTxResult.info);
                 if (bondTxResult.status === TxStatus.failed) {
@@ -99,8 +99,8 @@ export function makeWizardCommand() {
                 api,
                 bondExtra,
                 options.proxy,
-                proxy,
-                options.address,
+                null,
+                '',
             );
             console.log(bondTxResult.info);
             if (bondTxResult.status === TxStatus.failed) {

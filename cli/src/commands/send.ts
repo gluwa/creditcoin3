@@ -20,6 +20,10 @@ async function sendAction(options: OptionValues) {
 
     const caller = await initCallerKeyring(options);
 
+    if (!caller) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
+
     const tx = api.tx.balances.transfer(recipient, amount.toString());
 
     await requireEnoughFundsToSend(tx, caller.address, api, amount);

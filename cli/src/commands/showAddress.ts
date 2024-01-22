@@ -14,6 +14,11 @@ async function showAddressAction(options: OptionValues) {
     await cryptoWaitReady();
 
     const caller = await initCallerKeyring(options);
+    
+    if (!caller) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
+
     const evmAddress = substrateAddressToEvmAddress(caller.address);
 
     console.log('Account Substrate address:', caller.address);

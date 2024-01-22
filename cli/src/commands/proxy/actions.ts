@@ -9,6 +9,10 @@ export async function setProxyAction(opts: OptionValues) {
     const { api } = await newApi(url);
     const callerKeyring = await initCallerKeyring(opts);
 
+    if (!callerKeyring) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
+
     const call = api.tx.proxy.addProxy(proxyAddr, proxyType, delay);
     await requireEnoughFundsToSend(call, callerKeyring.address, api);
     const result = await signSendAndWatch(call, api, callerKeyring);
@@ -30,6 +34,10 @@ export async function viewProxyAction(opts: OptionValues) {
     const { api } = await newApi(opts.url);
 
     const callerKeyring = await initCallerKeyring(opts);
+    if (!callerKeyring) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
+
     const callerAddress = callerKeyring.address;
     const callerProxy = await api.query.proxy.proxies(callerAddress);
 
@@ -41,6 +49,9 @@ export async function removeProxyAction(opts: OptionValues) {
     const { api } = await newApi(opts.url);
 
     const callerKeyring = await initCallerKeyring(opts);
+    if (!callerKeyring) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
     const callerAddress = callerKeyring.address;
 
     const [defArray, _] = await api.query.proxy.proxies(callerAddress);

@@ -19,6 +19,9 @@ async function setKeysAction(options: OptionValues) {
     // Build account
     const keyring = await initCallerKeyring(options);
 
+    if (!keyring) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
     let keys;
     if (!options.keys && !options.rotate) {
         console.log('Must specify keys to set or generate new ones using the --rotate flag');

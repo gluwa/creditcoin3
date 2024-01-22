@@ -18,6 +18,11 @@ async function evmWithdrawAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const caller = await initCallerKeyring(options);
+
+    if (!caller) {
+        throw new Error('Keyring not initialized and not using a proxy');
+    }
+
     const evmAddress = substrateAddressToEvmAddress(caller.address);
 
     console.log(

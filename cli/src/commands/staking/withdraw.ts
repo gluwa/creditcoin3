@@ -16,12 +16,12 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const keyring = await initCallerKeyring(options);
     const proxy = await initProxyKeyring(options);
-    const addr = proxy ? options.address : keyring.address;
+    const addr = proxy ? options.address : keyring?.address;
 
     const status = await getValidatorStatus(addr, api);
     requireStatus(status, 'canWithdraw', 'Cannot perform action, there are no unlocked funds to withdraw');
 
-    const slashingSpans = await api.query.staking.slashingSpans(keyring?.address);
+    const slashingSpans = await api.query.staking.slashingSpans(addr as string);
     const slashingSpansCount = slashingSpans.isSome ? slashingSpans.unwrap().lastNonzeroSlash : 0;
 
     let withdrawUnbondTx = api.tx.staking.withdrawUnbonded(slashingSpansCount);
@@ -34,7 +34,7 @@ async function withdrawUnbondedAction(options: OptionValues) {
             process.exit(1);
         }
 
-        withdrawUnbondTx = api.tx.proxy.proxy(keyring.address, null, withdrawUnbondTx);
+        withdrawUnbondTx = api.tx.proxy.proxy(options.address, null, withdrawUnbondTx);
         callerAddress = proxy.address;
         callerKeyring = proxy;
     }

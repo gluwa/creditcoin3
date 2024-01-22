@@ -3,16 +3,16 @@ import { newApi } from '../../lib';
 import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
-import { eraOption, substrateAddressOption } from '../options';
+import { eraOption, parseSubstrateAddress, substrateAddressOption } from '../options';
 
 export function makeDistributeRewardsCommand ()
 {
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.addOption(eraOption.makeOptionMandatory());
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address of the proxied account (use only with -p, --proxy)');
+    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.addOption(eraOption.makeOptionMandatory());
     cmd.action(distributeRewardsAction);
     return cmd;
 }
@@ -37,14 +37,23 @@ async function distributeRewardsAction (options: OptionValues)
     const proxy = await initProxyKeyring(options);
 
     let distributeTx = api.tx.staking.payoutStakers(validator, era);
-    let callerAddress = caller.address;
+    let callerAddress = caller?.address;
     let callerKeyring = caller;
 
-    if (proxy)
+    if (proxy && caller)
     {
-        distributeTx = api.tx.proxy.proxy(caller.address, null, distributeTx);
+        distributeTx = api.tx.proxy.proxy(options.address, null, distributeTx);
         callerAddress = proxy.address;
         callerKeyring = proxy;
+    }
+
+    if (!callerKeyring)
+    {
+        throw new Error('ERROR: keyring not initialized and proxy not selected');
+    }
+    if (!callerAddress)
+    {
+        throw new Error('ERROR: keyring not initialized and proxy not selected');
     }
 
     await requireEnoughFundsToSend(distributeTx, callerAddress, api);

@@ -6,7 +6,7 @@ import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
 import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
-import { amountOption } from '../options';
+import { amountOption, parseSubstrateAddress } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
@@ -18,6 +18,7 @@ export function makeBondCommand() {
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(bondAction);
     return cmd;
 }
@@ -56,7 +57,7 @@ async function bondAction(options: OptionValues) {
         extra,
         proxy,
         proxyKeyring,
-        callerKeyring.address,
+        options.address,
     );
 
     console.log(bondTxResult.info);

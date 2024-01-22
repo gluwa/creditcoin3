@@ -6,7 +6,7 @@ import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
 type RewardDestination = 'Staked' | 'Stash';
 
 export async function bond(
-    stashKeyring: KeyringPair,
+    stashKeyring: KeyringPair | null,
     amount: BN,
     rewardDestination: RewardDestination,
     api: ApiPromise,
@@ -24,7 +24,7 @@ export async function bond(
     const amountInMicroUnits = amount;
 
     let bondTx: SubmittableExtrinsic<'promise', ISubmittableResult>;
-    let callerAddress = stashKeyring.address;
+    let callerAddress = stashKeyring?.address;
     let callerKeyring = stashKeyring;
 
     if (extra) {
@@ -44,6 +44,14 @@ export async function bond(
         bondTx = api.tx.proxy.proxy(address, null, bondTx);
         callerAddress = proxyKeyring.address;
         callerKeyring = proxyKeyring;
+    }
+
+    if (!callerKeyring) {
+        throw new Error('ERROR: Caller keyring not initiated and not using proxy');
+    }
+    // This is already caught by the check above but it makes the compiler happy
+    if (!callerAddress) {
+        throw new Error('ERROR: Caller keyring not initiated and not using proxy');
     }
     await requireEnoughFundsToSend(bondTx, callerAddress, api, amount);
     return await signSendAndWatch(bondTx, api, callerKeyring);

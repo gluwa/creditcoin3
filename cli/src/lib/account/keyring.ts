@@ -22,7 +22,10 @@ export function initEthKeyringPair(seed: string, accIndex = 0) {
     return pair;
 }
 
-export async function initCallerKeyring(options: OptionValues): Promise<KeyringPair> {
+export async function initCallerKeyring(options: OptionValues): Promise<KeyringPair | null> {
+    if (options.proxy) {
+        return null;
+    }
     try {
         return await initKeyringFromEnvOrPrompt('CC_SECRET', 'caller', options);
     } catch (e) {

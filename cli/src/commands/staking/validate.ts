@@ -3,6 +3,7 @@ import { newApi } from '../../lib';
 import { parsePercentAsPerbillOrExit, inputOrDefault, parseBoolean } from '../../lib/parsing';
 import { StakingPalletValidatorPrefs, validate } from '../../lib/staking/validate';
 import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { parseSubstrateAddress } from '../options';
 
 export function makeValidateCommand() {
     const cmd = new Command('validate');
@@ -10,6 +11,7 @@ export function makeValidateCommand() {
     cmd.option('--commission [commission]', 'Specify commission for validator in percent');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(validateAction);
     return cmd;
 }
@@ -29,7 +31,7 @@ async function validateAction(options: OptionValues) {
 
     console.log('Creating validate transaction...');
 
-    const result = await validate(account, preferences, api, proxy, account.address);
+    const result = await validate(account, preferences, api, proxy, options.address);
 
     console.log(result.info);
     process.exit(0);
