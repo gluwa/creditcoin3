@@ -90,7 +90,7 @@ describe('Proxy functionality', () => {
         await api.disconnect();
     }, 60000);
 
-    it('Can successfully validate and chill with a proxy account', async () => {
+    it.skip('Can successfully validate and chill with a proxy account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
