@@ -19,7 +19,7 @@ export async function setProxyAction(opts: OptionValues) {
 }
 
 function parseSetProxyOptions(opts: OptionValues) {
-    const proxyAddr = parseSubstrateAddress(opts.proxy);
+    const proxyAddr = opts.proxy;
     const proxyType = opts.type;
     const url = opts.url;
     const delay = opts.delay ? opts.delay : 0;
