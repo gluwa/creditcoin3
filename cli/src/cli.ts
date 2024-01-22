@@ -33,6 +33,7 @@ program
     .addCommand(makeConvertAddressCommand())
     .addCommand(makeDistributeRewardsCommand())
     .addCommand(makeNewSeedCommand())
+    .addCommand(makeProxyCommands())
     .addCommand(makeRotateKeysCommand())
     .addCommand(makeSendCommand())
     .addCommand(makeSetKeysCommand())
@@ -42,7 +43,6 @@ program
     .addCommand(makeValidateCommand())
     .addCommand(makeWithdrawUnbondedCommand())
     .addCommand(makeWizardCommand())
-    .addCommand(makeProxyCommands());
 
 program.commands.forEach((cmd) =>
 {
