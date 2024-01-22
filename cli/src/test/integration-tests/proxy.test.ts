@@ -68,7 +68,7 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI('bond mount 1 --proxy');
+        const test1Res = CLI('bond --amount 1 --proxy');
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 

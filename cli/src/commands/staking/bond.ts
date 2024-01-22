@@ -48,11 +48,6 @@ async function bondAction(options: OptionValues) {
         process.exit(1);
     }
 
-    if (proxy && !callerKeyring.address) {
-        console.log("ERROR: Address not supplied, provide with '--address <address>'");
-        process.exit(1);
-    }
-
     const bondTxResult = await bond(
         callerKeyring,
         amount,
