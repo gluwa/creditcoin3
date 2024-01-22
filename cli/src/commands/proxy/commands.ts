@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { proxyOption, ProxyTypes, proxyTypeOption, delayOption } from '../options';
+import { mandatoryProxyOption, proxyTypeOption, delayOption } from '../options';
 import { setProxyAction, viewProxyAction, removeProxyAction } from './actions';
 
 export function makeProxyCommands() {
@@ -13,8 +13,8 @@ export function makeProxyCommands() {
 export function makeAddProxyCmd() {
     return new Command('add')
         .description('Set the proxy')
-        .addOption(proxyOption.makeOptionMandatory())
-        .addOption(proxyTypeOption.choices(ProxyTypes).makeOptionMandatory())
+        .addOption(mandatoryProxyOption)
+        .addOption(proxyTypeOption)
         .addOption(delayOption)
         .action(setProxyAction);
 }
@@ -26,8 +26,8 @@ export function makeListProxyCmd() {
 export function makeRemoveProxyCmd() {
     return new Command('remove')
         .description('Remove the current proxy')
-        .addOption(proxyOption.makeOptionMandatory())
-        .addOption(proxyTypeOption.choices(ProxyTypes).makeOptionMandatory())
+        .addOption(mandatoryProxyOption)
+        .addOption(proxyTypeOption)
         .addOption(delayOption)
         .action(removeProxyAction);
 }

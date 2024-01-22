@@ -108,12 +108,17 @@ export const noInputOption = new Option('--no-input', 'Do not prompt for input')
 // Crypto
 export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
 
+export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
+export const proxyTypeOption = new Option('--type [type]', 'The type of proxy')
+    .choices(ProxyTypes)
+    .makeOptionMandatory();
+
 export const proxyOption = new Option('-p, --proxy <proxy addr>', 'The proxy address to use for this call').argParser(
     parseSubstrateAddress,
 );
-
-export const proxyTypeOption = new Option('--type [type]', 'The type of proxy');
-export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
+// Clone to avoid making this mandatory everywhere
+export const mandatoryProxyOption = { ...proxyOption } as Option;
+mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
     '--delay [delay]',
