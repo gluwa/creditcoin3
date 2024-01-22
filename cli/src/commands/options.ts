@@ -119,8 +119,10 @@ export const proxyTypeOption = new Option(
 export const proxyOption = new Option('-p, --proxy <proxy addr>', 'The proxy address to use for this call').argParser(
     parseSubstrateAddress,
 );
-// Clone to avoid making this mandatory everywhere
-export const mandatoryProxyOption = { ...proxyOption } as Option;
+export const mandatoryProxyOption = new Option(
+    '-p, --proxy <proxy addr>',
+    'The proxy address to use for this call',
+).argParser(parseSubstrateAddress);
 mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
