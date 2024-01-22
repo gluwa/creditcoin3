@@ -23,7 +23,7 @@ export function initEthKeyringPair(seed: string, accIndex = 0) {
 }
 
 // Force : override the proxy check and return the keyring from the env
-export async function initCallerKeyring(options: OptionValues, force: boolean = false): Promise<KeyringPair | null> {
+export async function initCallerKeyring(options: OptionValues, force = false): Promise<KeyringPair | null> {
     if (options.proxy && !force) {
         return null;
     }

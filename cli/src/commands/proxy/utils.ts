@@ -1,4 +1,4 @@
-import { OptionValues } from "commander";
+import { OptionValues } from 'commander';
 
 export function parseSetProxyOptions(opts: OptionValues) {
     const proxyAddr = opts.proxy;

@@ -49,16 +49,7 @@ async function bondAction(options: OptionValues) {
         process.exit(1);
     }
 
-    const bondTxResult = await bond(
-        callerKeyring,
-        amount,
-        rewardDestination,
-        api,
-        extra,
-        proxy,
-        proxyKeyring,
-        address,
-    );
+    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra, proxy, proxyKeyring, address);
 
     console.log(bondTxResult.info);
     process.exit(0);

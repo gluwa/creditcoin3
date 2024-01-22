@@ -22,8 +22,6 @@ export async function setProxyAction(opts: OptionValues) {
     process.exit(0);
 }
 
-
-
 export async function viewProxyAction(opts: OptionValues) {
     const { api } = await newApi(opts.url);
 
@@ -35,7 +33,7 @@ export async function viewProxyAction(opts: OptionValues) {
     const callerAddress = callerKeyring.address;
     const callerProxy = await api.query.proxy.proxies(callerAddress);
 
-    console.log(`Proxies for address ${callerKeyring.address}`)
+    console.log(`Proxies for address ${callerKeyring.address}`);
     console.log(callerProxy.toJSON());
     process.exit(0);
 }
