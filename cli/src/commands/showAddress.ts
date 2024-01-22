@@ -14,7 +14,7 @@ async function showAddressAction(options: OptionValues) {
     await cryptoWaitReady();
 
     const caller = await initCallerKeyring(options);
-    
+
     if (!caller) {
         throw new Error('Keyring not initialized and not using a proxy');
     }
