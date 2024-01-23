@@ -43,7 +43,7 @@ async function bondAction(options: OptionValues) {
 
     await promptContinue(interactive);
 
-    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api);
+    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra);
 
     console.log(bondTxResult.info);
     process.exit(0);
