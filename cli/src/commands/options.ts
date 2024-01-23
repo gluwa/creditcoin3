@@ -111,7 +111,7 @@ export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of
 export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
 export const proxyTypeOption = new Option(
     '--type [type]',
-    'The type dictates the actions that this proxy can perform on your behalf. \nFor more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+    'The type dictates the actions that this proxy can perform on your behalf. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
 )
     .choices(ProxyTypes)
     .makeOptionMandatory();

@@ -14,7 +14,7 @@ export function makeProxyCommands() {
 
 export function makeAddProxyCmd() {
     return new Command('add')
-        .description('Set the proxy')
+        .description('Add a new proxy')
         .addOption(mandatoryProxyOption)
         .addOption(proxyTypeOption)
         .addOption(delayOption)

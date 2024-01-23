@@ -73,7 +73,7 @@ export async function removeProxyAction(opts: OptionValues) {
         const delay = opts.delay ? opts.delay : 0;
         const call = api.tx.proxy.removeProxy(proxy, type, delay);
         await requireEnoughFundsToSend(call, callerAddress, api);
-        console.log(`Removing proxy ${proxy} with type ${type}`)
+        console.log(`Removing proxy ${proxy} with type ${type}}`)
         const result = await signSendAndWatch(call, api, callerKeyring);
         console.log(result);
     }
