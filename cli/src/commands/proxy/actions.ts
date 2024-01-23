@@ -66,7 +66,7 @@ export async function removeProxyAction(opts: OptionValues) {
         process.exit(1);
     }
 
-    console.log(`${existingProxy.length} proxies found`) 
+    console.log(`${existingProxy.length} proxies found`)
     for await (const p of existingProxy) {
         const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
         const type = p.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
@@ -75,9 +75,9 @@ export async function removeProxyAction(opts: OptionValues) {
         await requireEnoughFundsToSend(call, callerAddress, api);
         console.log(`Removing proxy ${proxy} with type ${type}`)
         const result = await signSendAndWatch(call, api, callerKeyring);
-        console.log(result); 
+        console.log(result);
     }
-  
+
     console.log(`${existingProxy.length} Proxies removed`)
     process.exit(0);
 }
