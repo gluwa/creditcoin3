@@ -5,9 +5,9 @@ import { newApi, BN } from '../../lib';
 import { ApiPromise } from '@polkadot/api';
 import { getBalance } from '../../lib/balance';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { amountOption, parseSubstrateAddress } from '../options';
 
 export function makeUnbondCommand() {
@@ -27,42 +27,22 @@ async function unbondAction(options: OptionValues) {
 
     const amount = options.amount as BN;
 
-    // Build account
-    const caller = await initCallerKeyring(options, true);
-    const proxy = await initProxyKeyring(options);
+    // Build accounts
+    const caller = await initKeyring(options);
 
     // We need to check the staking ledger of the caller even if we are using a proxy
-    const status = await getValidatorStatus(caller?.address, api);
+    const validator_addr = caller.type === 'proxy' ? caller.proxiedAddress : caller.pair.address;
+    const status = await getValidatorStatus(validator_addr, api);
     requireStatus(status, 'bonded');
 
     // // Check if amount specified exceeds total bonded funds
-    await checkIfUnbodingMax(caller?.address, amount, api, interactive);
-
-    let signer = caller;
-    let signerAddress = caller?.address;
+    await checkIfUnbodingMax(caller.pair.address, amount, api, interactive);
 
     // Unbond transaction
-    let tx = api.tx.staking.unbond(amount.toString());
-    if (options.proxy) {
-        if (!proxy) {
-            console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
-            process.exit(1);
-        }
-        tx = api.tx.proxy.proxy(options.address, null, tx);
-        signer = proxy;
-        signerAddress = proxy.address;
-    }
+    const tx = api.tx.staking.unbond(amount.toString());
 
-    if (!signer) {
-        throw new Error('ERROR: keyring not initialized and proxy not selected');
-    }
-
-    if (!signerAddress) {
-        throw new Error('ERROR: keyring not initialized and proxy not selected');
-    }
-
-    await requireEnoughFundsToSend(tx, signerAddress, api);
-    const result = await signSendAndWatch(tx, api, signer);
+    await requireEnoughFundsToSend(tx, caller.pair.address, api);
+    const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
     process.exit(0);
 }

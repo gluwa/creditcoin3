@@ -33,6 +33,11 @@ export async function viewProxyAction(opts: OptionValues) {
     const callerAddress = callerKeyring.address;
     const callerProxy = await api.query.proxy.proxies(callerAddress);
 
+    const [defArray, _] = callerProxy;
+    if (defArray.toArray().length === 0) {
+        console.log(`No proxies for address ${callerAddress}`);
+        process.exit(0);
+    }
     console.log(`Proxies for address ${callerKeyring.address}`);
     console.log(callerProxy.toJSON());
     process.exit(0);
@@ -50,12 +55,19 @@ export async function removeProxyAction(opts: OptionValues) {
 
     const [defArray, _] = await api.query.proxy.proxies(callerAddress);
     if (defArray.toArray().length === 0) {
-        console.log(`ERROR: No proxies has been set for ${callerAddress}`);
+        console.log(`ERROR: No proxies have been set for ${callerAddress}`);
+        process.exit(1);
+    }
+
+    const existingProxy = defArray.toArray().find((x) => x.delegate === opts.proxy);
+
+    if (existingProxy === undefined) {
+        console.log(`ERROR: ${opts.proxy as string} is not a proxy for ${callerAddress}`);
         process.exit(1);
     }
 
     const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
-    const type = opts.type; // proxy is validated as a substrate address and type is also validated prior to us using it here
+    const type = existingProxy.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
     const delay = opts.delay ? opts.delay : 0;
     const call = api.tx.proxy.removeProxy(proxy, type, delay);
 
@@ -63,5 +75,5 @@ export async function removeProxyAction(opts: OptionValues) {
     const result = await signSendAndWatch(call, api, callerKeyring);
 
     console.log(result);
-    process.exit(0);
+    process.exit(result.status);
 }

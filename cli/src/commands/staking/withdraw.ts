@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
 import { parseSubstrateAddress } from '../options';
 
 export function makeWithdrawUnbondedCommand() {
@@ -16,42 +16,18 @@ export function makeWithdrawUnbondedCommand() {
 async function withdrawUnbondedAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const keyring = await initCallerKeyring(options);
-    const proxy = await initProxyKeyring(options);
-    const addr = proxy ? options.address : keyring?.address;
+    const keyring = await initKeyring(options);
 
-    const status = await getValidatorStatus(addr, api);
+    const status = await getValidatorStatus(keyring.pair.address, api);
     requireStatus(status, 'canWithdraw', 'Cannot perform action, there are no unlocked funds to withdraw');
 
-    const slashingSpans = await api.query.staking.slashingSpans(addr as string);
+    const slashingSpans = await api.query.staking.slashingSpans(keyring.pair.address);
     const slashingSpansCount = slashingSpans.isSome ? slashingSpans.unwrap().lastNonzeroSlash : 0;
 
-    let withdrawUnbondTx = api.tx.staking.withdrawUnbonded(slashingSpansCount);
-    let callerKeyring = keyring;
-    let callerAddress = keyring?.address;
+    const withdrawUnbondTx = api.tx.staking.withdrawUnbonded(slashingSpansCount);
 
-    if (options.proxy) {
-        if (!proxy) {
-            console.log('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
-            process.exit(1);
-        }
-
-        withdrawUnbondTx = api.tx.proxy.proxy(options.address, null, withdrawUnbondTx);
-        callerAddress = proxy.address;
-        callerKeyring = proxy;
-    }
-
-    if (!callerAddress) {
-        console.log('ERROR: caller address not initialized');
-        process.exit(1);
-    }
-    if (!callerKeyring) {
-        console.log('ERROR: caller keyring not initialized');
-        process.exit(1);
-    }
-
-    await requireEnoughFundsToSend(withdrawUnbondTx, callerAddress, api);
-    const result = await signSendAndWatch(withdrawUnbondTx, api, callerKeyring);
+    await requireEnoughFundsToSend(withdrawUnbondTx, keyring.pair.address, api);
+    const result = await signSendAndWatchCcKeyring(withdrawUnbondTx, api, keyring);
     console.log(result.info);
     process.exit(0);
 }

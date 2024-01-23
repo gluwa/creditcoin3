@@ -1,19 +1,17 @@
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { ISubmittableResult } from '@polkadot/types/types';
-import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
+import { ApiPromise, BN, MICROUNITS_PER_CTC } from '..';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../tx';
+import { CcKeyring } from '../account/keyring';
 
 type RewardDestination = 'Staked' | 'Stash';
 
 export async function bond(
-    stashKeyring: KeyringPair | null,
+    stashKeyring: CcKeyring,
     amount: BN,
     rewardDestination: RewardDestination,
     api: ApiPromise,
     extra = false,
-    proxy: string | null = null,
-    proxyKeyring: KeyringPair | null = null,
-    address: string | null = null,
 ) {
     console.log(`Amount: ${amount.toString()}`);
 
@@ -24,8 +22,6 @@ export async function bond(
     const amountInMicroUnits = amount;
 
     let bondTx: SubmittableExtrinsic<'promise', ISubmittableResult>;
-    let callerAddress = stashKeyring?.address;
-    let callerKeyring = stashKeyring;
 
     if (extra) {
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
@@ -33,28 +29,8 @@ export async function bond(
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
     }
 
-    if (proxy) {
-        if (!proxyKeyring) {
-            throw new Error('ERROR: proxy keyring not provided through $PROXY_SECRET or interactive prompt');
-        }
-        if (!address) {
-            throw new Error('ERROR: Address is null but proxy specified');
-        }
-        console.log(`Using proxy ${proxyKeyring.address} for address ${address}`);
-        bondTx = api.tx.proxy.proxy(address, null, bondTx);
-        callerAddress = proxyKeyring.address;
-        callerKeyring = proxyKeyring;
-    }
-
-    if (!callerKeyring) {
-        throw new Error('ERROR: Caller keyring not initiated and not using proxy');
-    }
-    // This is already caught by the check above but it makes the compiler happy
-    if (!callerAddress) {
-        throw new Error('ERROR: Caller keyring not initiated and not using proxy');
-    }
-    await requireEnoughFundsToSend(bondTx, callerAddress, api, amount);
-    return await signSendAndWatch(bondTx, api, callerKeyring);
+    await requireEnoughFundsToSend(bondTx, stashKeyring.pair.address, api, amount);
+    return await signSendAndWatchCcKeyring(bondTx, api, stashKeyring);
 }
 
 export function parseRewardDestination(rewardDestinationRaw: string): RewardDestination {

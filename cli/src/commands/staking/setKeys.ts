@@ -1,8 +1,8 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { parseHexStringOrExit } from '../../lib/parsing';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');
@@ -17,11 +17,8 @@ async function setKeysAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     // Build account
-    const keyring = await initCallerKeyring(options);
+    const keyring = await initKeyring(options);
 
-    if (!keyring) {
-        throw new Error('Keyring not initialized and not using a proxy');
-    }
     let keys;
     if (!options.keys && !options.rotate) {
         console.log('Must specify keys to set or generate new ones using the --rotate flag');
@@ -37,9 +34,9 @@ async function setKeysAction(options: OptionValues) {
 
     const tx = api.tx.session.setKeys(keys, '');
 
-    await requireEnoughFundsToSend(tx, keyring.address, api);
+    await requireEnoughFundsToSend(tx, keyring.pair.address, api);
 
-    const result = await signSendAndWatch(tx, api, keyring);
+    const result = await signSendAndWatchCcKeyring(tx, api, keyring);
 
     console.log(result.info);
 

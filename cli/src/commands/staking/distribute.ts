@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
 import { eraOption, parseSubstrateAddress, substrateAddressOption } from '../options';
 
@@ -33,31 +33,12 @@ async function distributeRewardsAction (options: OptionValues)
     }
 
     // Any account can call the distribute_rewards extrinsic
-    const caller = await initCallerKeyring(options);
-    const proxy = await initProxyKeyring(options);
+    const caller = await initKeyring(options);
 
-    let distributeTx = api.tx.staking.payoutStakers(validator, era);
-    let callerAddress = caller?.address;
-    let callerKeyring = caller;
+    const distributeTx = api.tx.staking.payoutStakers(validator, era);
 
-    if (proxy && caller)
-    {
-        distributeTx = api.tx.proxy.proxy(options.address, null, distributeTx);
-        callerAddress = proxy.address;
-        callerKeyring = proxy;
-    }
-
-    if (!callerKeyring)
-    {
-        throw new Error('ERROR: keyring not initialized and proxy not selected');
-    }
-    if (!callerAddress)
-    {
-        throw new Error('ERROR: keyring not initialized and proxy not selected');
-    }
-
-    await requireEnoughFundsToSend(distributeTx, callerAddress, api);
-    const result = await signSendAndWatch(distributeTx, api, callerKeyring);
+    await requireEnoughFundsToSend(distributeTx, caller.pair.address, api);
+    const result = await signSendAndWatchCcKeyring(distributeTx, api, caller);
     console.log(result.info);
     process.exit(0);
 }

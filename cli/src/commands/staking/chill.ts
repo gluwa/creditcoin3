@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { chill } from '../../lib/staking/chill';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { parseSubstrateAddress } from '../options';
 
 export function makeChillCommand() {
@@ -16,10 +16,9 @@ export function makeChillCommand() {
 async function chillAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const keyring = await initCallerKeyring(options);
-    const proxy = await initProxyKeyring(options);
+    const keyring = await initKeyring(options);
 
-    const address = keyring?.address;
+    const address = keyring.pair.address;
 
     const status = await getValidatorStatus(address, api);
 
@@ -27,7 +26,7 @@ async function chillAction(options: OptionValues) {
 
     console.log('Creating chill transaction...');
 
-    const result = await chill(keyring, api, proxy, options.address);
+    const result = await chill(keyring, api);
 
     console.log(result.info);
     process.exit(0);

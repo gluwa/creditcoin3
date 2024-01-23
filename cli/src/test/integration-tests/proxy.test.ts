@@ -19,7 +19,7 @@ describe('Proxy functionality', () => {
 
         // Test #1. List proxies, should be empty
         const test1Res = CLI('proxy list');
-        expect(test1Res.stdout).toContain('[ [], 0 ]'); // Indicates no proxies have been set and 0 funds have been proxied
+        expect(test1Res.stdout).toContain('No proxies for address'); // Indicates no proxies have been set and 0 funds have been proxied
 
         // Test #2. Add the proxy with no errors
         const test2Res = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
@@ -31,19 +31,14 @@ describe('Proxy functionality', () => {
         expect(test3Res.stdout).toContain(proxy.address); // The proxy address should be listed
         expect(test3Res.stdout).toContain('Staking'); // The type should be correctly listed as 'Staking'
 
-        // Test #4. Try to remove the proxy but passing in the incorrect type (this should fail)
-        const test4Res = CLI(`proxy remove --proxy ${proxy.address} --type NonTransfer`);
-        expect(test4Res.exitCode).toEqual(0); // The exit code isn't reported as a 1 with the way the CLI sends and watches transactions
-        expect(test4Res.stdout).toContain('proxy.NotFound: Proxy registration not found');
-
         // Test #5. Successfully remove the proxy
-        const test5Res = CLI(`proxy remove --proxy ${proxy.address} --type Staking`);
+        const test5Res = CLI(`proxy remove --proxy ${proxy.address}`);
         expect(test5Res.exitCode).toEqual(0);
         expect(test2Res.stdout).toContain('Transaction included at block');
 
         // Test #6. List the proxies (should be empty )
         const test6Res = CLI('proxy list');
-        expect(test6Res.stdout).toContain('[ [], 0 ]');
+        expect(test6Res.stdout).toContain('No proxies for address');
 
         await api.disconnect();
     }, 60000);

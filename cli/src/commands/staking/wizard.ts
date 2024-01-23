@@ -2,9 +2,9 @@ import { Command, OptionValues } from 'commander';
 import { newApi, bond, MICROUNITS_PER_CTC, parseRewardDestination, BN } from '../../lib';
 import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBoolean } from '../../lib/parsing';
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
-import { TxStatus, requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { TxStatus, requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption } from '../options';
@@ -31,12 +31,12 @@ export function makeWizardCommand() {
         const { api } = await newApi(nodeUrl);
 
         // Generate keyring
-        const keyring = await initCallerKeyring(options);
+        const keyring = await initKeyring(options);
 
         if (!keyring) {
             throw new Error('Keyring is empty');
         }
-        const address = keyring?.address;
+        const address = keyring.pair.address;
 
         // Validate prefs
         const preferences: StakingPalletValidatorPrefs = {
@@ -73,16 +73,7 @@ export function makeWizardCommand() {
                 checkStashBalance(address, stashBalance, amount);
                 // Bond extra
                 console.log('Sending bond transaction...');
-                const bondTxResult = await bond(
-                    keyring,
-                    amount,
-                    rewardDestination,
-                    api,
-                    bondExtra,
-                    options.proxy,
-                    null,
-                    '',
-                );
+                const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
                 console.log(bondTxResult.info);
                 if (bondTxResult.status === TxStatus.failed) {
                     console.log('Bond transaction failed. Exiting.');
@@ -92,16 +83,7 @@ export function makeWizardCommand() {
         } else {
             // Bond
             console.log('Sending bond transaction...');
-            const bondTxResult = await bond(
-                keyring,
-                amount,
-                rewardDestination,
-                api,
-                bondExtra,
-                options.proxy,
-                null,
-                '',
-            );
+            const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
             console.log(bondTxResult.info);
             if (bondTxResult.status === TxStatus.failed) {
                 console.log('Bond transaction failed. Exiting.');
@@ -129,7 +111,7 @@ export function makeWizardCommand() {
         const batchTx = api.tx.utility.batchAll(txs);
         await requireEnoughFundsToSend(batchTx, address, api);
 
-        const batchResult = await signSendAndWatch(batchTx, api, keyring);
+        const batchResult = await signSendAndWatchCcKeyring(batchTx, api, keyring);
 
         console.log(batchResult.info);
 

@@ -5,7 +5,7 @@ import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { amountOption, parseSubstrateAddress } from '../options';
 
 export function makeBondCommand() {
@@ -26,11 +26,10 @@ export function makeBondCommand() {
 async function bondAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const { amount, rewardDestination, extra, interactive, proxy, address } = parseOptions(options);
+    const { amount, rewardDestination, extra, interactive } = parseOptions(options);
 
-    const callerKeyring = await initCallerKeyring(options);
-    const proxyKeyring = await initProxyKeyring(options);
-    const callerAddress = proxy ? proxyKeyring?.address : callerKeyring?.address;
+    const callerKeyring = await initKeyring(options);
+    const callerAddress = callerKeyring.pair.address;
 
     // Check if caller has enough balance, caller may be a proxy account
     await checkBalance(amount, api, callerAddress);
@@ -44,12 +43,7 @@ async function bondAction(options: OptionValues) {
 
     await promptContinue(interactive);
 
-    if (proxy && !proxyKeyring) {
-        console.log('ERROR: proxy keyring not provided through $CC_PROXY_SECRET or interactive prompt');
-        process.exit(1);
-    }
-
-    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra, proxy, proxyKeyring, address);
+    const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api);
 
     console.log(bondTxResult.info);
     process.exit(0);
@@ -82,8 +76,5 @@ function parseOptions(options: OptionValues) {
     const extra = parseBoolean(options.extra);
     const interactive = setInteractivity(options);
 
-    const proxy = options.proxy ? options.proxy : null; // already checked using parseSubstrateAddress
-    const address = options.address ? options.address : null;
-
-    return { amount, rewardDestination, extra, interactive, proxy, address };
+    return { amount, rewardDestination, extra, interactive };
 }

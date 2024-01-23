@@ -2,7 +2,7 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { parsePercentAsPerbillOrExit, inputOrDefault, parseBoolean } from '../../lib/parsing';
 import { StakingPalletValidatorPrefs, validate } from '../../lib/staking/validate';
-import { initCallerKeyring, initProxyKeyring } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { parseSubstrateAddress } from '../options';
 
 export function makeValidateCommand() {
@@ -19,8 +19,7 @@ export function makeValidateCommand() {
 async function validateAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const account = await initCallerKeyring(options);
-    const proxy = await initProxyKeyring(options);
+    const account = await initKeyring(options);
 
     // Default commission is 0%
     const commission = parsePercentAsPerbillOrExit(inputOrDefault(options.commission, '0'));
@@ -31,7 +30,7 @@ async function validateAction(options: OptionValues) {
 
     console.log('Creating validate transaction...');
 
-    const result = await validate(account, preferences, api, proxy, options.address);
+    const result = await validate(account, preferences, api);
 
     console.log(result.info);
     process.exit(0);

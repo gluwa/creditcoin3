@@ -26,8 +26,7 @@ export function parseEVMAddress(value: string): string {
     if (isAddress(value)) {
         return value;
     } else {
-        console.log(value);
-        throw new InvalidArgumentError('Not a valid EVM address.');
+        throw new InvalidArgumentError(`Not a valid EVM address`);
     }
 }
 export function parseSubstrateAddress(value: string): string {
@@ -117,9 +116,6 @@ export const proxyTypeOption = new Option(
     .choices(ProxyTypes)
     .makeOptionMandatory();
 
-export const proxyOption = new Option('-p, --proxy <proxy addr>', 'The proxy address to use for this call').argParser(
-    parseSubstrateAddress,
-);
 export const mandatoryProxyOption = new Option(
     '-p, --proxy <proxy addr>',
     'The proxy address to use for this call',
@@ -128,7 +124,7 @@ mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
     '--delay [delay]',
-    'The time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
 ).argParser(parseProxyDelay);
 export function parseProxyDelay(value: string): number {
     const parsedValue = parseInt(value, 10);
