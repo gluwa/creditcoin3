@@ -59,8 +59,7 @@ export async function removeProxyAction(opts: OptionValues) {
         process.exit(1);
     }
 
-    const existingProxy = defArray.toArray().find((x) => x.delegate === opts.proxy);
-
+    const existingProxy = defArray.toArray().find((x) => x.delegate.toString() === opts.proxy);
     if (existingProxy === undefined) {
         console.log(`ERROR: ${opts.proxy as string} is not a proxy for ${callerAddress}`);
         process.exit(1);

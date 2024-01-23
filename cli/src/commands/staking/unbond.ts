@@ -36,7 +36,7 @@ async function unbondAction(options: OptionValues) {
     requireStatus(status, 'bonded');
 
     // // Check if amount specified exceeds total bonded funds
-    await checkIfUnbodingMax(caller.pair.address, amount, api, interactive);
+    await checkIfUnbodingMax(validator_addr, amount, api, interactive);
 
     // Unbond transaction
     const tx = api.tx.staking.unbond(amount.toString());
