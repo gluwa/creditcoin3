@@ -3,6 +3,7 @@ import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
 import { parseSetProxyOptions } from './utils';
+import { PalletProxyProxyDefinition } from '@polkadot/types/lookup';
 
 export async function setProxyAction(opts: OptionValues) {
     const { proxyAddr, proxyType, url, delay } = parseSetProxyOptions(opts);
@@ -59,20 +60,24 @@ export async function removeProxyAction(opts: OptionValues) {
         process.exit(1);
     }
 
-    const existingProxy = defArray.toArray().find((x) => x.delegate.toString() === opts.proxy);
-    if (existingProxy === undefined) {
+    const existingProxy = defArray.toArray().filter((x) => x.delegate.toString() === opts.proxy);
+    if (existingProxy.length === 0) {
         console.log(`ERROR: ${opts.proxy as string} is not a proxy for ${callerAddress}`);
         process.exit(1);
     }
 
-    const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
-    const type = existingProxy.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
-    const delay = opts.delay ? opts.delay : 0;
-    const call = api.tx.proxy.removeProxy(proxy, type, delay);
-
-    await requireEnoughFundsToSend(call, callerAddress, api);
-    const result = await signSendAndWatch(call, api, callerKeyring);
-
-    console.log(result);
-    process.exit(result.status);
+    console.log(`${existingProxy.length} proxies found`) 
+    for await (const p of existingProxy) {
+        const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
+        const type = p.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
+        const delay = opts.delay ? opts.delay : 0;
+        const call = api.tx.proxy.removeProxy(proxy, type, delay);
+        await requireEnoughFundsToSend(call, callerAddress, api);
+        console.log(`Removing proxy ${proxy} with type ${type}`)
+        const result = await signSendAndWatch(call, api, callerKeyring);
+        console.log(result); 
+    }
+  
+    console.log(`${existingProxy.length} Proxies removed`)
+    process.exit(0);
 }
