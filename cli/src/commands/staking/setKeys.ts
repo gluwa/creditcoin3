@@ -11,7 +11,7 @@ export function makeSetKeysCommand() {
     cmd.option('-k, --keys [keys]', 'Specify keys to set');
     cmd.option('-r, --rotate', 'Rotate and set new keys');
     cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress); 
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(setKeysAction);
     return cmd;
 }
