@@ -8,8 +8,6 @@ export function makeProxyCommands() {
         .addCommand(makeAddProxyCmd())
         .addCommand(makeListProxyCmd())
         .addCommand(makeRemoveProxyCmd())
-        .addOption(noInputOption)
-        .addOption(urlOption);
 }
 
 export function makeAddProxyCmd() {

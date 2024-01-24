@@ -51,7 +51,7 @@ export function makeWizardCommand() {
         console.log(`💰 Stash account: ${address}`);
 
         if (keyring.type === 'proxy') {
-            console.log(`🤐 Proxy account: ${keyring.pair.address}`)
+            console.log(`🤐 Proxy account: ${keyring.pair.address}`);
         }
 
         console.log(`🪙 Amount to bond: ${toCTCString(amount)}`);

@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../lib';
-import { requireEnoughFundsToSend, signSendAndWatch, signSendAndWatchCcKeyring } from '../lib/tx';
-import { initCallerKeyring, initKeyring } from '../lib/account/keyring';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../lib/tx';
+import { initKeyring } from '../lib/account/keyring';
 import { amountOption, parseSubstrateAddress, substrateAddressOption } from './options';
 
 export function makeSendCommand() {

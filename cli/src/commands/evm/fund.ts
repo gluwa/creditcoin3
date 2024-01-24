@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../../lib';
-import { requireEnoughFundsToSend, signSendAndWatch, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initCallerKeyring, initKeyring } from '../../lib/account/keyring';
+import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
 import { amountOption, evmAddressOption, parseSubstrateAddress } from '../options';
@@ -33,7 +33,7 @@ async function evmFundAction(options: OptionValues) {
     }
 
     const tx = api.tx.balances.transfer(asociatedSubstrateAddress, amount.toString());
-    await requireEnoughFundsToSend(tx,caller.pair.address, api, amount);
+    await requireEnoughFundsToSend(tx, caller.pair.address, api, amount);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
     process.exit(0);

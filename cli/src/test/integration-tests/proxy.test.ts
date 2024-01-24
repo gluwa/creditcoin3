@@ -140,9 +140,11 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI(`send --amount 1 --proxy --address ${caller.address} --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`);
+        const test1Res = CLI(
+            `send --amount 1 --proxy --address ${caller.address} --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`,
+        );
         expect(test1Res.exitCode).toEqual(0);
-        expect(test1Res.stdout).toContain('Transaction included at block')
+        expect(test1Res.stdout).toContain('Transaction included at block');
 
         await api.disconnect();
     }, 360_000);
