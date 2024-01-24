@@ -124,7 +124,7 @@ jobs:
 
       - name: Upload binary
         if: matrix.operating-system != 'windows-2022'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           path: "creditcoin-${{ env.TAG_NAME }}-*.zip"
           if-no-files-found: error
@@ -169,7 +169,7 @@ jobs:
           mv ${{ steps.srtool_build.outputs.wasm }} creditcoin-${{ env.TAG_NAME }}-runtime.wasm
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           path: "*.wasm"
           if-no-files-found: error
@@ -223,7 +223,7 @@ jobs:
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
 
       - name: DEBUG
         shell: bash
