@@ -45,6 +45,10 @@ const setup = () => {
     if ((global as any).CREDITCOIN_HAS_SUDO === undefined) {
         (global as any).CREDITCOIN_HAS_SUDO = true;
     }
+
+    if ((global as any).CREDITCOIN_USES_FAST_RUNTIME === undefined) {
+        (global as any).CREDITCOIN_USES_FAST_RUNTIME = true;
+    }
 };
 
 export default setup;

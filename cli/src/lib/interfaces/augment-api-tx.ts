@@ -12,7 +12,7 @@ import type {
     SubmittableExtrinsicFunction,
 } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Compact, Option, U256, Vec, bool, u128, u16, u32, u64 } from '@polkadot/types-codec';
+import type { Bytes, Compact, Option, U256, U8aFixed, Vec, bool, u128, u16, u32, u64, u8 } from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
 import type {
     AccountId32,
@@ -1324,6 +1324,99 @@ declare module '@polkadot/api-base/types/submittable' {
                     delay: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [MultiAddress, Creditcoin3RuntimeProxyFilter, u32]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
+        scheduler: {
+            /**
+             * See [`Pallet::cancel`].
+             **/
+            cancel: AugmentedSubmittable<
+                (
+                    when: u32 | AnyNumber | Uint8Array,
+                    index: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u32, u32]
+            >;
+            /**
+             * See [`Pallet::cancel_named`].
+             **/
+            cancelNamed: AugmentedSubmittable<
+                (id: U8aFixed | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [U8aFixed]
+            >;
+            /**
+             * See [`Pallet::schedule`].
+             **/
+            schedule: AugmentedSubmittable<
+                (
+                    when: u32 | AnyNumber | Uint8Array,
+                    maybePeriodic:
+                        | Option<ITuple<[u32, u32]>>
+                        | null
+                        | Uint8Array
+                        | ITuple<[u32, u32]>
+                        | [u32 | AnyNumber | Uint8Array, u32 | AnyNumber | Uint8Array],
+                    priority: u8 | AnyNumber | Uint8Array,
+                    call: Call | IMethod | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u32, Option<ITuple<[u32, u32]>>, u8, Call]
+            >;
+            /**
+             * See [`Pallet::schedule_after`].
+             **/
+            scheduleAfter: AugmentedSubmittable<
+                (
+                    after: u32 | AnyNumber | Uint8Array,
+                    maybePeriodic:
+                        | Option<ITuple<[u32, u32]>>
+                        | null
+                        | Uint8Array
+                        | ITuple<[u32, u32]>
+                        | [u32 | AnyNumber | Uint8Array, u32 | AnyNumber | Uint8Array],
+                    priority: u8 | AnyNumber | Uint8Array,
+                    call: Call | IMethod | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u32, Option<ITuple<[u32, u32]>>, u8, Call]
+            >;
+            /**
+             * See [`Pallet::schedule_named`].
+             **/
+            scheduleNamed: AugmentedSubmittable<
+                (
+                    id: U8aFixed | string | Uint8Array,
+                    when: u32 | AnyNumber | Uint8Array,
+                    maybePeriodic:
+                        | Option<ITuple<[u32, u32]>>
+                        | null
+                        | Uint8Array
+                        | ITuple<[u32, u32]>
+                        | [u32 | AnyNumber | Uint8Array, u32 | AnyNumber | Uint8Array],
+                    priority: u8 | AnyNumber | Uint8Array,
+                    call: Call | IMethod | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [U8aFixed, u32, Option<ITuple<[u32, u32]>>, u8, Call]
+            >;
+            /**
+             * See [`Pallet::schedule_named_after`].
+             **/
+            scheduleNamedAfter: AugmentedSubmittable<
+                (
+                    id: U8aFixed | string | Uint8Array,
+                    after: u32 | AnyNumber | Uint8Array,
+                    maybePeriodic:
+                        | Option<ITuple<[u32, u32]>>
+                        | null
+                        | Uint8Array
+                        | ITuple<[u32, u32]>
+                        | [u32 | AnyNumber | Uint8Array, u32 | AnyNumber | Uint8Array],
+                    priority: u8 | AnyNumber | Uint8Array,
+                    call: Call | IMethod | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [U8aFixed, u32, Option<ITuple<[u32, u32]>>, u8, Call]
             >;
             /**
              * Generic tx

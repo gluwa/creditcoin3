@@ -1,16 +1,15 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
-import { requiredInput, parseIntegerOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
-import { substrateAddressOption } from '../options';
+import { eraOption, substrateAddressOption } from '../options';
 
 export function makeDistributeRewardsCommand() {
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.option('-e, --era [era]', 'Specify era to distribute rewards for');
+    cmd.addOption(eraOption.makeOptionMandatory());
     cmd.action(distributeRewardsAction);
     return cmd;
 }
@@ -43,13 +42,6 @@ async function distributeRewardsAction(options: OptionValues) {
 
 function parseOptions(options: OptionValues) {
     const validator = options.substrateAddress as string;
-
-    const era = parseIntegerOrExit(requiredInput(options.era, 'Failed to distribute rewards: Must specify an era'));
-
-    if (era < 0) {
-        console.error(`Failed to distribute rewards: Era ${era} is invalid; must be a positive integer`);
-        process.exit(1);
-    }
-
+    const era = options.era as number;
     return { validator, era };
 }

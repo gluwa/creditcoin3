@@ -12,6 +12,7 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
 
+pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
 use sp_core::{
@@ -188,6 +189,8 @@ parameter_types! {
     pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
         ::max_with_normal_ratio(MAXIMUM_BLOCK_LENGTH, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 42;
+    pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * BlockWeights::get().max_block;
+    pub const MaxScheduledPerBlock: u32 = 50;
 }
 
 pub struct NativeOrEvmAddressLookup;
@@ -207,8 +210,20 @@ impl StaticLookup for NativeOrEvmAddressLookup {
     }
 }
 
-// Configure FRAME pallets to include in runtime.
+impl pallet_scheduler::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeOrigin = RuntimeOrigin;
+    type PalletsOrigin = OriginCaller;
+    type RuntimeCall = RuntimeCall;
+    type MaximumWeight = MaximumSchedulerWeight;
+    type ScheduleOrigin = frame_system::EnsureRoot<AccountId>;
+    type MaxScheduledPerBlock = MaxScheduledPerBlock;
+    type WeightInfo = ();
+    type OriginPrivilegeCmp = EqualPrivilegeOnly;
+    type Preimages = ();
+}
 
+// Configure FRAME pallets to include in runtime.
 impl frame_system::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
@@ -863,6 +878,7 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+        Scheduler: pallet_scheduler,
     }
 );
 
@@ -1441,6 +1457,89 @@ impl_runtime_apis! {
             NominationPools::api_balance_to_points(pool_id, new_funds)
         }
     }
+
+    impl creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
+        fn trace_transaction(
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
+            extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
+            traced_transaction: &EthereumTransaction,
+        ) -> Result<
+            (),
+            sp_runtime::DispatchError,
+        > {
+            #[cfg(feature = "evm-tracing")]
+            {
+                use creditcoin3_evm_tracer::tracer::EvmTracer;
+
+                // Apply the a subset of extrinsics: all the substrate-specific or ethereum
+                // transactions that preceded the requested transaction.
+                for ext in extrinsics.into_iter() {
+                    let _ = match &ext.0.function {
+                        RuntimeCall::Ethereum(transact { transaction }) => {
+                            if transaction == traced_transaction {
+                                EvmTracer::new().trace(|| Executive::apply_extrinsic(ext));
+                                return Ok(());
+                            } else {
+                                Executive::apply_extrinsic(ext)
+                            }
+                        }
+                        _ => Executive::apply_extrinsic(ext),
+                    };
+                }
+                Err(sp_runtime::DispatchError::Other(
+                    "Failed to find Ethereum transaction among the extrinsics.",
+                ))
+            }
+            #[cfg(not(feature = "evm-tracing"))]
+            Err(sp_runtime::DispatchError::Other(
+                "Missing `evm-tracing` compile time feature flag.",
+            ))
+        }
+
+        fn trace_block(
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
+            extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
+            known_transactions: Vec<H256>,
+        ) -> Result<
+            (),
+            sp_runtime::DispatchError,
+        > {
+            #[cfg(feature = "evm-tracing")]
+            {
+                use creditcoin3_evm_tracer::tracer::EvmTracer;
+
+                let mut config = <Runtime as pallet_evm::Config>::config().clone();
+                config.estimate = true;
+
+                // Apply all extrinsics. Ethereum extrinsics are traced.
+                for ext in extrinsics.into_iter() {
+                    match &ext.0.function {
+                        RuntimeCall::Ethereum(transact { transaction }) => {
+                            if known_transactions.contains(&transaction.hash()) {
+                                // Each known extrinsic is a new call stack.
+                                EvmTracer::emit_new();
+                                EvmTracer::new().trace(|| Executive::apply_extrinsic(ext));
+                            } else {
+                                let _ = Executive::apply_extrinsic(ext);
+                            }
+                        }
+                        _ => {
+                            let _ = Executive::apply_extrinsic(ext);
+                        }
+                    };
+                }
+
+                Ok(())
+            }
+            #[cfg(not(feature = "evm-tracing"))]
+            Err(sp_runtime::DispatchError::Other(
+                "Missing `evm-tracing` compile time feature flag.",
+            ))
+        }
+    }
+
 }
 
 #[cfg(test)]

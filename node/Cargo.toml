@@ -20,10 +20,10 @@ clap = { workspace = true }
 futures = { workspace = true }
 hex-literal = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
-log = { workspace = true }
 parity-scale-codec = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "sync"] }
 
 # Substrate
 substrate-prometheus-endpoint = { workspace = true }
@@ -62,6 +62,7 @@ sp-session = { workspace = true, features = ["default"] }
 sp-state-machine = { workspace = true, features = ["default"] }
 sp-timestamp = { workspace = true, features = ["default"] }
 sp-transaction-pool = { workspace = true, features = ["default"] }
+
 # These dependencies are used for RPC
 frame-system-rpc-runtime-api = { workspace = true }
 pallet-transaction-payment-rpc = { workspace = true }
@@ -89,6 +90,13 @@ fp-rpc = { workspace = true, features = ["default"] }
 # Gluwa
 creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 
+# Tracing
+creditcoin3-cli-opt = { workspace = true }
+creditcoin3-primitives-ext = { workspace = true }
+creditcoin3-rpc-debug = { workspace = true }
+creditcoin3-rpc-primitives-debug = { workspace = true }
+creditcoin3-rpc-trace = { workspace = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 
@@ -111,3 +119,4 @@ runtime-benchmarks = [
 	"sc-service/runtime-benchmarks",
 	"creditcoin3-runtime/runtime-benchmarks",
 ]
+evm-tracing = ["creditcoin3-runtime?/evm-tracing"]

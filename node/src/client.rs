@@ -15,10 +15,13 @@ pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExe
 
 /// Only enable the benchmarking host functions when we actually want to benchmark.
 #[cfg(feature = "runtime-benchmarks")]
-pub type HostFunctions = frame_benchmarking::benchmarking::HostFunctions;
+pub type HostFunctions = (
+    frame_benchmarking::benchmarking::HostFunctions,
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+);
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
-pub type HostFunctions = ();
+pub type HostFunctions = (creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,);
 
 pub struct TemplateRuntimeExecutor;
 impl NativeExecutionDispatch for TemplateRuntimeExecutor {

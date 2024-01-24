@@ -23,7 +23,7 @@ async function evmFundAction(options: OptionValues) {
     const evmAddress = recipient;
     const asociatedSubstrateAddress = evmAddressToSubstrateAddress(evmAddress);
     console.log(`Funding EVM address ${evmAddress} with ${toCTCString(amount)}`);
-    console.log(`Seding to associated Substrate address ${asociatedSubstrateAddress}`);
+    console.log(`Sending to associated Substrate address ${asociatedSubstrateAddress}`);
 
     const caller = await initCallerKeyring(options);
     const tx = api.tx.balances.transfer(asociatedSubstrateAddress, amount.toString());

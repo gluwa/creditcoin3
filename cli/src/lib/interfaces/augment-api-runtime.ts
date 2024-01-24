@@ -17,7 +17,13 @@ import type {
 import type { CheckInherentsResult, InherentData } from '@polkadot/types/interfaces/blockbuilder';
 import type { BlockHash } from '@polkadot/types/interfaces/chain';
 import type { AuthorityId } from '@polkadot/types/interfaces/consensus';
-import type { BlockV2, EthReceiptV3, EthTransactionStatus, TransactionV2 } from '@polkadot/types/interfaces/eth';
+import type {
+    BlockV2,
+    EthReceiptV3,
+    EthTransaction,
+    EthTransactionStatus,
+    TransactionV2,
+} from '@polkadot/types/interfaces/eth';
 import type { EvmAccount, EvmCallInfoV2, EvmCreateInfoV2 } from '@polkadot/types/interfaces/evm';
 import type { Extrinsic } from '@polkadot/types/interfaces/extrinsics';
 import type { AuthorityList, GrandpaEquivocationProof, SetId } from '@polkadot/types/interfaces/grandpa';
@@ -188,6 +194,61 @@ declare module '@polkadot/api-base/types/calls' {
              * Returns the version of the runtime.
              **/
             version: AugmentedCall<ApiType, () => Observable<RuntimeVersion>>;
+            /**
+             * Generic call
+             **/
+            [key: string]: DecoratedCallBase<ApiType>;
+        };
+        /** 0xbd78255d4feeea1f/4 */
+        debugRuntimeApi: {
+            /**
+             * Trace all block extrinsics
+             **/
+            traceBlock: AugmentedCall<
+                ApiType,
+                (
+                    extrinsics: Vec<Extrinsic> | (Extrinsic | IExtrinsic | string | Uint8Array)[],
+                    knownTransactions: Vec<H256> | (H256 | string | Uint8Array)[],
+                ) => Observable<Result<ITuple<[]>, DispatchError>>
+            >;
+            /**
+             * Trace transaction extrinsics
+             **/
+            traceTransaction: AugmentedCall<
+                ApiType,
+                (
+                    extrinsics: Vec<Extrinsic> | (Extrinsic | IExtrinsic | string | Uint8Array)[],
+                    transaction:
+                        | EthTransaction
+                        | {
+                              hash?: any;
+                              nonce?: any;
+                              blockHash?: any;
+                              blockNumber?: any;
+                              transactionIndex?: any;
+                              from?: any;
+                              to?: any;
+                              value?: any;
+                              gasPrice?: any;
+                              maxFeePerGas?: any;
+                              maxPriorityFeePerGas?: any;
+                              gas?: any;
+                              input?: any;
+                              creates?: any;
+                              raw?: any;
+                              publicKey?: any;
+                              chainId?: any;
+                              standardV?: any;
+                              v?: any;
+                              r?: any;
+                              s?: any;
+                              accessList?: any;
+                              transactionType?: any;
+                          }
+                        | string
+                        | Uint8Array,
+                ) => Observable<Result<ITuple<[]>, DispatchError>>
+            >;
             /**
              * Generic call
              **/

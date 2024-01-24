@@ -3,7 +3,7 @@ members = ["node", "runtime", "runtime/generate-bags"]
 resolver = "2"
 
 [workspace.package]
-version = "3.13.0"
+version = "3.15.0"
 authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
@@ -19,7 +19,7 @@ derive_more = "0.99"
 environmental = { version = "1.1.4", default-features = false }
 ethereum = { version = "0.14.0", default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false }
-evm = { version = "0.40.0", default-features = false }
+evm = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
 futures = "0.3.30"
 hash-db = { version = "0.16.0", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
@@ -49,6 +49,13 @@ similar-asserts = "1.1.0"
 sqlx = { version = "0.7.3", default-features = false, features = ["macros"] }
 thiserror = "1.0"
 tokio = "1.35.1"
+sha3 = { version = "0.10", default-features = false }
+tracing = "0.1.34"
+tracing-core = "0.1.29"
+bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
+primitive-types = "0.12.0"
+tiny-bip39 = { version = "0.8", default-features = false }
+url = "2.2.2"
 
 # Substrate Client
 sc-basic-authorship = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
@@ -131,6 +138,7 @@ pallet-transaction-payment = { version = "4.0.0-dev", git = "https://github.com/
 pallet-transaction-payment-rpc = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-utility = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+pallet-scheduler = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk.git", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 # Substrate Utility
 frame-benchmarking-cli = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 substrate-prometheus-endpoint = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
@@ -183,6 +191,23 @@ ark-bw6-761 = { version = "0.4.0", default-features = false }
 ark-ec = { version = "0.4.0", default-features = false }
 ark-ff = { version = "0.4.0", default-features = false }
 ark-std = { version = "0.4.0", default-features = false }
+
+# Tracing
+evm-gasometer = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
+evm-runtime = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
+
+evm-tracing-events = { path = "primitives/rpc/evm-tracing-events", default-features = false }
+creditcoin3-primitives-ext = { path = "primitives/ext", default-features = false }
+creditcoin3-rpc-primitives-debug = { path = "primitives/rpc/debug", default-features = false }
+
+creditcoin3-evm-tracer = { path = "runtime/evm_tracer", default-features = false }
+creditcoin3-cli-opt = { path = "node/cli-opt", default-features = false }
+creditcoin3-client-evm-tracing = { path = "client/evm-tracing" }
+creditcoin3-rpc-core-debug = { path = "client/rpc-core/debug" }
+creditcoin3-rpc-core-trace = { path = "client/rpc-core/trace" }
+creditcoin3-rpc-core-types = { path = "client/rpc-core/types" }
+creditcoin3-rpc-debug = { path = "client/rpc/debug" }
+creditcoin3-rpc-trace = { path = "client/rpc/trace" }
 
 [profile.release]
 # Substrate runtime requires unwinding.

@@ -237,12 +237,14 @@ jobs:
           profile: minimal
           override: true
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
 
       - name: Build SUT
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features fast-runtime
+          args: --release
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
@@ -256,9 +258,60 @@ jobs:
           name: creditcoin_node_runtime.compact.compressed.wasm
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
-  integration-test-smart-contract:
+  build-creditcoin-node-fast-runtime:
     needs:
       - build-creditcoin-node
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y curl
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Build SUT
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --features fast-runtime
+
+      - name: Upload creditcoin-node binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin-node-fast-runtime
+          path: target/release/creditcoin3-node
+
+      - name: Upload WASM runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin_node_runtime.compact.compressed.wasm-fast-runtime
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+  integration-test-smart-contract:
+    needs:
+      - build-creditcoin-node-fast-runtime
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -266,7 +319,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node
+          name: creditcoin-node-fast-runtime
           path: target/release
 
       - name: Install Node.js
@@ -307,7 +360,7 @@ jobs:
 
   integration-test-check-extrinsics:
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-fast-runtime
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -320,7 +373,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node
+          name: creditcoin-node-fast-runtime
           path: target/release
 
       - name: Run Extrinsics Ordering
@@ -373,7 +426,7 @@ jobs:
 
   integration-test-cli:
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-fast-runtime
     runs-on: ubuntu-22.04
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
@@ -386,7 +439,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node
+          name: creditcoin-node-fast-runtime
           path: target/release
 
       - name: Install Node.js
@@ -478,6 +531,117 @@ jobs:
           # previous step killing everything and we don't have to worry about
           # dangling processes
           killall -9 creditcoin3-node
+
+  integration-test-blockchain:
+    needs:
+      - build-creditcoin-node-fast-runtime
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-fast-runtime
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start Node 1
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s)s to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install creditcoin3-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Run blockchain tests
+        working-directory: ./cli
+        run: |
+          yarn test:blockchain
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+  integration-test-chainspec:
+    needs:
+      - build-creditcoin-node
+    strategy:
+      matrix:
+        chainspec:
+          [devnet, testnet]
+    name: integration-test-chainspec-${{ matrix.chainspec }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start Node 1
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain ${{ matrix.chainspec }} \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data-${{ matrix.chainspec }} &
+
+      - name: Wait for node(s)s to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install creditcoin3-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Run blockchain tests
+        working-directory: ./cli
+        run: |
+          # TODO: maybe we can make a chainspec-tests directory which symlinks to selected test files
+          yarn jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests/danger-will-brick-the-blockchain.test.ts
+        env:
+          BLOCKCHAIN_TESTS_GLOBAL_SETUP: './${{ matrix.chainspec }}ChainspecSetup.ts'
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
 
   audit:
     name: cargo audit

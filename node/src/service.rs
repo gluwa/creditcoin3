@@ -17,19 +17,21 @@ use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
 // Runtime
+use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
 
+use crate::rpc;
 use crate::{
     cli::Sealing,
-    client::{BaseRuntimeApiCollection, FullBackend, FullClient, RuntimeApiCollection},
-    eth::{
-        new_frontier_partial, spawn_frontier_tasks, BackendType, EthCompatRuntimeApiCollection,
-        FrontierBackend, FrontierBlockImport, FrontierPartialComponents,
+    client::{
+        BaseRuntimeApiCollection, Client, FullBackend, FullClient, RuntimeApiCollection,
+        TemplateRuntimeExecutor,
     },
-};
-pub use crate::{
-    client::{Client, TemplateRuntimeExecutor},
-    eth::{db_config_dir, EthConfiguration},
+    eth::{
+        db_config_dir, new_frontier_partial, spawn_frontier_tasks, BackendType,
+        EthCompatRuntimeApiCollection, EthConfiguration, FrontierBackend, FrontierBlockImport,
+        FrontierPartialComponents,
+    },
 };
 
 type BasicImportQueue = sc_consensus::DefaultImportQueue<Block>;
@@ -146,7 +148,7 @@ where
         telemetry.as_ref().map(|x| x.handle()),
     )?;
 
-    let overrides = crate::rpc::overrides_handle(client.clone());
+    let overrides = rpc::overrides_handle(client.clone());
     let frontier_backend = match eth_config.frontier_backend_type {
         BackendType::KeyValue => FrontierBackend::KeyValue(fc_db::kv::Backend::open(
             Arc::clone(&client),
@@ -462,6 +464,31 @@ where
     config.rpc_id_provider = Some(Box::new(fc_rpc::EthereumSubIdProvider));
 
     let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
+    let ethapi_cmd = eth_config.ethapi.clone();
+    let fee_history_limit = eth_config.fee_history_limit;
+
+    let tracing_requesters =
+        if ethapi_cmd.contains(&EthApiCmd::Debug) || ethapi_cmd.contains(&EthApiCmd::Trace) {
+            rpc::tracing::spawn_tracing_tasks(
+                &eth_config,
+                prometheus_registry.clone(),
+                rpc::SpawnTasksParams {
+                    task_manager: &task_manager,
+                    client: client.clone(),
+                    substrate_backend: backend.clone(),
+                    frontier_backend: frontier_backend.clone(),
+                    filter_pool: filter_pool.clone(),
+                    overrides: overrides.clone(),
+                    fee_history_limit,
+                    fee_history_cache: fee_history_cache.clone(),
+                },
+            )
+        } else {
+            rpc::tracing::RpcRequesters {
+                debug: None,
+                trace: None,
+            }
+        };
 
     let rpc_builder = {
         let client = client.clone();
@@ -512,7 +539,7 @@ where
 
         Box::new(
             move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
-                let eth_deps = crate::rpc::EthDeps {
+                let eth_deps = rpc::EthDeps {
                     client: client.clone(),
                     pool: pool.clone(),
                     graph: pool.pool().clone(),
@@ -534,11 +561,9 @@ where
                     execute_gas_limit_multiplier,
                     forced_parent_hashes: None,
                     pending_create_inherent_data_providers,
-                    pending_consensus_data_provider: Some(
-                        crate::rpc::BabeConsensusDataProvider::new(),
-                    ),
+                    pending_consensus_data_provider: Some(rpc::BabeConsensusDataProvider::new()),
                 };
-                let deps = crate::rpc::FullDeps {
+                let deps = rpc::FullDeps {
                     client: client.clone(),
                     pool: pool.clone(),
                     deny_unsafe,
@@ -548,12 +573,12 @@ where
                         None
                     },
                     eth: eth_deps,
-                    babe: crate::rpc::BabeDeps {
+                    babe: rpc::BabeDeps {
                         babe_worker: babe_worker.clone(),
                         keystore: keystore.clone(),
                     },
                     select_chain: select_chain.clone(),
-                    grandpa: enable_grandpa.then(|| crate::rpc::GrandpaDeps {
+                    grandpa: enable_grandpa.then(|| rpc::GrandpaDeps {
                         finality_provider: finality_provider.clone(),
                         justification_stream: justification_stream.clone(),
                         shared_authority_set: shared_authority_set.clone(),
@@ -561,9 +586,13 @@ where
                         subscription_executor: subscription_task_executor.clone(),
                     }),
                 };
-                crate::rpc::create_full(
+                rpc::create_full(
                     deps,
                     subscription_task_executor,
+                    Some(rpc::TracingConfig {
+                        tracing_requesters: tracing_requesters.clone(),
+                        trace_filter_max_count: eth_config.ethapi_trace_max_count,
+                    }),
                     pubsub_notification_sinks.clone(),
                 )
                 .map_err(Into::into)
@@ -617,7 +646,6 @@ where
             )?;
 
             network_starter.start_network();
-            log::info!("Manual Seal Ready");
             return Ok(task_manager);
         }
 
