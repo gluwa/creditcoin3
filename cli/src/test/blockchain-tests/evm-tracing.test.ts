@@ -1,25 +1,27 @@
+import { randomEvmAccount } from '../integration-tests/evmHelpers';
+import { ALICE_NODE_URL, fundFromSudo, initAliceKeyring } from '../integration-tests/helpers';
 import { deployContract } from './helpers';
-import { JsonRpcProvider, ethers, parseEther } from 'ethers';
+import { Wallet, WebSocketProvider, ethers, parseEther } from 'ethers';
 
 describe.only('EVM Tracing', (): void => {
-    let provider: JsonRpcProvider;
+    let provider: WebSocketProvider;
+    let deployedContractAddress: string;
+    let txHash: string;
 
     beforeAll(async () => {
-        provider = new JsonRpcProvider('http://127.0.0.1:9944');
-    });
+        provider = new WebSocketProvider(ALICE_NODE_URL);
 
-    test('tracing rpc methods work correctly', async () => {
         const alith = new ethers.Wallet('0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133').connect(
             provider,
         );
 
         // deploy SendForYou Smart contract
         const contract = await deployContract('SendForYou', [], alith);
-        const contractAddress = await contract.getAddress();
+        deployedContractAddress = await contract.getAddress();
 
         // send funds to the contract
         const response = await alith.sendTransaction({
-            to: await contract.getAddress(),
+            to: deployedContractAddress,
             value: parseEther('50'),
         });
         await response.wait();
@@ -27,21 +29,30 @@ describe.only('EVM Tracing', (): void => {
         // call contract method sendForMe to random address
         const call = await contract
             .getFunction('sendForMe')
-            .call(contract, '0x2D8290e675564F49229a62A255C1b227aF4425D9', parseEther('10'));
+            .call(contract, randomEvmAccount().address, parseEther('10'));
 
         await call.wait();
-        expect(call?.hash).toBeDefined();
 
-        // test debug_traceTransaction
-        const traceTxResponse = await provider.send('debug_traceTransaction', [call?.hash]);
+        txHash = call?.hash;
+    }, 25000);
+
+    test('debug_traceTransaction', async () => {
+        expect(txHash).toBeDefined();
+
+        // call rpc method `debug_traceTransaction`
+        const traceTxResponse = await provider.send('debug_traceTransaction', [txHash]);
         expect(traceTxResponse?.gas).toBeDefined();
         expect(traceTxResponse?.structLogs?.length).toBeGreaterThan(0);
+    });
+
+    test('debug_traceBlockByHash', async () => {
+        expect(txHash).toBeDefined();
 
         // get transaction block information from tx hash
-        const tx = await provider.getTransaction(call?.hash);
+        const tx = await provider.getTransaction(txHash);
         expect(tx).toBeDefined();
 
-        // test debug_traceBlockByHash
+        // call rpc method `debug_traceBlockByHash`
         const traceBlockResponse = await provider.send('debug_traceBlockByHash', [
             tx?.blockHash,
             { tracer: 'callTracer' },
@@ -50,7 +61,7 @@ describe.only('EVM Tracing', (): void => {
         expect(traceBlockResponse?.[0]?.gas).toBeDefined();
         expect(traceBlockResponse?.[0]?.gasUsed).toBeDefined();
         expect(traceBlockResponse?.[0]?.type).toBe('CALL');
-        expect(traceBlockResponse?.[0]?.to).toBe(contractAddress.toLowerCase());
+        expect(traceBlockResponse?.[0]?.to).toBe(deployedContractAddress.toLowerCase());
         expect(traceBlockResponse?.[0]?.calls?.length).toBe(1);
-    }, 25000);
+    });
 });
