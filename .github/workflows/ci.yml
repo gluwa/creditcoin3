@@ -341,7 +341,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features fast-runtime --features=evm-tracing 
+          args: --release --features fast-runtime --features=evm-tracing
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
