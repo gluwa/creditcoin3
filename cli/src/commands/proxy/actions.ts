@@ -3,7 +3,6 @@ import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
 import { parseSetProxyOptions } from './utils';
-import { PalletProxyProxyDefinition } from '@polkadot/types/lookup';
 
 export async function setProxyAction(opts: OptionValues) {
     const { proxyAddr, proxyType, url, delay } = parseSetProxyOptions(opts);
@@ -66,18 +65,18 @@ export async function removeProxyAction(opts: OptionValues) {
         process.exit(1);
     }
 
-    console.log(`${existingProxy.length} proxies found`)
-    for await (const p of existingProxy) {
-        const proxy = opts.proxy; // proxy and type are mandatory it is safe to just grab them
+    console.log(`${existingProxy.length} proxies found`);
+    for (const p of existingProxy) {
+        const proxy = opts.proxy as string; // proxy and type are mandatory it is safe to just grab them
         const type = p.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
         const delay = opts.delay ? opts.delay : 0;
         const call = api.tx.proxy.removeProxy(proxy, type, delay);
         await requireEnoughFundsToSend(call, callerAddress, api);
-        console.log(`Removing proxy ${proxy} with type ${type}}`)
+        console.log(`Removing proxy ${proxy} with type ${type.toString()}`);
         const result = await signSendAndWatch(call, api, callerKeyring);
         console.log(result);
     }
 
-    console.log(`${existingProxy.length} Proxies removed`)
+    console.log(`${existingProxy.length} Proxies removed`);
     process.exit(0);
 }

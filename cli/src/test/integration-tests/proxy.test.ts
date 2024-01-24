@@ -119,4 +119,31 @@ describe('Proxy functionality', () => {
 
         await api.disconnect();
     }, 360_000);
+
+    it('Can successfully send funds with a proxy', async () => {
+        // Setup
+        const { api } = await newApi(ALICE_NODE_URL);
+
+        // Create a reference to sudo for funding accounts
+        const sudoSigner = initAliceKeyring();
+
+        // Create and fund the test and proxy account
+        const caller = await randomFundedAccount(api, sudoSigner);
+        const proxy = await randomFundedAccount(api, sudoSigner);
+
+        // Create a CLICmd instance with a properly configured environment
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
+
+        const setupRes = CLI(`proxy add --proxy ${proxy.address} --type All`);
+        expect(setupRes.exitCode).toEqual(0);
+        expect(setupRes.stdout).toContain('Transaction included at block');
+
+        // Test #1. Successfully bond for the first time
+        const test1Res = CLI(`send --amount 1 --proxy --address ${caller.address} --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`);
+        expect(test1Res.exitCode).toEqual(0);
+        expect(test1Res.stdout).toContain('Transaction included at block')
+
+        await api.disconnect();
+    }, 360_000);
 });

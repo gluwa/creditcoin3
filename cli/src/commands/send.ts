@@ -1,14 +1,16 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../lib';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../lib/tx';
-import { initCallerKeyring } from '../lib/account/keyring';
-import { amountOption, substrateAddressOption } from './options';
+import { requireEnoughFundsToSend, signSendAndWatch, signSendAndWatchCcKeyring } from '../lib/tx';
+import { initCallerKeyring, initKeyring } from '../lib/account/keyring';
+import { amountOption, parseSubstrateAddress, substrateAddressOption } from './options';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send CTC from an account');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(sendAction);
     return cmd;
 }
@@ -18,19 +20,28 @@ async function sendAction(options: OptionValues) {
 
     const { amount, recipient } = parseOptions(options);
 
-    const caller = await initCallerKeyring(options);
+    const caller = await initKeyring(options);
 
     if (!caller) {
         throw new Error('Keyring not initialized and not using a proxy');
     }
 
+    if (caller.type === 'proxy') {
+        const [delegates, _] = await api.query.proxy.proxies(caller.proxiedAddress);
+
+        if (delegates.toArray().find((delegate) => delegate.proxyType.toString() === 'All') === undefined) {
+            console.log(
+                `ERROR: The proxy ${caller.pair.address} for address ${caller.proxiedAddress} does not have permission to call extrinsics from the balances pallet`,
+            );
+            process.exit(1);
+        }
+    }
+
     const tx = api.tx.balances.transfer(recipient, amount.toString());
-
-    await requireEnoughFundsToSend(tx, caller.address, api, amount);
-
-    const result = await signSendAndWatch(tx, api, caller);
+    const funderAddr = caller.type === 'proxy' ? caller.proxiedAddress : caller.pair.address;
+    await requireEnoughFundsToSend(tx, funderAddr, api, amount);
+    const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
-
     process.exit(0);
 }
 

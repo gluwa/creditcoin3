@@ -1,16 +1,18 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../../lib';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { requireEnoughFundsToSend, signSendAndWatch, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { initCallerKeyring, initKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
-import { amountOption, evmAddressOption } from '../options';
+import { amountOption, evmAddressOption, parseSubstrateAddress } from '../options';
 
 export function makeEvmFundCommand() {
     const cmd = new Command('fund');
     cmd.description('Fund an EVM account from a Subtrate one');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(evmAddressOption.makeOptionMandatory());
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.action(evmFundAction);
     return cmd;
 }
@@ -24,15 +26,15 @@ async function evmFundAction(options: OptionValues) {
     console.log(`Funding EVM address ${evmAddress} with ${toCTCString(amount)}`);
     console.log(`Sending to associated Substrate address ${asociatedSubstrateAddress}`);
 
-    const caller = await initCallerKeyring(options);
+    const caller = await initKeyring(options);
 
     if (!caller) {
         throw new Error('Keyring not initialized and not using a proxy');
     }
 
     const tx = api.tx.balances.transfer(asociatedSubstrateAddress, amount.toString());
-    await requireEnoughFundsToSend(tx, caller.address, api, amount);
-    const result = await signSendAndWatch(tx, api, caller);
+    await requireEnoughFundsToSend(tx,caller.pair.address, api, amount);
+    const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
     process.exit(0);
 }

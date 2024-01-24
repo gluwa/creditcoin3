@@ -3,12 +3,15 @@ import { newApi } from '../../lib';
 import { parseHexStringOrExit } from '../../lib/parsing';
 import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
+import { parseSubstrateAddress } from '../options';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');
     cmd.description('Set session keys for a bonded account');
     cmd.option('-k, --keys [keys]', 'Specify keys to set');
     cmd.option('-r, --rotate', 'Rotate and set new keys');
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress); 
     cmd.action(setKeysAction);
     return cmd;
 }

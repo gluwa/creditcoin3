@@ -7,7 +7,7 @@ import { percentFromPerbill } from '../../lib/perbill';
 import { initKeyring } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
-import { amountOption } from '../options';
+import { amountOption, parseSubstrateAddress } from '../options';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
@@ -18,6 +18,8 @@ export function makeWizardCommand() {
     );
     cmd.option('--commission [commission]', 'Specify commission for validator');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
+    cmd.option('-p, --proxy', 'Whether to use a proxy account');
+    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
     cmd.addOption(amountOption);
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');
@@ -36,7 +38,7 @@ export function makeWizardCommand() {
         if (!keyring) {
             throw new Error('Keyring is empty');
         }
-        const address = keyring.pair.address;
+        const address = keyring.type === 'proxy' ? keyring.proxiedAddress : keyring.pair.address;
 
         // Validate prefs
         const preferences: StakingPalletValidatorPrefs = {
@@ -47,6 +49,11 @@ export function makeWizardCommand() {
         // State parameters being used
         console.log('Using the following parameters:');
         console.log(`💰 Stash account: ${address}`);
+
+        if (keyring.type === 'proxy') {
+            console.log(`🤐 Proxy account: ${keyring.pair.address}`)
+        }
+
         console.log(`🪙 Amount to bond: ${toCTCString(amount)}`);
         console.log(`🎁 Reward destination: ${rewardDestination}`);
         console.log(`📡 Node URL: ${nodeUrl}`);
@@ -65,7 +72,8 @@ export function makeWizardCommand() {
         const amountWithFee = amount.add(grosslyEstimatedFee);
         checkStashBalance(address, stashBalance, amountWithFee);
 
-        const bondExtra: boolean = checkIfAlreadyBonded(stashBalance);
+        // proxies and delegates are 'bonded' by default so if we are using one its always a bond extra extrinsic
+        const bondExtra: boolean = keyring.type === 'proxy' ? true : checkIfAlreadyBonded(stashBalance);
 
         if (bondExtra) {
             console.log('⚠️  Warning: Stash account already bonded. This will increase the amount bonded.');

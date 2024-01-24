@@ -25,7 +25,7 @@ export function makeAddProxyCmd() {
 
 export function makeListProxyCmd() {
     return new Command('list')
-        .description('View the current proxy')
+        .description('View a list of proxies and their types')
         .addOption(noInputOption)
         .addOption(urlOption)
         .action(viewProxyAction);
@@ -33,7 +33,7 @@ export function makeListProxyCmd() {
 
 export function makeRemoveProxyCmd() {
     return new Command('remove')
-        .description('Remove the current proxy')
+        .description('Remove all instances of a proxy')
         .addOption(mandatoryProxyOption)
         .addOption(delayOption)
         .addOption(noInputOption)
