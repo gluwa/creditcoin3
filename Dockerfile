@@ -29,8 +29,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
 
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 # shellcheck source=/dev/null
+ARG features=""
 RUN source ~/.cargo/env && \
-    cargo build --release
+    cargo build --release --features=${features}
 
 
 FROM devel-base AS cli-builder

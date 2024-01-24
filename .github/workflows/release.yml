@@ -190,7 +190,7 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin3:${{ env.TAG_NAME }} .
+          docker build -t gluwa/creditcoin3:${{ env.TAG_NAME }} --build-arg features="evm-tracing" .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
           docker push gluwa/creditcoin3:${{ env.TAG_NAME }}
