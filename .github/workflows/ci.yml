@@ -513,7 +513,6 @@ jobs:
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --ethapi=debug,trace,txpool \
             --base-path ./alice-data &
 
       - name: Start Node 2
@@ -523,7 +522,6 @@ jobs:
             --validator --bob --pruning archive \
             --base-path ./bob-data \
             --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au \
-            --ethapi=debug,trace,txpool \
             --port 30335 --rpc-port 9955 &
 
       - name: Wait for nodes to start
@@ -618,6 +616,7 @@ jobs:
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --ethapi=debug,trace,txpool \
             --base-path ./alice-data &
 
       - name: Wait for node(s)s to start
