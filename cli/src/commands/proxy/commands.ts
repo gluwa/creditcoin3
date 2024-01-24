@@ -3,11 +3,18 @@ import { mandatoryProxyOption, proxyTypeOption, delayOption, noInputOption, urlO
 import { setProxyAction, viewProxyAction, removeProxyAction } from './actions';
 
 export function makeProxyCommands() {
-    return new Command('proxy')
+    const cmd = new Command('proxy')
         .description('Commands for managing the proxy system ')
         .addCommand(makeAddProxyCmd())
         .addCommand(makeListProxyCmd())
-        .addCommand(makeRemoveProxyCmd())
+        .addCommand(makeRemoveProxyCmd());
+
+    cmd.commands.forEach((command) => {
+        command.addOption(noInputOption);
+        command.addOption(urlOption);
+    });
+
+    return cmd;
 }
 
 export function makeAddProxyCmd() {
@@ -16,17 +23,11 @@ export function makeAddProxyCmd() {
         .addOption(mandatoryProxyOption)
         .addOption(proxyTypeOption)
         .addOption(delayOption)
-        .addOption(noInputOption)
-        .addOption(urlOption)
         .action(setProxyAction);
 }
 
 export function makeListProxyCmd() {
-    return new Command('list')
-        .description('View a list of proxies and their types')
-        .addOption(noInputOption)
-        .addOption(urlOption)
-        .action(viewProxyAction);
+    return new Command('list').description('View a list of proxies and their types').action(viewProxyAction);
 }
 
 export function makeRemoveProxyCmd() {
@@ -34,7 +35,5 @@ export function makeRemoveProxyCmd() {
         .description('Remove all instances of a proxy')
         .addOption(mandatoryProxyOption)
         .addOption(delayOption)
-        .addOption(noInputOption)
-        .addOption(urlOption)
         .action(removeProxyAction);
 }

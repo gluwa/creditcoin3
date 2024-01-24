@@ -29,7 +29,7 @@ async function bondAction(options: OptionValues) {
     const { amount, rewardDestination, extra, interactive } = parseOptions(options);
 
     const callerKeyring = await initKeyring(options);
-    const callerAddress = callerKeyring.pair.address;
+    const callerAddress = callerKeyring.type === 'proxy' ? callerKeyring.proxiedAddress : callerKeyring.pair.address;
 
     // Check if caller has enough balance, caller may be a proxy account
     await checkBalance(amount, api, callerAddress);

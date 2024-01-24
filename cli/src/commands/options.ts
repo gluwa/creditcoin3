@@ -124,7 +124,7 @@ mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
     '--delay [delay]',
-    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#time-delayed-proxy',
 ).argParser(parseProxyDelay);
 export function parseProxyDelay(value: string): number {
     const parsedValue = parseInt(value, 10);
