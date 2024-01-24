@@ -1,7 +1,7 @@
 import { randomEvmAccount } from '../integration-tests/evmHelpers';
-import { ALICE_NODE_URL, fundFromSudo, initAliceKeyring } from '../integration-tests/helpers';
+import { ALICE_NODE_URL } from '../integration-tests/helpers';
 import { deployContract } from './helpers';
-import { Wallet, WebSocketProvider, ethers, parseEther } from 'ethers';
+import { WebSocketProvider, ethers, parseEther } from 'ethers';
 
 describe.only('EVM Tracing', (): void => {
     let provider: WebSocketProvider;
