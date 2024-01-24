@@ -44,7 +44,7 @@ async function unbondAction(options: OptionValues) {
     await requireEnoughFundsToSend(tx, caller.pair.address, api);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }
 
 async function checkIfUnbodingMax(

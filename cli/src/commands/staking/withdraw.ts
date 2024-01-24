@@ -30,5 +30,5 @@ async function withdrawUnbondedAction(options: OptionValues) {
     await requireEnoughFundsToSend(withdrawUnbondTx, validator_addr, api);
     const result = await signSendAndWatchCcKeyring(withdrawUnbondTx, api, keyring);
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }

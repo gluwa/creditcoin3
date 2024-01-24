@@ -40,7 +40,7 @@ async function distributeRewardsAction (options: OptionValues)
     await requireEnoughFundsToSend(distributeTx, caller.pair.address, api);
     const result = await signSendAndWatchCcKeyring(distributeTx, api, caller);
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }
 
 function parseOptions (options: OptionValues)

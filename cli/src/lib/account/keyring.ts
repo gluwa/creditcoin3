@@ -23,25 +23,9 @@ export function initEthKeyringPair(seed: string, accIndex = 0) {
 }
 
 // Force : override the proxy check and return the keyring from the env
-export async function initCallerKeyring(options: OptionValues, force = false): Promise<KeyringPair | null> {
-    if (options.proxy && !force) {
-        return null;
-    }
+export async function initCallerKeyring(options: OptionValues): Promise<KeyringPair> {
     try {
         return await initKeyringFromEnvOrPrompt('CC_SECRET', 'caller', options);
-    } catch (e) {
-        console.error(getErrorMessage(e));
-        process.exit(1);
-    }
-}
-
-export async function initProxyKeyring(options: OptionValues): Promise<KeyringPair | null> {
-    if (!options.proxy) {
-        return null;
-    }
-
-    try {
-        return await initKeyringFromEnvOrPrompt('CC_PROXY_SECRET', 'proxy', options);
     } catch (e) {
         console.error(getErrorMessage(e));
         process.exit(1);
