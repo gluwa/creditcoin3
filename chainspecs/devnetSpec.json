@@ -19,10 +19,7 @@
       "babe": {
         "authorities": [],
         "epochConfig": {
-          "c": [
-            1,
-            4
-          ],
+          "c": [1, 4],
           "allowed_slots": "PrimaryAndSecondaryVRFSlots"
         }
       },
@@ -132,9 +129,7 @@
             "nonce": "0x1",
             "balance": "0xd3c21bcecceda1000000",
             "storage": {},
-            "code": [
-              0
-            ]
+            "code": [0]
           },
           "0x3cd0a705a2dc65e5b1e1205896baa2be8a07c6e0": {
             "nonce": "0x0",
