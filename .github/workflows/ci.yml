@@ -304,7 +304,7 @@ jobs:
           name: creditcoin_node_runtime.compact.compressed.wasm
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
-  build-creditcoin-node-fast-runtime:
+  build-creditcoin-node-for-ci:
     needs:
       - build-creditcoin-node
     runs-on: ubuntu-22.04
@@ -357,7 +357,7 @@ jobs:
 
   integration-test-smart-contract:
     needs:
-      - build-creditcoin-node-fast-runtime
+      - build-creditcoin-node-for-ci
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -418,7 +418,7 @@ jobs:
 
   integration-test-check-extrinsics:
     needs:
-      - build-creditcoin-node-fast-runtime
+      - build-creditcoin-node-for-ci
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -484,7 +484,7 @@ jobs:
 
   integration-test-cli:
     needs:
-      - build-creditcoin-node-fast-runtime
+      - build-creditcoin-node-for-ci
     runs-on: ubuntu-22.04
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
@@ -592,7 +592,7 @@ jobs:
 
   integration-test-blockchain:
     needs:
-      - build-creditcoin-node-fast-runtime
+      - build-creditcoin-node-for-ci
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
