@@ -1,6 +1,6 @@
 import { ApiPromise } from '..';
 import { CcKeyring } from '../account/keyring';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 
 export interface StakingPalletValidatorPrefs {
     // The validator's commission.
@@ -22,6 +22,6 @@ export async function validate(stashKeyring: CcKeyring, prefs: StakingPalletVali
 
     const validateTx = api.tx.staking.validate(preferences);
 
-    await requireEnoughFundsToSend(validateTx, stashKeyring.pair.address, api);
+    await requireKeyringHasSufficientFunds(validateTx, stashKeyring, api);
     return await signSendAndWatchCcKeyring(validateTx, api, stashKeyring);
 }

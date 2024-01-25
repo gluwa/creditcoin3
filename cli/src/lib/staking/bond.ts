@@ -1,7 +1,7 @@
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { ISubmittableResult } from '@polkadot/types/types';
 import { ApiPromise, BN, MICROUNITS_PER_CTC } from '..';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 import { CcKeyring } from '../account/keyring';
 
 type RewardDestination = 'Staked' | 'Stash';
@@ -29,7 +29,7 @@ export async function bond(
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
     }
 
-    await requireEnoughFundsToSend(bondTx, stashKeyring.pair.address, api, amount);
+    await requireKeyringHasSufficientFunds(bondTx, stashKeyring, api, amount);
     return await signSendAndWatchCcKeyring(bondTx, api, stashKeyring);
 }
 

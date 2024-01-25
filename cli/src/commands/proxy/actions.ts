@@ -2,12 +2,13 @@ import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
-import { parseSetProxyOptions } from './utils';
 
 export async function setProxyAction(options: OptionValues) {
-    const { proxyAddr, proxyType, url, delay } = parseSetProxyOptions(options);
+    const { url, delay } = options;
+    const proxyAddr = options.proxy;
+    const proxyType = options.type;
 
-    const { api } = await newApi(url);
+    const { api } = await newApi(url as string);
     const callerKeyring = await initCallerKeyring(options);
 
     const call = api.tx.proxy.addProxy(proxyAddr, proxyType, delay);
@@ -20,7 +21,7 @@ export async function setProxyAction(options: OptionValues) {
 
 export async function viewProxyAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
-
+    console.log(options);
     const callerKeyring = await initCallerKeyring(options);
     const callerAddress = callerKeyring.address;
     const callerProxy = await api.query.proxy.proxies(callerAddress);
@@ -36,7 +37,7 @@ export async function viewProxyAction(options: OptionValues) {
 }
 
 export async function removeProxyAction(options: OptionValues) {
-    const { api } = await newApi(options.url);
+    const { api } = await newApi(options.url as string);
 
     // force=true means we get back the keyring even though we enabled the --proxy flag
     const callerKeyring = await initCallerKeyring(options);
@@ -56,23 +57,24 @@ export async function removeProxyAction(options: OptionValues) {
 
     const success: string[] = [];
     const fails: string[] = [];
+    const proxy = options.proxy as string; // proxy and type are mandatory it is safe to just grab them
+    const delay = options.delay ? options.delay : 0;
 
     console.log(`${existingProxy.length} proxies found`);
+
     for (const p of existingProxy) {
-        const proxy = options.proxy as string; // proxy and type are mandatory it is safe to just grab them
         const type = p.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
-        const delay = options.delay ? options.delay : 0;
         const call = api.tx.proxy.removeProxy(proxy, type, delay);
 
         try {
             await requireEnoughFundsToSend(call, callerAddress, api);
-            console.log(`Removing proxy ${proxy.toString()} with type ${type.toString()}`);
+            console.log(`Removing proxy ${proxy} with type ${type.toString()}`);
             const result = await signSendAndWatch(call, api, callerKeyring);
             console.log(result);
             success.push(p.toString());
         } catch (e) {
-            console.log(`ERROR removing proxy ${proxy.toString()} with type ${type.toString()}: ${e as string}`);
-            success.push(p.toString());
+            console.log(`ERROR removing proxy ${proxy} with type ${type.toString()}: ${e as string}`);
+            fails.push(p.toString());
         }
     }
 
@@ -82,5 +84,5 @@ export async function removeProxyAction(options: OptionValues) {
         console.log(`${fails.length} proxies failed to be removed`);
         console.log(fails);
     }
-    process.exit(0);
+    process.exit(fails.length);
 }

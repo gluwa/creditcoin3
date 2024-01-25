@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { parseHexStringOrExit } from '../../lib/parsing';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
 import { parseSubstrateAddress } from '../options';
 
@@ -37,7 +37,7 @@ async function setKeysAction(options: OptionValues) {
 
     const tx = api.tx.session.setKeys(keys, '');
 
-    await requireEnoughFundsToSend(tx, keyring.pair.address, api);
+    await requireKeyringHasSufficientFunds(tx, keyring, api);
 
     const result = await signSendAndWatchCcKeyring(tx, api, keyring);
 

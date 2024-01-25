@@ -2,7 +2,7 @@ import { Command, OptionValues } from 'commander';
 import { newApi, bond, MICROUNITS_PER_CTC, parseRewardDestination, BN } from '../../lib';
 import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBoolean } from '../../lib/parsing';
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
-import { TxStatus, requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { TxStatus, requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
 import { initKeyring } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
@@ -35,9 +35,6 @@ export function makeWizardCommand() {
         // Generate keyring
         const keyring = await initKeyring(options);
 
-        if (!keyring) {
-            throw new Error('Keyring is empty');
-        }
         const address = keyring.type === 'proxy' ? keyring.proxiedAddress : keyring.pair.address;
 
         // Validate prefs
@@ -117,7 +114,7 @@ export function makeWizardCommand() {
         const txs = [setKeysTx, validateTx];
 
         const batchTx = api.tx.utility.batchAll(txs);
-        await requireEnoughFundsToSend(batchTx, address, api);
+        await requireKeyringHasSufficientFunds(batchTx, keyring, api);
 
         const batchResult = await signSendAndWatchCcKeyring(batchTx, api, keyring);
 

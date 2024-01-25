@@ -33,7 +33,6 @@ program
     .addCommand(makeConvertAddressCommand())
     .addCommand(makeDistributeRewardsCommand())
     .addCommand(makeNewSeedCommand())
-    .addCommand(makeProxyCommands())
     .addCommand(makeRotateKeysCommand())
     .addCommand(makeSendCommand())
     .addCommand(makeSetKeysCommand())
@@ -52,5 +51,5 @@ program.commands.forEach((cmd) =>
 
 // Add Subcommands
 program.addCommand(makeEvmCommand());
-
+program.addCommand(makeProxyCommands());
 program.parse(process.argv);

@@ -5,7 +5,7 @@ import { newApi, BN } from '../../lib';
 import { ApiPromise } from '@polkadot/api';
 import { getBalance } from '../../lib/balance';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
 import { initKeyring } from '../../lib/account/keyring';
 import { amountOption, parseSubstrateAddress } from '../options';
@@ -41,7 +41,7 @@ async function unbondAction(options: OptionValues) {
     // Unbond transaction
     const tx = api.tx.staking.unbond(amount.toString());
 
-    await requireEnoughFundsToSend(tx, caller.pair.address, api);
+    await requireKeyringHasSufficientFunds(tx, caller, api);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
     process.exit(result.status);

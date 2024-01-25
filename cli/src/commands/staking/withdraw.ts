@@ -1,6 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
 import { parseSubstrateAddress } from '../options';
 
@@ -27,7 +27,7 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const withdrawUnbondTx = api.tx.staking.withdrawUnbonded(slashingSpansCount);
 
-    await requireEnoughFundsToSend(withdrawUnbondTx, validator_addr, api);
+    await requireKeyringHasSufficientFunds(withdrawUnbondTx, keyring, api);
     const result = await signSendAndWatchCcKeyring(withdrawUnbondTx, api, keyring);
     console.log(result.info);
     process.exit(result.status);

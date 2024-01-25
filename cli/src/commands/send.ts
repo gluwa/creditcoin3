@@ -1,6 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../lib';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../lib/tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../lib/tx';
 import { initKeyring } from '../lib/account/keyring';
 import { amountOption, parseSubstrateAddress, substrateAddressOption } from './options';
 
@@ -22,10 +22,6 @@ async function sendAction(options: OptionValues) {
 
     const caller = await initKeyring(options);
 
-    if (!caller) {
-        throw new Error('Keyring not initialized and not using a proxy');
-    }
-
     if (caller.type === 'proxy') {
         const [delegates, _] = await api.query.proxy.proxies(caller.proxiedAddress);
 
@@ -38,8 +34,7 @@ async function sendAction(options: OptionValues) {
     }
 
     const tx = api.tx.balances.transfer(recipient, amount.toString());
-    const funderAddr = caller.type === 'proxy' ? caller.proxiedAddress : caller.pair.address;
-    await requireEnoughFundsToSend(tx, funderAddr, api, amount);
+    await requireKeyringHasSufficientFunds(tx, caller, api, amount);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
     process.exit(0);

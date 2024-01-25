@@ -1,6 +1,6 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../../lib';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
@@ -28,12 +28,8 @@ async function evmFundAction(options: OptionValues) {
 
     const caller = await initKeyring(options);
 
-    if (!caller) {
-        throw new Error('Keyring not initialized and not using a proxy');
-    }
-
     const tx = api.tx.balances.transfer(asociatedSubstrateAddress, amount.toString());
-    await requireEnoughFundsToSend(tx, caller.pair.address, api, amount);
+    await requireKeyringHasSufficientFunds(tx, caller, api, amount);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
     process.exit(0);

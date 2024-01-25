@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initKeyring } from '../../lib/account/keyring';
-import { requireEnoughFundsToSend, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
 import { eraOption, parseSubstrateAddress, substrateAddressOption } from '../options';
 
@@ -37,7 +37,7 @@ async function distributeRewardsAction (options: OptionValues)
 
     const distributeTx = api.tx.staking.payoutStakers(validator, era);
 
-    await requireEnoughFundsToSend(distributeTx, caller.pair.address, api);
+    await requireKeyringHasSufficientFunds(distributeTx, caller, api);
     const result = await signSendAndWatchCcKeyring(distributeTx, api, caller);
     console.log(result.info);
     process.exit(result.status);

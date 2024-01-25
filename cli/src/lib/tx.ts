@@ -109,6 +109,16 @@ export async function requireEnoughFundsToSend(
     }
 }
 
+export async function requireKeyringHasSufficientFunds(
+    tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
+    keyring: CcKeyring,
+    api: ApiPromise,
+    amount = new BN(0),
+) {
+    const address = keyring.type === 'proxy' ? keyring.proxiedAddress : keyring.pair.address;
+    return requireEnoughFundsToSend(tx, address, api, amount);
+}
+
 export async function signSendAndWatchCcKeyring(
     tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
     api: ApiPromise,

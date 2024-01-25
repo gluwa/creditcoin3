@@ -49,10 +49,7 @@ async function bondAction(options: OptionValues) {
     process.exit(0);
 }
 
-async function checkBalance(amount: BN, api: ApiPromise, address: string | undefined) {
-    if (!address) {
-        return;
-    }
+async function checkBalance(amount: BN, api: ApiPromise, address: string) {
     const balance = await getBalance(address, api);
     checkBalanceAgainstBondAmount(balance, amount);
 }

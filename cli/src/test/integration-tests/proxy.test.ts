@@ -13,6 +13,7 @@ describe('Proxy functionality', () => {
         const caller = await randomFundedAccount(api, sudoSigner);
         const proxy = await randomFundedAccount(api, sudoSigner);
 
+        console.log(caller.address, proxy.address);
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
         const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
