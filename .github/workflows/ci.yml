@@ -465,7 +465,6 @@ jobs:
             # metadata-cmp-with-mainnet.txt
             # metadata-cmp-with-testnet.txt
 
-
   unit-test-cli:
     runs-on: ubuntu-22.04
     steps:
@@ -488,7 +487,6 @@ jobs:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
           verbose: true
-
 
   integration-test-cli:
     needs:
@@ -576,7 +574,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
         with:
-          add: 'cli/creditcoin.json cli/src/lib/interfaces/'
+          add: "cli/creditcoin.json cli/src/lib/interfaces/"
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
           message: "Auto-update TypeScript type definitions"
@@ -655,8 +653,7 @@ jobs:
       - build-creditcoin-node
     strategy:
       matrix:
-        chainspec:
-          [devnet, testnet]
+        chainspec: [devnet, testnet]
     name: integration-test-chainspec-${{ matrix.chainspec }}
     runs-on: ubuntu-22.04
     steps:
@@ -698,7 +695,7 @@ jobs:
           # TODO: maybe we can make a chainspec-tests directory which symlinks to selected test files
           yarn jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests/danger-will-brick-the-blockchain.test.ts
         env:
-          BLOCKCHAIN_TESTS_GLOBAL_SETUP: './${{ matrix.chainspec }}ChainspecSetup.ts'
+          BLOCKCHAIN_TESTS_GLOBAL_SETUP: "./${{ matrix.chainspec }}ChainspecSetup.ts"
 
       - name: Kill nodes
         if: always()
@@ -708,7 +705,6 @@ jobs:
           # previous step killing everything and we don't have to worry about
           # dangling processes
           killall -9 creditcoin3-node
-
 
   audit:
     name: cargo audit
@@ -769,10 +765,8 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        directory:
-          [cli]
-        command:
-          [lint, typecheck, check-format]
+        directory: [cli]
+        command: [lint, typecheck, check-format]
 
     steps:
       - uses: actions/checkout@v4
