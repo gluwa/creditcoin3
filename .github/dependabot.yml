@@ -30,11 +30,6 @@ updates:
       interval: "monthly"
 
   - package-ecosystem: "cargo"
-    directory: "/pallets/bridge"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
     directory: "/runtime"
     schedule:
       interval: "monthly"
