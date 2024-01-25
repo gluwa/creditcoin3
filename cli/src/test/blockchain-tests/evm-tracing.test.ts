@@ -1,5 +1,4 @@
 import { randomEvmAccount } from '../integration-tests/evmHelpers';
-import { ALICE_NODE_URL } from '../integration-tests/helpers';
 import { deployContract } from './helpers';
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
 
@@ -9,7 +8,7 @@ describe.only('EVM Tracing', (): void => {
     let txHash: string;
 
     beforeAll(async () => {
-        provider = new WebSocketProvider(ALICE_NODE_URL);
+        provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
 
         const alith = new ethers.Wallet('0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133').connect(
             provider,
