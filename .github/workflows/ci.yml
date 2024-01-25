@@ -112,6 +112,10 @@ jobs:
         run: |
           .github/check-for-missing-Cargo-toml-in-Dependabot-config.sh
 
+      - name: Check if all package.json files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-package-json-in-Dependabot-config.sh
+
   sanity-test-cli:
     runs-on: ubuntu-22.04
     steps:
