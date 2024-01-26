@@ -2,6 +2,7 @@ import { InvalidArgumentError, Option } from 'commander';
 import { isAddress, parseUnits } from 'ethers';
 import { validateAddress } from '@polkadot/util-crypto/address';
 import { BN } from '..';
+import { parseZeroOrPositiveIntegerOrExit } from '../lib/parsing';
 
 // Most used options are URL, NO INPUT, JSON, eCDSA, aDDRESS, AMOUNT, TO, EMV-ADDRESS
 // Create consts for each one using the Option class and export them to be used by other commands
@@ -124,15 +125,10 @@ mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
     '--delay [delay]',
-    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
-).argParser(parseProxyDelay);
-export function parseProxyDelay(value: string): number {
-    const parsedValue = parseInt(value, 10);
-    if (isNaN(parsedValue)) {
-        throw new Error(`ERROR: Could not parse delay: ${value}`);
-    }
-    return parsedValue;
-}
+    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#time-delayed-proxy',
+)
+    .argParser(parseZeroOrPositiveIntegerOrExit)
+    .default(0);
 
 export const useProxyOption = new Option(
     '--use-proxy [proxied-address]',
