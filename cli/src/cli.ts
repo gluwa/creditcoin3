@@ -21,7 +21,7 @@ import { urlOption } from './commands/options';
 
 const program = new Command();
 
-// Add commands
+// Add commands. WARNING: DO NOT ADD SUB COMMANDS HERE!
 program
     .addCommand(makeBalanceCommand())
     .addCommand(makeBondCommand())
@@ -44,7 +44,11 @@ program.commands.forEach((cmd) => {
     cmd.addOption(urlOption);
 });
 
-// Add Subcommands
+// Add Subcommands. WARNING: SUB COMMANDS SHOULD GO ONLY HERE
+// b/c if --url option is specified for the top-level command,
+// e.g. `proxy` and then also on the sub-command, e.g. `proxy add`
+// it stops working. The reason is the default value from one of these options
+// (I think the 2nd one) shadows the actual value specified on the command line
 program.addCommand(makeEvmCommand());
 program.addCommand(makeProxyCommands());
 program.parse(process.argv);
