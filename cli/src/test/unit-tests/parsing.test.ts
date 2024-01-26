@@ -2,6 +2,7 @@ import {
     parseChoiceInternal,
     parseBoolean,
     parseIntegerInternal,
+    parseZeroOrPositiveIntegerInternal,
     parseHexStringInternal,
     parsePercentAsPerbillInternal,
 } from '../../lib/parsing';
@@ -132,6 +133,44 @@ describe('parseInteger', () => {
     test('with string argument throws an error', () => {
         const integer = 'abcdef';
         const parsedInvalid = () => parseIntegerInternal(integer);
+        expect(parsedInvalid).toThrowError(Error);
+    });
+});
+
+describe('parseZeroOrPositiveInteger', () => {
+    test('with valid argument, 0, returns the same integer', () => {
+        const parsedInteger = parseZeroOrPositiveIntegerInternal('0');
+        expect(parsedInteger).toBe(0);
+    });
+
+    test('with valid argument, > 0, returns the same integer', () => {
+        const parsedInteger = parseZeroOrPositiveIntegerInternal('1');
+        expect(parsedInteger).toBe(1);
+    });
+
+    test('with valid argument, > 0, explicit + sign, returns the same integer', () => {
+        const parsedInteger = parseZeroOrPositiveIntegerInternal('+21');
+        expect(parsedInteger).toBe(21);
+    });
+
+    test('with invalid argument, < 0, throws an error', () => {
+        const parsedInvalid = () => parseZeroOrPositiveIntegerInternal('-1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal dot, throws an error', () => {
+        const parsedInvalid = () => parseZeroOrPositiveIntegerInternal('0.1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal comma, throws an error', () => {
+        const parsedInvalid = () => parseZeroOrPositiveIntegerInternal('0,1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with string argument throws an error', () => {
+        const integer = 'abcdef';
+        const parsedInvalid = () => parseZeroOrPositiveIntegerInternal(integer);
         expect(parsedInvalid).toThrowError(Error);
     });
 });
