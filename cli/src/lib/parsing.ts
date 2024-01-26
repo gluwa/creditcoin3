@@ -42,10 +42,15 @@ export function parseBoolean(input: any): boolean {
 }
 
 export function parseIntegerInternal(input: any): number {
+    if ((input as string).split(',').length > 1) {
+        throw new Error('Must be an integer');
+    }
+
     const float = Number.parseFloat(input as string);
     if (float % 1 !== 0) {
         throw new Error('Must be an integer');
     }
+
     const int = Number.parseInt(input as string, 10);
     return int;
 }

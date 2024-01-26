@@ -109,6 +109,11 @@ describe('parseInteger', () => {
         expect(parsedInteger).toBe(1);
     });
 
+    test('with valid argument, > 0, explicit + sign, returns the same integer', () => {
+        const parsedInteger = parseIntegerInternal('+21');
+        expect(parsedInteger).toBe(21);
+    });
+
     test('with valid argument, < 0, returns the same integer', () => {
         const parsedInteger = parseIntegerInternal('-1');
         expect(parsedInteger).toBe(-1);
