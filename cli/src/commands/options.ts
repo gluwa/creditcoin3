@@ -84,23 +84,9 @@ function positiveBigNumberFromString(amount: any) {
 }
 
 // Session
-export const eraOption = new Option('--era [era]', 'Specify era to distribute rewards for').argParser(parseEra);
-
-// Era parsing
-export function parseEra(value: string): number {
-    // Only positive integers are allowed
-    const parsedEra = parseInt(value, 10);
-
-    if (isNaN(parsedEra)) {
-        throw new InvalidArgumentError('Not a valid era.');
-    }
-
-    if (parsedEra < 0) {
-        throw new InvalidArgumentError('Era must be a positive integer.');
-    }
-
-    return parsedEra;
-}
+export const eraOption = new Option('--era [era]', 'Specify era to distribute rewards for').argParser(
+    parseZeroOrPositiveIntegerOrExit,
+);
 
 // I/O
 export const jsonOption = new Option('--json', 'Output as JSON');
