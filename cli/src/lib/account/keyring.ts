@@ -5,6 +5,12 @@ import { getErrorMessage } from '../error';
 import { OptionValues } from 'commander';
 import { parseBoolean } from '../parsing';
 
+// return the underlying address from a keyring, if this is a non proxied keyring it is just the address of the keypair
+// If it is a proxy then the proxied address is the one that we want to check for available funds and validator status etc
+export function validatorAddress(keyring: CcKeyring) {
+    return keyring.type === 'proxy' ? keyring.proxiedAddress : keyring.pair.address;
+}
+
 export function initKeyringPair(seed: string) {
     const keyring = new Keyring({ type: 'sr25519' });
     const pair = keyring.addFromUri(`${seed}`);

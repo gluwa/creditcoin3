@@ -58,12 +58,12 @@ export async function removeProxyAction(options: OptionValues) {
     const success: string[] = [];
     const fails: string[] = [];
     const proxy = options.proxy as string; // proxy and type are mandatory it is safe to just grab them
-    const delay = options.delay ? options.delay : 0;
 
     console.log(`${existingProxy.length} proxies found`);
 
     for (const p of existingProxy) {
         const type = p.proxyType; // proxy is validated as a substrate address and type is also validated prior to us using it here
+        const delay = p.delay;
         const call = api.tx.proxy.removeProxy(proxy, type, delay);
 
         try {

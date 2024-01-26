@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { chill } from '../../lib/staking/chill';
-import { initKeyring } from '../../lib/account/keyring';
+import { initKeyring, validatorAddress } from '../../lib/account/keyring';
 import { parseSubstrateAddress } from '../options';
 
 export function makeChillCommand() {
@@ -18,7 +18,7 @@ async function chillAction(options: OptionValues) {
 
     const keyring = await initKeyring(options);
 
-    const address = keyring.pair.address;
+    const address = validatorAddress(keyring);
 
     const status = await getValidatorStatus(address, api);
 

@@ -5,7 +5,7 @@ import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
-import { initKeyring } from '../../lib/account/keyring';
+import { initKeyring, validatorAddress } from '../../lib/account/keyring';
 import { amountOption, parseSubstrateAddress } from '../options';
 
 export function makeBondCommand() {
@@ -29,7 +29,7 @@ async function bondAction(options: OptionValues) {
     const { amount, rewardDestination, extra, interactive } = parseOptions(options);
 
     const callerKeyring = await initKeyring(options);
-    const callerAddress = callerKeyring.type === 'proxy' ? callerKeyring.proxiedAddress : callerKeyring.pair.address;
+    const callerAddress = validatorAddress(callerKeyring);
 
     // Check if caller has enough balance, caller may be a proxy account
     await checkBalance(amount, api, callerAddress);
