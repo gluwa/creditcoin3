@@ -114,8 +114,13 @@ describe('parseInteger', () => {
         expect(parsedInteger).toBe(-1);
     });
 
-    test('with float argument throws an error', () => {
+    test('with float argument, decimal dot, throws an error', () => {
         const parsedInvalid = () => parseIntegerInternal('0.1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal comma, throws an error', () => {
+        const parsedInvalid = () => parseIntegerInternal('0,1');
         expect(parsedInvalid).toThrowError(Error);
     });
 
