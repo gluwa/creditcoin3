@@ -1,6 +1,7 @@
 // Parse valid or exit with error
 export const parseHexStringOrExit = parseOrExit(parseHexStringInternal);
 export const parseIntegerOrExit = parseOrExit(parseIntegerInternal);
+export const parseZeroOrPositiveIntegerOrExit = parseOrExit(parseZeroOrPositiveIntegerInternal);
 export const parsePercentAsPerbillOrExit = parseOrExit(parsePercentAsPerbillInternal);
 export const parseChoiceOrExit = parseChoiceOrExitFn;
 
@@ -53,6 +54,16 @@ export function parseIntegerInternal(input: any): number {
 
     const int = Number.parseInt(input as string, 10);
     return int;
+}
+
+export function parseZeroOrPositiveIntegerInternal(input: any): number {
+    const result = parseIntegerInternal(input);
+
+    if (result < 0) {
+        throw new Error('Must NOT be a negative number.');
+    }
+
+    return result;
 }
 
 export function parseHexStringInternal(input: any): string {
