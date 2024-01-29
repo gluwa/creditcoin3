@@ -17,6 +17,19 @@ const createSigner = (who: 'lender' | 'borrower' | 'random' | 'sudo'): KeyringPa
     }
 };
 
+const evmPrivateKey = (who: 'alice' | 'bob'): string => {
+    // EVM private keys for development accounts are documented at
+    // https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
+    switch (who) {
+        case 'alice': // Alith
+            return '0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133';
+        case 'bob': // Balthathar
+            return '0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b';
+        default:
+            throw new Error(`Unexpected value "${who}"`); // eslint-disable-line
+    }
+};
+
 const setup = () => {
     process.env.NODE_ENV = 'test';
 
@@ -26,6 +39,10 @@ const setup = () => {
 
     if ((global as any).CREDITCOIN_CREATE_SIGNER === undefined) {
         (global as any).CREDITCOIN_CREATE_SIGNER = createSigner; // eslint-disable-line
+    }
+
+    if ((global as any).CREDITCOIN_EVM_PRIVATE_KEY === undefined) {
+        (global as any).CREDITCOIN_EVM_PRIVATE_KEY = evmPrivateKey; // eslint-disable-line
     }
 
     // WARNING: when setting global variables `undefined' means no value has been assigned
@@ -52,3 +69,7 @@ const setup = () => {
 };
 
 export default setup;
+
+if (require.main === module) {
+    console.log(evmPrivateKey('alice'));
+}
