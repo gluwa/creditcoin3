@@ -39,8 +39,7 @@ program
     .addCommand(makeWithdrawUnbondedCommand())
     .addCommand(makeWizardCommand());
 
-program.commands.forEach((cmd) =>
-{
+program.commands.forEach((cmd) => {
     cmd.option('--no-input', 'Disable interactive prompts');
     cmd.addOption(urlOption);
 });

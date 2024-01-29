@@ -5,8 +5,7 @@ import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../
 import { checkEraIsInHistory } from '../../lib/staking/era';
 import { eraOption, parseSubstrateAddress, substrateAddressOption } from '../options';
 
-export function makeDistributeRewardsCommand ()
-{
+export function makeDistributeRewardsCommand() {
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
@@ -17,15 +16,13 @@ export function makeDistributeRewardsCommand ()
     return cmd;
 }
 
-async function distributeRewardsAction (options: OptionValues)
-{
+async function distributeRewardsAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const { validator, era } = parseOptions(options);
 
     const eraIsValid = await checkEraIsInHistory(era, api);
-    if (!eraIsValid)
-    {
+    if (!eraIsValid) {
         console.error(
             `Failed to distribute rewards: Era ${era} is not included in history; only the past 84 eras are eligible`,
         );
@@ -43,8 +40,7 @@ async function distributeRewardsAction (options: OptionValues)
     process.exit(result.status);
 }
 
-function parseOptions (options: OptionValues)
-{
+function parseOptions(options: OptionValues) {
     const validator = options.substrateAddress as string;
     const era = options.era as number;
     return { validator, era };
