@@ -339,7 +339,7 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
-      - name: Get EVM private key for testing
+      - name: Configure testing environment
         id: test-env
         working-directory: ./cli
         run: |
@@ -357,6 +357,11 @@ jobs:
         working-directory: ./testing
         run: |
           ./node_modules/.bin/basicTest --rpc ${{ steps.test-env.outputs.url }} --private_key ${{ steps.test-env.outputs.private_key }}
+
+      - name: Execute smart contract gasTest
+        working-directory: ./testing
+        run: |
+          ./node_modules/.bin/gasTest --rpc ${{ steps.test-env.outputs.url }} --private_key ${{ steps.test-env.outputs.private_key }}
 
       # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
       #- name: Execute smart contract advancedTest
