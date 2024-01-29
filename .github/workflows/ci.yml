@@ -339,6 +339,15 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Get EVM private key for testing
+        id: test-env
+        working-directory: ./cli
+        run: |
+          yarn install
+          EVM_PRIVATE_KEY=$(node dist/test/blockchainSetup.js)
+          echo "url=http://127.0.0.1:9944" >> "$GITHUB_OUTPUT"
+          echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
+
       - name: Install smart contract test tool
         working-directory: ./testing
         run: |
@@ -347,9 +356,7 @@ jobs:
       - name: Execute smart contract basicTest
         working-directory: ./testing
         run: |
-          # note: this is Alith (Alice) private key, see README.md and
-          # https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
-          ./node_modules/.bin/basicTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+          ./node_modules/.bin/basicTest --rpc ${{ steps.test-env.outputs.url }} --private_key ${{ steps.test-env.outputs.private_key }}
 
       # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
       #- name: Execute smart contract advancedTest
