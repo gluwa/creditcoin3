@@ -1,8 +1,8 @@
-import { initAliceKeyring, ALICE_NODE_URL, waitEras, randomFundedAccount, CLIBuilder } from './helpers';
+import { initAliceKeyring, ALICE_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
 import { newApi } from '../../lib';
 
 describe('Proxy functionality', () => {
-    it.skip('Can list, add, and remove proxies for an account', async () => {
+    it('Can list, add, and remove proxies for an account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
@@ -43,7 +43,7 @@ describe('Proxy functionality', () => {
         await api.disconnect();
     }, 60000);
 
-    it.skip('Can successfully bond and unbond with a proxy account', async () => {
+    it('Can successfully bond and unbond with a proxy account', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
@@ -105,20 +105,25 @@ describe('Proxy functionality', () => {
         expect(setupRes.stdout).toContain('Transaction included at block');
 
         // Test #1. Successfully bond for the first time
-        const test1Res = CLI(`validate --proxy --address ${caller.address}`);
+        const test1Res = CLI(`bond --proxy --address ${caller.address} --amount 100`);
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 
-        // Test #2. Attempt to bond extra without specifying the extra command
-        // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test2Res = CLI(`chill --proxy --address ${caller.address}`);
+        // Test #2. Successfully bond for the first time
+        const test2Res = CLI(`validate --proxy --address ${caller.address}`);
         expect(test2Res.exitCode).toEqual(0);
         expect(test2Res.stdout).toContain('Transaction included at block');
+
+        // Test #3. Attempt to bond extra without specifying the extra command
+        // TODO This should fail but the signSendAndWatch function needs to be updated
+        const test3Res = CLI(`chill --proxy --address ${caller.address}`);
+        expect(test3Res.exitCode).toEqual(0);
+        expect(test3Res.stdout).toContain('Transaction included at block');
 
         await api.disconnect();
     }, 360_000);
 
-    it.skip('Can successfully send funds with a proxy', async () => {
+    it('Can successfully send funds with a proxy', async () => {
         // Setup
         const { api } = await newApi(ALICE_NODE_URL);
 
