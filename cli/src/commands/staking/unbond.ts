@@ -9,9 +9,9 @@ import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
 import { initKeyring, validatorAddress } from '../../lib/account/keyring';
 import { amountOption, parseSubstrateAddress } from '../options';
-import { validate } from 'creditcoin3/lib/staking/validate';
 
-export function makeUnbondCommand() {
+export function makeUnbondCommand ()
+{
     const cmd = new Command('unbond');
     cmd.description('Schedule a bonded CTC to be unlocked');
     cmd.addOption(amountOption.makeOptionMandatory());
@@ -21,7 +21,8 @@ export function makeUnbondCommand() {
     return cmd;
 }
 
-async function unbondAction(options: OptionValues) {
+async function unbondAction (options: OptionValues)
+{
     const { api } = await newApi(options.url as string);
 
     const interactive = setInteractivity(options);
@@ -48,18 +49,21 @@ async function unbondAction(options: OptionValues) {
     process.exit(result.status);
 }
 
-async function checkIfUnbodingMax(
+async function checkIfUnbodingMax (
     address: string | undefined,
     unbondAmount: BN,
     api: ApiPromise,
     interactive: boolean,
-) {
-    if (!address) {
+)
+{
+    if (!address)
+    {
         console.error('ERROR: Unable to check if unbonding max. Address was undefined');
         process.exit(1);
     }
     const balance = await getBalance(address, api);
-    if (balance.bonded.lt(unbondAmount)) {
+    if (balance.bonded.lt(unbondAmount))
+    {
         console.error('Warning: amount specified exceeds total bonded funds, will unbond all funds');
         await promptContinue(interactive);
     }
