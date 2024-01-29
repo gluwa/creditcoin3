@@ -15,11 +15,7 @@ import { makeDistributeRewardsCommand } from './commands/staking/distribute';
 import { makeWithdrawUnbondedCommand } from './commands/staking/withdraw';
 import { makeWizardCommand } from './commands/staking/wizard';
 import { makeEvmCommand } from './commands/evm';
-<<<<<<< HEAD
 import { makeConvertAddressCommand } from './commands/convertAddress';
-=======
-import { urlOption } from './commands/options';
->>>>>>> 04004ed (added initial integration tests)
 import { makeProxyCommands } from './commands/proxy/commands';
 import { urlOption } from './commands/options';
 
