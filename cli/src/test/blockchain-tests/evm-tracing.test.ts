@@ -26,7 +26,7 @@ describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void =
         await response.wait();
 
         // call contract method sendForMe to bob
-        const bobKeyring = (global as any).CREDITCOIN_CREATE_SIGNER('borrower');
+        const bobKeyring = (global as any).CREDITCOIN_CREATE_SIGNER('bob');
 
         const call = await contract
             .getFunction('sendForMe')
