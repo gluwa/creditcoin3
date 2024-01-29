@@ -1,11 +1,11 @@
 import { KeyringPair, Wallet, POINT_01_CTC, mnemonicGenerate } from '../lib';
 import { initKeyringPair } from '../lib/account/keyring';
 
-const createSigner = (who: 'lender' | 'borrower' | 'random' | 'sudo'): KeyringPair => {
+const createSigner = (who: 'alice' | 'bob' | 'random' | 'sudo'): KeyringPair => {
     switch (who) {
-        case 'lender':
+        case 'alice':
             return initKeyringPair('//Alice');
-        case 'borrower':
+        case 'bob':
             return initKeyringPair('//Bob');
         case 'random':
             const secret = mnemonicGenerate();
