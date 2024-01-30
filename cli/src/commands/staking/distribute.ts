@@ -3,14 +3,13 @@ import { newApi } from '../../lib';
 import { initKeyring } from '../../lib/account/keyring';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
-import { eraOption, parseSubstrateAddress, substrateAddressOption } from '../options';
+import { eraOption, substrateAddressOption, useProxyOption } from '../options';
 
 export function makeDistributeRewardsCommand() {
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [address]', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.addOption(useProxyOption);
     cmd.addOption(eraOption.makeOptionMandatory());
     cmd.action(distributeRewardsAction);
     return cmd;

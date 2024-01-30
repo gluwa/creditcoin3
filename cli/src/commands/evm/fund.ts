@@ -4,15 +4,14 @@ import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../
 import { initKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
-import { amountOption, evmAddressOption, parseSubstrateAddress } from '../options';
+import { amountOption, evmAddressOption, useProxyOption } from '../options';
 
 export function makeEvmFundCommand() {
     const cmd = new Command('fund');
     cmd.description('Fund an EVM account from a Subtrate one');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(evmAddressOption.makeOptionMandatory());
-    cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.addOption(useProxyOption);
     cmd.action(evmFundAction);
     return cmd;
 }

@@ -7,7 +7,7 @@ import { percentFromPerbill } from '../../lib/perbill';
 import { initKeyring, validatorAddress } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
-import { amountOption, parseSubstrateAddress } from '../options';
+import { amountOption, useProxyOption } from '../options';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
@@ -18,8 +18,7 @@ export function makeWizardCommand() {
     );
     cmd.option('--commission [commission]', 'Specify commission for validator');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
-    cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.addOption(useProxyOption);
     cmd.addOption(amountOption);
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');

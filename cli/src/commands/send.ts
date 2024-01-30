@@ -2,15 +2,14 @@ import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../lib/tx';
 import { initKeyring } from '../lib/account/keyring';
-import { amountOption, parseSubstrateAddress, substrateAddressOption } from './options';
+import { amountOption, substrateAddressOption, useProxyOption } from './options';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send CTC from an account');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.option('-p, --proxy', 'Whether to use a proxy account');
-    cmd.option('-a, --address [proxy addr]', 'The address that is being proxied', parseSubstrateAddress);
+    cmd.addOption(useProxyOption);
     cmd.action(sendAction);
     return cmd;
 }

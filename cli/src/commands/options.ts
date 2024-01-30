@@ -111,7 +111,7 @@ export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of
 export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
 export const proxyTypeOption = new Option(
     '--type [type]',
-    'The type dictates the actions that this proxy can perform on your behalf. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+    'The type dictates the actions that this proxy can perform on your behalf. \nFor more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
 )
     .choices(ProxyTypes)
     .makeOptionMandatory();
@@ -124,10 +124,8 @@ mandatoryProxyOption.makeOptionMandatory();
 
 export const delayOption = new Option(
     '--delay [delay]',
-    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#time-delayed-proxy',
-)
-    .argParser(parseProxyDelay)
-    .default(0);
+    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+).argParser(parseProxyDelay);
 export function parseProxyDelay(value: string): number {
     const parsedValue = parseInt(value, 10);
     if (isNaN(parsedValue)) {
@@ -135,3 +133,8 @@ export function parseProxyDelay(value: string): number {
     }
     return parsedValue;
 }
+
+export const useProxyOption = new Option(
+    '--use-proxy [proxied-address]',
+    'Use proxy account for this call. Needs to specify the proxied Substrate address',
+).argParser(parseSubstrateAddress);
