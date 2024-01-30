@@ -11,7 +11,6 @@ export function makeEvmFundCommand() {
     cmd.description('Fund an EVM account from a Subtrate one');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(evmAddressOption.makeOptionMandatory());
-    cmd.addOption(useProxyOption);
     cmd.action(evmFundAction);
     return cmd;
 }
