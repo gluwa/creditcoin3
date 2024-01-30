@@ -78,7 +78,7 @@ updates:
     directory: "/node/cli-opt"
     schedule:
       interval: "monthly"
-  
+
   - package-ecosystem: "cargo"
     directory: "/primitives/account"
     schedule:
