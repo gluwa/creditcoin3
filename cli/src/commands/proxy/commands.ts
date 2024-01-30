@@ -34,6 +34,5 @@ export function makeRemoveProxyCmd() {
     return new Command('remove')
         .description('Remove all instances of a proxy')
         .addOption(mandatoryProxyOption)
-        .addOption(delayOption)
         .action(removeProxyAction);
 }
