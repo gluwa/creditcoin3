@@ -1,4 +1,4 @@
-import { randomEvmAccount } from '../integration-tests/evmHelpers';
+import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { deployContract } from './helpers';
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
 
@@ -10,9 +10,8 @@ describe.only('EVM Tracing', (): void => {
     beforeAll(async () => {
         provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
 
-        const alith = new ethers.Wallet('0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133').connect(
-            provider,
-        );
+        const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
+        const alith = new ethers.Wallet(privateKey).connect(provider);
 
         // deploy SendForYou Smart contract
         const contract = await deployContract('SendForYou', [], alith);
@@ -25,10 +24,12 @@ describe.only('EVM Tracing', (): void => {
         });
         await response.wait();
 
-        // call contract method sendForMe to random address
+        // call contract method sendForMe to bob
+        const bobKeyring = (global as any).CREDITCOIN_CREATE_SIGNER('borrower');
+
         const call = await contract
             .getFunction('sendForMe')
-            .call(contract, randomEvmAccount().address, parseEther('10'));
+            .call(contract, substrateAddressToEvmAddress(bobKeyring?.address), parseEther('10'));
 
         await call.wait();
 
