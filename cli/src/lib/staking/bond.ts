@@ -4,7 +4,7 @@ import { ApiPromise, BN, MICROUNITS_PER_CTC } from '..';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 import { CcKeyring } from '../account/keyring';
 
-type RewardDestination = 'Staked' | 'Stash';
+export type RewardDestination = 'Staked' | 'Stash';
 
 export async function bond(
     stashKeyring: CcKeyring,

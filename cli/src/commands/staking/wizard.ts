@@ -1,10 +1,10 @@
 import { Command, OptionValues } from 'commander';
-import { newApi, bond, MICROUNITS_PER_CTC, parseRewardDestination, BN } from '../../lib';
+import { newApi, bond, MICROUNITS_PER_CTC, parseRewardDestination, BN, RewardDestination, ApiPromise } from '../../lib';
 import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBoolean } from '../../lib/parsing';
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { initKeyring, validatorAddress } from '../../lib/account/keyring';
+import { CcKeyring, initKeyring, validatorAddress } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption, useProxyOption } from '../options';
@@ -19,11 +19,11 @@ export function makeWizardCommand() {
     cmd.option('--commission [commission]', 'Specify commission for validator');
     cmd.option('--blocked', 'Specify if validator is blocked for new nominations');
     cmd.addOption(useProxyOption);
-    cmd.addOption(amountOption);
+    cmd.addOption(amountOption.default(new BN(0)));
     cmd.action(async (options: OptionValues) => {
         console.log('🧙 Running staking wizard...');
 
-        const { amount, rewardDestination, commission, blocked, interactive } = parseOptions(options);
+        const { amount, rewardDestination, commission, blocked, interactive, bondStep } = parseOptions(options);
 
         // Node settings
         const nodeUrl: string = options.url as string;
@@ -47,10 +47,14 @@ export function makeWizardCommand() {
         console.log(`💰 Stash account: ${address}`);
 
         if (keyring.type === 'proxy') {
+            console.log(`⚠️ Using a proxy account! Stash should be bonded in advance!`);
             console.log(`🤐 Proxy account: ${keyring.pair.address}`);
         }
-
-        console.log(`🪙 Amount to bond: ${toCTCString(amount)}`);
+        if (bondStep) {
+            console.log(`🪙 Amount to bond: ${toCTCString(amount)}`);
+        } else {
+            console.log(`❌ Skipping bonding step (run with --amount [amount] flag to bond CTC)`);
+        }
         console.log(`🎁 Reward destination: ${rewardDestination}`);
         console.log(`📡 Node URL: ${nodeUrl}`);
         console.log(`💸 Commission: ${percentFromPerbill(commission).toString()}`);
@@ -68,31 +72,9 @@ export function makeWizardCommand() {
         const amountWithFee = amount.add(grosslyEstimatedFee);
         checkStashBalance(address, stashBalance, amountWithFee);
 
-        // proxies and delegates are 'bonded' by default so if we are using one its always a bond extra extrinsic
-        const bondExtra: boolean = keyring.type === 'proxy' ? true : checkIfAlreadyBonded(stashBalance);
-
-        if (bondExtra) {
-            console.log('⚠️  Warning: Stash account already bonded. This will increase the amount bonded.');
-            if (await promptContinueOrSkip(`Continue or skip bonding extra funds?`, interactive)) {
-                checkStashBalance(address, stashBalance, amount);
-                // Bond extra
-                console.log('Sending bond transaction...');
-                const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
-                console.log(bondTxResult.info);
-                if (bondTxResult.status === TxStatus.failed) {
-                    console.log('Bond transaction failed. Exiting.');
-                    process.exit(1);
-                }
-            }
-        } else {
-            // Bond
-            console.log('Sending bond transaction...');
-            const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
-            console.log(bondTxResult.info);
-            if (bondTxResult.status === TxStatus.failed) {
-                console.log('Bond transaction failed. Exiting.');
-                process.exit(1);
-            }
+        // Bond CTC
+        if (bondStep) {
+            await bondRoutine(keyring, address, stashBalance, amount, rewardDestination, api, interactive);
         }
 
         // Rotate keys
@@ -147,11 +129,16 @@ function checkIfAlreadyBonded(balance: AccountBalance) {
 
 function parseOptions(options: OptionValues) {
     const interactive = setInteractivity(options);
-
     const amount = options.amount as BN;
-    if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
-        console.log('Failed to setup wizard: Bond amount must be at least 1 CTC');
-        process.exit(1);
+    let bondStep = true;
+
+    if (amount.gt(new BN(0))) {
+        if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
+            console.log('Failed to setup wizard: Bond amount must be at least 1 CTC');
+            process.exit(1);
+        }
+    } else {
+        bondStep = false;
     }
 
     const rewardDestination = parseRewardDestination(
@@ -165,5 +152,42 @@ function parseOptions(options: OptionValues) {
     const proxy = options.proxy;
     const proxeeAddress = options.address;
 
-    return { amount, rewardDestination, commission, blocked, interactive, proxy, proxeeAddress };
+    return { amount, rewardDestination, commission, blocked, interactive, proxy, proxeeAddress, bondStep };
+}
+
+async function bondRoutine(
+    keyring: CcKeyring,
+    address: string,
+    stashBalance: AccountBalance,
+    amount: BN,
+    rewardDestination: RewardDestination,
+    api: ApiPromise,
+    interactive: boolean,
+) {
+    // proxies and delegates are 'bonded' by default so if we are using one its always a bond extra extrinsic
+    const bondExtra: boolean = keyring.type === 'proxy' ? true : checkIfAlreadyBonded(stashBalance);
+
+    if (bondExtra) {
+        console.log('⚠️  Warning: Stash account already bonded. This will increase the amount bonded.');
+        if (await promptContinueOrSkip(`Continue or skip bonding extra funds?`, interactive)) {
+            checkStashBalance(address, stashBalance, amount);
+            // Bond extra
+            console.log('Sending bond transaction...');
+            const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
+            console.log(bondTxResult.info);
+            if (bondTxResult.status === TxStatus.failed) {
+                console.log('Bond transaction failed. Exiting.');
+                process.exit(1);
+            }
+        }
+    } else {
+        // Bond
+        console.log('Sending bond transaction...');
+        const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
+        console.log(bondTxResult.info);
+        if (bondTxResult.status === TxStatus.failed) {
+            console.log('Bond transaction failed. Exiting.');
+            process.exit(1);
+        }
+    }
 }
