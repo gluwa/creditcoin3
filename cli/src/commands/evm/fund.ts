@@ -4,7 +4,7 @@ import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../
 import { initKeyring } from '../../lib/account/keyring';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { toCTCString } from '../../lib/balance';
-import { amountOption, evmAddressOption, useProxyOption } from '../options';
+import { amountOption, evmAddressOption } from '../options';
 
 export function makeEvmFundCommand() {
     const cmd = new Command('fund');
