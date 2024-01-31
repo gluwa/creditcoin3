@@ -16,7 +16,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 parity-scale-codec = { workspace = true }
 scale-info = { workspace = true }
-smallvec = "1.11.2"
+smallvec = "1.13.1"
 
 # Substrate
 sp-api = { workspace = true }
