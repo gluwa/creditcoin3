@@ -1504,7 +1504,7 @@ dependencies = [
  "primitive-types",
  "sha3",
  "sp-runtime",
- "tiny-bip39 0.8.2",
+ "tiny-bip39",
  "url",
 ]
 
@@ -3725,10 +3725,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fc3cb4d91f53b50155bdcfd23f6a4c39ae1969c2ae85982b135750cccaf5fce"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi 0.9.0+wasi-snapshot-preview1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -6537,15 +6535,6 @@ checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 
 [[package]]
 name = "pbkdf2"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "216eaa586a190f0a738f2f918511eecfa90f13295abec0e457cdebcceda80cbd"
-dependencies = [
- "crypto-mac 0.8.0",
-]
-
-[[package]]
-name = "pbkdf2"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d95f5254224e617595d2cc3cc73ff0a5eaf2637519e25f03388154e9378b6ffa"
@@ -7802,7 +7791,7 @@ dependencies = [
  "sp-runtime",
  "sp-version",
  "thiserror",
- "tiny-bip39 1.0.0",
+ "tiny-bip39",
  "tokio",
 ]
 
@@ -9376,7 +9365,7 @@ dependencies = [
  "ss58-registry",
  "substrate-bip39",
  "thiserror",
- "tiny-bip39 1.0.0",
+ "tiny-bip39",
  "tracing",
  "zeroize",
 ]
@@ -10360,25 +10349,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a942f44339478ef67935ab2bbaec2fb0322496cf3cbe84b261e06ac3814c572"
 dependencies = [
  "time-core",
-]
-
-[[package]]
-name = "tiny-bip39"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffc59cb9dfc85bb312c3a78fd6aa8a8582e310b0fa885d5bb877f6dcc601839d"
-dependencies = [
- "anyhow",
- "hmac 0.8.1",
- "once_cell",
- "pbkdf2 0.4.0",
- "rand 0.7.3",
- "rustc-hash",
- "sha2 0.9.9",
- "thiserror",
- "unicode-normalization",
- "wasm-bindgen",
- "zeroize",
 ]
 
 [[package]]
