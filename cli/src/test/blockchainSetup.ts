@@ -66,6 +66,10 @@ const setup = () => {
     if ((global as any).CREDITCOIN_USES_FAST_RUNTIME === undefined) {
         (global as any).CREDITCOIN_USES_FAST_RUNTIME = true;
     }
+
+    if ((global as any).CREDITCOIN_HAS_EVM_TRACING === undefined) {
+        (global as any).CREDITCOIN_HAS_EVM_TRACING = true;
+    }
 };
 
 export default setup;

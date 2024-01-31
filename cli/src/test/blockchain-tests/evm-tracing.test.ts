@@ -1,8 +1,9 @@
+import { WebSocketProvider, ethers, parseEther } from 'ethers';
 import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { deployContract } from './helpers';
-import { WebSocketProvider, ethers, parseEther } from 'ethers';
+import { describeIf } from '../utils';
 
-describe.only('EVM Tracing', (): void => {
+describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void => {
     let provider: WebSocketProvider;
     let deployedContractAddress: string;
     let txHash: string;
