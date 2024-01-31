@@ -30,12 +30,12 @@ async function unbondAction(options: OptionValues) {
     const caller = await initKeyring(options);
 
     // We need to check the staking ledger of the caller even if we are using a proxy
-    const validator_addr = validatorAddress(caller);
-    const status = await getValidatorStatus(validator_addr, api);
+    const validatorAddr = validatorAddress(caller);
+    const status = await getValidatorStatus(validatorAddr, api);
     requireStatus(status, 'bonded');
 
     // // Check if amount specified exceeds total bonded funds
-    await checkIfUnbodingMax(validator_addr, amount, api, interactive);
+    await checkIfUnbodingMax(validatorAddr, amount, api, interactive);
 
     // Unbond transaction
     const tx = api.tx.staking.unbond(amount.toString());

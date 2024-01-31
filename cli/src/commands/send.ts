@@ -3,6 +3,7 @@ import { BN, newApi } from '../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../lib/tx';
 import { initKeyring } from '../lib/account/keyring';
 import { amountOption, substrateAddressOption, useProxyOption } from './options';
+import { filterProxiesByAddress, hasProxyType, proxiesForAddress } from '../lib/proxy';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
@@ -16,15 +17,21 @@ export function makeSendCommand() {
 
 async function sendAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
-
     const { amount, recipient } = parseOptions(options);
-
     const caller = await initKeyring(options);
 
     if (caller.type === 'proxy') {
-        const [delegates, _] = await api.query.proxy.proxies(caller.proxiedAddress);
+        const existingProxies = filterProxiesByAddress(
+            caller.pair.address,
+            await proxiesForAddress(caller.proxiedAddress, api),
+        );
 
-        if (delegates.toArray().find((delegate) => delegate.proxyType.toString() === 'All') === undefined) {
+        if (existingProxies.length === 0) {
+            console.log(`ERROR: ${caller.pair.address} is not a proxy for ${caller.proxiedAddress}`);
+            process.exit(1);
+        }
+
+        if (!hasProxyType(existingProxies, 'All')) {
             console.log(
                 `ERROR: The proxy ${caller.pair.address} for address ${caller.proxiedAddress} does not have permission to call extrinsics from the balances pallet`,
             );

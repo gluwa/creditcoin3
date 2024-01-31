@@ -63,7 +63,8 @@ function checkBalanceAgainstBondAmount(balance: AccountBalance, amount: BN) {
 }
 
 function parseOptions(options: OptionValues) {
-    const amount = checkAmount(options.amount as BN);
+    const amount = options.amount as BN;
+    checkAmount(options.amount as BN);
 
     const rewardDestination = parseRewardDestination(
         parseChoiceOrExit(inputOrDefault(options.rewardDestination, 'Staked'), ['Staked', 'Stash']),

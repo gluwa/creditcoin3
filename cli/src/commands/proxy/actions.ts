@@ -2,6 +2,7 @@ import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
+import { addressIsProxy, filterProxiesByAddress, proxiesForAddress } from '../../lib/proxy';
 
 export async function setProxyAction(options: OptionValues) {
     const { url, delay } = options;
@@ -23,15 +24,16 @@ export async function viewProxyAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
     const callerKeyring = await initCallerKeyring(options);
     const callerAddress = callerKeyring.address;
-    const callerProxy = await api.query.proxy.proxies(callerAddress);
+    const proxies = await proxiesForAddress(callerAddress, api);
 
-    const [defArray, _] = callerProxy;
-    if (defArray.toArray().length === 0) {
+    if (proxies.length === 0) {
         console.log(`No proxies for address ${callerAddress}`);
         process.exit(0);
     }
     console.log(`Proxies for address ${callerKeyring.address}`);
-    console.log(callerProxy.toJSON());
+    for (const p of proxies) {
+        console.log(p.toString());
+    }
     process.exit(0);
 }
 
@@ -42,14 +44,14 @@ export async function removeProxyAction(options: OptionValues) {
     const callerKeyring = await initCallerKeyring(options);
     const callerAddress = callerKeyring.address;
 
-    const [defArray, _] = await api.query.proxy.proxies(callerAddress);
-    if (defArray.toArray().length === 0) {
+    const proxies = await proxiesForAddress(callerAddress, api);
+    if (proxies.length === 0) {
         console.log(`ERROR: No proxies have been set for ${callerAddress}`);
         process.exit(1);
     }
 
-    const existingProxy = defArray.toArray().filter((x) => x.delegate.toString() === options.proxy);
-    if (existingProxy.length === 0) {
+    const existingProxy = filterProxiesByAddress(options.proxy, proxies);
+    if (!addressIsProxy(options.proxy, existingProxy)) {
         console.log(`ERROR: ${options.proxy as string} is not a proxy for ${callerAddress}`);
         process.exit(1);
     }

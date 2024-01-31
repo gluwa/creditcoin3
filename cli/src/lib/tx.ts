@@ -3,7 +3,7 @@ import { ISubmittableResult } from '@polkadot/types/types';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { AccountBalance, getBalance, toCTCString } from './balance';
 import { ApiPromise, BN, KeyringPair } from '.';
-import { CcKeyring } from './account/keyring';
+import { CcKeyring, validatorAddress } from './account/keyring';
 
 export async function signSendAndWatch(
     tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
@@ -19,8 +19,25 @@ export async function signSendAndWatch(
             }
             resolve(result);
         };
-        // Sign and send with callback
-        tx.signAndSend(signer, { nonce: -1 }, ({ status, dispatchError }) => {
+        tx.signAndSend(signer, { nonce: -1 }, ({ status, dispatchError, events }) => {
+            for (const { event } of events) {
+                if (api.events.proxy.ProxyExecuted.is(event)) {
+                    const [dispatchResult] = event.data;
+
+                    if (dispatchResult.isErr) {
+                        const proxyDispatchError = dispatchResult.asErr;
+                        const { docs, name, section } = api.registry.findMetaError(proxyDispatchError.asModule);
+
+                        const res = {
+                            status: TxStatus.failed,
+                            info: `Proxy Transaction failed: ${section}.${name}: ${docs.join(' ')}`,
+                        };
+
+                        unsubAndResolve(res);
+                    }
+                }
+            }
+
             // Called every time the status changes
             if (status.isFinalized) {
                 const result = {
@@ -115,7 +132,7 @@ export async function requireKeyringHasSufficientFunds(
     api: ApiPromise,
     amount = new BN(0),
 ) {
-    const address = keyring.type === 'proxy' ? keyring.proxiedAddress : keyring.pair.address;
+    const address = validatorAddress(keyring);
     return requireEnoughFundsToSend(tx, address, api, amount);
 }
 
