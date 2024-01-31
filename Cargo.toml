@@ -51,7 +51,7 @@ thiserror = "1.0"
 tokio = "1.35.1"
 sha3 = { version = "0.10", default-features = false }
 tracing = "0.1.34"
-tracing-core = "0.1.29"
+tracing-core = "0.1.32"
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 primitive-types = "0.12.0"
 tiny-bip39 = { version = "0.8", default-features = false }
