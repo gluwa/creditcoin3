@@ -15,8 +15,9 @@ import { makeDistributeRewardsCommand } from './commands/staking/distribute';
 import { makeWithdrawUnbondedCommand } from './commands/staking/withdraw';
 import { makeWizardCommand } from './commands/staking/wizard';
 import { makeEvmCommand } from './commands/evm';
-import { urlOption } from './commands/options';
 import { makeConvertAddressCommand } from './commands/convertAddress';
+import { makeProxyCommands } from './commands/proxy/commands';
+import { urlOption } from './commands/options';
 
 const program = new Command();
 
@@ -45,5 +46,5 @@ program.commands.forEach((cmd) => {
 
 // Add Subcommands
 program.addCommand(makeEvmCommand());
-
+program.addCommand(makeProxyCommands());
 program.parse(process.argv);

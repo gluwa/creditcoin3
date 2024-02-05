@@ -14,6 +14,7 @@ async function showAddressAction(options: OptionValues) {
     await cryptoWaitReady();
 
     const caller = await initCallerKeyring(options);
+
     const evmAddress = substrateAddressToEvmAddress(caller.address);
 
     console.log('Account Substrate address:', caller.address);

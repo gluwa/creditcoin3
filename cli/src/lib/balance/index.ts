@@ -128,6 +128,7 @@ export function checkAmount(amount: BN) {
         console.log('Bond amount must be at least 1 CTC');
         process.exit(1);
     }
+    return amount;
 }
 
 function positiveBigNumberFromString(amount: string) {

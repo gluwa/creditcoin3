@@ -1,14 +1,15 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { initCallerKeyring } from '../../lib/account/keyring';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { checkEraIsInHistory } from '../../lib/staking/era';
-import { eraOption, substrateAddressOption } from '../options';
+import { eraOption, substrateAddressOption, useProxyOption } from '../options';
 
 export function makeDistributeRewardsCommand() {
     const cmd = new Command('distribute-rewards');
     cmd.description('Distribute all pending rewards for a particular validator');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
+    cmd.addOption(useProxyOption);
     cmd.addOption(eraOption.makeOptionMandatory());
     cmd.action(distributeRewardsAction);
     return cmd;
@@ -28,16 +29,14 @@ async function distributeRewardsAction(options: OptionValues) {
     }
 
     // Any account can call the distribute_rewards extrinsic
-    const caller = await initCallerKeyring(options);
+    const caller = await initKeyring(options);
 
     const distributeTx = api.tx.staking.payoutStakers(validator, era);
 
-    await requireEnoughFundsToSend(distributeTx, caller.address, api);
-
-    const result = await signSendAndWatch(distributeTx, api, caller);
-
+    await requireKeyringHasSufficientFunds(distributeTx, caller, api);
+    const result = await signSendAndWatchCcKeyring(distributeTx, api, caller);
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }
 
 function parseOptions(options: OptionValues) {

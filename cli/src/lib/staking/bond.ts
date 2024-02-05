@@ -1,10 +1,13 @@
-import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
+import { SubmittableExtrinsic } from '@polkadot/api/types';
+import { ISubmittableResult } from '@polkadot/types/types';
+import { ApiPromise, BN, MICROUNITS_PER_CTC } from '..';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
+import { CcKeyring } from '../account/keyring';
 
-type RewardDestination = 'Staked' | 'Stash';
+export type RewardDestination = 'Staked' | 'Stash';
 
 export async function bond(
-    stashKeyring: KeyringPair,
+    stashKeyring: CcKeyring,
     amount: BN,
     rewardDestination: RewardDestination,
     api: ApiPromise,
@@ -18,7 +21,7 @@ export async function bond(
 
     const amountInMicroUnits = amount;
 
-    let bondTx;
+    let bondTx: SubmittableExtrinsic<'promise', ISubmittableResult>;
 
     if (extra) {
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
@@ -26,11 +29,8 @@ export async function bond(
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
     }
 
-    await requireEnoughFundsToSend(bondTx, stashKeyring.address, api, amount);
-
-    const result = await signSendAndWatch(bondTx, api, stashKeyring);
-
-    return result;
+    await requireKeyringHasSufficientFunds(bondTx, stashKeyring, api, amount);
+    return await signSendAndWatchCcKeyring(bondTx, api, stashKeyring);
 }
 
 export function parseRewardDestination(rewardDestinationRaw: string): RewardDestination {
