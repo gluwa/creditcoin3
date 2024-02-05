@@ -13,7 +13,7 @@ import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { newApi } from '../../lib';
 
 describe('integration test: validator wizard setup', () => {
-    it.skip('new validator should appear as waiting after running', async () => {
+    it('new validator should appear as waiting after running', async () => {
         const { api } = await newApi(ALICE_NODE_URL);
 
         // Fund stash and controller
