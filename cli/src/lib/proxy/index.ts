@@ -24,3 +24,15 @@ export function filterProxiesByAddress(
 export function hasProxyType(delegates: PalletProxyProxyDefinition[], type: string): boolean {
     return delegates.find((delegate) => delegate.proxyType.toString() === type) !== undefined;
 }
+
+// Checks if 'addr' is found in any of the proxies storage map entries and returns true if so false otherwise
+export async function addressIsAlreadyProxy(addr: string, api: ApiPromise): Promise<boolean> {
+    const allProxies = await api.query.proxy.proxies.entries();
+    for (const [_, [entries, __]] of allProxies) {
+        const matchingProxies = entries.filter((p) => p.delegate.toString() === addr);
+        if (matchingProxies.length > 0) {
+            return true;
+        }
+    }
+    return false;
+}
