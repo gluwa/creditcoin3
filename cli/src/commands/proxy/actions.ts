@@ -2,7 +2,7 @@ import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initCallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
-import { addressIsProxy, filterProxiesByAddress, proxiesForAddress } from '../../lib/proxy';
+import { addressIsAlreadyProxy, addressIsProxy, filterProxiesByAddress, proxiesForAddress } from '../../lib/proxy';
 
 export async function setProxyAction(options: OptionValues) {
     const { url, delay } = options;
@@ -11,6 +11,17 @@ export async function setProxyAction(options: OptionValues) {
 
     const { api } = await newApi(url as string);
     const callerKeyring = await initCallerKeyring(options);
+
+    const existingProxiesForAddress = await proxiesForAddress(callerKeyring.address, api);
+    if (existingProxiesForAddress.length >= 1) {
+        console.log(`ERROR: There is all ready an existing proxy set for ${callerKeyring.address}`);
+        process.exit(0);
+    }
+
+    if (await addressIsAlreadyProxy(proxyAddr, api)) {
+        console.log(`ERROR: The proxy ${callerKeyring.address} is already in use with another validator`);
+        process.exit(0);
+    }
 
     const call = api.tx.proxy.addProxy(proxyAddr, proxyType, delay);
     await requireEnoughFundsToSend(call, callerKeyring.address, api);
