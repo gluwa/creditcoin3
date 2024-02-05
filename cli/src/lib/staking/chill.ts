@@ -1,9 +1,11 @@
-import { ApiPromise, KeyringPair } from '..';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
+import { ApiPromise } from '..';
+import { CcKeyring } from '../account/keyring';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 
-export async function chill(controllerKeyring: KeyringPair, api: ApiPromise) {
+export async function chill(stashKeyring: CcKeyring, api: ApiPromise) {
     const chillTx = api.tx.staking.chill();
-    await requireEnoughFundsToSend(chillTx, controllerKeyring.address, api);
-    const result = await signSendAndWatch(chillTx, api, controllerKeyring);
+
+    await requireKeyringHasSufficientFunds(chillTx, stashKeyring, api);
+    const result = await signSendAndWatchCcKeyring(chillTx, api, stashKeyring);
     return result;
 }

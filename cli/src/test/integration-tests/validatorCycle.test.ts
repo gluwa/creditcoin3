@@ -65,7 +65,7 @@ describe('integration test: validator manual setup', () => {
         // wait 5 seconds for nodes to sync
         await new Promise((resolve) => setTimeout(resolve, 5000));
         const stashStatus = await getValidatorStatus(substrateAddress, aliceApi);
-        expect(stashStatus.bonded).toBe(true);
+        expect(stashStatus?.bonded).toBe(true);
 
         const stashBondedBalance = (await getBalance(substrateAddress, aliceApi)).bonded;
         expect(stashBondedBalance.toString()).toBe(parseAmount(bondAmount).toString());
@@ -98,7 +98,7 @@ describe('integration test: validator manual setup', () => {
         });
 
         const stashStatusAfterValidating = await getValidatorStatus(substrateAddress, bobApi);
-        expect(stashStatusAfterValidating.waiting).toBe(true);
+        expect(stashStatusAfterValidating?.waiting).toBe(true);
 
         // After increasing the validator count, (forcing an era- currently not) and waiting for the next era,
         // the validator should become elected & active.
@@ -109,7 +109,7 @@ describe('integration test: validator manual setup', () => {
         expect(validatorCount).toBe(2);
         await waitEras(2, aliceApi);
         const stashStatusAfterEra = await getValidatorStatus(substrateAddress, bobApi);
-        expect(stashStatusAfterEra.active).toBe(true);
+        expect(stashStatusAfterEra?.active).toBe(true);
 
         // After waiting for another era, the validator should have accumulated era rewards to distribute
         const startingEra = (await aliceApi.derive.session.info()).activeEra.toNumber();
@@ -146,8 +146,8 @@ describe('integration test: validator manual setup', () => {
         // wait 5 seconds for nodes to sync
         await waitEras(2, aliceApi);
         const stashStatusAfterChill = await getValidatorStatus(substrateAddress, bobApi);
-        expect(stashStatusAfterChill.active).toBe(false);
-        expect(stashStatusAfterChill.waiting).toBe(false);
+        expect(stashStatusAfterChill?.active).toBe(false);
+        expect(stashStatusAfterChill?.waiting).toBe(false);
 
         // After unbonding, the validator should no longer be bonded
         commandSync(

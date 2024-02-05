@@ -26,7 +26,7 @@ export function parseEVMAddress(value: string): string {
     if (isAddress(value)) {
         return value;
     } else {
-        throw new InvalidArgumentError('Not a valid EVM address.');
+        throw new InvalidArgumentError(`Not a valid EVM address`);
     }
 }
 export function parseSubstrateAddress(value: string): string {
@@ -107,3 +107,34 @@ export const noInputOption = new Option('--no-input', 'Do not prompt for input')
 
 // Crypto
 export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
+
+export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
+export const proxyTypeOption = new Option(
+    '--type [type]',
+    'The type dictates the actions that this proxy can perform on your behalf. \nFor more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+)
+    .choices(ProxyTypes)
+    .makeOptionMandatory();
+
+export const mandatoryProxyOption = new Option(
+    '-p, --proxy <proxy addr>',
+    'The proxy address to use for this call',
+).argParser(parseSubstrateAddress);
+mandatoryProxyOption.makeOptionMandatory();
+
+export const delayOption = new Option(
+    '--delay [delay]',
+    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#proxy-types',
+).argParser(parseProxyDelay);
+export function parseProxyDelay(value: string): number {
+    const parsedValue = parseInt(value, 10);
+    if (isNaN(parsedValue)) {
+        throw new Error(`ERROR: Could not parse delay: ${value}`);
+    }
+    return parsedValue;
+}
+
+export const useProxyOption = new Option(
+    '--use-proxy [proxied-address]',
+    'Use proxy account for this call. Needs to specify the proxied Substrate address',
+).argParser(parseSubstrateAddress);

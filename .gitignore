@@ -25,3 +25,5 @@ polkadot.*
 
 # NixOS development environment
 .envrc
+
+**/throwaway

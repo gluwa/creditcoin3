@@ -1,14 +1,16 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { parseHexStringOrExit } from '../../lib/parsing';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../../lib/tx';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
+import { useProxyOption } from '../options';
 
 export function makeSetKeysCommand() {
     const cmd = new Command('set-keys');
     cmd.description('Set session keys for a bonded account');
     cmd.option('-k, --keys [keys]', 'Specify keys to set');
     cmd.option('-r, --rotate', 'Rotate and set new keys');
+    cmd.addOption(useProxyOption);
     cmd.action(setKeysAction);
     return cmd;
 }
@@ -17,7 +19,7 @@ async function setKeysAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     // Build account
-    const keyring = await initCallerKeyring(options);
+    const keyring = await initKeyring(options);
 
     let keys;
     if (!options.keys && !options.rotate) {
@@ -34,9 +36,9 @@ async function setKeysAction(options: OptionValues) {
 
     const tx = api.tx.session.setKeys(keys, '');
 
-    await requireEnoughFundsToSend(tx, keyring.address, api);
+    await requireKeyringHasSufficientFunds(tx, keyring, api);
 
-    const result = await signSendAndWatch(tx, api, keyring);
+    const result = await signSendAndWatchCcKeyring(tx, api, keyring);
 
     console.log(result.info);
 

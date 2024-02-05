@@ -5,8 +5,8 @@ import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
-import { initCallerKeyring } from '../../lib/account/keyring';
-import { amountOption } from '../options';
+import { initKeyring, validatorAddress } from '../../lib/account/keyring';
+import { amountOption, useProxyOption } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
@@ -17,6 +17,7 @@ export function makeBondCommand() {
         'Specify reward destination account to use for new account',
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
+    cmd.addOption(useProxyOption);
     cmd.action(bondAction);
     return cmd;
 }
@@ -26,10 +27,10 @@ async function bondAction(options: OptionValues) {
 
     const { amount, rewardDestination, extra, interactive } = parseOptions(options);
 
-    const callerKeyring = await initCallerKeyring(options);
-    const callerAddress = callerKeyring.address;
+    const callerKeyring = await initKeyring(options);
+    const callerAddress = validatorAddress(callerKeyring);
 
-    // Check if caller has enough balance
+    // Check if caller has enough balance, caller may be a proxy account
     await checkBalance(amount, api, callerAddress);
 
     console.log('Creating bond transaction...');
@@ -70,7 +71,6 @@ function parseOptions(options: OptionValues) {
     );
 
     const extra = parseBoolean(options.extra);
-
     const interactive = setInteractivity(options);
 
     return { amount, rewardDestination, extra, interactive };
