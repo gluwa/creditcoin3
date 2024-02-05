@@ -4,7 +4,7 @@ import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBo
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { CcKeyring, initKeyring, validatorAddress } from '../../lib/account/keyring';
+import { CcKeyring, ProxyKeyring, initKeyring, isProxy, validatorAddress } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption, useProxyOption } from '../options';
@@ -46,11 +46,11 @@ export function makeWizardCommand() {
         console.log('Using the following parameters:');
         console.log(`💰 Stash account: ${address}`);
 
-        if (keyring.type === 'proxy') {
+        if (isProxy(keyring)) {
             console.log(`⚠️ Using a proxy account! Stash should be bonded in advance!`);
             console.log(`🤐 Proxy account: ${keyring.pair.address}`);
         }
-        if (bondStep) {
+        if (bondStep && amount) {
             console.log(`🪙 Amount to bond: ${toCTCString(amount)}`);
         } else {
             console.log(`❌ Skipping bonding step (run with --amount [amount] flag to bond CTC)`);
@@ -73,7 +73,7 @@ export function makeWizardCommand() {
         checkStashBalance(address, stashBalance, amountWithFee);
 
         // Bond CTC
-        if (bondStep) {
+        if (bondStep || isProxy(keyring)) {
             await bondRoutine(keyring, address, stashBalance, amount, rewardDestination, api, interactive);
         }
 
@@ -165,10 +165,13 @@ async function bondRoutine(
     interactive: boolean,
 ) {
     // proxies and delegates are 'bonded' by default so if we are using one its always a bond extra extrinsic
-    const bondExtra: boolean = keyring.type === 'proxy' ? true : checkIfAlreadyBonded(stashBalance);
+    const bondExtra: boolean = checkIfAlreadyBonded(stashBalance);
 
     if (bondExtra) {
         console.log('⚠️  Warning: Stash account already bonded. This will increase the amount bonded.');
+        if (isProxy(keyring)) {
+            console.log('You do not need to bond extra funds if using a proxy');
+        }
         if (await promptContinueOrSkip(`Continue or skip bonding extra funds?`, interactive)) {
             checkStashBalance(address, stashBalance, amount);
             // Bond extra
@@ -181,6 +184,15 @@ async function bondRoutine(
             }
         }
     } else {
+        if (isProxy(keyring)) {
+            console.log(
+                `The stash account ${
+                    (keyring as ProxyKeyring).proxiedAddress
+                } has not bonded before. You mus bond WITHOUT the proxy before the wizard can be used with a proxy`,
+            );
+            process.exit(1);
+        }
+
         // Bond
         console.log('Sending bond transaction...');
         const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
