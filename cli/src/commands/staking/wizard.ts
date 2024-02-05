@@ -4,7 +4,7 @@ import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBo
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { CcKeyring, ProxyKeyring, initKeyring, isProxy, validatorAddress } from '../../lib/account/keyring';
+import { CcKeyring, initKeyring, isProxy, validatorAddress } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption, useProxyOption } from '../options';
@@ -184,15 +184,6 @@ async function bondRoutine(
             }
         }
     } else {
-        if (isProxy(keyring)) {
-            console.log(
-                `The stash account ${
-                    (keyring as ProxyKeyring).proxiedAddress
-                } has not bonded before. You mus bond WITHOUT the proxy before the wizard can be used with a proxy`,
-            );
-            process.exit(1);
-        }
-
         // Bond
         console.log('Sending bond transaction...');
         const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
