@@ -14,7 +14,7 @@ export async function setProxyAction(options: OptionValues) {
 
     const existingProxiesForAddress = await proxiesForAddress(callerKeyring.address, api);
     if (existingProxiesForAddress.length >= 1) {
-        console.log(`ERROR: There is all ready an existing proxy set for ${callerKeyring.address}`);
+        console.log(`ERROR: There is already an existing proxy set for ${callerKeyring.address}`);
         process.exit(0);
     }
 
