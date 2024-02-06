@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring, validatorAddress } from '../../lib/account/keyring';
+import { initKeyring, delegateAddress } from '../../lib/account/keyring';
 import { useProxyOption } from '../options';
 
 export function makeWithdrawUnbondedCommand() {
@@ -17,7 +17,7 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const keyring = await initKeyring(options);
 
-    const validatorAddr = validatorAddress(keyring);
+    const validatorAddr = delegateAddress(keyring);
     const status = await getValidatorStatus(validatorAddr, api);
     requireStatus(status, 'canWithdraw', 'Cannot perform action, there are no unlocked funds to withdraw');
 

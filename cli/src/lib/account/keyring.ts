@@ -7,7 +7,7 @@ import { parseBoolean } from '../parsing';
 
 // return the underlying address from a keyring, if this is a non proxied keyring it is just the address of the keypair
 // If it is a proxy then the proxied address is the one that we want to check for available funds and validator status etc
-export function validatorAddress(keyring: CcKeyring) {
+export function delegateAddress(keyring: CcKeyring) {
     return isProxy(keyring) ? (keyring as ProxyKeyring).proxiedAddress : keyring.pair.address;
 }
 
