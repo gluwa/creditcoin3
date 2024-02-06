@@ -489,32 +489,6 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             [key: string]: AugmentedError<ApiType>;
         };
-        scheduler: {
-            /**
-             * Failed to schedule a call
-             **/
-            FailedToSchedule: AugmentedError<ApiType>;
-            /**
-             * Attempt to use a non-named function on a named task.
-             **/
-            Named: AugmentedError<ApiType>;
-            /**
-             * Cannot find the scheduled call.
-             **/
-            NotFound: AugmentedError<ApiType>;
-            /**
-             * Reschedule failed because it does not change scheduled time.
-             **/
-            RescheduleNoChange: AugmentedError<ApiType>;
-            /**
-             * Given target block number is in the past.
-             **/
-            TargetBlockNumberInPast: AugmentedError<ApiType>;
-            /**
-             * Generic error
-             **/
-            [key: string]: AugmentedError<ApiType>;
-        };
         session: {
             /**
              * Registered duplicate key.
