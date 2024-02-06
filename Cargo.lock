@@ -1789,7 +1789,6 @@ dependencies = [
  "pallet-nomination-pools-runtime-api",
  "pallet-offences",
  "pallet-proxy",
- "pallet-scheduler",
  "pallet-session",
  "pallet-staking",
  "pallet-sudo",
@@ -6249,24 +6248,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
-]
-
-[[package]]
-name = "pallet-scheduler"
-version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
-dependencies = [
- "docify",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-io",
- "sp-runtime",
- "sp-std",
- "sp-weights",
 ]
 
 [[package]]
