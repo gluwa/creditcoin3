@@ -7,7 +7,7 @@ import { getBalance } from '../../lib/balance';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
-import { initKeyring, validatorAddress } from '../../lib/account/keyring';
+import { initKeyring, delegateAddress } from '../../lib/account/keyring';
 import { amountOption, useProxyOption } from '../options';
 
 export function makeUnbondCommand() {
@@ -30,7 +30,7 @@ async function unbondAction(options: OptionValues) {
     const caller = await initKeyring(options);
 
     // We need to check the staking ledger of the caller even if we are using a proxy
-    const validatorAddr = validatorAddress(caller);
+    const validatorAddr = delegateAddress(caller);
     const status = await getValidatorStatus(validatorAddr, api);
     requireStatus(status, 'bonded');
 
