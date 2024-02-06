@@ -4,7 +4,7 @@ import { parseChoiceOrExit, inputOrDefault, parsePercentAsPerbillOrExit, parseBo
 import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
-import { CcKeyring, initKeyring, isProxy, validatorAddress } from '../../lib/account/keyring';
+import { CcKeyring, initKeyring, isProxy, delegateAddress } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption, useProxyOption } from '../options';
@@ -34,7 +34,7 @@ export function makeWizardCommand() {
         // Generate keyring
         const keyring = await initKeyring(options);
 
-        const address = validatorAddress(keyring);
+        const address = delegateAddress(keyring);
 
         // Validate prefs
         const preferences: StakingPalletValidatorPrefs = {

@@ -3,7 +3,7 @@ import { ISubmittableResult } from '@polkadot/types/types';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { AccountBalance, getBalance, toCTCString } from './balance';
 import { ApiPromise, BN, KeyringPair } from '.';
-import { CcKeyring, validatorAddress } from './account/keyring';
+import { CcKeyring, delegateAddress } from './account/keyring';
 
 export async function signSendAndWatch(
     tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
@@ -132,7 +132,7 @@ export async function requireKeyringHasSufficientFunds(
     api: ApiPromise,
     amount = new BN(0),
 ) {
-    const address = validatorAddress(keyring);
+    const address = delegateAddress(keyring);
     return requireEnoughFundsToSend(tx, address, api, amount);
 }
 
