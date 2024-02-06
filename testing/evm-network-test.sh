@@ -27,4 +27,3 @@ echo "++++ Execute gasTest"
 # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
 # echo "++++ Execute advancedTest"
 # ./node_modules/.bin/advancedTest --rpc "$TARGET_URL" --private_key "$PRIVATE_KEY"
-
