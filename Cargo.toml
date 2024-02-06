@@ -138,7 +138,6 @@ pallet-transaction-payment = { version = "4.0.0-dev", git = "https://github.com/
 pallet-transaction-payment-rpc = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-utility = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
-pallet-scheduler = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk.git", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 # Substrate Utility
 frame-benchmarking-cli = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 substrate-prometheus-endpoint = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
