@@ -41,7 +41,6 @@ import type {
     PalletNominationPoolsSubPools,
     PalletProxyAnnouncement,
     PalletProxyProxyDefinition,
-    PalletSchedulerScheduled,
     PalletStakingActiveEraInfo,
     PalletStakingEraRewardPoints,
     PalletStakingExposure,
@@ -781,35 +780,6 @@ declare module '@polkadot/api-base/types/storage' {
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
-            /**
-             * Generic query
-             **/
-            [key: string]: QueryableStorageEntry<ApiType>;
-        };
-        scheduler: {
-            /**
-             * Items to be executed, indexed by the block number that they should be executed on.
-             **/
-            agenda: AugmentedQuery<
-                ApiType,
-                (arg: u32 | AnyNumber | Uint8Array) => Observable<Vec<Option<PalletSchedulerScheduled>>>,
-                [u32]
-            > &
-                QueryableStorageEntry<ApiType, [u32]>;
-            incompleteSince: AugmentedQuery<ApiType, () => Observable<Option<u32>>, []> &
-                QueryableStorageEntry<ApiType, []>;
-            /**
-             * Lookup from a name to the block number and index of the task.
-             *
-             * For v3 -> v4 the previously unbounded identities are Blake2-256 hashed to form the v4
-             * identities.
-             **/
-            lookup: AugmentedQuery<
-                ApiType,
-                (arg: U8aFixed | string | Uint8Array) => Observable<Option<ITuple<[u32, u32]>>>,
-                [U8aFixed]
-            > &
-                QueryableStorageEntry<ApiType, [U8aFixed]>;
             /**
              * Generic query
              **/
