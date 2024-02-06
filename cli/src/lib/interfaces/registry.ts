@@ -42,7 +42,6 @@ import type {
     FrameSupportDispatchPerDispatchClassWeightsPerClass,
     FrameSupportDispatchRawOrigin,
     FrameSupportPalletId,
-    FrameSupportPreimagesBounded,
     FrameSupportTokensMiscBalanceStatus,
     FrameSystemAccountInfo,
     FrameSystemCall,
@@ -138,10 +137,6 @@ import type {
     PalletProxyError,
     PalletProxyEvent,
     PalletProxyProxyDefinition,
-    PalletSchedulerCall,
-    PalletSchedulerError,
-    PalletSchedulerEvent,
-    PalletSchedulerScheduled,
     PalletSessionCall,
     PalletSessionError,
     PalletSessionEvent,
@@ -250,7 +245,6 @@ declare module '@polkadot/types/types/registry' {
         FrameSupportDispatchPerDispatchClassWeightsPerClass: FrameSupportDispatchPerDispatchClassWeightsPerClass;
         FrameSupportDispatchRawOrigin: FrameSupportDispatchRawOrigin;
         FrameSupportPalletId: FrameSupportPalletId;
-        FrameSupportPreimagesBounded: FrameSupportPreimagesBounded;
         FrameSupportTokensMiscBalanceStatus: FrameSupportTokensMiscBalanceStatus;
         FrameSystemAccountInfo: FrameSystemAccountInfo;
         FrameSystemCall: FrameSystemCall;
@@ -346,10 +340,6 @@ declare module '@polkadot/types/types/registry' {
         PalletProxyError: PalletProxyError;
         PalletProxyEvent: PalletProxyEvent;
         PalletProxyProxyDefinition: PalletProxyProxyDefinition;
-        PalletSchedulerCall: PalletSchedulerCall;
-        PalletSchedulerError: PalletSchedulerError;
-        PalletSchedulerEvent: PalletSchedulerEvent;
-        PalletSchedulerScheduled: PalletSchedulerScheduled;
         PalletSessionCall: PalletSessionCall;
         PalletSessionError: PalletSessionError;
         PalletSessionEvent: PalletSessionEvent;
