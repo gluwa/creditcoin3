@@ -402,27 +402,10 @@ jobs:
           echo "url=http://127.0.0.1:9944" >> "$GITHUB_OUTPUT"
           echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Install smart contract test tool
+      - name: Execute smart contract test tool
         working-directory: ./testing
         run: |
-          npm install
-
-      - name: Execute smart contract basicTest
-        working-directory: ./testing
-        run: |
-          ./node_modules/.bin/basicTest --rpc ${{ steps.test-env.outputs.url }} --private_key ${{ steps.test-env.outputs.private_key }}
-
-      - name: Execute smart contract gasTest
-        working-directory: ./testing
-        run: |
-          ./node_modules/.bin/gasTest --rpc ${{ steps.test-env.outputs.url }} --private_key ${{ steps.test-env.outputs.private_key }}
-
-      # Not ready, https://gluwa.slack.com/archives/C03MQ532BGA/p1698247767108099?thread_ts=1698217688.874159&cid=C03MQ532BGA
-      #- name: Execute smart contract advancedTest
-      #  working-directory: ./testing
-      #  run: |
-      #    # note: this is Alith (Alice) private key, see README.md
-      #    ./node_modules/.bin/advancedTest --rpc http://127.0.0.1:9944 --private_key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
+          ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
 
   integration-test-check-extrinsics:
     needs:
