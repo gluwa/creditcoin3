@@ -354,13 +354,13 @@ jobs:
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
         with:
-          name: creditcoin-node-fast-runtime
+          name: creditcoin-node-for-ci
           path: target/release/creditcoin3-node
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v4
         with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-fast-runtime
+          name: creditcoin_node_runtime.compact.compressed.wasm-for-ci
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
   integration-test-smart-contract:
@@ -373,7 +373,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-fast-runtime
+          name: creditcoin-node-for-ci
           path: target/release
 
       - name: Install Node.js
@@ -439,7 +439,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-fast-runtime
+          name: creditcoin-node-for-ci
           path: target/release
 
       - name: Run Extrinsics Ordering
@@ -503,7 +503,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-fast-runtime
+          name: creditcoin-node-for-ci
           path: target/release
 
       - name: Install Node.js
@@ -606,7 +606,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-fast-runtime
+          name: creditcoin-node-for-ci
           path: target/release
 
       - name: Install Node.js
