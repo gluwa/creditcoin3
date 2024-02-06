@@ -15,12 +15,12 @@ export async function setProxyAction(options: OptionValues) {
     const existingProxiesForAddress = await proxiesForAddress(callerKeyring.address, api);
     if (existingProxiesForAddress.length >= 1) {
         console.log(`ERROR: There is already an existing proxy set for ${callerKeyring.address}`);
-        process.exit(0);
+        process.exit(1);
     }
 
     if (await addressIsAlreadyProxy(proxyAddr, api)) {
         console.log(`ERROR: The proxy ${callerKeyring.address} is already in use with another validator`);
-        process.exit(0);
+        process.exit(2);
     }
 
     const call = api.tx.proxy.addProxy(proxyAddr, proxyType, delay);
