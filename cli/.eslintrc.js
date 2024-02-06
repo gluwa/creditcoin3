@@ -90,7 +90,7 @@ module.exports = {
               format: ["strictCamelCase"],
               filter: {
                 // allow CC_SECRET and EVM_SECRET
-                regex: "^(CC_SECRET|EVM_SECRET)$",
+                regex: "^(CC_SECRET|CC_PROXY_SECRET|EVM_SECRET)$",
                 match: false,
               },
             },

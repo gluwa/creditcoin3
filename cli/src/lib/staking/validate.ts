@@ -1,5 +1,6 @@
-import { ApiPromise, KeyringPair } from '..';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../tx';
+import { ApiPromise } from '..';
+import { CcKeyring } from '../account/keyring';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 
 export interface StakingPalletValidatorPrefs {
     // The validator's commission.
@@ -8,7 +9,7 @@ export interface StakingPalletValidatorPrefs {
     blocked: boolean;
 }
 
-export async function validate(account: KeyringPair, prefs: StakingPalletValidatorPrefs, api: ApiPromise) {
+export async function validate(stashKeyring: CcKeyring, prefs: StakingPalletValidatorPrefs, api: ApiPromise) {
     console.log('Creating validate transaction with params:');
 
     const preferences: StakingPalletValidatorPrefs = prefs || {
@@ -21,9 +22,6 @@ export async function validate(account: KeyringPair, prefs: StakingPalletValidat
 
     const validateTx = api.tx.staking.validate(preferences);
 
-    await requireEnoughFundsToSend(validateTx, account.address, api);
-
-    const result = await signSendAndWatch(validateTx, api, account);
-
-    return result;
+    await requireKeyringHasSufficientFunds(validateTx, stashKeyring, api);
+    return await signSendAndWatchCcKeyring(validateTx, api, stashKeyring);
 }

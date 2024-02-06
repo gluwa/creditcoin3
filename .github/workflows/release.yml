@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install protobuf
-        uses: arduino/setup-protoc@v2
+        uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -124,8 +124,9 @@ jobs:
 
       - name: Upload binary
         if: matrix.operating-system != 'windows-2022'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: binary-for-${{ matrix.operating-system }}
           path: "creditcoin-${{ env.TAG_NAME }}-*.zip"
           if-no-files-found: error
 
@@ -169,8 +170,9 @@ jobs:
           mv ${{ steps.srtool_build.outputs.wasm }} creditcoin-${{ env.TAG_NAME }}-runtime.wasm
 
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: binary-for-wasm
           path: "*.wasm"
           if-no-files-found: error
 
@@ -223,7 +225,11 @@ jobs:
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
 
       - name: Download binaries
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
+        with:
+          path: artifact
+          pattern: binary-for-*
+          merge-multiple: true
 
       - name: DEBUG
         shell: bash

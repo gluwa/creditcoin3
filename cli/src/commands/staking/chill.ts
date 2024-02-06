@@ -1,11 +1,13 @@
 import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { chill } from '../../lib/staking/chill';
-import { initCallerKeyring } from '../../lib/account/keyring';
+import { initKeyring, validatorAddress } from '../../lib/account/keyring';
+import { useProxyOption } from '../options';
 
 export function makeChillCommand() {
     const cmd = new Command('chill');
     cmd.description('Signal intention to stop validating from a Controller account');
+    cmd.addOption(useProxyOption);
     cmd.action(chillAction);
     return cmd;
 }
@@ -13,9 +15,9 @@ export function makeChillCommand() {
 async function chillAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const keyring = await initCallerKeyring(options);
+    const keyring = await initKeyring(options);
 
-    const address = keyring.address;
+    const address = validatorAddress(keyring);
 
     const status = await getValidatorStatus(address, api);
 

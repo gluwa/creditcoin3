@@ -30,17 +30,77 @@ updates:
       interval: "monthly"
 
   - package-ecosystem: "cargo"
-    directory: "/pallets/bridge"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
     directory: "/runtime"
     schedule:
       interval: "monthly"
 
   - package-ecosystem: "cargo"
     directory: "/runtime/generate-bags"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/client/evm-tracing"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/client/rpc-core/debug"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/client/rpc-core/trace"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/client/rpc-core/types"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/client/rpc/debug"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/client/rpc/trace"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/node/cli-opt"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/primitives/account"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/primitives/core"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/primitives/ext"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/primitives/rpc/debug"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/primitives/rpc/evm-tracing-events"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "cargo"
+    directory: "/runtime/evm_tracer"
     schedule:
       interval: "monthly"
 

@@ -2,6 +2,9 @@ import { ApiPromise } from '@polkadot/api';
 import { BN, mnemonicGenerate, newApi } from '../../lib';
 import { initKeyringPair } from '../../lib/account/keyring';
 import { signSendAndWatch } from '../../lib/tx';
+import { commandSync } from 'execa';
+import { parseAmount } from '../../commands/options';
+import { KeyringPair } from '../../lib';
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -55,4 +58,18 @@ export function randomTestAccount() {
 
 export function initAliceKeyring() {
     return initKeyringPair('//Alice');
+}
+
+export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPair, amount: BN = parseAmount('1000')) {
+    const account = randomTestAccount();
+    const fundTx = await fundAddressesFromSudo([account.address], amount);
+    await signSendAndWatch(fundTx, api, sudoSigner);
+    return account;
+}
+
+export function CLIBuilder(env: any) {
+    function CLICmd(cmd: string) {
+        return commandSync(`node ${CLI_PATH} ${cmd}`, { env });
+    }
+    return CLICmd;
 }

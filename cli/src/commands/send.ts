@@ -1,32 +1,48 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../lib';
-import { requireEnoughFundsToSend, signSendAndWatch } from '../lib/tx';
-import { initCallerKeyring } from '../lib/account/keyring';
-import { amountOption, substrateAddressOption } from './options';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../lib/tx';
+import { initKeyring } from '../lib/account/keyring';
+import { amountOption, substrateAddressOption, useProxyOption } from './options';
+import { filterProxiesByAddress, hasProxyType, proxiesForAddress } from '../lib/proxy';
 
 export function makeSendCommand() {
     const cmd = new Command('send');
     cmd.description('Send CTC from an account');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
+    cmd.addOption(useProxyOption);
     cmd.action(sendAction);
     return cmd;
 }
 
 async function sendAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
-
     const { amount, recipient } = parseOptions(options);
+    const caller = await initKeyring(options);
 
-    const caller = await initCallerKeyring(options);
+    if (caller.type === 'proxy') {
+        const existingProxies = filterProxiesByAddress(
+            caller.pair.address,
+            await proxiesForAddress(caller.proxiedAddress, api),
+        );
+
+        if (existingProxies.length === 0) {
+            console.log(`ERROR: ${caller.pair.address} is not a proxy for ${caller.proxiedAddress}`);
+            process.exit(1);
+        }
+
+        if (!hasProxyType(existingProxies, 'All')) {
+            console.log(
+                `ERROR: The proxy ${caller.pair.address} for address ${caller.proxiedAddress} does not have permission to call extrinsics from the balances pallet`,
+            );
+            process.exit(1);
+        }
+    }
 
     const tx = api.tx.balances.transfer(recipient, amount.toString());
-
-    await requireEnoughFundsToSend(tx, caller.address, api, amount);
-
-    const result = await signSendAndWatch(tx, api, caller);
+    await requireKeyringHasSufficientFunds(tx, caller, api, amount);
+    const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
-
     process.exit(0);
 }
 
