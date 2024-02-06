@@ -189,8 +189,6 @@ parameter_types! {
     pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
         ::max_with_normal_ratio(MAXIMUM_BLOCK_LENGTH, NORMAL_DISPATCH_RATIO);
     pub const SS58Prefix: u8 = 42;
-    pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * BlockWeights::get().max_block;
-    pub const MaxScheduledPerBlock: u32 = 50;
 }
 
 pub struct NativeOrEvmAddressLookup;
@@ -208,19 +206,6 @@ impl StaticLookup for NativeOrEvmAddressLookup {
     fn unlookup(x: Self::Target) -> Self::Source {
         MultiAddress::Id(x)
     }
-}
-
-impl pallet_scheduler::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type RuntimeOrigin = RuntimeOrigin;
-    type PalletsOrigin = OriginCaller;
-    type RuntimeCall = RuntimeCall;
-    type MaximumWeight = MaximumSchedulerWeight;
-    type ScheduleOrigin = frame_system::EnsureRoot<AccountId>;
-    type MaxScheduledPerBlock = MaxScheduledPerBlock;
-    type WeightInfo = ();
-    type OriginPrivilegeCmp = EqualPrivilegeOnly;
-    type Preimages = ();
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -878,7 +863,6 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
-        Scheduler: pallet_scheduler,
     }
 );
 
