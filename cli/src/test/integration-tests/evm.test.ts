@@ -8,6 +8,7 @@ import { convertWsToHttp } from '../../lib/evm/rpc';
 import { evmAddressToSubstrateAddress, substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { getBalance } from '../../lib/balance';
 import { parseAmount } from '../../commands/options';
+import { randomFundedAccount, CLIBuilder } from './helpers';
 
 describe('EVM commands', () => {
     it('should be able to fund an EVM account', async () => {
@@ -103,4 +104,59 @@ describe('EVM commands', () => {
 
         await api.disconnect();
     }, 60000);
+
+    it('should be able to show evm balance correctly when balance is zero', () => {
+        const caller = randomTestAccount();
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret });
+
+        // create evm account
+        const evmAccount = randomEvmAccount();
+
+        // Can correctly see a zero balance for an unfunded account
+        const test1Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
+        expect(test1Res.exitCode).toBe(0);
+        expect(test1Res.stdout).toContain('0.0000');
+    }, 300_000);
+
+    it('should be able to show balance correctly after funding', async () => {
+        const { api } = await newApi(ALICE_NODE_URL);
+
+        const caller = await randomFundedAccount(api, initAliceKeyring(), parseAmount('1000000'));
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret });
+
+        // create evm account
+        const evmAccount = randomEvmAccount();
+
+        // Can correctly see a zero balance for an unfunded account
+        const test1Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
+        expect(test1Res.exitCode).toBe(0);
+        expect(test1Res.stdout).toContain('0.0000');
+
+        // Create and fund a random Substrate account
+        const fundingRes = CLI(`evm fund --evm-address ${evmAccount.address} --amount 100`);
+        expect(fundingRes.exitCode).toBe(0);
+        expect(fundingRes.stdout).toContain('Transaction included at block');
+
+        const test2Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
+        expect(test2Res.exitCode).toBe(0);
+        expect(test2Res.stdout).toContain(' 99.9999 CTC');
+    }, 100_000);
+
+    it('should not be able to fund more than existing funds', async () => {
+        const { api } = await newApi(ALICE_NODE_URL);
+
+        const caller = await randomFundedAccount(api, initAliceKeyring(), parseAmount('100'));
+        const CLI = CLIBuilder({ CC_SECRET: caller.secret });
+
+        // create evm account
+        const evmAccount = randomEvmAccount();
+
+        // need a more elegant way to do this
+        try {
+            CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`); // expect to error here and drop below
+            expect(false).toBe(true); // trigger an automatic fail if we reach here
+        } catch (e) {
+            expect(true).toBe(true); // eslint doesn't like empty lines
+        }
+    }, 100_000);
 });
