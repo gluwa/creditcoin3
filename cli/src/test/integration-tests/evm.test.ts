@@ -58,7 +58,9 @@ describe('EVM commands', () => {
 
         // Check that the second account balance is greater than 0
         const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
-        const expectedBalance = BigInt(parseAmount('1').toString()) - BigInt(500); // Remove existential amount from the expected balance
+
+        const expectedBalance =
+            BigInt(parseAmount('1').toString()) - BigInt(api.consts.balances.existentialDeposit.toBigInt()); // Remove existential amount from the expected balance
         expect(evmBalance2.ctc).toBe(expectedBalance);
 
         await api.disconnect();
