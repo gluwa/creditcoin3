@@ -260,7 +260,7 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-    pub const MaxAuthorities: u32 = 100;
+    pub const MaxAuthorities: u32 = 100_000;
 
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
@@ -269,8 +269,8 @@ parameter_types! {
 impl pallet_grandpa::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
-    type MaxAuthorities = ConstU32<32>;
-    type MaxNominators = ConstU32<0>;
+    type MaxAuthorities = MaxAuthorities;
+    type MaxNominators = MaxNominatorRewardedPerValidator;
     type MaxSetIdSessionEntries = ();
     type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
     type EquivocationReportSystem =
@@ -487,7 +487,7 @@ impl pallet_babe::Config for Runtime {
     type WeightInfo = ();
     type MaxAuthorities = MaxAuthorities;
     type DisabledValidators = ();
-    type MaxNominators = ConstU32<100_000>; // TODO: revisit this
+    type MaxNominators = MaxNominatorRewardedPerValidator;
 }
 
 impl pallet_session::Config for Runtime {
