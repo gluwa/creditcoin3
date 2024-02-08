@@ -69,11 +69,16 @@ export function makeWizardCommand() {
         let balance;
 
         if (isProxy(keyring)) {
+            // Check proxy balance for fee
             await checkIfProxyIsValidOrExit(keyring.pair.address, address, api);
             const proxyBalance = await getBalance(keyring.pair.address, api);
             checkStashBalance(keyring.pair.address, proxyBalance, grosslyEstimatedFee);
-            balance = proxyBalance;
+            // Check stash balance for bond amount
+            const stashBalance = await getBalance(address, api);
+            checkStashBalance(address, stashBalance, amount);
+            balance = stashBalance;
         } else {
+            // Check stash balance for both fee and bond amount
             const stashBalance = await getBalance(address, api);
             const amountWithFee = amount.add(grosslyEstimatedFee);
             checkStashBalance(address, stashBalance, amountWithFee);
@@ -182,7 +187,6 @@ async function bondRoutine(
             console.log('You do not need to bond extra funds if using a proxy');
         }
         if (await promptContinueOrSkip(`Continue or skip bonding extra funds?`, interactive)) {
-            checkStashBalance(address, stashBalance, amount);
             // Bond extra
             console.log('Sending bond transaction...');
             const bondTxResult = await bond(keyring, amount, rewardDestination, api, bondExtra);
