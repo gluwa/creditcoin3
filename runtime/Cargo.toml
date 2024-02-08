@@ -42,7 +42,7 @@ frame-system-rpc-runtime-api = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-bags-list = { workspace = true }
-pallet-balances = { workspace = true }
+pallet-balances = { workspace = true, features = ["insecure_zero_ed"] }
 pallet-fast-unstake = { workspace = true }
 pallet-grandpa = { workspace = true }
 pallet-identity = { workspace = true }
