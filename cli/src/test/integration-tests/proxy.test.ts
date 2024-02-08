@@ -1,22 +1,32 @@
 import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
-import { newApi } from '../../lib';
+import { newApi, ApiPromise } from '../../lib';
 
 describe('Proxy functionality', () => {
-    it('Can list, add, and remove proxies for an account', async () => {
-        // Setup
-        const { api } = await newApi(ALICE_NODE_URL);
+    let api: ApiPromise;
+    let caller: any;
+    let proxy: any;
+    let CLI: any;
+
+    beforeAll(async () => {
+        ({ api } = await newApi(ALICE_NODE_URL));
 
         // Create a reference to sudo for funding accounts
         const sudoSigner = initAliceKeyring();
 
         // Create and fund the test and proxy account
-        const caller = await randomFundedAccount(api, sudoSigner);
-        const proxy = await randomFundedAccount(api, sudoSigner);
+        caller = await randomFundedAccount(api, sudoSigner);
+        proxy = await randomFundedAccount(api, sudoSigner);
 
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
+        CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
+    }, 60_000);
 
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    it('Can list, add, and remove proxies for an account', () => {
         // Test #1. List proxies, should be empty
         const test1Res = CLI('proxy list');
         expect(test1Res.stdout).toContain('No proxies for address'); // Indicates no proxies have been set and 0 funds have been proxied
@@ -39,25 +49,9 @@ describe('Proxy functionality', () => {
         // Test #6. List the proxies (should be empty )
         const test6Res = CLI(`proxy list --url ${BOB_NODE_URL}`);
         expect(test6Res.stdout).toContain('No proxies for address');
-
-        await api.disconnect();
     }, 60000);
 
-    it('Can successfully bond and unbond with a proxy account', async () => {
-        // Setup
-        const { api } = await newApi(ALICE_NODE_URL);
-
-        // Create a reference to sudo for funding accounts
-        const sudoSigner = initAliceKeyring();
-
-        // Create and fund the test and proxy account
-        const caller = await randomFundedAccount(api, sudoSigner);
-        const proxy = await randomFundedAccount(api, sudoSigner);
-
-        // Create a CLICmd instance with a properly configured environment
-        // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
-
+    it('Can successfully bond and unbond with a proxy account', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);
         expect(setupRes.stdout).toContain('Transaction included at block');
@@ -81,25 +75,9 @@ describe('Proxy functionality', () => {
         const test4Res = CLI(`unbond --amount 1 --use-proxy ${caller.address}`);
         expect(test4Res.exitCode).toEqual(0);
         expect(test4Res.stdout).toContain('Transaction included at block');
-
-        await api.disconnect();
     }, 60000);
 
-    it('Can successfully validate and chill with a proxy account', async () => {
-        // Setup
-        const { api } = await newApi(ALICE_NODE_URL);
-
-        // Create a reference to sudo for funding accounts
-        const sudoSigner = initAliceKeyring();
-
-        // Create and fund the test and proxy account
-        const caller = await randomFundedAccount(api, sudoSigner);
-        const proxy = await randomFundedAccount(api, sudoSigner);
-
-        // Create a CLICmd instance with a properly configured environment
-        // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
-
+    it('Can successfully validate and chill with a proxy account', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);
         expect(setupRes.stdout).toContain('Transaction included at block');
@@ -119,25 +97,9 @@ describe('Proxy functionality', () => {
         const test3Res = CLI(`chill --use-proxy ${caller.address}`);
         expect(test3Res.exitCode).toEqual(0);
         expect(test3Res.stdout).toContain('Transaction included at block');
-
-        await api.disconnect();
     }, 360_000);
 
-    it('Can successfully send funds with a proxy', async () => {
-        // Setup
-        const { api } = await newApi(ALICE_NODE_URL);
-
-        // Create a reference to sudo for funding accounts
-        const sudoSigner = initAliceKeyring();
-
-        // Create and fund the test and proxy account
-        const caller = await randomFundedAccount(api, sudoSigner);
-        const proxy = await randomFundedAccount(api, sudoSigner);
-
-        // Create a CLICmd instance with a properly configured environment
-        // eslint-disable-next-line @typescript-eslint/naming-convention
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
-
+    it('Can successfully send funds with a proxy', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type All`);
         expect(setupRes.exitCode).toEqual(0);
         expect(setupRes.stdout).toContain('Transaction included at block');
@@ -148,7 +110,5 @@ describe('Proxy functionality', () => {
         );
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
-
-        await api.disconnect();
     }, 360_000);
 });
