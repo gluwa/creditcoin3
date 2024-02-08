@@ -1,18 +1,28 @@
-import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
-import { newApi, ApiPromise } from '../../lib';
+import {
+    initAliceKeyring,
+    ALICE_NODE_URL,
+    BOB_NODE_URL,
+    randomFundedAccount,
+    randomTestAccount,
+    CLIBuilder,
+} from './helpers';
+import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
 describe('Proxy functionality', () => {
     let api: ApiPromise;
     let caller: any;
     let proxy: any;
+    let sudoSigner: KeyringPair;
     let CLI: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
 
         // Create a reference to sudo for funding accounts
-        const sudoSigner = initAliceKeyring();
+        sudoSigner = initAliceKeyring();
+    });
 
+    beforeEach(async () => {
         // Create and fund the test and proxy account
         caller = await randomFundedAccount(api, sudoSigner);
         proxy = await randomFundedAccount(api, sudoSigner);
@@ -26,31 +36,61 @@ describe('Proxy functionality', () => {
         await api.disconnect();
     });
 
-    it('Can list, add, and remove proxies for an account', () => {
-        // Test #1. List proxies, should be empty
-        const test1Res = CLI('proxy list');
-        expect(test1Res.stdout).toContain('No proxies for address'); // Indicates no proxies have been set and 0 funds have been proxied
+    describe('proxy list', () => {
+        it('should display no proxies when none are configured', () => {
+            const result = CLI('proxy list');
 
-        // Test #2. Add the proxy with no errors
-        const test2Res = CLI(`proxy add --proxy ${proxy.address} --type Staking --url ${BOB_NODE_URL}`);
-        expect(test2Res.exitCode).toEqual(0);
-        expect(test2Res.stdout).toContain('Transaction included at block');
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('No proxies for address');
+        }, 30_000);
 
-        // Test #3. List the proxy and ensure it
-        const test3Res = CLI(`proxy list --url ${BOB_NODE_URL}`);
-        expect(test3Res.stdout).toContain(proxy.address); // The proxy address should be listed
-        expect(test3Res.stdout).toContain('Staking'); // The type should be correctly listed as 'Staking'
+        it('should display proxies which are configured', () => {
+            const proxy2 = randomTestAccount();
 
-        // Test #5. Successfully remove the proxy
-        const test5Res = CLI(`proxy remove --proxy ${proxy.address} --url ${BOB_NODE_URL}`);
-        expect(test5Res.exitCode).toEqual(0);
-        expect(test2Res.stdout).toContain('Transaction included at block');
+            // setup
+            let result = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
 
-        // Test #6. List the proxies (should be empty )
-        const test6Res = CLI(`proxy list --url ${BOB_NODE_URL}`);
-        expect(test6Res.stdout).toContain('No proxies for address');
-    }, 60000);
+            // test
+            result = CLI(`proxy list --url ${BOB_NODE_URL}`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain(proxy.address); // The proxy address should be listed
+            expect(result.stdout).toContain('Staking'); // The type should be correctly listed as 'Staking'
+            expect(result.stdout).not.toContain(proxy2.address);
+        }, 60_000);
+    });
 
+    describe('proxy add', () => {
+        // todo: add error handling scenarios here
+
+        it('should execute without errors', () => {
+            const result = CLI(`proxy add --proxy ${proxy.address} --type NonTransfer --url ${BOB_NODE_URL}`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+        }, 60_000);
+    });
+
+    describe('proxy remove', () => {
+        // todo: add error handling scenarios here
+
+        it('should remove a configured proxy without errors', () => {
+            // setup
+            let result = CLI(`proxy add --proxy ${proxy.address} --type All`);
+            expect(result.exitCode).toEqual(0);
+
+            // test
+            result = CLI(`proxy remove --proxy ${proxy.address} --url ${BOB_NODE_URL}`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // verify
+            result = CLI('proxy list');
+            expect(result.stdout).toContain('No proxies for address');
+        }, 90_000);
+    });
+
+    // todo: CSUB-1025
     it('Can successfully bond and unbond with a proxy account', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);
@@ -77,6 +117,7 @@ describe('Proxy functionality', () => {
         expect(test4Res.stdout).toContain('Transaction included at block');
     }, 60000);
 
+    // todo: CSUB-1025
     it('Can successfully validate and chill with a proxy account', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);
@@ -99,6 +140,7 @@ describe('Proxy functionality', () => {
         expect(test3Res.stdout).toContain('Transaction included at block');
     }, 360_000);
 
+    // todo: CSUB-1025
     it('Can successfully send funds with a proxy', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type All`);
         expect(setupRes.exitCode).toEqual(0);
