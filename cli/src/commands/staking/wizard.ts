@@ -8,6 +8,7 @@ import { CcKeyring, initKeyring, isProxy, delegateAddress } from '../../lib/acco
 import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption, useProxyOption } from '../options';
+import { isProxyFor } from '../../lib/proxy';
 
 export function makeWizardCommand() {
     const cmd = new Command('wizard');
@@ -63,18 +64,25 @@ export function makeWizardCommand() {
         // Prompt continue
         await promptContinue(interactive);
 
-        // get balances.
-        const stashBalance = await getBalance(address, api);
-
-        // ensure they have enough fee's and balance to cover the wizard.
+        // Balance checks
         const grosslyEstimatedFee = parseCTCString('2');
+        let balance;
 
-        const amountWithFee = amount.add(grosslyEstimatedFee);
-        checkStashBalance(address, stashBalance, amountWithFee);
+        if (isProxy(keyring)) {
+            await checkIfProxyIsValidOrExit(keyring.pair.address, address, api);
+            const proxyBalance = await getBalance(keyring.pair.address, api);
+            checkStashBalance(keyring.pair.address, proxyBalance, grosslyEstimatedFee);
+            balance = proxyBalance;
+        } else {
+            const stashBalance = await getBalance(address, api);
+            const amountWithFee = amount.add(grosslyEstimatedFee);
+            checkStashBalance(address, stashBalance, amountWithFee);
+            balance = stashBalance;
+        }
 
         // Bond CTC
-        if (bondStep || isProxy(keyring)) {
-            await bondRoutine(keyring, address, stashBalance, amount, rewardDestination, api, interactive);
+        if (bondStep) {
+            await bondRoutine(keyring, address, balance, amount, rewardDestination, api, interactive);
         }
 
         // Rotate keys
@@ -101,9 +109,10 @@ export function makeWizardCommand() {
 
         console.log(batchResult.info);
 
-        // // Inform process
-        console.log('🧙 Validator wizard completed successfully!');
-        console.log('Your validator should appear on the waiting queue.');
+        if (batchResult.status === TxStatus.ok) {
+            console.log('🧙 Validator wizard completed successfully!');
+            console.log('Your validator should appear on the waiting queue.');
+        }
 
         process.exit(0);
     });
@@ -112,9 +121,9 @@ export function makeWizardCommand() {
 
 function checkStashBalance(address: string, balance: AccountBalance, amount: BN) {
     if (balance.transferable.lt(amount)) {
-        console.log(`Stash account does not have enough funds to bond ${toCTCString(amount)}`);
+        console.log(`Account does not have enough funds, it requires ${toCTCString(amount)}`);
         printBalance(balance);
-        console.log(`Please send funds to stash address ${address} and try again.`);
+        console.log(`Please send funds to address ${address} and try again.`);
         process.exit(1);
     }
 }
@@ -192,5 +201,13 @@ async function bondRoutine(
             console.log('Bond transaction failed. Exiting.');
             process.exit(1);
         }
+    }
+}
+
+async function checkIfProxyIsValidOrExit(proxy: string, proxee: string, api: ApiPromise) {
+    const result = await isProxyFor(proxy, proxee, api);
+    if (!result) {
+        console.log(`Proxy ${proxy} is not valid for ${proxee}`);
+        process.exit(1);
     }
 }
