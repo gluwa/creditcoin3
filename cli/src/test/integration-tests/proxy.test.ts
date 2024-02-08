@@ -1,4 +1,4 @@
-import { initAliceKeyring, ALICE_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
+import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
 import { newApi } from '../../lib';
 
 describe('Proxy functionality', () => {
@@ -22,22 +22,22 @@ describe('Proxy functionality', () => {
         expect(test1Res.stdout).toContain('No proxies for address'); // Indicates no proxies have been set and 0 funds have been proxied
 
         // Test #2. Add the proxy with no errors
-        const test2Res = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
+        const test2Res = CLI(`proxy add --proxy ${proxy.address} --type Staking --url ${BOB_NODE_URL}`);
         expect(test2Res.exitCode).toEqual(0);
         expect(test2Res.stdout).toContain('Transaction included at block');
 
         // Test #3. List the proxy and ensure it
-        const test3Res = CLI('proxy list');
+        const test3Res = CLI(`proxy list --url ${BOB_NODE_URL}`);
         expect(test3Res.stdout).toContain(proxy.address); // The proxy address should be listed
         expect(test3Res.stdout).toContain('Staking'); // The type should be correctly listed as 'Staking'
 
         // Test #5. Successfully remove the proxy
-        const test5Res = CLI(`proxy remove --proxy ${proxy.address}`);
+        const test5Res = CLI(`proxy remove --proxy ${proxy.address} --url ${BOB_NODE_URL}`);
         expect(test5Res.exitCode).toEqual(0);
         expect(test2Res.stdout).toContain('Transaction included at block');
 
         // Test #6. List the proxies (should be empty )
-        const test6Res = CLI('proxy list');
+        const test6Res = CLI(`proxy list --url ${BOB_NODE_URL}`);
         expect(test6Res.stdout).toContain('No proxies for address');
 
         await api.disconnect();
