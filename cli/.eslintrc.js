@@ -119,6 +119,12 @@ module.exports = {
         '@typescript-eslint/prefer-function-type': 'error',
         '@typescript-eslint/prefer-namespace-keyword': 'error',
         '@typescript-eslint/quotes': 'off',
+        '@typescript-eslint/restrict-template-expressions': [
+            'error',
+            {
+                allowAny: true
+            }
+        ],
         '@typescript-eslint/semi': ['off', null],
         '@typescript-eslint/triple-slash-reference': [
             'error',
