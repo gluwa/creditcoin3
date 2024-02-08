@@ -44,7 +44,7 @@ describe('integration test: validator wizard setup', () => {
     }, 120000);
 
     it('new validator should appear as waiting after running wizard with a proxy', async () => {
-        // Fund stash and controller
+        // Fund stash and proxy
         const stash = randomTestAccount();
         const proxy = randomTestAccount();
 
