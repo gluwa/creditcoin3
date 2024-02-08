@@ -36,3 +36,8 @@ export async function addressIsAlreadyProxy(addr: string, api: ApiPromise): Prom
     }
     return false;
 }
+
+export async function isProxyFor(addr: string, delegator: string, api: ApiPromise): Promise<boolean> {
+    const proxyList = await proxiesForAddress(delegator, api);
+    return addressIsProxy(addr, proxyList);
+}
