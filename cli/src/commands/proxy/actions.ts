@@ -19,7 +19,7 @@ export async function setProxyAction(options: OptionValues) {
     }
 
     if (await addressIsAlreadyProxy(proxyAddr, api)) {
-        console.error(`ERROR: The proxy ${callerKeyring.address} is already in use with another validator`);
+        console.error(`ERROR: The proxy ${proxyAddr} is already in use with another validator`);
         process.exit(2);
     }
 
