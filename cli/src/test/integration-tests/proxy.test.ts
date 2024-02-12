@@ -62,13 +62,62 @@ describe('Proxy functionality', () => {
     });
 
     describe('proxy add', () => {
-        // todo: add error handling scenarios here
-
         it('should execute without errors', () => {
             const result = CLI(`proxy add --proxy ${proxy.address} --type NonTransfer --url ${BOB_NODE_URL}`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
         }, 60_000);
+
+        it('should error when caller does not have funds to pay fees', () => {
+            // setup
+            const caller2 = randomTestAccount();
+            const cli = CLIBuilder({ CC_SECRET: caller2.secret });
+
+            // test
+            try {
+                cli(`proxy add --proxy ${proxy.address} --type Staking`);
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(
+                    `Caller ${caller2.address} has insufficient funds to send the transaction`,
+                );
+            }
+        }, 60_000);
+
+        it('should error when caller already has configured a proxy', () => {
+            // setup
+            const result = CLI(`proxy add --proxy ${proxy.address} --type NonTransfer`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+            const proxy2 = randomTestAccount();
+
+            // test
+            try {
+                CLI(`proxy add --proxy ${proxy2.address} --type Staking`);
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(`ERROR: There is already an existing proxy set for ${caller.address}`);
+            }
+        }, 90_000);
+
+        it('should error when trying to configure a proxy used by another delegate', async () => {
+            // setup
+            const caller2 = await randomFundedAccount(api, sudoSigner);
+            const cli = CLIBuilder({ CC_SECRET: caller2.secret });
+            const result = cli(`proxy add --proxy ${proxy.address} --type All`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // test
+            try {
+                CLI(`proxy add --proxy ${proxy.address} --type Staking`);
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(2);
+                expect(error.stderr).toContain(
+                    `ERROR: The proxy ${proxy.address} is already in use with another validator`,
+                );
+            }
+        }, 90_000);
     });
 
     describe('proxy remove', () => {
