@@ -14,12 +14,12 @@ export async function setProxyAction(options: OptionValues) {
 
     const existingProxiesForAddress = await proxiesForAddress(callerKeyring.address, api);
     if (existingProxiesForAddress.length >= 1) {
-        console.log(`ERROR: There is already an existing proxy set for ${callerKeyring.address}`);
+        console.error(`ERROR: There is already an existing proxy set for ${callerKeyring.address}`);
         process.exit(1);
     }
 
     if (await addressIsAlreadyProxy(proxyAddr, api)) {
-        console.log(`ERROR: The proxy ${callerKeyring.address} is already in use with another validator`);
+        console.error(`ERROR: The proxy ${callerKeyring.address} is already in use with another validator`);
         process.exit(2);
     }
 
@@ -57,13 +57,13 @@ export async function removeProxyAction(options: OptionValues) {
 
     const proxies = await proxiesForAddress(callerAddress, api);
     if (proxies.length === 0) {
-        console.log(`ERROR: No proxies have been set for ${callerAddress}`);
+        console.error(`ERROR: No proxies have been set for ${callerAddress}`);
         process.exit(1);
     }
 
     const existingProxy = filterProxiesByAddress(options.proxy, proxies);
     if (!addressIsProxy(options.proxy, existingProxy)) {
-        console.log(`ERROR: ${options.proxy as string} is not a proxy for ${callerAddress}`);
+        console.error(`ERROR: ${options.proxy as string} is not a proxy for ${callerAddress}`);
         process.exit(1);
     }
 
