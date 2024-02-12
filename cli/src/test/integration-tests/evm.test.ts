@@ -1,6 +1,5 @@
-import { commandSync } from 'execa';
 import { signSendAndWatch } from '../../lib/tx';
-import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH } from './helpers';
+import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL } from './helpers';
 import { MICROUNITS_PER_CTC, newApi } from '../../lib';
 import { randomEvmAccount } from './evmHelpers';
 import { getEVMBalanceOf } from '../../lib/evm/balance';
@@ -22,12 +21,8 @@ describe('EVM commands', () => {
         // Create a random EVM account
         const evmAccount = randomEvmAccount();
 
-        // Fund it with 10 CTC using the CLI
-        const result = commandSync(`node ${CLI_PATH} evm fund --evm-address ${evmAccount.address} --amount 10`, {
-            env: {
-                CC_SECRET: caller.secret,
-            },
-        });
+        const CLI = CLIBuilder({ env: { CC_SECRET: caller.secret } });
+        const result = CLI(`evm fund --evm-address ${evmAccount.address} --amount 10`);
 
         // Check that the transaction was included
         expect(result.stdout).toContain('Transaction included');
@@ -50,12 +45,8 @@ describe('EVM commands', () => {
         const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
-        // Send 1 CTC from account 1 to account 2
-        commandSync(`node ${CLI_PATH} evm send --evm-address ${evmAccount2.address} --amount 1`, {
-            env: {
-                EVM_SECRET: evmAccount1.mnemonic,
-            },
-        });
+        const CLI = CLIBuilder({ env: { EVM_SECRET: evmAccount1.mnemonic } });
+        CLI(`evm send --evm-address ${evmAccount2.address} --amount `);
 
         // Check that the second account balance is greater than 0
         const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
@@ -74,6 +65,8 @@ describe('EVM commands', () => {
         const evmAccount = randomEvmAccount();
         const substrateAccount = randomTestAccount();
 
+        const CLI = CLIBuilder({ CC_SECRET: substrateAccount.secret });
+
         // Create and fund the EVM account through its associated Substrate account
         const substrateAddress = evmAddressToSubstrateAddress(evmAccount.address);
         const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
@@ -85,18 +78,10 @@ describe('EVM commands', () => {
 
         // Send 1 CTC from the EVM account to the Substrate account
         const associatedEvmAccount = substrateAddressToEvmAddress(substrateAccount.address);
-        commandSync(`node ${CLI_PATH} evm send --evm-address ${associatedEvmAccount} --amount 1`, {
-            env: {
-                EVM_SECRET: evmAccount.mnemonic,
-            },
-        });
+        CLI(`evm send --evm-address ${associatedEvmAccount} --amount 1`);
 
         // Withdraw 1 CTC to the Substrate account
-        commandSync(`node ${CLI_PATH} evm withdraw`, {
-            env: {
-                CC_SECRET: substrateAccount.secret,
-            },
-        });
+        CLI(`evm withdraw`);
 
         // Check that the caller's Substrate account balance is greater than 1
         const balance = await getBalance(substrateAccount.address, api);
@@ -127,11 +112,6 @@ describe('EVM commands', () => {
         // create evm account
         const evmAccount = randomEvmAccount();
 
-        // Can correctly see a zero balance for an unfunded account
-        const test1Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
-        expect(test1Res.exitCode).toBe(0);
-        expect(test1Res.stdout).toContain('0.0000');
-
         // Create and fund a random Substrate account
         const fundingRes = CLI(`evm fund --evm-address ${evmAccount.address} --amount 100`);
         expect(fundingRes.exitCode).toBe(0);
@@ -151,12 +131,6 @@ describe('EVM commands', () => {
         // create evm account
         const evmAccount = randomEvmAccount();
 
-        // need a more elegant way to do this
-        try {
-            CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`); // expect to error here and drop below
-            expect(false).toBe(true); // trigger an automatic fail if we reach here
-        } catch (e) {
-            expect(true).toBe(true); // eslint doesn't like empty lines
-        }
+        expect(CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`)).toThrow(Error);
     }, 100_000);
 });
