@@ -1,6 +1,6 @@
 import { signSendAndWatch } from '../../lib/tx';
-import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL } from './helpers';
-import { MICROUNITS_PER_CTC, newApi } from '../../lib';
+import { fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL } from './helpers';
+import { ApiPromise, KeyringPair, MICROUNITS_PER_CTC, newApi } from '../../lib';
 import { randomEvmAccount } from './evmHelpers';
 import { getEVMBalanceOf } from '../../lib/evm/balance';
 import { convertWsToHttp } from '../../lib/evm/rpc';
@@ -10,18 +10,23 @@ import { parseAmount } from '../../commands/options';
 import { randomFundedAccount, CLIBuilder } from './helpers';
 
 describe('EVM commands', () => {
+    let api: ApiPromise;
+    let caller: { secret: any; keyring: KeyringPair; address: string };
+    let CLI: (arg0: string) => any;
+
+    beforeEach(async () => {
+        caller = await randomFundedAccount(api, initAliceKeyring(), parseAmount('1000000'));
+        CLI = CLIBuilder({ CC_SECRET: caller.secret });
+    }, 100_000);
+
+    beforeAll(async () => {
+        ({ api } = await newApi(ALICE_NODE_URL));
+    }, 100_000);
+
     it('should be able to fund an EVM account', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
-
-        // Create and fund a random Substrate account
-        const caller = randomTestAccount();
-        const fundTx = await fundAddressesFromSudo([caller.address], parseAmount('10000'));
-        await signSendAndWatch(fundTx, api, initAliceKeyring());
-
         // Create a random EVM account
         const evmAccount = randomEvmAccount();
 
-        const CLI = CLIBuilder({ env: { CC_SECRET: caller.secret } });
         const result = CLI(`evm fund --evm-address ${evmAccount.address} --amount 10`);
 
         // Check that the transaction was included
@@ -34,8 +39,6 @@ describe('EVM commands', () => {
         await api.disconnect();
     }, 60000);
     it('should be able to send CTC between EVM accounts', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
-
         // Create two random EVM accounts
         const evmAccount1 = randomEvmAccount();
         const evmAccount2 = randomEvmAccount();
@@ -45,8 +48,9 @@ describe('EVM commands', () => {
         const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
-        const CLI = CLIBuilder({ env: { EVM_SECRET: evmAccount1.mnemonic } });
-        CLI(`evm send --evm-address ${evmAccount2.address} --amount `);
+        // override the default CLI instance with one capable of making evm commands
+        const CLI2 = CLIBuilder({ env: { EVM_SECRET: evmAccount1.mnemonic } });
+        CLI2(`evm send --evm-address ${evmAccount2.address} --amount `);
 
         // Check that the second account balance is greater than 0
         const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
@@ -59,41 +63,33 @@ describe('EVM commands', () => {
     }, 60000);
 
     it('should be able to withdraw CTC to a Substrate account', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
-
         // Create one EVM account & a Substrate account
         const evmAccount = randomEvmAccount();
-        const substrateAccount = randomTestAccount();
-
-        const CLI = CLIBuilder({ CC_SECRET: substrateAccount.secret });
 
         // Create and fund the EVM account through its associated Substrate account
         const substrateAddress = evmAddressToSubstrateAddress(evmAccount.address);
         const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
         await signSendAndWatch(fundTx, api, initAliceKeyring());
 
-        // Fund the Substrate account with 0.1 CTC to pay for fees
-        const fundTx2 = await fundAddressesFromSudo([substrateAccount.address], parseAmount('0.1'));
-        await signSendAndWatch(fundTx2, api, initAliceKeyring());
-
         // Send 1 CTC from the EVM account to the Substrate account
-        const associatedEvmAccount = substrateAddressToEvmAddress(substrateAccount.address);
-        CLI(`evm send --evm-address ${associatedEvmAccount} --amount 1`);
+        const associatedEvmAccount = substrateAddressToEvmAddress(caller.address);
+
+        // override the default CLI instance with one capable of making evm and substrate commands
+        const CLI2 = CLIBuilder({ env: { EVM_SECRET: evmAccount.mnemonic, CC_SECRET: caller.secret } });
+        CLI2(`evm send --evm-address ${associatedEvmAccount} --amount 1`);
 
         // Withdraw 1 CTC to the Substrate account
-        CLI(`evm withdraw`);
+        // requires the CC_SECRET set above
+        CLI2(`evm withdraw`);
 
         // Check that the caller's Substrate account balance is greater than 1
-        const balance = await getBalance(substrateAccount.address, api);
+        const balance = await getBalance(caller.address, api);
         expect(BigInt(balance.total.toString())).toBeGreaterThan(1 * MICROUNITS_PER_CTC); // 1 CTC
 
         await api.disconnect();
     }, 60000);
 
     it('should be able to show evm balance correctly when balance is zero', () => {
-        const caller = randomTestAccount();
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret });
-
         // create evm account
         const evmAccount = randomEvmAccount();
 
@@ -103,12 +99,7 @@ describe('EVM commands', () => {
         expect(test1Res.stdout).toContain('0.0000');
     }, 300_000);
 
-    it('should be able to show balance correctly after funding', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
-
-        const caller = await randomFundedAccount(api, initAliceKeyring(), parseAmount('1000000'));
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret });
-
+    it('should be able to show balance correctly after funding', () => {
         // create evm account
         const evmAccount = randomEvmAccount();
 
@@ -122,15 +113,14 @@ describe('EVM commands', () => {
         expect(test2Res.stdout).toContain(' 99.9999 CTC');
     }, 100_000);
 
-    it('should not be able to fund more than existing funds', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
-
-        const caller = await randomFundedAccount(api, initAliceKeyring(), parseAmount('100'));
-        const CLI = CLIBuilder({ CC_SECRET: caller.secret });
-
-        // create evm account
+    it('should not be able to fund more than existing funds', () => {
         const evmAccount = randomEvmAccount();
 
-        expect(CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`)).toThrow(Error);
+        try {
+            CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`);
+        } catch (error: any) {
+            expect(error.exitCode).toEqual(1);
+            expect(error.stderr).toContain(`has insufficient funds to send the transaction`);
+        }
     }, 100_000);
 });
