@@ -1,4 +1,5 @@
 import {
+    fundFromSudo,
     initAliceKeyring,
     ALICE_NODE_URL,
     BOB_NODE_URL,
@@ -7,6 +8,7 @@ import {
     CLIBuilder,
 } from './helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { parseAmount } from '../../commands/options';
 
 describe('Proxy functionality', () => {
     let api: ApiPromise;
@@ -121,8 +123,6 @@ describe('Proxy functionality', () => {
     });
 
     describe('proxy remove', () => {
-        // todo: add error handling scenarios here
-
         it('should remove a configured proxy without errors', () => {
             // setup
             let result = CLI(`proxy add --proxy ${proxy.address} --type All`);
@@ -137,6 +137,48 @@ describe('Proxy functionality', () => {
             result = CLI('proxy list');
             expect(result.stdout).toContain('No proxies for address');
         }, 90_000);
+
+        it('should error when caller does not have funds to pay fees', async () => {
+            // setup
+            const result = CLI(`proxy add --proxy ${proxy.address} --type All`);
+            expect(result.exitCode).toEqual(0);
+            await fundFromSudo(caller.address, parseAmount('1'));
+
+            // test
+            try {
+                CLI(`proxy remove --proxy ${proxy.address}`);
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stdout).toContain(
+                    `Caller ${caller.address} has insufficient funds to send the transaction`,
+                );
+            }
+        }, 60_000);
+
+        it('should error when no proxy defined', () => {
+            // test
+            try {
+                CLI(`proxy remove --proxy ${proxy.address}`);
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(`ERROR: No proxies have been set for ${caller.address}`);
+            }
+        }, 60_000);
+
+        it('should error when removing a non-proxy address', () => {
+            // setup
+            const result = CLI(`proxy add --proxy ${proxy.address} --type All`);
+            expect(result.exitCode).toEqual(0);
+            const proxy2 = randomTestAccount();
+
+            // test
+            try {
+                CLI(`proxy remove --proxy ${proxy2.address}`);
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(`ERROR: ${proxy2.address} is not a proxy for ${caller.address}`);
+            }
+        }, 60_000);
     });
 
     // todo: CSUB-1025
