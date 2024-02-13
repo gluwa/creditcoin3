@@ -23,6 +23,10 @@ describe('EVM Commands', () => {
         ({ api } = await newApi(ALICE_NODE_URL));
     }, 100_000);
 
+    afterAll(async () => {
+        await api.disconnect();
+    }, 10_000);
+
     describe('EVM Fund', () => {
         it('should be able to fund an EVM account', async () => {
             // Create a random EVM account
@@ -36,8 +40,6 @@ describe('EVM Commands', () => {
             // Check that the EVM account has a balance
             const evmBalance = await getEVMBalanceOf(evmAccount.address, convertWsToHttp(ALICE_NODE_URL));
             expect(evmBalance.ctc).toBeGreaterThan(0);
-
-            await api.disconnect();
         }, 60000);
 
         it('should not be able to fund more than existing funds', () => {
@@ -71,8 +73,6 @@ describe('EVM Commands', () => {
             const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
             const expectedBalance = BigInt(parseAmount('1').toString()) - BigInt(500); // Remove existential amount from the expected balance
             expect(evmBalance2.ctc).toBe(expectedBalance);
-
-            await api.disconnect();
         }, 60000);
     });
 
@@ -100,8 +100,6 @@ describe('EVM Commands', () => {
             // Check that the caller's Substrate account balance is greater than 1
             const balance = await getBalance(caller.address, api);
             expect(BigInt(balance.total.toString())).toBeGreaterThan(1 * MICROUNITS_PER_CTC); // 1 CTC
-
-            await api.disconnect();
         }, 60000);
     });
 
