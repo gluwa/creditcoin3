@@ -71,7 +71,7 @@ describe('EVM Commands', () => {
 
             // Check that the second account balance is greater than 0
             const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
-            const expectedBalance = BigInt(parseAmount('1').toString()); 
+            const expectedBalance = BigInt(parseAmount('1').toString());
             expect(evmBalance2.ctc).toBe(expectedBalance);
         }, 60000);
     });
