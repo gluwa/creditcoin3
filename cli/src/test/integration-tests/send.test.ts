@@ -1,18 +1,29 @@
 import { commandSync } from 'execa';
-import { parseAmount } from '../../commands/options';
-import { signSendAndWatch } from '../../lib/tx';
-import { randomTestAccount, fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL, CLI_PATH } from './helpers';
-import { newApi } from '../../lib';
+import { initAliceKeyring, randomFundedAccount, ALICE_NODE_URL, CLI_PATH } from './helpers';
+import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
 describe('Send command', () => {
-    it('should be able to send CTC', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
+    let api: ApiPromise;
+    let caller: any;
+    let sudoSigner: KeyringPair;
 
-        const caller = randomTestAccount();
+    beforeAll(async () => {
+        ({ api } = await newApi(ALICE_NODE_URL));
 
-        const fundTx = await fundAddressesFromSudo([caller.address], parseAmount('10000'));
-        await signSendAndWatch(fundTx, api, initAliceKeyring());
+        // Create a reference to sudo for funding accounts
+        sudoSigner = initAliceKeyring();
+    });
 
+    beforeEach(async () => {
+        // Create and fund the test and proxy account
+        caller = await randomFundedAccount(api, sudoSigner);
+    }, 60_000);
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    it('should be able to send CTC', () => {
         const result = commandSync(
             `node ${CLI_PATH} send --substrate-address 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
             {
@@ -23,6 +34,5 @@ describe('Send command', () => {
         );
 
         expect(result.stdout).toContain('Transaction included');
-        await api.disconnect();
-    }, 60000);
+    }, 60_000);
 });
