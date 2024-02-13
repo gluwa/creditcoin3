@@ -67,11 +67,11 @@ describe('EVM Commands', () => {
 
             // override the default CLI instance with one capable of making evm commands
             const CLI2 = CLIBuilder({ EVM_SECRET: evmAccount1.mnemonic });
-            CLI2(`evm send --evm-address ${evmAccount2.address} --amount `);
+            CLI2(`evm send --evm-address ${evmAccount2.address} --amount 1`);
 
             // Check that the second account balance is greater than 0
             const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
-            const expectedBalance = BigInt(parseAmount('1').toString()) - BigInt(500); // Remove existential amount from the expected balance
+            const expectedBalance = BigInt(parseAmount('1').toString()); 
             expect(evmBalance2.ctc).toBe(expectedBalance);
         }, 60000);
     });
@@ -125,7 +125,7 @@ describe('EVM Commands', () => {
 
             const test2Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
             expect(test2Res.exitCode).toBe(0);
-            expect(test2Res.stdout).toContain(' 99.9999 CTC');
+            expect(test2Res.stdout).toContain(' 100.0000 CTC');
         }, 100_000);
     });
 });
