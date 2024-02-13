@@ -66,7 +66,7 @@ describe('EVM Commands', () => {
             await signSendAndWatch(fundTx, api, initAliceKeyring());
 
             // override the default CLI instance with one capable of making evm commands
-            const CLI2 = CLIBuilder({ env: { EVM_SECRET: evmAccount1.mnemonic } });
+            const CLI2 = CLIBuilder({ EVM_SECRET: evmAccount1.mnemonic });
             CLI2(`evm send --evm-address ${evmAccount2.address} --amount `);
 
             // Check that the second account balance is greater than 0
@@ -90,7 +90,7 @@ describe('EVM Commands', () => {
             const associatedEvmAccount = substrateAddressToEvmAddress(caller.address);
 
             // override the default CLI instance with one capable of making evm and substrate commands
-            const CLI2 = CLIBuilder({ env: { EVM_SECRET: evmAccount.mnemonic, CC_SECRET: caller.secret } });
+            const CLI2 = CLIBuilder({ EVM_SECRET: evmAccount.mnemonic, CC_SECRET: caller.secret });
             CLI2(`evm send --evm-address ${associatedEvmAccount} --amount 1`);
 
             // Withdraw 1 CTC to the Substrate account
