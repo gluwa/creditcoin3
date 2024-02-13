@@ -494,6 +494,32 @@ jobs:
           verbose: true
 
   integration-test-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing
     runs-on: ubuntu-22.04
@@ -572,9 +598,13 @@ jobs:
         working-directory: ./cli
         run: |
           yarn test:integration
+        env:
+          PROXY_ENABLED: ${{ matrix.proxy }}
+          PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          PROXY_TYPE: ${{ matrix.proxy_type }}
 
       - name: Commit changes for typedefs
-        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' && matrix.proxy == 'no' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
