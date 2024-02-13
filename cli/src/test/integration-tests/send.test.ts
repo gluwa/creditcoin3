@@ -1,11 +1,11 @@
-import { commandSync } from 'execa';
-import { initAliceKeyring, randomFundedAccount, ALICE_NODE_URL, CLI_PATH } from './helpers';
+import { initAliceKeyring, randomFundedAccount, ALICE_NODE_URL, CLIBuilder } from './helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
 describe('Send command', () => {
     let api: ApiPromise;
     let caller: any;
     let sudoSigner: KeyringPair;
+    let CLI: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
@@ -17,6 +17,8 @@ describe('Send command', () => {
     beforeEach(async () => {
         // Create and fund the test and proxy account
         caller = await randomFundedAccount(api, sudoSigner);
+
+        CLI = CLIBuilder({ CC_SECRET: caller.secret });
     }, 60_000);
 
     afterAll(async () => {
@@ -24,15 +26,9 @@ describe('Send command', () => {
     });
 
     it('should be able to send CTC', () => {
-        const result = commandSync(
-            `node ${CLI_PATH} send --substrate-address 5HDRB6edmWwwh6aCDKrRSbisV8iFHdP7jDy18U2mt9w2wEkq --amount 10`,
-            {
-                env: {
-                    CC_SECRET: caller.secret,
-                },
-            },
-        );
-
-        expect(result.stdout).toContain('Transaction included');
+        // Send money to Alice
+        const result = CLI(`send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
     }, 60_000);
 });
