@@ -68,8 +68,38 @@ export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPa
 }
 
 export function CLIBuilder(env: any) {
+    let extraArgs = '';
+    if (env.CC_PROXY_SECRET) {
+        // WARNING: proxy setup must be done outside of this function
+        const delegate = initKeyringPair(env.CC_SECRET);
+        extraArgs = `--use-proxy ${delegate.address}`;
+    }
+
     function CLICmd(cmd: string) {
-        return commandSync(`node ${CLI_PATH} ${cmd}`, { env });
+        return commandSync(`node ${CLI_PATH} ${cmd} ${extraArgs}`, { env });
     }
     return CLICmd;
+}
+
+export function setUpProxy(nonProxiedCli: any, delegate: any, proxy: any) {
+    if (process.env.PROXY_ENABLED === 'yes') {
+        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+        const result = nonProxiedCli(`proxy add --proxy ${proxy.address} --type ${process.env.PROXY_TYPE}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
+
+        // make sure that our CLI instance uses the proxy account
+        return CLIBuilder({ CC_SECRET: delegate.secret, CC_PROXY_SECRET: proxy.secret });
+    }
+
+    // or keep using the regular non-proxy CLI instance
+    return nonProxiedCli;
+}
+
+export function tearDownProxy(cli: any, proxy: any) {
+    if (process.env.PROXY_ENABLED === 'yes') {
+        const result = cli(`proxy remove --proxy ${proxy.address}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
+    }
 }
