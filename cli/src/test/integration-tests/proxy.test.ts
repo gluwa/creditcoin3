@@ -225,18 +225,4 @@ describe('Proxy functionality', () => {
         expect(test3Res.exitCode).toEqual(0);
         expect(test3Res.stdout).toContain('Transaction included at block');
     }, 360_000);
-
-    // todo: CSUB-1025
-    it('Can successfully send funds with a proxy', () => {
-        const setupRes = CLI(`proxy add --proxy ${proxy.address} --type All`);
-        expect(setupRes.exitCode).toEqual(0);
-        expect(setupRes.stdout).toContain('Transaction included at block');
-
-        // Test #1. Send money to Alice
-        const test1Res = CLI(
-            `send --amount 1 --use-proxy ${caller.address} --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`,
-        );
-        expect(test1Res.exitCode).toEqual(0);
-        expect(test1Res.stdout).toContain('Transaction included at block');
-    }, 360_000);
 });

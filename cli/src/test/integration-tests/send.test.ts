@@ -1,11 +1,20 @@
-import { initAliceKeyring, randomFundedAccount, ALICE_NODE_URL, CLIBuilder } from './helpers';
+import {
+    initAliceKeyring,
+    randomFundedAccount,
+    setUpProxy,
+    tearDownProxy,
+    ALICE_NODE_URL,
+    CLIBuilder,
+} from './helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
 describe('Send command', () => {
     let api: ApiPromise;
     let caller: any;
+    let proxyAccount: any;
     let sudoSigner: KeyringPair;
     let CLI: any;
+    let nonProxiedCli: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
@@ -17,11 +26,13 @@ describe('Send command', () => {
     beforeEach(async () => {
         // Create and fund the test and proxy account
         caller = await randomFundedAccount(api, sudoSigner);
-
-        CLI = CLIBuilder({ CC_SECRET: caller.secret });
+        proxyAccount = await randomFundedAccount(api, sudoSigner);
+        nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
+        CLI = setUpProxy(nonProxiedCli, caller, proxyAccount);
     }, 60_000);
 
     afterAll(async () => {
+        tearDownProxy(nonProxiedCli, proxyAccount);
         await api.disconnect();
     });
 
