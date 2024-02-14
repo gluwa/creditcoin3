@@ -119,7 +119,7 @@ export function makeWizardCommand() {
             console.log('Your validator should appear on the waiting queue.');
         }
 
-        process.exit(0);
+        process.exit(batchResult.status);
     });
     return cmd;
 }
