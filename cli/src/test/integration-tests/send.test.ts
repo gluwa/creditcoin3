@@ -56,7 +56,7 @@ describe('Send command', () => {
         () => {
             // Send money to Alice
             try {
-                const result = CLI(`send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`);
+                const result = CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
                 expect(result.exitCode).toEqual(0);
                 expect(result.stdout).toContain('Transaction included at block');
             } catch (error: any) {
