@@ -81,12 +81,29 @@ export function CLIBuilder(env: any) {
     return CLICmd;
 }
 
-export function setUpProxy(nonProxiedCli: any, delegate: any, proxy: any) {
+export async function setUpProxy(nonProxiedCli: any, delegate: any, proxy: any, wrongProxy: any) {
     if (process.env.PROXY_ENABLED === 'yes') {
+        // this value isn't always defined properly
+        let proxyType = process.env.PROXY_TYPE;
+        if (proxyType === undefined || proxyType === '') {
+            proxyType = 'All';
+        }
+
         // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-        const result = nonProxiedCli(`proxy add --proxy ${proxy.address} --type ${process.env.PROXY_TYPE}`);
+        const result = nonProxiedCli(`proxy add --proxy ${proxy.address} --type ${proxyType}`);
         expect(result.exitCode).toEqual(0);
         expect(result.stdout).toContain('Transaction included at block');
+
+        if (process.env.PROXY_SECRET_VARIANT === 'no-funds') {
+            // will cause the configured proxy account not to have enough funds to pay fees
+            await fundFromSudo(proxy.address, new BN(0));
+        } else if (process.env.PROXY_SECRET_VARIANT === 'not-a-proxy') {
+            // will cause CLI calls to use a proxy secret for a funded account which ISN'T
+            // configured as a proxy for the delegate address. WARNING: outside of this function
+            // the variable `proxy` will have its original value so you need to use wrongProxy.address
+            // when assrting against error messages
+            proxy = wrongProxy;
+        }
 
         // make sure that our CLI instance uses the proxy account
         return CLIBuilder({ CC_SECRET: delegate.secret, CC_PROXY_SECRET: proxy.secret });
