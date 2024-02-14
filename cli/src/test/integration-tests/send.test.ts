@@ -1,3 +1,4 @@
+import { testIf } from '../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -8,22 +9,11 @@ import {
 } from './helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
-const testDescription = () => {
-    let description = 'should be able to send CTC';
-
-    if (process.env.PROXY_SECRET_VARIANT !== 'valid-proxy') {
-        description = 'should error with not-a-proxy message';
-    } else if (process.env.PROXY_TYPE === 'Staking' || process.env.PROXY_TYPE === 'NonTransfer') {
-        description = `should error with no permission message for proxy type ${process.env.PROXY_TYPE}`;
-    }
-
-    return description;
-};
-
 describe('Send command', () => {
     let api: ApiPromise;
     let caller: any;
     let proxy: any;
+    let wrongProxy: any;
     let sudoSigner: KeyringPair;
     let CLI: any;
     let nonProxiedCli: any;
@@ -38,10 +28,12 @@ describe('Send command', () => {
     beforeEach(async () => {
         // Create and fund the test and proxy account
         caller = await randomFundedAccount(api, sudoSigner);
-        proxy = await randomFundedAccount(api, sudoSigner);
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
-        CLI = await setUpProxy(nonProxiedCli, caller, proxy);
-    }, 60_000);
+
+        proxy = await randomFundedAccount(api, sudoSigner);
+        wrongProxy = await randomFundedAccount(api, sudoSigner);
+        CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+    }, 90_000);
 
     afterEach(() => {
         tearDownProxy(nonProxiedCli, proxy);
@@ -51,24 +43,49 @@ describe('Send command', () => {
         await api.disconnect();
     });
 
-    it(
-        testDescription(),
+    testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' &&
+                process.env.PROXY_SECRET_VARIANT === 'valid-proxy' &&
+                process.env.PROXY_TYPE === 'All'),
+        'should be able to send CTC',
         () => {
             // Send money to Alice
+            const result = CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+        },
+        60_000,
+    );
+
+    testIf(
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT !== 'valid-proxy',
+        'should error with not-a-proxy message',
+        () => {
             try {
-                const result = CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
-                expect(result.exitCode).toEqual(0);
-                expect(result.stdout).toContain('Transaction included at block');
+                CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
+                expect(error.stdout).toContain(`ERROR: ${wrongProxy.address} is not a proxy for ${caller.address}`);
+            }
+        },
+        60_000,
+    );
 
-                if (process.env.PROXY_SECRET_VARIANT !== 'valid-proxy') {
-                    expect(error.stdout).toContain(`ERROR: ${proxy.address} is not a proxy for ${caller.address}`);
-                } else if (process.env.PROXY_TYPE === 'Staking' || process.env.PROXY_TYPE === 'NonTransfer') {
-                    expect(error.stdout).toContain(
-                        `ERROR: The proxy ${proxy.address} for address ${caller.address} does not have permission to call extrinsics from the balances pallet`,
-                    );
-                }
+    testIf(
+        process.env.PROXY_ENABLED === 'yes' &&
+            process.env.PROXY_SECRET_VARIANT === 'valid-proxy' &&
+            process.env.PROXY_TYPE !== 'All',
+        'should error with no permission message',
+        () => {
+            try {
+                CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stdout).toContain(
+                    `ERROR: The proxy ${proxy.address} for address ${caller.address} does not have permission to call extrinsics from the balances pallet`,
+                );
             }
         },
         60_000,
