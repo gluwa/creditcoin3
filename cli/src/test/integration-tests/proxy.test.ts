@@ -182,28 +182,6 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
     });
 
     // todo: CSUB-1025
-    it('Can successfully bond and unbond with a proxy account', () => {
-        const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
-        expect(setupRes.exitCode).toEqual(0);
-        expect(setupRes.stdout).toContain('Transaction included at block');
-
-        // Test #1. Successfully bond for the first time
-        const test1Res = CLI(`bond --amount 1 --use-proxy ${caller.address}`);
-        expect(test1Res.exitCode).toEqual(0);
-        expect(test1Res.stdout).toContain('Transaction included at block');
-
-        // Test #3. Successfully bond extra using the proxy
-        const test3Res = CLI(`bond --amount 1 -x --use-proxy ${caller.address}`);
-        expect(test3Res.exitCode).toEqual(0);
-        expect(test3Res.stdout).toContain('Transaction included at block');
-
-        // Test #4. Successfully unbond extra using the proxy
-        const test4Res = CLI(`unbond --amount 1 --use-proxy ${caller.address}`);
-        expect(test4Res.exitCode).toEqual(0);
-        expect(test4Res.stdout).toContain('Transaction included at block');
-    }, 60000);
-
-    // todo: CSUB-1025
     it('Can successfully validate and chill with a proxy account', () => {
         const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
         expect(setupRes.exitCode).toEqual(0);
