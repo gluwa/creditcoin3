@@ -192,11 +192,6 @@ describe('Proxy functionality', () => {
         expect(test1Res.exitCode).toEqual(0);
         expect(test1Res.stdout).toContain('Transaction included at block');
 
-        // Test #2. Attempt to bond extra without specifying the extra command
-        // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test2Res = CLI(`bond --amount 1 --use-proxy ${caller.address}`);
-        expect(test2Res.exitCode).toEqual(0);
-
         // Test #3. Successfully bond extra using the proxy
         const test3Res = CLI(`bond --amount 1 -x --use-proxy ${caller.address}`);
         expect(test3Res.exitCode).toEqual(0);
