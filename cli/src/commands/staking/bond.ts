@@ -45,7 +45,7 @@ async function bondAction(options: OptionValues) {
     const bondTxResult = await bond(callerKeyring, amount, rewardDestination, api, extra);
 
     console.log(bondTxResult.info);
-    process.exit(0);
+    process.exit(bondTxResult.status);
 }
 
 async function checkBalance(amount: BN, api: ApiPromise, address: string) {
