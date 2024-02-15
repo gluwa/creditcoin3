@@ -109,13 +109,6 @@ export const mandatoryProxyOption = new Option(
 ).argParser(parseSubstrateAddress);
 mandatoryProxyOption.makeOptionMandatory();
 
-export const delayOption = new Option(
-    '--delay [delay]',
-    'The integer time delay for the proxy action, measured in blocks. For more information see https://wiki.polkadot.network/docs/learn-proxies#time-delayed-proxy',
-)
-    .argParser(parseZeroOrPositiveIntegerOrExit)
-    .default(0);
-
 export const useProxyOption = new Option(
     '--use-proxy [proxied-address]',
     'Use proxy account for this call. Needs to specify the proxied Substrate address',
