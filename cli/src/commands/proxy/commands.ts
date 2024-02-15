@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { mandatoryProxyOption, proxyTypeOption, delayOption, noInputOption, urlOption } from '../options';
+import { mandatoryProxyOption, proxyTypeOption, noInputOption, urlOption } from '../options';
 import { setProxyAction, viewProxyAction, removeProxyAction } from './actions';
 
 export function makeProxyCommands() {
@@ -22,7 +22,6 @@ export function makeAddProxyCmd() {
         .description('Add a new proxy')
         .addOption(mandatoryProxyOption)
         .addOption(proxyTypeOption)
-        .addOption(delayOption)
         .action(setProxyAction);
 }
 
