@@ -6,10 +6,11 @@ import {
     randomTestAccount,
     CLIBuilder,
 } from './helpers';
+import { describeIf } from '../utils';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { parseAmount } from '../../commands/options';
 
-describe('Proxy functionality', () => {
+describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'Proxy functionality', () => {
     let api: ApiPromise;
     let caller: any;
     let proxy: any;
