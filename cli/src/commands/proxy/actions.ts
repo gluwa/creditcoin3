@@ -5,7 +5,7 @@ import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
 import { addressIsAlreadyProxy, addressIsProxy, filterProxiesByAddress, proxiesForAddress } from '../../lib/proxy';
 
 export async function setProxyAction(options: OptionValues) {
-    const { url, delay } = options;
+    const { url } = options;
     const proxyAddr = options.proxy;
     const proxyType = options.type;
 
@@ -23,7 +23,7 @@ export async function setProxyAction(options: OptionValues) {
         process.exit(2);
     }
 
-    const call = api.tx.proxy.addProxy(proxyAddr, proxyType, delay);
+    const call = api.tx.proxy.addProxy(proxyAddr, proxyType, 0);
     await requireEnoughFundsToSend(call, callerKeyring.address, api);
     const result = await signSendAndWatch(call, api, callerKeyring);
 
