@@ -42,5 +42,5 @@ async function setKeysAction(options: OptionValues) {
 
     console.log(result.info);
 
-    process.exit(0);
+    process.exit(result.status);
 }
