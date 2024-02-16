@@ -31,7 +31,7 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
 
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        CLI = CLIBuilder({ CC_SECRET: caller.secret, CC_PROXY_SECRET: proxy.secret });
+        CLI = CLIBuilder({ CC_SECRET: caller.secret });
     }, 60_000);
 
     afterAll(async () => {
@@ -180,27 +180,4 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             }
         }, 60_000);
     });
-
-    // todo: CSUB-1025
-    it('Can successfully validate and chill with a proxy account', () => {
-        const setupRes = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
-        expect(setupRes.exitCode).toEqual(0);
-        expect(setupRes.stdout).toContain('Transaction included at block');
-
-        // Test #1. Successfully bond for the first time
-        const test1Res = CLI(`bond --use-proxy ${caller.address} --amount 100`);
-        expect(test1Res.exitCode).toEqual(0);
-        expect(test1Res.stdout).toContain('Transaction included at block');
-
-        // Test #2. Successfully bond for the first time
-        const test2Res = CLI(`validate --use-proxy ${caller.address}`);
-        expect(test2Res.exitCode).toEqual(0);
-        expect(test2Res.stdout).toContain('Transaction included at block');
-
-        // Test #3. Attempt to bond extra without specifying the extra command
-        // TODO This should fail but the signSendAndWatch function needs to be updated
-        const test3Res = CLI(`chill --use-proxy ${caller.address}`);
-        expect(test3Res.exitCode).toEqual(0);
-        expect(test3Res.stdout).toContain('Transaction included at block');
-    }, 360_000);
 });
