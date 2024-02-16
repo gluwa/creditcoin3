@@ -1,6 +1,7 @@
 import { testIf } from '../utils';
 import {
     initAliceKeyring,
+    increaseValidatorCount,
     randomFundedAccount,
     setUpProxy,
     tearDownProxy,
@@ -61,6 +62,10 @@ describe('validate', () => {
     });
 
     describe('when ALREADY bonded', () => {
+        beforeAll(async () => {
+            await increaseValidatorCount(api, sudoSigner);
+        }, 30_000);
+
         beforeEach(() => {
             // bond before calling validate
             const result = nonProxiedCli(`bond --amount 900`);
