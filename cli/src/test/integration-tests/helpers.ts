@@ -67,6 +67,15 @@ export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPa
     return account;
 }
 
+export async function increaseValidatorCount(api: ApiPromise, sudoSigner: KeyringPair, additional = 3) {
+    const oldCount = (await api.query.staking.validatorCount()).toNumber();
+
+    await signSendAndWatch(api.tx.sudo.sudo(api.tx.staking.increaseValidatorCount(additional)), api, sudoSigner);
+
+    const newCount = (await api.query.staking.validatorCount()).toNumber();
+    expect(newCount).toEqual(oldCount + additional);
+}
+
 export function CLIBuilder(env: any) {
     let extraArgs = '';
     if (env.CC_PROXY_SECRET) {
