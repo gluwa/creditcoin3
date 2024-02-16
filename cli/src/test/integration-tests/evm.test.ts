@@ -8,8 +8,9 @@ import { evmAddressToSubstrateAddress, substrateAddressToEvmAddress } from '../.
 import { getBalance } from '../../lib/balance';
 import { parseAmount } from '../../commands/options';
 import { randomFundedAccount, CLIBuilder } from './helpers';
+import { describeIf } from '../utils';
 
-describe('EVM Commands', () => {
+describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'EVM Commands', () => {
     let api: ApiPromise;
     let caller: { secret: any; keyring: KeyringPair; address: string };
     let CLI: (arg0: string) => any;
