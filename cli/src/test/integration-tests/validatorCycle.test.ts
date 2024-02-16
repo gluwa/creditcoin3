@@ -5,7 +5,15 @@ import { getBalance, printBalance } from '../../lib/balance';
 import { parseHexStringInternal } from '../../lib/parsing';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { signSendAndWatch } from '../../lib/tx';
-import { BOB_NODE_URL, ALICE_NODE_URL, fundFromSudo, waitEras, initAliceKeyring, CLI_PATH } from './helpers';
+import {
+    BOB_NODE_URL,
+    ALICE_NODE_URL,
+    fundFromSudo,
+    waitEras,
+    initAliceKeyring,
+    increaseValidatorCount,
+    CLI_PATH,
+} from './helpers';
 import { describeIf } from '../utils';
 import { isAddress } from 'ethers';
 import { parseAmount, parseEVMAddress, parseSubstrateAddress } from '../../commands/options';
@@ -108,11 +116,7 @@ describeIf(
 
             // After increasing the validator count, (forcing an era- currently not) and waiting for the next era,
             // the validator should become elected & active.
-            const increaseValidatorCountTx = aliceApi.tx.staking.setValidatorCount(2);
-            const increaseValidatorCountSudoTx = aliceApi.tx.sudo.sudo(increaseValidatorCountTx);
-            await signSendAndWatch(increaseValidatorCountSudoTx, aliceApi, initAliceKeyring());
-            const validatorCount = (await aliceApi.query.staking.validatorCount()).toNumber();
-            expect(validatorCount).toBe(2);
+            await increaseValidatorCount(aliceApi, initAliceKeyring(), 2);
             await waitEras(2, aliceApi);
             const stashStatusAfterEra = await getValidatorStatus(substrateAddress, bobApi);
             expect(stashStatusAfterEra?.active).toBe(true);

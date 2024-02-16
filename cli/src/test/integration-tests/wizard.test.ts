@@ -2,11 +2,12 @@ import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { signSendAndWatch } from '../../lib/tx';
 import {
+    initAliceKeyring,
+    increaseValidatorCount,
     randomTestAccount,
     fundAddressesFromSudo,
     ALICE_NODE_URL,
     BOB_NODE_URL,
-    initAliceKeyring,
     CLI_PATH,
 } from './helpers';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
@@ -17,7 +18,10 @@ describe('integration test: validator wizard setup', () => {
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
-    });
+
+        const sudoSigner = initAliceKeyring();
+        await increaseValidatorCount(api, sudoSigner);
+    }, 30_000);
 
     afterAll(async () => {
         await api.disconnect();
