@@ -10,12 +10,20 @@ import {
     CLI_PATH,
 } from './helpers';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
-import { newApi } from '../../lib';
+import { newApi, ApiPromise } from '../../lib';
 
 describe('integration test: validator wizard setup', () => {
-    it('new validator should appear as waiting after running', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
+    let api: ApiPromise;
 
+    beforeAll(async () => {
+        ({ api } = await newApi(ALICE_NODE_URL));
+    });
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    it('new validator should appear as waiting after running', async () => {
         // Fund stash and controller
         const stash = randomTestAccount();
 
@@ -33,13 +41,9 @@ describe('integration test: validator wizard setup', () => {
 
         expect(validatorStatus?.waiting).toBe(true);
         console.log('Validator waiting status is: ', validatorStatus?.waiting);
-
-        await api.disconnect();
     }, 120000);
 
     it('new validator should appear as waiting after running wizard with a proxy', async () => {
-        const { api } = await newApi(ALICE_NODE_URL);
-
         // Fund stash and controller
         const stash = randomTestAccount();
         const proxy = randomTestAccount();
@@ -66,7 +70,5 @@ describe('integration test: validator wizard setup', () => {
         expect(validatorStatus?.validating).toBe(true);
         expect(validatorStatus?.waiting).toBe(true);
         console.log('Validator waiting status is: ', validatorStatus?.waiting);
-
-        await api.disconnect();
     }, 120000);
 });
