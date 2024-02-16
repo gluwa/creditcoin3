@@ -149,9 +149,9 @@ pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
-const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "zombienet") { 45 } else { 15 };
+const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "zombienet") { 45 } else { 2 * HOURS };
 
-pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_or_fast!(12 * HOURS, 2 * HOURS);
+pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_or_fast!(12 * HOURS, BLOCKS_FOR_FASTER_EPOCH);
 
 parameter_types! {
     pub const EpochDuration: u64 = EPOCH_DURATION_IN_BLOCKS as u64; // Q: how long to make an epoch
