@@ -32,5 +32,5 @@ async function validateAction(options: OptionValues) {
     const result = await validate(account, preferences, api);
 
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }
