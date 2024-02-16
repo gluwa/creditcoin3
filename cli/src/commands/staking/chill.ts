@@ -28,5 +28,5 @@ async function chillAction(options: OptionValues) {
     const result = await chill(keyring, api);
 
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }
