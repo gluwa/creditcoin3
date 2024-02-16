@@ -14,23 +14,23 @@ let evmAccount = null;
 let evmAddress = '';
 let expectedAssociatedSubtrateAddress = '';
 
-beforeAll(async () => {
-    // Wait for crypto to be ready
-    await cryptoWaitReady();
-
-    substrateSeedPhrase = 'wheel practice idle spin artefact unlock coffee yellow mirror pudding fetch supreme';
-    substrateAccount = initKeyringPair(substrateSeedPhrase);
-    substrateAddress = substrateAccount.address;
-    expectedAssociatedEvmAddress = '0x347557916f6abfc2b0862514b0e90708b422d992';
-
-    // EVM address (uses index 0)
-    evmSeedPhrase = 'drift glove bar million spare better spot afford pave horn annual bunker';
-    evmAccount = initEthKeyringPair(evmSeedPhrase);
-    evmAddress = evmAccount.address;
-    expectedAssociatedSubtrateAddress = '5FQMKPxJuFBCeH7zQvwuKiRa3bMU41uYiumTkjXb1WeQxvf8';
-});
-
 describe('Convert Address command', () => {
+    beforeAll(async () => {
+        // Wait for crypto to be ready
+        await cryptoWaitReady();
+
+        substrateSeedPhrase = 'wheel practice idle spin artefact unlock coffee yellow mirror pudding fetch supreme';
+        substrateAccount = initKeyringPair(substrateSeedPhrase);
+        substrateAddress = substrateAccount.address;
+        expectedAssociatedEvmAddress = '0x347557916f6abfc2b0862514b0e90708b422d992';
+
+        // EVM address (uses index 0)
+        evmSeedPhrase = 'drift glove bar million spare better spot afford pave horn annual bunker';
+        evmAccount = initEthKeyringPair(evmSeedPhrase);
+        evmAddress = evmAccount.address;
+        expectedAssociatedSubtrateAddress = '5FQMKPxJuFBCeH7zQvwuKiRa3bMU41uYiumTkjXb1WeQxvf8';
+    });
+
     it('should NOT convert an invalid EVM address', () => {
         const result = commandSync(`node ${CLI_PATH} convert-address --address 0x123`, { reject: false });
 
