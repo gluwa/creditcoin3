@@ -53,8 +53,8 @@ describe('wizard', () => {
                 CLI('wizard --amount 900');
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    'Invalid Transaction: Inability to pay some fees , e.g. account balance too low',
+                expect(error.stdout).toContain(
+                    'Account does not have enough funds, it requires 2.000000000000000000 CTC',
                 );
             }
         },
