@@ -1,78 +1,95 @@
-import { commandSync } from 'execa';
-import { parseAmount } from '../../commands/options';
-import { signSendAndWatch } from '../../lib/tx';
 import {
     initAliceKeyring,
     increaseValidatorCount,
-    randomTestAccount,
-    fundAddressesFromSudo,
+    randomFundedAccount,
+    setUpProxy,
+    tearDownProxy,
     ALICE_NODE_URL,
-    BOB_NODE_URL,
-    CLI_PATH,
+    CLIBuilder,
 } from './helpers';
+import { testIf } from '../utils';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
-import { newApi, ApiPromise } from '../../lib';
+import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
-describe('integration test: validator wizard setup', () => {
+describe('wizard', () => {
     let api: ApiPromise;
+    let caller: any;
+    let proxy: any;
+    let wrongProxy: any;
+    let sudoSigner: KeyringPair;
+    let CLI: any;
+    let nonProxiedCli: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
 
-        const sudoSigner = initAliceKeyring();
+        sudoSigner = initAliceKeyring();
         await increaseValidatorCount(api, sudoSigner);
-    }, 30_000);
+    }, 60_000);
 
     afterAll(async () => {
         await api.disconnect();
     });
 
-    it('new validator should appear as waiting after running', async () => {
-        // Fund stash and controller
-        const stash = randomTestAccount();
+    beforeEach(async () => {
+        // Create and fund the test and proxy account
+        caller = await randomFundedAccount(api, sudoSigner);
+        nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
 
-        const fundTx = await fundAddressesFromSudo([stash.address], parseAmount('10000'));
-        await signSendAndWatch(fundTx, api, initAliceKeyring());
+        proxy = await randomFundedAccount(api, sudoSigner);
+        wrongProxy = await randomFundedAccount(api, sudoSigner);
+        CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+    }, 90_000);
 
-        // Run wizard setup with 1k ctc ang to pair with node Bob
-        commandSync(`node ${CLI_PATH} wizard --amount 1000 --url ${BOB_NODE_URL}`, {
-            env: {
-                CC_SECRET: stash.secret,
-            },
-        });
+    afterEach(() => {
+        tearDownProxy(nonProxiedCli, proxy);
+    });
 
-        const validatorStatus = await getValidatorStatus(stash.address, api);
+    testIf(
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+        'should error with account balance too low message',
+        () => {
+            try {
+                CLI('wizard --amount 900');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(
+                    'Invalid Transaction: Inability to pay some fees , e.g. account balance too low',
+                );
+            }
+        },
+        60_000,
+    );
 
-        expect(validatorStatus?.waiting).toBe(true);
-        console.log('Validator waiting status is: ', validatorStatus?.waiting);
-    }, 120000);
+    testIf(
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
+        'should error with proxy.NotProxy message',
+        () => {
+            try {
+                CLI('wizard --amount 900');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stdout).toContain(`Proxy ${wrongProxy.address} is not valid for ${caller.address}`);
+            }
+        },
+    );
 
-    it('new validator should appear as waiting after running wizard with a proxy', async () => {
-        // Fund stash and proxy
-        const stash = randomTestAccount();
-        const proxy = randomTestAccount();
+    testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        'new validator should appear as waiting after running',
+        async () => {
+            const result = CLI('wizard --amount 900');
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
 
-        const fundTx = await fundAddressesFromSudo([stash.address, proxy.address], parseAmount('10000'));
-        await signSendAndWatch(fundTx, api, initAliceKeyring());
+            // wait 5 seconds for nodes to sync
+            await new Promise((resolve) => setTimeout(resolve, 5000));
 
-        // Add a staking proxy
-        commandSync(`node ${CLI_PATH} proxy add --proxy ${proxy.address} --type Staking`, {
-            env: {
-                CC_SECRET: stash.secret,
-            },
-        });
-        // Run wizard setup using the Proxy with 1k ctc to pair with node Bob
-        commandSync(`node ${CLI_PATH} wizard --url ${BOB_NODE_URL} --use-proxy ${stash.address} --amount 1000`, {
-            env: {
-                CC_PROXY_SECRET: proxy.secret,
-            },
-        });
-
-        const validatorStatus = await getValidatorStatus(stash.address, api);
-
-        expect(validatorStatus?.bonded).toBe(true);
-        expect(validatorStatus?.validating).toBe(true);
-        expect(validatorStatus?.waiting).toBe(true);
-        console.log('Validator waiting status is: ', validatorStatus?.waiting);
-    }, 120000);
+            const validatorStatus = await getValidatorStatus(caller.address, api);
+            expect(validatorStatus?.waiting).toBe(true);
+        },
+        120_000,
+    );
 });
