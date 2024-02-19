@@ -14,7 +14,7 @@ export async function fundFromSudo(address: string, amount: BN, url = ALICE_NODE
     const { api } = await newApi(url);
     const call = api.tx.balances.forceSetBalance(address, amount.toString());
     const tx = api.tx.sudo.sudo(call);
-    return tx;
+    return signSendAndWatch(tx, api, initAliceKeyring());
 }
 
 export async function fundAddressesFromSudo(addresses: string[], amount: BN, url = ALICE_NODE_URL) {
