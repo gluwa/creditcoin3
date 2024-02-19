@@ -60,7 +60,23 @@ describe('Send command', () => {
     );
 
     testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT !== 'valid-proxy',
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+        'should error with account balance too low message',
+        () => {
+            try {
+                CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(
+                    'Invalid Transaction: Inability to pay some fees , e.g. account balance too low',
+                );
+            }
+        },
+        60_000,
+    );
+
+    testIf(
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with not-a-proxy message',
         () => {
             try {

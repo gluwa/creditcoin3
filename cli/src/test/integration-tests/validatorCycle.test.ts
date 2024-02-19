@@ -3,7 +3,6 @@ import { BN, newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getBalance, printBalance } from '../../lib/balance';
 import { parseHexStringInternal } from '../../lib/parsing';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
-import { signSendAndWatch } from '../../lib/tx';
 import {
     ALICE_NODE_URL,
     BOB_NODE_URL,
@@ -50,8 +49,7 @@ describeIf(
 
             // Funding the stash account should make its balance equal to the amount funded
             const fundAmount = parseAmount('10000');
-            const fundTx = await fundFromSudo(caller.address, fundAmount);
-            await signSendAndWatch(fundTx, api, initAliceKeyring());
+            await fundFromSudo(caller.address, fundAmount);
             const stashBalance = (await getBalance(caller.address, api)).transferable;
             expect(stashBalance.toString()).toBe(fundAmount.toString());
 
