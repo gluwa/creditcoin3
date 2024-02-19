@@ -49,8 +49,10 @@ export async function forceNewEra(api: ApiPromise) {
     await signSendAndWatch(sudoTx, api, initAliceKeyring());
 }
 
-export function randomTestAccount() {
-    const secret = mnemonicGenerate();
+export function randomTestAccount(secret = '') {
+    if (secret === '') {
+        secret = mnemonicGenerate();
+    }
     const keyring = initKeyringPair(secret);
     const address = keyring.address;
     return { secret, keyring, address };
