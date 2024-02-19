@@ -7,8 +7,7 @@ import {
     CLIBuilder,
 } from './helpers';
 import { describeIf } from '../utils';
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
-import { parseAmount } from '../../commands/options';
+import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
 
 describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'Proxy functionality', () => {
     let api: ApiPromise;
@@ -142,14 +141,14 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             // setup
             const result = CLI(`proxy add --proxy ${proxy.address} --type All`);
             expect(result.exitCode).toEqual(0);
-            await fundFromSudo(caller.address, parseAmount('1'));
+            await fundFromSudo(caller.address, new BN(0));
 
             // test
             try {
                 CLI(`proxy remove --proxy ${proxy.address}`);
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
+                expect(error.stderr).toContain(
                     `Caller ${caller.address} has insufficient funds to send the transaction`,
                 );
             }
