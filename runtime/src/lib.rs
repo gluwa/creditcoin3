@@ -263,7 +263,7 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-    pub const MaxAuthorities: u32 = 100_000;
+    pub const MaxAuthorities: u32 = 1000;
 
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
