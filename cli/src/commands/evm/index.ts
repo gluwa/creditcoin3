@@ -6,7 +6,7 @@ import { noInputOption, urlOption } from '../options';
 
 export function makeEvmCommand() {
     const cmd = new Command('evm');
-    cmd.description('Interact with the EVM side of Creditcoin3');
+    cmd.description('Interact with the EVM side of Creditcoin');
     cmd.addCommand(makeEvmBalanceCommand());
     cmd.addCommand(makeEvmFundCommand());
     cmd.addCommand(makeEvmWithdrawCommand());

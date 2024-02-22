@@ -1,12 +1,12 @@
 {
-    "name": "creditcoin3",
+    "name": "creditcoin",
     "version": "0.0.1",
     "author": "Gluwa Blockchain Team <support@gluwa.com>",
-    "description": "CLI tools for Creditcoin 3",
+    "description": "CLI tools for Creditcoin",
     "license": "MIT",
     "main": "dist/index.js",
     "bin": {
-        "creditcoin3": "dist/cli.js"
+        "creditcoin": "dist/cli.js"
     },
     "files": [
         "dist/**/*"
@@ -18,8 +18,8 @@
     "scripts": {
         "build": "tsc",
         "build:types": "yarn generate:defs && yarn generate:meta",
-        "generate:defs": "npx esno node_modules/.bin/polkadot-types-from-defs --package creditcoin3/lib/interfaces --input ./src/lib/interfaces --endpoint ./creditcoin.json",
-        "generate:meta": "npx esno node_modules/.bin/polkadot-types-from-chain --package creditcoin3/lib/interfaces  --endpoint ./creditcoin.json --output ./src/lib/interfaces",
+        "generate:defs": "npx esno node_modules/.bin/polkadot-types-from-defs --package creditcoin/lib/interfaces --input ./src/lib/interfaces --endpoint ./creditcoin.json",
+        "generate:meta": "npx esno node_modules/.bin/polkadot-types-from-chain --package creditcoin/lib/interfaces  --endpoint ./creditcoin.json --output ./src/lib/interfaces",
         "format": "prettier --write \"src/**/*.ts\"",
         "check-format": "prettier --check \"src/**/*.ts\"",
         "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
