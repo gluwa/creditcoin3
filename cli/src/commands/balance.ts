@@ -27,6 +27,7 @@ async function balanceAction(options: OptionValues) {
     const evmAddress = substrateAddressToEvmAddress(address);
     const evmBalance = new BN((await getEVMBalanceOf(evmAddress, getEvmUrl(options))).ctc.toString());
     balance.evm = evmBalance;
+    balance.total = balance.total.add(evmBalance);
 
     logBalance(balance, !json);
 
