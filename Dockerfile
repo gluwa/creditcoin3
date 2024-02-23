@@ -1,4 +1,5 @@
-# hadolint global ignore=DL3008,DL3009,DL3016,SC3046,DL4006
+# hadolint global ignore=DL3008,DL3009,DL3016,SC3046,DL4006,SC2086
+ARG BUILD_ARGS=""
 
 FROM ubuntu:22.04 as runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
@@ -30,7 +31,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 # shellcheck source=/dev/null
 RUN source ~/.cargo/env && \
-    cargo build --release
+    cargo build --release ${BUILD_ARGS}
 
 
 FROM devel-base AS cli-builder

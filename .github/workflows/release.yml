@@ -11,16 +11,20 @@ permissions: read-all
 jobs:
   sanity-check:
     runs-on: ubuntu-22.04
+    outputs:
+      TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Figure out tag name
+        id: identify-tag
         shell: bash
         run: |
           TAG_NAME=$(git describe --tag)
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Sanity check tag name suffix
         run: |
@@ -31,8 +35,27 @@ jobs:
         run: |
           ./.github/check-version-vs-git-tag.sh
 
-  build-native-runtime:
+  setup:
+    runs-on: ubuntu-22.04
     needs: sanity-check
+    outputs:
+      build_options: ${{ steps.set-build-options.outputs.build_options}}
+    steps:
+      - name: Set build options
+        id: set-build-options
+        shell: bash
+        run: |
+          echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet --features fast-runtime' || '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: View the build options
+        shell: bash
+        run: |
+          echo "build_options = ${{ steps.set-build-options.outputs.build_options}}"
+
+  build-native-runtime:
+    needs:
+      - sanity-check
+      - setup
     strategy:
       fail-fast: false
       matrix:
@@ -80,22 +103,16 @@ jobs:
           PLATFORM=$(rustup target list --installed | grep "$(uname -m)")
           echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
 
-      - name: Figure out tag name
-        shell: bash
-        run: |
-          TAG_NAME=$(git describe --tag)
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-
       - name: DEBUG
         shell: bash
         run: |
-          echo "Tag & Platform is '${{ env.TAG_NAME }}-${{ env.PLATFORM }}'"
+          echo "Tag & Platform is '${{ needs.sanity-check.outputs.TAG_NAME }}-${{ env.PLATFORM }}'"
 
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --release ${{ needs.setup.outputs.build_options}}
 
       - name: Build MacOS aarch64 target
         if: matrix.operating-system == 'macos-11'
@@ -110,7 +127,7 @@ jobs:
           type: "zip"
           directory: "target/release/"
           path: "creditcoin3-node*"
-          filename: "../../creditcoin-${{ env.TAG_NAME }}-${{ env.PLATFORM }}.zip"
+          filename: "../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-${{ env.PLATFORM }}.zip"
           exclusions: "creditcoin3-node.d"
 
       - name: Compress MacOS aarch64 target
@@ -120,7 +137,7 @@ jobs:
           type: "zip"
           directory: "target/aarch64-apple-darwin/release/"
           path: "creditcoin3-node*"
-          filename: "../../../creditcoin-${{ env.TAG_NAME }}-aarch64-apple-darwin.zip"
+          filename: "../../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-aarch64-apple-darwin.zip"
           exclusions: "creditcoin3-node.d"
 
       - name: Upload binary
@@ -128,22 +145,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binary-for-${{ matrix.operating-system }}
-          path: "creditcoin-${{ env.TAG_NAME }}-*.zip"
+          path: "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-*.zip"
           if-no-files-found: error
 
   build-wasm-runtime:
-    needs: sanity-check
+    needs:
+      - sanity-check
+      - setup
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Figure out tag name
-        shell: bash
-        run: |
-          TAG_NAME=$(git describe --tag)
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
 
       - name: Configure rustc version
         run: |
@@ -153,12 +166,15 @@ jobs:
       - name: Build WASM runtime
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
+        env:
+          BUILD_OPTS: --release "${{ needs.setup.outputs.build_options }}"
         with:
           chain: "creditcoin"
           runtime_dir: runtime
           package: creditcoin3-runtime
           tag: ${{ env.RUSTC_VERSION }}
           workdir: ${{ github.workspace }}
+
 
       - name: DEBUG
         run: |
@@ -168,7 +184,7 @@ jobs:
 
       - name: Rename file
         run: |
-          mv ${{ steps.srtool_build.outputs.wasm }} creditcoin-${{ env.TAG_NAME }}-runtime.wasm
+          mv ${{ steps.srtool_build.outputs.wasm }} creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-runtime.wasm
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -178,7 +194,9 @@ jobs:
           if-no-files-found: error
 
   docker-build:
-    needs: sanity-check
+    needs:
+      - sanity-check
+      - setup
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -193,15 +211,15 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin3:${{ env.TAG_NAME }} .
+          docker build -t gluwa/creditcoin3:${{needs.sanity-check.outputs.TAG_NAME  }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
-          docker push gluwa/creditcoin3:${{ env.TAG_NAME }}
+          docker push gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }}
 
           # only -mainnet images are tagged as :latest
           # shellcheck disable=SC2046,SC2143
-          if [ $(echo "${{ env.TAG_NAME}}" | grep "mainnet") ]; then
-              docker tag gluwa/creditcoin3:${{ env.TAG_NAME }} gluwa/creditcoin3:latest
+          if [ $(echo "${{ needs.sanity-check.outputs.TAG_NAME }}" | grep "mainnet") ]; then
+              docker tag gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }} gluwa/creditcoin3:latest
               docker push gluwa/creditcoin3:latest
           fi
 
@@ -212,18 +230,13 @@ jobs:
       contents: write
     runs-on: ubuntu-22.04
     needs:
+      - sanity-check
       - build-native-runtime
       - build-wasm-runtime
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Figure out tag name
-        shell: bash
-        run: |
-          TAG_NAME=$(git describe --tag)
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
 
       - name: Download binaries
         uses: actions/download-artifact@v4
@@ -240,6 +253,6 @@ jobs:
       - name: Make the release
         uses: softprops/action-gh-release@v1
         with:
-          files: "artifact/creditcoin-*${{ env.TAG_NAME }}*"
+          files: "artifact/creditcoin-*${{ needs.sanity-check.outputs.TAG_NAME }}*"
           fail_on_unmatched_files: true
-          name: ${{ env.TAG_NAME }}
+          name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
