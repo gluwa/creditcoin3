@@ -149,6 +149,9 @@ pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
+// WARNING: the next should be defined on a single line b/c of
+// the assertions made in .github/check-for-changes-in-epoch-duration.sh
+#[rustfmt::skip]
 const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "zombienet") { 45 } else { 2 * HOURS };
 
 pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_or_fast!(12 * HOURS, BLOCKS_FOR_FASTER_EPOCH);
