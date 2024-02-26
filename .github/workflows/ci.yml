@@ -88,9 +88,46 @@ jobs:
         run: |
           sudo killall -9 creditcoin3-node
 
+  sanity-check:
+    runs-on: ubuntu-22.04
+    outputs:
+      TAG_NAME: ${{ steps.define-tag.outputs.TAG_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Figure out tag name
+        id: define-tag
+        shell: bash
+        run: |
+          TAG_NAME="3.999.9999-devnet"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+  setup:
+    runs-on: ubuntu-22.04
+    needs: sanity-check
+    outputs:
+       build_options: ${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet' || '' }}
+    steps:
+      - name: DEBUG
+        shell: bash
+        run: |
+          echo "----- TAG_NAME ---"
+          echo "${{ needs.sanity-check.outputs.TAG_NAME }}"
+          echo "---- END ----"
+
   sanity-tests:
     runs-on: ubuntu-22.04
+    needs: setup
     steps:
+      - name: DEBUG build-opts
+        shell: bash
+        run: |
+          echo "===== DEBUG DEBUG: build options"
+          echo "${{ needs.setup.outputs.build_options }}"
+          echo "---- END -----"
+
       - uses: actions/checkout@v4
 
       - name: Check for parity between extrinsics, benchmarks and weights
