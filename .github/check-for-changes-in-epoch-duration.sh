@@ -20,6 +20,19 @@ check_block_time() {
     fi
 }
 
+check_blocks_for_faster_epoch() {
+    # WARNING: exits on error
+    from=$1
+    to=$2
+
+    if git --no-pager diff "${from}...${to}" | grep 'BLOCKS_FOR_FASTER_EPOCH'; then
+        greenprint "FAIL: BLOCKS_FOR_FASTER_EPOCH has been modified! This will brick Devnet!"
+        exit 1
+    else
+        greenprint "PASS: BLOCKS_FOR_FASTER_EPOCH has not been modified!"
+    fi
+}
+
 check_epoch_duration() {
     # WARNING: exits on error
     from=$1
@@ -67,6 +80,7 @@ fi
 if git --no-pager diff --name-only "${FROM}"..."${TO}" | grep -e '^runtime'; then
     greenprint "INFO: runtime/ has been modified. Checking for changes in EPOCH_DURATION!"
     check_block_time "${FROM}" "${TO}"
+    check_blocks_for_faster_epoch "${FROM}" "${TO}"
     check_epoch_duration "${FROM}" "${TO}"
     check_slot_duration "${FROM}" "${TO}"
 else
