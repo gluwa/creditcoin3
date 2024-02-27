@@ -1,6 +1,4 @@
 # hadolint global ignore=DL3008,DL3009,DL3016,SC3046,DL4006,SC2086
-ARG BUILD_ARGS=""
-
 FROM ubuntu:22.04 as runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
@@ -22,6 +20,7 @@ COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 
 
 FROM devel-base as rust-builder
+ARG BUILD_ARGS=""
 USER 0
 RUN apt-get install -y --no-install-recommends \
     cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler
