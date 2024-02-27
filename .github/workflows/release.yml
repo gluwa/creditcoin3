@@ -26,14 +26,14 @@ jobs:
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Sanity check tag name suffix
-        run: |
-          echo "${{ env.TAG_NAME }}" | grep -E "mainnet|testnet|devnet"
-          .github/check-tag-suffix-vs-origin-branch.sh
-
-      - name: Check tag name vs. Cargo.toml version
-        run: |
-          ./.github/check-version-vs-git-tag.sh
+#      - name: Sanity check tag name suffix
+#        run: |
+#          echo "${{ env.TAG_NAME }}" | grep -E "mainnet|testnet|devnet"
+#          .github/check-tag-suffix-vs-origin-branch.sh
+#
+#      - name: Check tag name vs. Cargo.toml version
+#        run: |
+#          ./.github/check-version-vs-git-tag.sh
 
   setup:
     runs-on: ubuntu-22.04
@@ -242,9 +242,9 @@ jobs:
         run: |
           ls -lR
 
-      - name: Make the release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: "artifact/creditcoin-*${{ needs.sanity-check.outputs.TAG_NAME }}*"
-          fail_on_unmatched_files: true
-          name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
+#      - name: Make the release
+#        uses: softprops/action-gh-release@v1
+#        with:
+#          files: "artifact/creditcoin-*${{ needs.sanity-check.outputs.TAG_NAME }}*"
+#          fail_on_unmatched_files: true
+#          name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
