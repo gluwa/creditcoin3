@@ -31,7 +31,7 @@ jobs:
           workdir: ${{ github.workspace }}
           tag: ${{ env.RUSTC_VERSION }}
         env:
-          BUILD_OPTIONS: "--features devnet"
+          BUILD_OPTS: "--release --features fast-runtime --features devnet"
       - name: Summary
         run: |
           echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
