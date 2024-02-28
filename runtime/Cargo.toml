@@ -86,6 +86,7 @@ substrate-wasm-builder = { workspace = true, optional = true }
 default = ["std"]
 evm-tracing = ["creditcoin3-evm-tracer"]
 fast-runtime = []
+devnet = []
 std = [
 	"parity-scale-codec/std",
 	"scale-info/std",
