@@ -264,6 +264,11 @@ jobs:
           args: --features=runtime-benchmarks -- --test-threads 1
 
   build-creditcoin-node:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [devnet, testnet]
+    name: build-creditcoin-node-for-${{ matrix.target }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -294,27 +299,38 @@ jobs:
         with:
           shared-key: build-creditcoin-node
 
+      - name: Extra compiler flags
+        if: matrix.target == 'devnet'
+        id: compiler-flags
+        run: |
+            echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
+
       - name: Build SUT
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --release ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
         with:
-          name: creditcoin-node
+          name: creditcoin-node-${{ matrix.target }}
           path: target/release/creditcoin3-node
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v4
         with:
-          name: creditcoin_node_runtime.compact.compressed.wasm
+          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
-  build-creditcoin-node-for-ci:
+  build-creditcoin-node-for-testing:
     needs:
       - build-creditcoin-node
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [devnet, ci]
+    name: build-creditcoin-node-for-testing-${{ matrix.target }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -345,27 +361,33 @@ jobs:
         with:
           shared-key: build-creditcoin-node
 
+      - name: Extra compiler flags
+        if: matrix.target == 'devnet'
+        id: compiler-flags
+        run: |
+            echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
+
       - name: Build SUT
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features fast-runtime --features=evm-tracing
+          args: --release --features=fast-runtime --features=evm-tracing ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
         with:
-          name: creditcoin-node-for-ci
+          name: creditcoin-node-for-testing-${{ matrix.target }}
           path: target/release/creditcoin3-node
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v4
         with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-for-ci
+          name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
   integration-test-smart-contract:
     needs:
-      - build-creditcoin-node-for-ci
+      - build-creditcoin-node-for-testing
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -373,7 +395,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-ci
+          name: creditcoin-node-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -409,7 +431,7 @@ jobs:
 
   integration-test-check-extrinsics:
     needs:
-      - build-creditcoin-node-for-ci
+      - build-creditcoin-node-for-testing
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -422,7 +444,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-ci
+          name: creditcoin-node-for-testing-ci
           path: target/release
 
       - name: Run Extrinsics Ordering
@@ -473,7 +495,7 @@ jobs:
 
   integration-test-cli:
     needs:
-      - build-creditcoin-node-for-ci
+      - build-creditcoin-node-for-testing
     runs-on: ubuntu-22.04
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
@@ -486,7 +508,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-ci
+          name: creditcoin-node-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -581,7 +603,7 @@ jobs:
 
   integration-test-blockchain:
     needs:
-      - build-creditcoin-node-for-ci
+      - build-creditcoin-node-for-testing
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -589,7 +611,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-ci
+          name: creditcoin-node-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -635,6 +657,7 @@ jobs:
     needs:
       - build-creditcoin-node
     strategy:
+      fail-fast: false
       matrix:
         chainspec: [devnet, testnet]
     name: integration-test-chainspec-${{ matrix.chainspec }}
@@ -645,7 +668,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node
+          name: creditcoin-node-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
