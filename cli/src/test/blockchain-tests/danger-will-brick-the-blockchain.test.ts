@@ -25,6 +25,6 @@ describe('Events that WILL brick the blockchain', (): void => {
     test('Minimum period has changed', () => {
         const minPeriod = (api.consts.timestamp.minimumPeriod as U64).toNumber();
         // expected is blockTime / 2
-        expect(minPeriod).toEqual((global as any).CREDITCOIN_EXPECTED_MINIMUM_PERIOD);
+        expect(minPeriod).toEqual((global as any).CREDITCOIN_EXPECTED_BLOCK_TIME / 2);
     });
 });
