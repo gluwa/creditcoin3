@@ -75,10 +75,6 @@ const setup = () => {
         (global as any).CREDITCOIN_EXPECTED_BLOCK_TIME = 5000;
     }
 
-    if ((global as any).CREDITCOIN_EXPECTED_MINIMUM_PERIOD === undefined) {
-        (global as any).CREDITCOIN_EXPECTED_MINIMUM_PERIOD = 2500;
-    }
-
     if ((global as any).CREDITCOIN_HAS_EVM_TRACING === undefined) {
         (global as any).CREDITCOIN_HAS_EVM_TRACING = true;
     }
