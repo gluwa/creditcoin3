@@ -2,6 +2,7 @@ import {
     fundFromSudo,
     initAliceKeyring,
     ALICE_NODE_URL,
+    BOB_NODE_URL,
     randomFundedAccount,
     randomTestAccount,
     CLIBuilder,
@@ -49,12 +50,12 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             const proxy2 = randomTestAccount();
 
             // setup
-            let result = CLI(`proxy add --proxy ${proxy.address} --type Staking`);
+            let result = CLI(`proxy add --proxy ${proxy.address} --type Staking --url ${BOB_NODE_URL}`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
             // test
-            result = CLI('proxy list');
+            result = CLI(`proxy list --url ${BOB_NODE_URL}`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain(proxy.address); // The proxy address should be listed
             expect(result.stdout).toContain('Staking'); // The type should be correctly listed as 'Staking'
@@ -128,7 +129,7 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             expect(result.exitCode).toEqual(0);
 
             // test
-            result = CLI(`proxy remove --proxy ${proxy.address}`);
+            result = CLI(`proxy remove --proxy ${proxy.address} --url ${BOB_NODE_URL}`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
