@@ -1,6 +1,6 @@
 import { commandSync } from 'execa';
 import { describeIf } from '../utils';
-import { CLI_PATH } from './helpers';
+import { ALICE_NODE_URL, BOB_NODE_URL, CLI_PATH } from './helpers';
 import { initEthKeyringPair, initKeyringPair } from '../../lib/account/keyring';
 
 import { cryptoWaitReady } from '@polkadot/util-crypto';
@@ -53,13 +53,17 @@ describeIf(
         }, 60000);
 
         it('should convert a known Substrate address to a known EVM address', () => {
-            const result = commandSync(`node ${CLI_PATH} convert-address --address ${substrateAddress}`);
+            const result = commandSync(
+                `node ${CLI_PATH} convert-address --address ${substrateAddress} --url ${ALICE_NODE_URL}`,
+            );
 
             expect(result.stdout.toLowerCase()).toContain(expectedAssociatedEvmAddress.toLowerCase());
         }, 60000);
 
         it('should convert a known EVM address to a known Substrate address', () => {
-            const result = commandSync(`node ${CLI_PATH} convert-address --address ${evmAddress}`);
+            const result = commandSync(
+                `node ${CLI_PATH} convert-address --address ${evmAddress} --url ${BOB_NODE_URL}`,
+            );
 
             expect(result.stdout.toLowerCase()).toContain(expectedAssociatedSubtrateAddress.toLowerCase());
         }, 60000);
