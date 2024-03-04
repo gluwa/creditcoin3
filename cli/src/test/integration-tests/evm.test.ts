@@ -1,5 +1,5 @@
 import { signSendAndWatch } from '../../lib/tx';
-import { initAliceKeyring, ALICE_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
+import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
 import { ApiPromise, KeyringPair, newApi } from '../../lib';
 import { randomEvmAccount } from './evmHelpers';
 import { getEVMBalanceOf } from '../../lib/evm/balance';
@@ -55,29 +55,33 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
     });
 
     describe('EVM Withdraw', () => {
-        it('should be able to withdraw CTC to a Substrate account', async () => {
-            // Create a Substrate account
-            const evmAddress = substrateAddressToEvmAddress(caller.address);
+        it.each([`--url ${ALICE_NODE_URL}`, `--url ${BOB_NODE_URL}`])(
+            'should be able to withdraw CTC to a Substrate account via %s',
+            async (nodeUrl) => {
+                // Create a Substrate account
+                const evmAddress = substrateAddressToEvmAddress(caller.address);
 
-            // Fund associated EVM address
-            const evmFundTX = api.tx.balances.forceSetBalance({ Address20: evmAddress }, parseAmount('100'));
-            const evmFundSudoTX = api.tx.sudo.sudo(evmFundTX);
-            await signSendAndWatch(evmFundSudoTX, api, initAliceKeyring());
+                // Fund associated EVM address
+                const evmFundTX = api.tx.balances.forceSetBalance({ Address20: evmAddress }, parseAmount('100'));
+                const evmFundSudoTX = api.tx.sudo.sudo(evmFundTX);
+                await signSendAndWatch(evmFundSudoTX, api, initAliceKeyring());
 
-            // Check that the EVM account has a balance
-            const evmBalance = await getEVMBalanceOf(evmAddress, convertWsToHttp(ALICE_NODE_URL));
-            expect(evmBalance.ctc).toBe(BigInt(parseAmount('100').toString()));
+                // Check that the EVM account has a balance
+                const evmBalance = await getEVMBalanceOf(evmAddress, convertWsToHttp(ALICE_NODE_URL));
+                expect(evmBalance.ctc).toBe(BigInt(parseAmount('100').toString()));
 
-            // Withdraw 100 CTC to the Substrate account
-            // requires the CC_SECRET set above
-            CLI(`evm withdraw`);
+                // Withdraw 100 CTC to the Substrate account
+                // requires the CC_SECRET set above
+                CLI(`evm withdraw ${nodeUrl}`);
 
-            // Check that the caller's Substrate account balance is greater than initial
-            const afterBalance = await getBalance(caller.address, api);
-            expect(BigInt(afterBalance.transferable.toString())).toBeGreaterThan(
-                BigInt(parseAmount('1000000').toString()),
-            ); // Greater than initial balance
-        }, 60000);
+                // Check that the caller's Substrate account balance is greater than initial
+                const afterBalance = await getBalance(caller.address, api);
+                expect(BigInt(afterBalance.transferable.toString())).toBeGreaterThan(
+                    BigInt(parseAmount('1000000').toString()),
+                ); // Greater than initial balance
+            },
+            60000,
+        );
     });
 
     describe('EVM Balance', () => {
@@ -96,11 +100,11 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             const evmAccount = randomEvmAccount();
 
             // Create and fund a random Substrate account
-            const fundingRes = CLI(`evm fund --evm-address ${evmAccount.address} --amount 100`);
+            const fundingRes = CLI(`evm fund --evm-address ${evmAccount.address} --amount 100 --url ${BOB_NODE_URL}`);
             expect(fundingRes.exitCode).toBe(0);
             expect(fundingRes.stdout).toContain('Transaction included at block');
 
-            const test2Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
+            const test2Res = CLI(`evm balance --evm-address ${evmAccount.address} --url ${BOB_NODE_URL}`);
             expect(test2Res.exitCode).toBe(0);
             expect(test2Res.stdout).toContain(' 100.0000 CTC');
         }, 100_000);
