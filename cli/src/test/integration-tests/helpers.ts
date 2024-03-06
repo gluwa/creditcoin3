@@ -5,6 +5,7 @@ import { signSendAndWatch } from '../../lib/tx';
 import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
+import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -55,7 +56,8 @@ export function randomTestAccount(secret = '') {
     }
     const keyring = initKeyringPair(secret);
     const address = keyring.address;
-    return { secret, keyring, address };
+    const evmAddress = substrateAddressToEvmAddress(address);
+    return { secret, keyring, address, evmAddress };
 }
 
 export function initAliceKeyring() {
