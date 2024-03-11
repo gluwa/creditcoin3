@@ -4,7 +4,14 @@ set -euo pipefail
 
 GIT_TAG=$(git describe --tag)
 SUFFIX_FROM_GIT_TAG=$(echo "$GIT_TAG" | cut -d"-" -f2,99)
-NEAREST_GIT_BRANCH=$(git branch --contains | grep "\* " | cut -f2 -d" ")
+
+echo "----- DEBUG -----"
+git branch -a --contains
+echo "----- DEBUG -----"
+git branch -a --contains | grep remotes/origin
+echo "----- END -----"
+
+NEAREST_GIT_BRANCH=$(git branch -a --contains | grep remotes/origin | cut -f3 -d/)
 
 echo "INFO: git tag: '$GIT_TAG'"
 echo "INFO: suffix from git tag: '$SUFFIX_FROM_GIT_TAG'"
