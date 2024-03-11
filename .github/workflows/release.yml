@@ -29,7 +29,7 @@ jobs:
       - name: Sanity check tag name suffix
         run: |
           echo "${{ env.TAG_NAME }}" | grep -E "mainnet|testnet|devnet"
-          # .github/check-tag-suffix-vs-origin-branch.sh
+          .github/check-tag-suffix-vs-origin-branch.sh
 
       - name: Check tag name vs. Cargo.toml version
         run: |
