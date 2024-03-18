@@ -5,6 +5,7 @@ import { signSendAndWatch } from '../../lib/tx';
 import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
+import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -14,7 +15,7 @@ export async function fundFromSudo(address: string, amount: BN, url = ALICE_NODE
     const { api } = await newApi(url);
     const call = api.tx.balances.forceSetBalance(address, amount.toString());
     const tx = api.tx.sudo.sudo(call);
-    return tx;
+    return signSendAndWatch(tx, api, initAliceKeyring());
 }
 
 export async function fundAddressesFromSudo(addresses: string[], amount: BN, url = ALICE_NODE_URL) {
@@ -49,11 +50,14 @@ export async function forceNewEra(api: ApiPromise) {
     await signSendAndWatch(sudoTx, api, initAliceKeyring());
 }
 
-export function randomTestAccount() {
-    const secret = mnemonicGenerate();
+export function randomTestAccount(secret = '') {
+    if (secret === '') {
+        secret = mnemonicGenerate();
+    }
     const keyring = initKeyringPair(secret);
     const address = keyring.address;
-    return { secret, keyring, address };
+    const evmAddress = substrateAddressToEvmAddress(address);
+    return { secret, keyring, address, evmAddress };
 }
 
 export function initAliceKeyring() {
@@ -67,9 +71,65 @@ export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPa
     return account;
 }
 
+export async function increaseValidatorCount(api: ApiPromise, sudoSigner: KeyringPair, additional = 3) {
+    const oldCount = (await api.query.staking.validatorCount()).toNumber();
+
+    await signSendAndWatch(api.tx.sudo.sudo(api.tx.staking.increaseValidatorCount(additional)), api, sudoSigner);
+
+    const newCount = (await api.query.staking.validatorCount()).toNumber();
+    expect(newCount).toEqual(oldCount + additional);
+}
+
 export function CLIBuilder(env: any) {
+    let extraArgs = '';
+    if (env.CC_PROXY_SECRET) {
+        // WARNING: proxy setup must be done outside of this function
+        const delegate = initKeyringPair(env.CC_SECRET);
+        extraArgs = `--use-proxy ${delegate.address} --url ${BOB_NODE_URL}`;
+    }
+
     function CLICmd(cmd: string) {
-        return commandSync(`node ${CLI_PATH} ${cmd}`, { env });
+        return commandSync(`node ${CLI_PATH} ${cmd} ${extraArgs}`, { env });
     }
     return CLICmd;
+}
+
+export async function setUpProxy(nonProxiedCli: any, delegate: any, proxy: any, wrongProxy: any) {
+    if (process.env.PROXY_ENABLED === 'yes') {
+        // this value isn't always defined properly
+        let proxyType = process.env.PROXY_TYPE;
+        if (proxyType === undefined || proxyType === '') {
+            proxyType = 'All';
+        }
+
+        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+        const result = nonProxiedCli(`proxy add --proxy ${proxy.address} --type ${proxyType}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
+
+        if (process.env.PROXY_SECRET_VARIANT === 'no-funds') {
+            // will cause the configured proxy account not to have enough funds to pay fees
+            await fundFromSudo(proxy.address, new BN(0));
+        } else if (process.env.PROXY_SECRET_VARIANT === 'not-a-proxy') {
+            // will cause CLI calls to use a proxy secret for a funded account which ISN'T
+            // configured as a proxy for the delegate address. WARNING: outside of this function
+            // the variable `proxy` will have its original value so you need to use wrongProxy.address
+            // when assrting against error messages
+            proxy = wrongProxy;
+        }
+
+        // make sure that our CLI instance uses the proxy account
+        return CLIBuilder({ CC_SECRET: delegate.secret, CC_PROXY_SECRET: proxy.secret });
+    }
+
+    // or keep using the regular non-proxy CLI instance
+    return nonProxiedCli;
+}
+
+export function tearDownProxy(cli: any, proxy: any) {
+    if (process.env.PROXY_ENABLED === 'yes') {
+        const result = cli(`proxy remove --proxy ${proxy.address}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain('Transaction included at block');
+    }
 }

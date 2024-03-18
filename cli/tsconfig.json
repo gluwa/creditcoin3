@@ -10,7 +10,7 @@
         "allowSyntheticDefaultImports": true,
         "baseUrl": ".",
         "paths": {
-            "creditcoin3/*": ["src/*"],
+            "creditcoin/*": ["src/*"],
             "@polkadot/api/augment": ["src/lib/interfaces/augment-api.ts"],
             "@polkadot/types/augment": ["src/lib/interfaces/augment-types.ts"],
             "@polkadot/types/lookup": ["src/lib/interfaces/types-lookup.ts"]

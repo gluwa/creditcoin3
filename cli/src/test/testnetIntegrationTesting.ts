@@ -58,7 +58,8 @@ const evmPrivateKey = (who: 'alice' | 'bob'): string => {
 };
 
 const setup = () => {
-    (global as any).CREDITCOIN_USES_FAST_RUNTIME = false;
+    (global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION = 2880;
+    (global as any).CREDITCOIN_EXPECTED_BLOCK_TIME = 15000;
     (global as any).CREDITCOIN_HAS_EVM_TRACING = false;
 
     (global as any).CREDITCOIN_CREATE_SIGNER = createSigner;

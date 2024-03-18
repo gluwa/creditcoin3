@@ -149,11 +149,10 @@ pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
-const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "devnet") {
-    2 * HOURS
-} else {
-    15
-};
+// WARNING: the next should be defined on a single line b/c of
+// the assertions made in .github/check-for-changes-in-epoch-duration.sh
+#[rustfmt::skip]
+const BLOCKS_FOR_FASTER_EPOCH: u32 = if cfg!(feature = "devnet") { 2 * HOURS } else { 15 };
 
 pub const EPOCH_DURATION_IN_BLOCKS: u32 = prod_or_fast!(12 * HOURS, BLOCKS_FOR_FASTER_EPOCH);
 
@@ -264,7 +263,7 @@ impl frame_system::Config for Runtime {
 }
 
 parameter_types! {
-    pub const MaxAuthorities: u32 = 100_000;
+    pub const MaxAuthorities: u32 = 1000;
 
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();

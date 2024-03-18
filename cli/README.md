@@ -1,4 +1,4 @@
-# Creditcoin-Next CLI
+# Creditcoin CLI
 
 ## Development
 

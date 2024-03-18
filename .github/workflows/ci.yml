@@ -45,10 +45,10 @@ jobs:
           sleep 60
           .github/check-health.sh
 
-      - name: Sanity test creditcoin3-cli inside the container
+      - name: Sanity test creditcoin-cli inside the container
         run: |
-          docker exec creditcoin-validator which creditcoin3
-          docker exec creditcoin-validator creditcoin3 wizard --help
+          docker exec creditcoin-validator which creditcoin
+          docker exec creditcoin-validator creditcoin wizard --help
 
       - name: Collect docker logs
         if: always()
@@ -127,18 +127,19 @@ jobs:
           node-version: 20
       - run: npm install -g yarn
 
-      - name: Install creditcoin3-cli
+      - name: Install creditcoin-cli
         working-directory: ./cli
         run: |
           yarn install
           yarn build
           npm install -g .
 
-      - name: Execute creditcoin3 command
+      - name: Execute creditcoin cli command
         run: |
-          # this makes sure we have a creditcoin3 entrypoint in the standard PATH
-          which creditcoin3
-          creditcoin3 help
+          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
+          which creditcoin
+          creditcoin help
+          creditcoin wizard --help
 
   fmt:
     name: Rustfmt
@@ -494,6 +495,32 @@ jobs:
           verbose: true
 
   integration-test-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing
     runs-on: ubuntu-22.04
@@ -540,7 +567,7 @@ jobs:
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
-      - name: Install creditcoin3-cli dependencies
+      - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
           yarn install
@@ -563,7 +590,7 @@ jobs:
               echo "git_diff=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build creditcoin3-cli
+      - name: Build creditcoin-cli
         working-directory: ./cli
         run: |
           yarn build
@@ -572,9 +599,13 @@ jobs:
         working-directory: ./cli
         run: |
           yarn test:integration
+        env:
+          PROXY_ENABLED: ${{ matrix.proxy }}
+          PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          PROXY_TYPE: ${{ matrix.proxy_type }}
 
       - name: Commit changes for typedefs
-        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' }}
+        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' && matrix.proxy == 'no' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
@@ -634,7 +665,7 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
-      - name: Install creditcoin3-cli dependencies
+      - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
           yarn install
@@ -690,7 +721,7 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
-      - name: Install creditcoin3-cli dependencies
+      - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
           yarn install

@@ -67,8 +67,12 @@ const setup = () => {
         (global as any).CREDITCOIN_HAS_SUDO = true;
     }
 
-    if ((global as any).CREDITCOIN_USES_FAST_RUNTIME === undefined) {
-        (global as any).CREDITCOIN_USES_FAST_RUNTIME = true;
+    if ((global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION === undefined) {
+        (global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION = 15;
+    }
+
+    if ((global as any).CREDITCOIN_EXPECTED_BLOCK_TIME === undefined) {
+        (global as any).CREDITCOIN_EXPECTED_BLOCK_TIME = 5000;
     }
 
     if ((global as any).CREDITCOIN_HAS_EVM_TRACING === undefined) {

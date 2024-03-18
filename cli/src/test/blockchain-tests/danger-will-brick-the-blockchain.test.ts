@@ -13,36 +13,18 @@ describe('Events that WILL brick the blockchain', (): void => {
     });
 
     test('EPOCH_DURATION has changed', () => {
-        let expectedValue = 2880;
-
-        if ((global as any).CREDITCOIN_USES_FAST_RUNTIME === true) {
-            expectedValue = 15;
-        }
-
         const epochDuration = (api.consts.babe.epochDuration as U64).toNumber();
-        expect(epochDuration).toEqual(expectedValue);
+        expect(epochDuration).toEqual((global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION);
     });
 
     test('Block time has changed', () => {
-        let expectedValue = 15000;
-
-        if ((global as any).CREDITCOIN_USES_FAST_RUNTIME === true) {
-            expectedValue = 5000;
-        }
-
         const blockTime = (api.consts.babe.expectedBlockTime as U64).toNumber();
-        expect(blockTime).toEqual(expectedValue);
+        expect(blockTime).toEqual((global as any).CREDITCOIN_EXPECTED_BLOCK_TIME);
     });
 
     test('Minimum period has changed', () => {
-        // blockTime / 2
-        let expectedValue = 7500;
-
-        if ((global as any).CREDITCOIN_USES_FAST_RUNTIME === true) {
-            expectedValue = 2500;
-        }
-
-        const blockTime = (api.consts.timestamp.minimumPeriod as U64).toNumber();
-        expect(blockTime).toEqual(expectedValue);
+        const minPeriod = (api.consts.timestamp.minimumPeriod as U64).toNumber();
+        // expected is blockTime / 2
+        expect(minPeriod).toEqual((global as any).CREDITCOIN_EXPECTED_BLOCK_TIME / 2);
     });
 });

@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "bip32",
  "clap",
@@ -1510,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-client-evm-tracing"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-rpc-primitives-debug",
  "ethereum-types",
@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-evm-tracer"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-primitives-ext",
  "ethereum-types",
@@ -1546,7 +1546,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1623,7 +1623,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-primitives-ext"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "ethereum-types",
  "evm-tracing-events",
@@ -1634,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-debug"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-types",
@@ -1648,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-trace"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-types",
@@ -1661,7 +1661,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-types"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "ethereum-types",
  "serde",
@@ -1670,7 +1670,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-debug"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-debug",
@@ -1701,7 +1701,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-primitives-debug"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "environmental",
  "ethereum",
@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-trace"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-trace",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "creditcoin3-evm-tracer",
  "creditcoin3-rpc-primitives-debug",
@@ -2694,7 +2694,7 @@ dependencies = [
 
 [[package]]
 name = "evm-tracing-events"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "environmental",
  "ethereum",
@@ -3666,7 +3666,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.19.0"
+version = "3.21.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -5137,9 +5137,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
+checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "lru"
@@ -5377,9 +5377,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.8.9"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dce281c5e46beae905d4de1870d8b1509a9142b62eedf18b443b011ca8343d0"
+checksum = "a4a650543ca06a924e8b371db273b2756685faae30f8487da1b56505a8f78b0c"
 dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
@@ -10388,9 +10388,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.35.1"
+version = "1.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c89b4efa943be685f629b149f53829423f8f5531ea21249408e8e2f8671ec104"
+checksum = "61285f6515fa018fb2d1e46eb21223fff441ee8db5d0f1435e8ab4f5cdb80931"
 dependencies = [
  "backtrace",
  "bytes",
@@ -10752,7 +10752,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.7.3",
+ "rand 0.8.5",
  "static_assertions",
 ]
 

@@ -1,15 +1,15 @@
 import { signSendAndWatch } from '../../lib/tx';
-import { fundAddressesFromSudo, initAliceKeyring, ALICE_NODE_URL } from './helpers';
-import { ApiPromise, KeyringPair, MICROUNITS_PER_CTC, newApi } from '../../lib';
+import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
+import { ApiPromise, KeyringPair, newApi } from '../../lib';
 import { randomEvmAccount } from './evmHelpers';
 import { getEVMBalanceOf } from '../../lib/evm/balance';
 import { convertWsToHttp } from '../../lib/evm/rpc';
-import { evmAddressToSubstrateAddress, substrateAddressToEvmAddress } from '../../lib/evm/address';
+import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { getBalance } from '../../lib/balance';
 import { parseAmount } from '../../commands/options';
-import { randomFundedAccount, CLIBuilder } from './helpers';
+import { describeIf } from '../utils';
 
-describe('EVM Commands', () => {
+describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'EVM Commands', () => {
     let api: ApiPromise;
     let caller: { secret: any; keyring: KeyringPair; address: string };
     let CLI: (arg0: string) => any;
@@ -54,53 +54,34 @@ describe('EVM Commands', () => {
         }, 100_000);
     });
 
-    describe('EVM Send', () => {
-        it('should be able to send CTC between EVM accounts', async () => {
-            // Create two random EVM accounts
-            const evmAccount1 = randomEvmAccount();
-            const evmAccount2 = randomEvmAccount();
-
-            // Create and fund one of them through its associated Substrate account
-            const substrateAddress = evmAddressToSubstrateAddress(evmAccount1.address);
-            const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
-            await signSendAndWatch(fundTx, api, initAliceKeyring());
-
-            // override the default CLI instance with one capable of making evm commands
-            const CLI2 = CLIBuilder({ EVM_SECRET: evmAccount1.mnemonic });
-            CLI2(`evm send --evm-address ${evmAccount2.address} --amount 1`);
-
-            // Check that the second account balance is greater than 0
-            const evmBalance2 = await getEVMBalanceOf(evmAccount2.address, convertWsToHttp(ALICE_NODE_URL));
-            const expectedBalance = BigInt(parseAmount('1').toString());
-            expect(evmBalance2.ctc).toBe(expectedBalance);
-        }, 60000);
-    });
-
     describe('EVM Withdraw', () => {
-        it('should be able to withdraw CTC to a Substrate account', async () => {
-            // Create one EVM account & a Substrate account
-            const evmAccount = randomEvmAccount();
+        it.each([`--url ${ALICE_NODE_URL}`, `--url ${BOB_NODE_URL}`])(
+            'should be able to withdraw CTC to a Substrate account via %s',
+            async (nodeUrl) => {
+                // Create a Substrate account
+                const evmAddress = substrateAddressToEvmAddress(caller.address);
 
-            // Create and fund the EVM account through its associated Substrate account
-            const substrateAddress = evmAddressToSubstrateAddress(evmAccount.address);
-            const fundTx = await fundAddressesFromSudo([substrateAddress], parseAmount('10000'));
-            await signSendAndWatch(fundTx, api, initAliceKeyring());
+                // Fund associated EVM address
+                const evmFundTX = api.tx.balances.forceSetBalance({ Address20: evmAddress }, parseAmount('100'));
+                const evmFundSudoTX = api.tx.sudo.sudo(evmFundTX);
+                await signSendAndWatch(evmFundSudoTX, api, initAliceKeyring());
 
-            // Send 1 CTC from the EVM account to the Substrate account
-            const associatedEvmAccount = substrateAddressToEvmAddress(caller.address);
+                // Check that the EVM account has a balance
+                const evmBalance = await getEVMBalanceOf(evmAddress, convertWsToHttp(ALICE_NODE_URL));
+                expect(evmBalance.ctc).toBe(BigInt(parseAmount('100').toString()));
 
-            // override the default CLI instance with one capable of making evm and substrate commands
-            const CLI2 = CLIBuilder({ EVM_SECRET: evmAccount.mnemonic, CC_SECRET: caller.secret });
-            CLI2(`evm send --evm-address ${associatedEvmAccount} --amount 1`);
+                // Withdraw 100 CTC to the Substrate account
+                // requires the CC_SECRET set above
+                CLI(`evm withdraw ${nodeUrl}`);
 
-            // Withdraw 1 CTC to the Substrate account
-            // requires the CC_SECRET set above
-            CLI2(`evm withdraw`);
-
-            // Check that the caller's Substrate account balance is greater than 1
-            const balance = await getBalance(caller.address, api);
-            expect(BigInt(balance.total.toString())).toBeGreaterThan(1 * MICROUNITS_PER_CTC); // 1 CTC
-        }, 60000);
+                // Check that the caller's Substrate account balance is greater than initial
+                const afterBalance = await getBalance(caller.address, api);
+                expect(BigInt(afterBalance.transferable.toString())).toBeGreaterThan(
+                    BigInt(parseAmount('1000000').toString()),
+                ); // Greater than initial balance
+            },
+            60000,
+        );
     });
 
     describe('EVM Balance', () => {
@@ -119,11 +100,11 @@ describe('EVM Commands', () => {
             const evmAccount = randomEvmAccount();
 
             // Create and fund a random Substrate account
-            const fundingRes = CLI(`evm fund --evm-address ${evmAccount.address} --amount 100`);
+            const fundingRes = CLI(`evm fund --evm-address ${evmAccount.address} --amount 100 --url ${BOB_NODE_URL}`);
             expect(fundingRes.exitCode).toBe(0);
             expect(fundingRes.stdout).toContain('Transaction included at block');
 
-            const test2Res = CLI(`evm balance --evm-address ${evmAccount.address}`);
+            const test2Res = CLI(`evm balance --evm-address ${evmAccount.address} --url ${BOB_NODE_URL}`);
             expect(test2Res.exitCode).toBe(0);
             expect(test2Res.stdout).toContain(' 100.0000 CTC');
         }, 100_000);

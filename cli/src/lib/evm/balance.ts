@@ -17,22 +17,6 @@ export async function getEVMBalanceOf(address: string, rpcUrl: string): Promise<
     return { address, ctc: balance } as EVMBalance;
 }
 
-export async function getTransferFeeEstimation(rpcUrl: string): Promise<bigint> {
-    const provider = new JsonRpcProvider(rpcUrl);
-    const data = await provider.getFeeData();
-
-    console.log(data);
-    const fee = data.maxFeePerGas;
-    const priority = data.maxPriorityFeePerGas ?? BigInt(0);
-    if (!fee) {
-        throw new Error('Could not get fee data from RPC at ' + rpcUrl);
-    }
-    const base = fee - priority;
-    const maxFeePerGas = base * BigInt(2) + priority;
-    const feesInCredo = BigInt(21000) * maxFeePerGas; // 21000 is the expected gas limit for a native currency transfer
-    return feesInCredo;
-}
-
 export function logEVMBalance(balance: EVMBalance, human = true) {
     if (human) {
         printEVMBalance(balance);
