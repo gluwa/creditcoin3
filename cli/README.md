@@ -7,7 +7,7 @@
 To build the project, run the following command from the root directory:
 
 ```shell
-yarn && yarn build
+yarn install && yarn build
 ```
 
 ### Updating Type definitions
