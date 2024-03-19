@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 version = "3.21.0"
-authors = ["Gluwa Inc.", "Nathan Whitaker <nathan.whitaker@gluwa.com>"]
+authors = ["Gluwa Inc. <info@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
 publish = false
