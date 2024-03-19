@@ -262,7 +262,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features=runtime-benchmarks -- --test-threads 1
+          args: --features=runtime-benchmarks --features=evm-tracing -- --test-threads 1
 
   build-creditcoin-node:
     strategy:
