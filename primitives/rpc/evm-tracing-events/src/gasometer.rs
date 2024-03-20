@@ -30,7 +30,6 @@ impl Snapshot {
     }
 }
 
-#[cfg(feature = "evm-tracing")]
 impl From<Option<evm_gasometer::Snapshot>> for Snapshot {
     fn from(i: Option<evm_gasometer::Snapshot>) -> Self {
         if let Some(i) = i {
@@ -72,7 +71,6 @@ pub enum GasometerEvent {
     },
 }
 
-#[cfg(feature = "evm-tracing")]
 impl From<evm_gasometer::tracing::Event> for GasometerEvent {
     fn from(i: evm_gasometer::tracing::Event) -> Self {
         match i {

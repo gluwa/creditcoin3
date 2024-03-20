@@ -92,7 +92,6 @@ pub enum RuntimeEvent {
     },
 }
 
-#[cfg(feature = "evm-tracing")]
 impl RuntimeEvent {
     pub fn from_evm_event(
         i: evm_runtime::tracing::Event<'_>,
@@ -158,7 +157,6 @@ impl RuntimeEvent {
     }
 }
 
-#[cfg(feature = "evm-tracing")]
 /// Converts an Opcode into its name, stored in a `Vec<u8>`.
 pub fn opcodes_string(opcode: Opcode) -> Vec<u8> {
     let tmp;
