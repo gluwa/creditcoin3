@@ -10,7 +10,7 @@ license = "GPL-3.0-only"
 [dependencies]
 
 # Tracing
-evm-tracing-events = { workspace = true, features = ["evm-tracing"] }
+evm-tracing-events = { workspace = true }
 creditcoin3-primitives-ext = { workspace = true }
 
 # Substrate

@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: sanity-check
     outputs:
-      build_options: "--features evm-tracing ${{ steps.set-build-options.outputs.build_options}}"
+      build_options: ${{ steps.set-build-options.outputs.build_options}}
     steps:
       - name: Set build options
         id: set-build-options
@@ -50,7 +50,6 @@ jobs:
       - name: View the build options
         shell: bash
         run: |
-          echo "NOTE: evm-tracing is unconditionally enabled for all networks"
           echo "build_options = ${{ steps.set-build-options.outputs.build_options}}"
 
   build-native-runtime:
