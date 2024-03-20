@@ -119,4 +119,3 @@ runtime-benchmarks = [
 	"sc-service/runtime-benchmarks",
 	"creditcoin3-runtime/runtime-benchmarks",
 ]
-evm-tracing = ["creditcoin3-runtime?/evm-tracing"]

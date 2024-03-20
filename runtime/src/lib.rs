@@ -1447,15 +1447,12 @@ impl_runtime_apis! {
 
     impl creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
         fn trace_transaction(
-            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
-            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             traced_transaction: &EthereumTransaction,
         ) -> Result<
             (),
             sp_runtime::DispatchError,
         > {
-            #[cfg(feature = "evm-tracing")]
             {
                 use creditcoin3_evm_tracer::tracer::EvmTracer;
 
@@ -1478,22 +1475,15 @@ impl_runtime_apis! {
                     "Failed to find Ethereum transaction among the extrinsics.",
                 ))
             }
-            #[cfg(not(feature = "evm-tracing"))]
-            Err(sp_runtime::DispatchError::Other(
-                "Missing `evm-tracing` compile time feature flag.",
-            ))
         }
 
         fn trace_block(
-            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
-            #[cfg_attr(not(feature = "evm-tracing"), allow(unused_variables))]
             known_transactions: Vec<H256>,
         ) -> Result<
             (),
             sp_runtime::DispatchError,
         > {
-            #[cfg(feature = "evm-tracing")]
             {
                 use creditcoin3_evm_tracer::tracer::EvmTracer;
 
@@ -1520,10 +1510,6 @@ impl_runtime_apis! {
 
                 Ok(())
             }
-            #[cfg(not(feature = "evm-tracing"))]
-            Err(sp_runtime::DispatchError::Other(
-                "Missing `evm-tracing` compile time feature flag.",
-            ))
         }
     }
 
