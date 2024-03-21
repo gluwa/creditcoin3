@@ -68,7 +68,7 @@ const setup = () => {
     }
 
     if ((global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION === undefined) {
-        (global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION = 15;
+        (global as any).CREDITCOIN_EXPECTED_EPOCH_DURATION = 7;
     }
 
     if ((global as any).CREDITCOIN_EXPECTED_BLOCK_TIME === undefined) {
