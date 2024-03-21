@@ -6,6 +6,7 @@ import {
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
+    setMinBondConfig,
 } from './helpers';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
 import { getBalance } from '../../lib/balance';
@@ -36,9 +37,12 @@ describe('bond', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
-    });
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
+    }, 90_000);
 
     afterAll(async () => {
         await api.disconnect();
@@ -129,6 +133,33 @@ describe('bond', () => {
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
                 expect(error.stdout).toContain('staking.AlreadyBonded: Stash is already bonded.');
+            }
+        },
+        90_000,
+    );
+
+    testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        'should error when specified amount < MinValidatorBond',
+        async () => {
+            const minValidatorBond = 100;
+            // set staking config min bond amount
+            await setMinBondConfig(api, minValidatorBond);
+
+            const zero = new BN(0);
+            const balance = await getBalance(caller.address, api);
+            expect(balance.bonded.toString()).toBe(zero.toString());
+            expect(balance.locked.toString()).toBe(zero.toString());
+
+            try {
+                CLI('bond --amount 50');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(
+                    `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                );
             }
         },
         90_000,
