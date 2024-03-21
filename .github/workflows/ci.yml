@@ -584,13 +584,18 @@ jobs:
           yarn format
 
           echo "========== DEBUG DEBUG DEBUG =========="
-          git status --short
+          git status --short --untracked-files=no
           git diff
           echo "======================================="
 
-          if [ -n "$(git status --short)" ]; then
+          # do not update if only creditcoin.json has changed,
+          # usually happens on version bump without any real metadata change
+          # shellcheck disable=SC2143
+          if [ -n "$(git status --short --untracked-files=no | grep -v yarn.lock | grep -v creditcoin.json)" ]; then
               git diff
               echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "git_diff=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build creditcoin-cli
