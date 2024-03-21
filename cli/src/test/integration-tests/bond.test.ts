@@ -142,7 +142,7 @@ describe('bond', () => {
         'should get error if bonding specified amount < min bond amount',
         async () => {
             // set staking config min bond amount
-            await setMinBondConfig(api, 100)
+            await setMinBondConfig(api, 100);
 
             const zero = new BN(0);
             const oldBalance = await getBalance(caller.address, api);
@@ -156,7 +156,7 @@ describe('bond', () => {
             }
 
             // revert to 0 again
-            await setMinBondConfig(api, 0)
+            await setMinBondConfig(api, 0);
         },
         90_000,
     );

@@ -27,10 +27,10 @@ export async function bond(
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
     } else {
         // Get min bond amount
-        let min_bond_amount = await api.query.staking.minValidatorBond();
+        const min_bond_amount = await api.query.staking.minValidatorBond();
 
         // Should atleast bond the min validator bond amount on initial bond
-        if (BigInt(amount.toString()) < (min_bond_amount.toNumber() * 1e18)) {
+        if (BigInt(amount.toString()) < min_bond_amount.toNumber() * 1e18) {
             throw new Error('Amount to bond must be at least the minimum validator bond amount');
         }
 
@@ -63,26 +63,26 @@ export async function setStakingConfig(
     chillThreshold: any,
     minCommission: any,
 ) {
-    const configTx = await api.tx.staking.setStakingConfigs(
+    const configTx = api.tx.staking.setStakingConfigs(
         setStakingConfigOp(minNomitatorBond),
         setStakingConfigOp(minValidatorBond),
         setStakingConfigOp(maxNominatorCount),
         setStakingConfigOp(maxValidatorCount),
         setStakingConfigOp(chillThreshold),
-        setStakingConfigOp(minCommission)
-    )
+        setStakingConfigOp(minCommission),
+    );
 
     const sudoTx = api.tx.sudo.sudo(configTx);
     await signSendAndWatch(sudoTx, api, callerKeyring);
 }
 
 function setStakingConfigOp(op: any): any {
-    if (op == 0) {
-        op = { Remove: null }
-    } else if (op == null) {
-        op = { Noop: null }
+    if (op === 0) {
+        op = { remove: null };
+    } else if (op === null) {
+        op = { noop: null };
     } else {
-        op = { Set: op }
+        op = { set: op };
     }
 
     return op;
