@@ -28,7 +28,7 @@ export async function bond(
     } else {
         // Get min bond amount
         let min_bond_amount = await api.query.staking.minValidatorBond();
-    
+
         // Should atleast bond the min validator bond amount on initial bond
         if (BigInt(amount.toString()) < (min_bond_amount.toNumber() * 1e18)) {
             throw new Error('Amount to bond must be at least the minimum validator bond amount');
@@ -64,11 +64,11 @@ export async function setStakingConfig(
     minCommission: any,
 ) {
     const configTx = await api.tx.staking.setStakingConfigs(
-        setStakingConfigOp(minNomitatorBond), 
-        setStakingConfigOp(minValidatorBond), 
-        setStakingConfigOp(maxNominatorCount), 
-        setStakingConfigOp(maxValidatorCount), 
-        setStakingConfigOp(chillThreshold), 
+        setStakingConfigOp(minNomitatorBond),
+        setStakingConfigOp(minValidatorBond),
+        setStakingConfigOp(maxNominatorCount),
+        setStakingConfigOp(maxValidatorCount),
+        setStakingConfigOp(chillThreshold),
         setStakingConfigOp(minCommission)
     )
 

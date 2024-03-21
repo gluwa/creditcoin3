@@ -138,4 +138,3 @@ export function tearDownProxy(cli: any, proxy: any) {
 export async function setMinBondConfig(api: ApiPromise, value: number) {
     await setStakingConfig(initAliceKeyring(), api, null, value, null, null, null, null)
 }
-
