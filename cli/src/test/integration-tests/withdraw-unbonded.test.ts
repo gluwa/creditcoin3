@@ -153,4 +153,76 @@ describe('withdraw-unbonded', () => {
             90_000,
         );
     });
+
+    describe('when partial unbond has been unlocked', () => {
+        let caller: any;
+
+        // WARNING: caller is a local variable in each describe() block
+        // b/c for some scenarios in the block above it changes beforeEach()
+        // while here the entire setup is inside beforeAll() (b/c it takes a long time)
+        beforeAll(async () => {
+            // Create and fund the test and proxy account
+            caller = await randomFundedAccount(api, sudoSigner);
+            nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
+
+            // bond before calling unbond
+            let result = nonProxiedCli(`bond --amount 500`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // wait 5 seconds for nodes to sync
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+            result = nonProxiedCli(`unbond --amount 123`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // wait for funds to become unlocked
+            const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
+            await waitEras(unbondingPeriod + 1, api, true);
+
+            // configure proxy
+            proxy = await randomFundedAccount(api, sudoSigner);
+            const wrongProxy = await randomFundedAccount(api, sudoSigner);
+            CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+        }, 1_200_000);
+
+        afterAll(() => {
+            tearDownProxy(nonProxiedCli, proxy);
+        });
+
+        testIf(
+            process.env.PROXY_ENABLED === undefined ||
+                process.env.PROXY_ENABLED === 'no' ||
+                (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            'should be able to withdraw partially unlocked funds',
+            async () => {
+                const five00 = parseAmount('500');
+                const three77 = parseAmount('377'); // 500 - 123
+
+                const oldBalance = await getBalance(caller.address, api);
+                expect(oldBalance.bonded.toString()).toBe(three77.toString());
+                expect(oldBalance.locked.toString()).toBe(five00.toString());
+
+                const result = CLI('withdraw-unbonded');
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Transaction included at block');
+
+                // wait 5 seconds for nodes to sync
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+                const newBalance = await getBalance(caller.address, api);
+                expect(newBalance.transferable > oldBalance.transferable).toBe(true);
+                expect(newBalance.bonded.toString()).toBe(three77.toString());
+                expect(newBalance.locked.toString()).toBe(three77.toString());
+
+                // try to withdraw again - should fail
+                try {
+                    CLI('withdraw-unbonded');
+                } catch (error: any) {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain('Cannot perform action, there are no unlocked funds to withdraw');
+                }
+            },
+            90_000,
+        );
+    });
 });
