@@ -2,9 +2,7 @@
   "name": "Creditcoin3 Testnet",
   "id": "creditcoin3_testnet",
   "chainType": "Live",
-  "bootNodes": [
-    "/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWBpaiGRjSp9oK7EvD5vTCox7x9B4YoFFMpdv7hRcvWsFn"
-  ],
+  "bootNodes": [],
   "telemetryEndpoints": null,
   "protocolId": null,
   "properties": {
