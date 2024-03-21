@@ -116,6 +116,10 @@ jobs:
         run: |
           .github/check-for-missing-package-json-in-Dependabot-config.sh
 
+      - name: Check if chainspecs are valid and not contain bootnodes
+        run: |
+          ./.github/check-bootnodes.sh
+
   sanity-test-cli:
     runs-on: ubuntu-22.04
     steps:
@@ -304,7 +308,7 @@ jobs:
         if: matrix.target == 'devnet'
         id: compiler-flags
         run: |
-            echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
+          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
         uses: actions-rs/cargo@v1
@@ -366,7 +370,7 @@ jobs:
         if: matrix.target == 'devnet'
         id: compiler-flags
         run: |
-            echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
+          echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
         uses: actions-rs/cargo@v1
@@ -518,7 +522,6 @@ jobs:
           - proxy: yes
             secret: valid-proxy
             proxy_type: All
-
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
