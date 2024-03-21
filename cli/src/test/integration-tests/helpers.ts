@@ -6,6 +6,7 @@ import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
 import { substrateAddressToEvmAddress } from '../../lib/evm/address';
+import { setStakingConfig } from '../../lib/staking/bond'
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -133,3 +134,8 @@ export function tearDownProxy(cli: any, proxy: any) {
         expect(result.stdout).toContain('Transaction included at block');
     }
 }
+
+export async function setMinBondConfig(api: ApiPromise, value: number) {
+    await setStakingConfig(initAliceKeyring(), api, null, value, null, null, null, null)
+}
+
