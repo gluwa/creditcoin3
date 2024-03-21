@@ -7,6 +7,7 @@ import {
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
+    setMinBondConfig,
 } from './helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
@@ -36,9 +37,12 @@ describe('validate', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
-    });
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
+    }, 90_000);
 
     afterAll(async () => {
         await api.disconnect();
@@ -123,4 +127,31 @@ describe('validate', () => {
             60_000,
         );
     });
+
+    testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        'should error when current bond < MinValidatorBond',
+        async () => {
+            // set min bond amount to 1000
+            const minValidatorBond = 1000;
+            // set staking config min bond amount
+            await setMinBondConfig(api, minValidatorBond);
+
+            // Bond 900
+            CLI('bond --amount 900');
+
+            // try validate now
+            try {
+                CLI('validate --commission 90');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stdout).toContain(
+                    `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                );
+            }
+        },
+        60_000,
+    );
 });

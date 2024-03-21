@@ -6,6 +6,7 @@ import {
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
+    setMinBondConfig,
 } from './helpers';
 import { testIf } from '../utils';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
@@ -41,9 +42,12 @@ describe('wizard', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
-    });
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
+    }, 90_000);
 
     testIf(
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
@@ -89,6 +93,29 @@ describe('wizard', () => {
 
             const validatorStatus = await getValidatorStatus(caller.address, api);
             expect(validatorStatus?.waiting).toBe(true);
+        },
+        120_000,
+    );
+
+    testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        'should error when specified amount < MinValidatorBond',
+        async () => {
+            // set min bond amount to 5000
+            const minValidatorBond = 5000;
+            // set staking config min bond amount
+            await setMinBondConfig(api, minValidatorBond);
+
+            try {
+                CLI('wizard --amount 900');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(
+                    `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                );
+            }
         },
         120_000,
     );
