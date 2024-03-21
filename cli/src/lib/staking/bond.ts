@@ -30,7 +30,7 @@ export async function bond(
         const min_bond_amount = await api.query.staking.minValidatorBond();
 
         // Should atleast bond the min validator bond amount on initial bond
-        if (BigInt(amount.toString()) < min_bond_amount.toNumber() * 1e18) {
+        if (BigInt(amount.toString()) < min_bond_amount.toNumber() * MICROUNITS_PER_CTC) {
             throw new Error('Amount to bond must be at least the minimum validator bond amount');
         }
 

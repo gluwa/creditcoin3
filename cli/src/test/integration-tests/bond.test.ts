@@ -145,14 +145,15 @@ describe('bond', () => {
             await setMinBondConfig(api, 100);
 
             const zero = new BN(0);
-            const oldBalance = await getBalance(caller.address, api);
-            expect(oldBalance.bonded.toString()).toBe(zero.toString());
-            expect(oldBalance.locked.toString()).toBe(zero.toString());
+            const balance = await getBalance(caller.address, api);
+            expect(balance.bonded.toString()).toBe(zero.toString());
+            expect(balance.locked.toString()).toBe(zero.toString());
 
             try {
                 CLI('bond --amount 50');
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain('Amount to bond must be at least the minimum validator bond amount');
             }
 
             // revert to 0 again
