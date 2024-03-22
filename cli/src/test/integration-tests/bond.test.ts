@@ -37,8 +37,11 @@ describe('bond', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
     });
 
     afterAll(async () => {
@@ -155,9 +158,6 @@ describe('bond', () => {
                 expect(error.exitCode).toEqual(1);
                 expect(error.stderr).toContain('Amount to bond must be at least the minimum validator bond amount');
             }
-
-            // revert to 0 again
-            await setMinBondConfig(api, 0);
         },
         90_000,
     );
