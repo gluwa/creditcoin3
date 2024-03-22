@@ -42,7 +42,7 @@ describe('bond', () => {
 
         // set default min bond config to 0
         await setMinBondConfig(api, 0);
-    });
+    }, 90_000);
 
     afterAll(async () => {
         await api.disconnect();
