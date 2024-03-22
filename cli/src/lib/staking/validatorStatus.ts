@@ -55,7 +55,7 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
             };
             return chunk;
         })
-        .filter((u: UnlockChunk) => u.era < currentEra.toNumber());
+        .filter((u: UnlockChunk) => u.era <= currentEra.toNumber());
 
     const canWithdraw = readyForWithdraw.length > 0;
 
