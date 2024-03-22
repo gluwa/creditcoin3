@@ -3,6 +3,7 @@ import { ISubmittableResult } from '@polkadot/types/types';
 import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring, signSendAndWatch } from '../tx';
 import { CcKeyring } from '../account/keyring';
+import { getBalance } from '../balance';
 
 export type RewardDestination = 'Staked' | 'Stash';
 
@@ -42,6 +43,16 @@ export async function bond(
 
     await requireKeyringHasSufficientFunds(bondTx, stashKeyring, api, amount);
     return await signSendAndWatchCcKeyring(bondTx, api, stashKeyring);
+}
+
+export async function hasBondedEnough(keyring: CcKeyring, api: ApiPromise) {
+    // Get min bond amount
+    const minValidatorBond = await api.query.staking.minValidatorBond();
+
+    // Get balance
+    const balance = await getBalance(keyring.pair.address, api);
+
+    return minValidatorBond.cmp(balance.bonded) !== 1;
 }
 
 export function parseRewardDestination(rewardDestinationRaw: string): RewardDestination {

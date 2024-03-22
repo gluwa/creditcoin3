@@ -7,6 +7,7 @@ import {
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
+    setMinBondConfig,
 } from './helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
@@ -36,9 +37,12 @@ describe('validate', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
-    });
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
+    }, 90_000);
 
     afterAll(async () => {
         await api.disconnect();
@@ -119,6 +123,44 @@ describe('validate', () => {
 
                 const status = await getValidatorStatus(caller.address, api);
                 expect(status?.waiting).toBe(true);
+            },
+            60_000,
+        );
+
+        testIf(
+            process.env.PROXY_ENABLED === undefined ||
+                process.env.PROXY_ENABLED === 'no' ||
+                (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            'should error if not enough bonded',
+            async () => {
+                // set min bond amount to 500
+                const minValidatorBond = 500;
+                // set staking config min bond amount
+                await setMinBondConfig(api, minValidatorBond);
+
+                // unbond 500 (from 900 initially)
+                const unbondResult = CLI('unbond --amount 500');
+                expect(unbondResult.exitCode).toEqual(0);
+                expect(unbondResult.stdout).toContain('Transaction included at block');
+
+                // try validate now
+                try {
+                    CLI('validate --commission 90');
+                } catch (error: any) {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain('Cannot start validating, not enough bonded.');
+                }
+
+                // wait 5 seconds for nodes to sync
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+
+                const status = await getValidatorStatus(caller.address, api);
+                expect(status?.active).toBe(false);
+
+                // bond the unbonded amount again
+                const result = nonProxiedCli(`bond --amount 500`);
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Transaction included at block');
             },
             60_000,
         );
