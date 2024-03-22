@@ -15,7 +15,9 @@ export async function bond(
 ) {
     console.log(`Amount: ${amount.toString()}`);
 
-    if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
+    const precision = BigInt(MICROUNITS_PER_CTC);
+
+    if (BigInt(amount.toString()) < precision) {
         throw new Error('Amount to bond must be at least 1');
     }
 
@@ -27,11 +29,12 @@ export async function bond(
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
     } else {
         // Get min bond amount
-        const min_bond_amount = await api.query.staking.minValidatorBond();
+        const minValidatorBond = await api.query.staking.minValidatorBond();
 
         // Should atleast bond the min validator bond amount on initial bond
-        if (BigInt(amount.toString()) < min_bond_amount.toNumber() * MICROUNITS_PER_CTC) {
-            throw new Error('Amount to bond must be at least the minimum validator bond amount');
+        if (amount.cmp(minValidatorBond) === -1) {
+            const amountMsg = minValidatorBond.toBigInt() / precision;
+            throw new Error(`Amount to bond must be at least: ${amountMsg.toString()} CTC (min validator bond amount)`);
         }
 
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);

@@ -144,8 +144,9 @@ describe('bond', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should get error if bonding specified amount < min bond amount',
         async () => {
+            const minValidatorBond = 100;
             // set staking config min bond amount
-            await setMinBondConfig(api, 100);
+            await setMinBondConfig(api, minValidatorBond);
 
             const zero = new BN(0);
             const balance = await getBalance(caller.address, api);
@@ -156,7 +157,9 @@ describe('bond', () => {
                 CLI('bond --amount 50');
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain('Amount to bond must be at least the minimum validator bond amount');
+                expect(error.stderr).toContain(
+                    `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                );
             }
         },
         90_000,
