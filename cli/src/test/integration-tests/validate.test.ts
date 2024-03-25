@@ -141,9 +141,6 @@ describe('validate', () => {
             // set staking config min bond amount
             await setMinBondConfig(api, minValidatorBond);
 
-            const status1 = await getValidatorStatus(caller.address, api);
-            console.log(status1);
-
             // Bond 900
             CLI('bond --amount 900');
 
