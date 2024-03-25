@@ -3,7 +3,6 @@ import { ISubmittableResult } from '@polkadot/types/types';
 import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring, signSendAndWatch } from '../tx';
 import { CcKeyring } from '../account/keyring';
-import { getBalance } from '../balance';
 
 export type RewardDestination = 'Staked' | 'Stash';
 
@@ -29,14 +28,7 @@ export async function bond(
     if (extra) {
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
     } else {
-        // Get min bond amount
-        const minValidatorBond = await api.query.staking.minValidatorBond();
-
-        // Should atleast bond the min validator bond amount on initial bond
-        if (amount.cmp(minValidatorBond) === -1) {
-            const amountMsg = minValidatorBond.toBigInt() / precision;
-            throw new Error(`Amount to bond must be at least: ${amountMsg.toString()} CTC (min validator bond amount)`);
-        }
+        await hasBondedEnough(amount, api)
 
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
     }
@@ -45,14 +37,17 @@ export async function bond(
     return await signSendAndWatchCcKeyring(bondTx, api, stashKeyring);
 }
 
-export async function hasBondedEnough(keyring: CcKeyring, api: ApiPromise) {
+export async function hasBondedEnough(amount: BN, api: ApiPromise) {
+    const precision = BigInt(MICROUNITS_PER_CTC);
+
     // Get min bond amount
     const minValidatorBond = await api.query.staking.minValidatorBond();
 
-    // Get balance
-    const balance = await getBalance(keyring.pair.address, api);
-
-    return balance.bonded > minValidatorBond;
+    // Should atleast bond the min validator bond amount on initial bond
+    if (amount < minValidatorBond) {
+        const amountMsg = minValidatorBond.toBigInt() / precision;
+        throw new Error(`Amount to bond must be at least: ${amountMsg.toString()} CTC (min validator bond amount)`);
+    }
 }
 
 export function parseRewardDestination(rewardDestinationRaw: string): RewardDestination {
