@@ -1,5 +1,13 @@
 # Security Policy
 
+## Creditcoin Testnet | Bug Bounty Guide
+
+Report bugs during the Creditcoin Testnet and earn rewards. See:
+https://creditcoin.org/blog/creditcoin-testnet-bug-bounty-guide/
+
+Please use the instructions below only for security related issues which are NOT
+covered by the existing Bug Bounty program!
+
 ## Supported Versions
 
 Only the latest Creditcoin node version will receive patches for known vulnerabilities.
