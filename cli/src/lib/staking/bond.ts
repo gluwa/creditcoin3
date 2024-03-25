@@ -6,6 +6,8 @@ import { CcKeyring } from '../account/keyring';
 
 export type RewardDestination = 'Staked' | 'Stash';
 
+const precision = BigInt(MICROUNITS_PER_CTC);
+
 export async function bond(
     stashKeyring: CcKeyring,
     amount: BN,
@@ -14,8 +16,6 @@ export async function bond(
     extra = false,
 ) {
     console.log(`Amount: ${amount.toString()}`);
-
-    const precision = BigInt(MICROUNITS_PER_CTC);
 
     if (BigInt(amount.toString()) < precision) {
         throw new Error('Amount to bond must be at least 1');
@@ -38,8 +38,6 @@ export async function bond(
 }
 
 export async function hasBondedEnough(amount: BN, api: ApiPromise) {
-    const precision = BigInt(MICROUNITS_PER_CTC);
-
     // Get min bond amount
     const minValidatorBond = await api.query.staking.minValidatorBond();
 
