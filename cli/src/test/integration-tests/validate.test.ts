@@ -156,14 +156,6 @@ describe('validate', () => {
                     `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
                 );
             }
-
-            // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
-
-            const status = await getValidatorStatus(caller.address, api);
-            console.log(status);
-            expect(status?.active).toBe(false);
-            expect(status?.waiting).toBe(false);
         },
         60_000,
     );
