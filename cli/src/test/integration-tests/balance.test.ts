@@ -49,7 +49,7 @@ describe('balance', () => {
 
     it('result should be JSON when --json specified', () => {
         // setup - transfer some funds to the associated EVM account
-        const fiftyCtc = 50 * MICROUNITS_PER_CTC;
+        const fiftyCtc = MICROUNITS_PER_CTC.mul(new BN(50));
         const cli = CLIBuilder({ CC_SECRET: randomAccount.secret });
         let result = cli(`evm fund --evm-address ${randomAccount.evmAddress} --amount 50 --url ${BOB_NODE_URL}`);
         expect(result.exitCode).toEqual(0);
