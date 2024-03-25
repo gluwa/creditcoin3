@@ -1,5 +1,5 @@
 import { ApiPromise, hasBondedEnough } from '..';
-import { CcKeyring } from '../account/keyring';
+import { CcKeyring, delegateAddress } from '../account/keyring';
 import { getBalance } from '../balance';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 export interface StakingPalletValidatorPrefs {
@@ -12,7 +12,10 @@ export interface StakingPalletValidatorPrefs {
 export async function validate(stashKeyring: CcKeyring, prefs: StakingPalletValidatorPrefs, api: ApiPromise) {
     console.log('Creating validate transaction with params:');
 
-    const balance = await getBalance(stashKeyring.pair.address, api);
+    const address = delegateAddress(stashKeyring);
+    const balance = await getBalance(address, api);
+
+    // Check if address has bonded enough
     await hasBondedEnough(balance.bonded, api);
 
     const preferences: StakingPalletValidatorPrefs = prefs || {
