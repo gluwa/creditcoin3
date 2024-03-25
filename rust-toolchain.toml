@@ -1,5 +1,5 @@
 [toolchain]
-channel    = "1.73.0" # rust version 1.73.0 (cc66ad468 2023-10-03)
+channel    = "1.77.0" # rustc 1.77.0 (aedd173a2 2024-03-17)
 components = ["cargo", "clippy", "rustc", "rustfmt", "rust-src"]
 profile    = "minimal"
 targets    = ["wasm32-unknown-unknown"]
