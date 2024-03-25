@@ -77,6 +77,11 @@ describe('validate', () => {
             expect(result.stdout).toContain('Transaction included at block');
         });
 
+        afterEach(async () => {
+            // set default min bond config to 0
+            await setMinBondConfig(api, 0);
+        }, 90_000);
+
         testIf(
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with account balance too low message',
@@ -133,15 +138,10 @@ describe('validate', () => {
                 (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
             'should error if not enough bonded',
             async () => {
-                // set min bond amount to 500
-                const minValidatorBond = 500;
+                // set min bond amount to 1000 (bonded balance is 900)
+                const minValidatorBond = 1000;
                 // set staking config min bond amount
                 await setMinBondConfig(api, minValidatorBond);
-
-                // unbond 500 (from 900 initially)
-                const unbondResult = CLI('unbond --amount 500');
-                expect(unbondResult.exitCode).toEqual(0);
-                expect(unbondResult.stdout).toContain('Transaction included at block');
 
                 // try validate now
                 try {
