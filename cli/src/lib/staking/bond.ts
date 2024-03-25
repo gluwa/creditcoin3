@@ -28,7 +28,7 @@ export async function bond(
     if (extra) {
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
     } else {
-        await hasBondedEnough(amount, api)
+        await hasBondedEnough(amount, api);
 
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
     }
