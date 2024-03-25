@@ -1,10 +1,8 @@
-import { ApiPromise, parseUnits } from '..';
+import { ApiPromise, parseUnits, MICROUNITS_PER_CTC } from '..';
 import { BN } from '@polkadot/util';
 import Table from 'cli-table3';
 
 import type { DeriveStakingAccount } from '@polkadot/api-derive/types';
-
-export const MICROUNITS_PER_CTC = new BN('1000000000000000000');
 
 export function parseCTCString(amount: string): BN {
     try {
@@ -124,7 +122,7 @@ export function checkAmount(amount: BN) {
     if (!amount) {
         console.log('Must specify amount to bond');
         process.exit(1);
-    } else if (amount.lt(new BN(1).mul(MICROUNITS_PER_CTC))) {
+    } else if (amount.lt(MICROUNITS_PER_CTC)) {
         console.log('Bond amount must be at least 1 CTC');
         process.exit(1);
     }

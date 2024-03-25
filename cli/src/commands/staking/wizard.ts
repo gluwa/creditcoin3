@@ -147,7 +147,7 @@ function parseOptions(options: OptionValues) {
     let bondStep = true;
 
     if (amount.gt(new BN(0))) {
-        if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
+        if (amount.lt(MICROUNITS_PER_CTC)) {
             console.log('Failed to setup wizard: Bond amount must be at least 1 CTC');
             process.exit(1);
         }
