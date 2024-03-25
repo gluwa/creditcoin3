@@ -42,9 +42,12 @@ describe('wizard', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
-    });
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
+    }, 90_000);
 
     testIf(
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
@@ -100,8 +103,8 @@ describe('wizard', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when not bonding enough',
         async () => {
-            // set min bond amount to 500
-            const minValidatorBond = 500;
+            // set min bond amount to 5000
+            const minValidatorBond = 5000;
             // set staking config min bond amount
             await setMinBondConfig(api, minValidatorBond);
 

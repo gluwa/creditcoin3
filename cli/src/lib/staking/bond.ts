@@ -52,7 +52,7 @@ export async function hasBondedEnough(keyring: CcKeyring, api: ApiPromise) {
     // Get balance
     const balance = await getBalance(keyring.pair.address, api);
 
-    return minValidatorBond.cmp(balance.bonded) !== 1;
+    return balance.bonded > minValidatorBond;
 }
 
 export function parseRewardDestination(rewardDestinationRaw: string): RewardDestination {
