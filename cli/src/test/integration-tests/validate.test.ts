@@ -127,44 +127,6 @@ describe('validate', () => {
             60_000,
         );
     });
-});
-
-describe('when not enough bonded', () => {
-    let api: ApiPromise;
-    let caller: any;
-    let proxy: any;
-    let sudoSigner: KeyringPair;
-    let CLI: any;
-    let nonProxiedCli: any;
-
-    beforeAll(async () => {
-        ({ api } = await newApi(ALICE_NODE_URL));
-
-        // Create a reference to sudo for funding accounts
-        sudoSigner = initAliceKeyring();
-    });
-
-    beforeEach(async () => {
-        // Create and fund the test and proxy account
-        caller = await randomFundedAccount(api, sudoSigner);
-        nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
-
-        proxy = await randomFundedAccount(api, sudoSigner);
-        const wrongProxy = await randomFundedAccount(api, sudoSigner);
-        CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
-
-        // bond before calling validate
-        const result = nonProxiedCli(`bond --amount 900`);
-        expect(result.exitCode).toEqual(0);
-        expect(result.stdout).toContain('Transaction included at block');
-    }, 90_000);
-
-    afterEach(async () => {
-        tearDownProxy(nonProxiedCli, proxy);
-
-        // set default min bond config to 0
-        await setMinBondConfig(api, 0);
-    }, 90_000);
 
     testIf(
         process.env.PROXY_ENABLED === undefined ||
@@ -172,13 +134,16 @@ describe('when not enough bonded', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error if not enough bonded',
         async () => {
-            // set min bond amount to 1000 (bonded balance is 900)
+            // set min bond amount to 1000
             const minValidatorBond = 1000;
             // set staking config min bond amount
             await setMinBondConfig(api, minValidatorBond);
 
             const status1 = await getValidatorStatus(caller.address, api);
             console.log(status1)
+
+            // Bond 900
+            CLI('bond --amount 900');
 
             // try validate now
             try {
