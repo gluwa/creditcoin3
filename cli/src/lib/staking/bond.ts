@@ -21,16 +21,14 @@ export async function bond(
         throw new Error('Amount to bond must be at least 1');
     }
 
-    const amountInMicroUnits = amount;
-
     let bondTx: SubmittableExtrinsic<'promise', ISubmittableResult>;
 
     if (extra) {
-        bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
+        bondTx = api.tx.staking.bondExtra(amount.toString());
     } else {
         await hasBondedEnough(amount, api);
 
-        bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
+        bondTx = api.tx.staking.bond(amount.toString(), rewardDestination);
     }
 
     await requireKeyringHasSufficientFunds(bondTx, stashKeyring, api, amount);
