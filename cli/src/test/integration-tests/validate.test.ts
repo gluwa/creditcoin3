@@ -84,15 +84,13 @@ describe('validate', () => {
 
         testIf(
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
-            'should error with account balance too low message',
+            'should error with not enough bonded',
             () => {
                 try {
                     CLI('validate');
                 } catch (error: any) {
                     expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        'Invalid Transaction: Inability to pay some fees , e.g. account balance too low',
-                    );
+                    expect(error.stderr).toContain('Cannot start validating, not enough bonded.');
                 }
             },
             60_000,
