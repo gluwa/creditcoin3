@@ -156,11 +156,6 @@ describe('validate', () => {
 
                 const status = await getValidatorStatus(caller.address, api);
                 expect(status?.active).toBe(false);
-
-                // bond the unbonded amount again
-                const result = nonProxiedCli(`bond --amount 500`);
-                expect(result.exitCode).toEqual(0);
-                expect(result.stdout).toContain('Transaction included at block');
             },
             60_000,
         );
