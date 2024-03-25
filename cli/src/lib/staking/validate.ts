@@ -12,7 +12,7 @@ export interface StakingPalletValidatorPrefs {
 export async function validate(stashKeyring: CcKeyring, prefs: StakingPalletValidatorPrefs, api: ApiPromise) {
     console.log('Creating validate transaction with params:');
 
-    const balance = await getBalance(stashKeyring.pair.address, api)
+    const balance = await getBalance(stashKeyring.pair.address, api);
     await hasBondedEnough(balance.bonded, api);
 
     const preferences: StakingPalletValidatorPrefs = prefs || {

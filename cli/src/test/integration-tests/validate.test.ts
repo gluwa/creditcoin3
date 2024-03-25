@@ -87,7 +87,9 @@ describe('validate', () => {
                     CLI('validate');
                 } catch (error: any) {
                     expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain( 'Invalid Transaction: Inability to pay some fees , e.g. account balance too low');
+                    expect(error.stderr).toContain(
+                        'Invalid Transaction: Inability to pay some fees , e.g. account balance too low',
+                    );
                 }
             },
             60_000,
@@ -140,7 +142,7 @@ describe('validate', () => {
             await setMinBondConfig(api, minValidatorBond);
 
             const status1 = await getValidatorStatus(caller.address, api);
-            console.log(status1)
+            console.log(status1);
 
             // Bond 900
             CLI('bond --amount 900');
@@ -150,16 +152,18 @@ describe('validate', () => {
                 CLI('validate --commission 90');
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(`Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,);
+                expect(error.stdout).toContain(
+                    `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                );
             }
 
             // wait 5 seconds for nodes to sync
             await new Promise((resolve) => setTimeout(resolve, 5000));
 
             const status = await getValidatorStatus(caller.address, api);
-            console.log(status)
+            console.log(status);
             expect(status?.active).toBe(false);
-            expect(status?.waiting).toBe(false)
+            expect(status?.waiting).toBe(false);
         },
         60_000,
     );
