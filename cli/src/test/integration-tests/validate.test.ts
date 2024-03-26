@@ -37,9 +37,12 @@ describe('validate', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
-    afterEach(() => {
+    afterEach(async () => {
         tearDownProxy(nonProxiedCli, proxy);
-    });
+
+        // set default min bond config to 0
+        await setMinBondConfig(api, 0);
+    }, 90_000);
 
     afterAll(async () => {
         await api.disconnect();
@@ -73,11 +76,6 @@ describe('validate', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
         });
-
-        afterEach(async () => {
-            // set default min bond config to 0
-            await setMinBondConfig(api, 0);
-        }, 90_000);
 
         testIf(
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
