@@ -1,10 +1,12 @@
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { ISubmittableResult } from '@polkadot/types/types';
-import { ApiPromise, BN, MICROUNITS_PER_CTC } from '..';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
+import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring, signSendAndWatch } from '../tx';
 import { CcKeyring } from '../account/keyring';
 
 export type RewardDestination = 'Staked' | 'Stash';
+
+const precision = BigInt(MICROUNITS_PER_CTC);
 
 export async function bond(
     stashKeyring: CcKeyring,
@@ -15,7 +17,7 @@ export async function bond(
 ) {
     console.log(`Amount: ${amount.toString()}`);
 
-    if (BigInt(amount.toString()) < BigInt(MICROUNITS_PER_CTC)) {
+    if (BigInt(amount.toString()) < precision) {
         throw new Error('Amount to bond must be at least 1');
     }
 
@@ -26,11 +28,24 @@ export async function bond(
     if (extra) {
         bondTx = api.tx.staking.bondExtra(amountInMicroUnits.toString());
     } else {
+        await hasBondedEnough(amount, api);
+
         bondTx = api.tx.staking.bond(amountInMicroUnits.toString(), rewardDestination);
     }
 
     await requireKeyringHasSufficientFunds(bondTx, stashKeyring, api, amount);
     return await signSendAndWatchCcKeyring(bondTx, api, stashKeyring);
+}
+
+export async function hasBondedEnough(amount: BN, api: ApiPromise) {
+    // Get min bond amount
+    const minValidatorBond = await api.query.staking.minValidatorBond();
+
+    // Should atleast bond the min validator bond amount on initial bond
+    if (amount < minValidatorBond) {
+        const amountMsg = minValidatorBond.toBigInt() / precision;
+        throw new Error(`Amount to bond must be at least: ${amountMsg.toString()} CTC (min validator bond amount)`);
+    }
 }
 
 export function parseRewardDestination(rewardDestinationRaw: string): RewardDestination {
@@ -43,4 +58,39 @@ export function parseRewardDestination(rewardDestinationRaw: string): RewardDest
     } else {
         return rewardDestination;
     }
+}
+
+export async function setStakingConfig(
+    callerKeyring: KeyringPair,
+    api: ApiPromise,
+    minNomitatorBond: any,
+    minValidatorBond: any,
+    maxNominatorCount: any,
+    maxValidatorCount: any,
+    chillThreshold: any,
+    minCommission: any,
+) {
+    const configTx = api.tx.staking.setStakingConfigs(
+        setStakingConfigOp(minNomitatorBond),
+        setStakingConfigOp(minValidatorBond),
+        setStakingConfigOp(maxNominatorCount),
+        setStakingConfigOp(maxValidatorCount),
+        setStakingConfigOp(chillThreshold),
+        setStakingConfigOp(minCommission),
+    );
+
+    const sudoTx = api.tx.sudo.sudo(configTx);
+    await signSendAndWatch(sudoTx, api, callerKeyring);
+}
+
+function setStakingConfigOp(op: any): any {
+    if (op === 0) {
+        op = { remove: null };
+    } else if (op === null) {
+        op = { noop: null };
+    } else {
+        op = { set: op };
+    }
+
+    return op;
 }
