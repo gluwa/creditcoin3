@@ -6,7 +6,7 @@ import path = require('path');
 import { commandSync } from 'execa';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
-import { ApiPromise, expectNoDispatchError } from '../lib';
+import { ApiPromise, expectNoDispatchError, newApi } from '../lib';
 
 export const describeIf = (condition: boolean, name: string, fn: any) =>
     condition ? describe(name, fn) : describe.skip(name, fn);
@@ -111,4 +111,24 @@ export function killCreditcoinNodes() {
     console.log('INFO: killing all creditcoin3-node processes');
 
     commandSync(`killall -9 creditcoin3-node`);
+}
+
+export async function expectIsFinalizing() {
+    // note: create this object here b/c the calling environment is just outside
+    // the test suite and we don't yet have access to an API object :-(
+    const api = (await newApi((global as any).CREDITCOIN_API_URL)).api;
+
+    const [lastBlockNumber, finalized] = await Promise.all([
+        getCreditcoinBlockNumber(api),
+        api.rpc.chain.getBlock(await api.rpc.chain.getFinalizedHead()),
+    ]);
+
+    const lastFinalizedNumber = finalized.block.header.number.toNumber();
+
+    // tolerate at most 5 blocks difference
+    expect(lastBlockNumber - lastFinalizedNumber).toBeLessThanOrEqual(5);
+
+    // disconnect b/c Alice will start reporting: Too many connections. Please try again later.
+    // which causes the calling beforeEach() to timeout after the 8th .test.ts file is executed
+    await api.disconnect();
 }
