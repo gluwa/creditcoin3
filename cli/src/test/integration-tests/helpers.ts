@@ -7,6 +7,7 @@ import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
 import { substrateAddressToEvmAddress } from '../../lib/evm/address';
 import { setStakingConfig } from '../../lib/staking/bond';
+import { sleep } from '../utils';
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -39,7 +40,7 @@ export async function waitEras(eras: number, api: ApiPromise, force = true) {
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
     while (currentEra < targetEra) {
         console.log(`Waiting for era ${targetEra}, currently at ${currentEra}`);
-        await new Promise((resolve) => setTimeout(resolve, blockTime));
+        await sleep(blockTime);
         eraInfo = await api.derive.session.info();
         currentEra = eraInfo.currentEra.toNumber();
     }
