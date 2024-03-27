@@ -1,5 +1,5 @@
 import type { EventRecord, Balance, DispatchError } from '../lib';
-import { ApiPromise, expectNoDispatchError } from '../lib';
+import { ApiPromise, expectNoDispatchError, newApi } from '../lib';
 
 export const describeIf = (condition: boolean, name: string, fn: any) =>
     condition ? describe(name, fn) : describe.skip(name, fn);
@@ -64,3 +64,19 @@ export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: num
         retriesCount++;
     }
 };
+
+export async function expectIsFinalizing() {
+    // note: create this object here b/c the calling environment is just outside
+    // the test suite and we don't yet have access to an API object :-(
+    const api = (await newApi((global as any).CREDITCOIN_API_URL)).api;
+
+    const [lastBlockNumber, finalized] = await Promise.all([
+        getCreditcoinBlockNumber(api),
+        api.rpc.chain.getBlock(await api.rpc.chain.getFinalizedHead()),
+    ]);
+
+    const lastFinalizedNumber = finalized.block.header.number.toNumber();
+
+    // tolerate at most 5 blocks difference
+    expect(lastBlockNumber - lastFinalizedNumber).toBeLessThanOrEqual(5);
+}
