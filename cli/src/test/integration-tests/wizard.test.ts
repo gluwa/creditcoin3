@@ -8,7 +8,7 @@ import {
     CLIBuilder,
     setMinBondConfig,
 } from './helpers';
-import { testIf } from '../utils';
+import { testIf, sleep } from '../utils';
 import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 
@@ -89,7 +89,7 @@ describe('wizard', () => {
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
 
             const validatorStatus = await getValidatorStatus(caller.address, api);
             expect(validatorStatus?.waiting).toBe(true);

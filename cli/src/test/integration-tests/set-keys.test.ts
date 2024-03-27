@@ -1,4 +1,4 @@
-import { testIf } from '../utils';
+import { testIf, sleep } from '../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -119,7 +119,7 @@ describe('set-keys', () => {
                 expect(result.stdout).toContain('Transaction included at block');
 
                 // wait 5 seconds for nodes to sync
-                await new Promise((resolve) => setTimeout(resolve, 5000));
+                await sleep(5000);
                 const newSessionKeys = await api.query.session.nextKeys(caller.address);
                 expect(newSessionKeys.toHex()).not.toBe(oldSessionKeys.toHex());
             },

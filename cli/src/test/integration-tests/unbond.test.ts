@@ -1,4 +1,4 @@
-import { testIf } from '../utils';
+import { testIf, sleep } from '../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -118,7 +118,7 @@ describe('unbond', () => {
                 expect(result.stdout).toContain('Transaction included at block');
 
                 // wait 5 seconds for nodes to sync
-                await new Promise((resolve) => setTimeout(resolve, 5000));
+                await sleep(5000);
                 const newBalance = await getBalance(caller.address, api);
                 expect(newBalance.unbonding.toString()).toBe(oneHundred.toString());
 
@@ -128,7 +128,7 @@ describe('unbond', () => {
                 expect(result.stdout).toContain('Transaction included at block');
 
                 // wait 5 seconds for nodes to sync
-                await new Promise((resolve) => setTimeout(resolve, 5000));
+                await sleep(5000);
                 const newerBalance = await getBalance(caller.address, api);
                 expect(newerBalance.unbonding.toString()).toBe(hundred23.toString());
             },
