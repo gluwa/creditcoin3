@@ -16,7 +16,7 @@ import {
     tearDownProxy,
     CLIBuilder,
 } from './helpers';
-import { describeIf } from '../utils';
+import { describeIf, sleep } from '../utils';
 import { parseAmount } from '../../commands/options';
 
 describeIf(
@@ -75,7 +75,7 @@ describeIf(
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
             const stashStatus = await getValidatorStatus(caller.address, api);
             expect(stashStatus?.bonded).toBe(true);
 
@@ -95,7 +95,7 @@ describeIf(
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
             const validatorSessionKeys = await api.query.session.nextKeys(caller.address);
             expect(validatorSessionKeys.toHex()).toBe(newKeys);
             const bobApi = (await newApi(BOB_NODE_URL)).api;
@@ -133,7 +133,7 @@ describeIf(
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
             const balanceAfterRewards = await getBalance(caller.address, api);
             console.log(balanceAfterRewards.bonded.toString());
             const balanceIncreased = balanceAfterRewards.bonded.gt(balanceBeforeRewards.bonded);
@@ -159,7 +159,7 @@ describeIf(
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
             const balanceAfterUnbonding = await getBalance(caller.address, api);
             const isUnbonding = balanceAfterUnbonding.unbonding.gt(new BN(0));
             printBalance(balanceAfterRewards);
@@ -179,7 +179,7 @@ describeIf(
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
             const balanceAfterWithdraw = await getBalance(caller.address, api);
             printBalance(balanceAfterWithdraw);
             const stashAmount = parseAmount('10000');

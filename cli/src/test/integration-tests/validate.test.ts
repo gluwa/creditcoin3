@@ -1,4 +1,4 @@
-import { testIf } from '../utils';
+import { testIf, sleep } from '../utils';
 import {
     initAliceKeyring,
     increaseValidatorCount,
@@ -119,7 +119,7 @@ describe('validate', () => {
                 expect(result.stdout).toContain('Transaction included at block');
 
                 // wait 5 seconds for nodes to sync
-                await new Promise((resolve) => setTimeout(resolve, 5000));
+                await sleep(5000);
 
                 const status = await getValidatorStatus(caller.address, api);
                 expect(status?.waiting).toBe(true);

@@ -1,4 +1,4 @@
-import { testIf } from '../utils';
+import { testIf, sleep } from '../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -95,7 +95,7 @@ describe('distribute-rewards', () => {
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 5 seconds for nodes to sync
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await sleep(5000);
             const newBalance = await getBalance(sudoSigner.address, api);
             // https://polkadot.js.org/docs/api/start/types.basics/#working-with-numbers
             // .toNumber() can overflow: Number can only safely store up to 53 bits
