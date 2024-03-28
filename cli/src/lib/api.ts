@@ -9,6 +9,7 @@ export interface CreditcoinApi {
 export const creditcoinApi = async (wsUrl: string, noInitWarn = false): Promise<CreditcoinApi> => {
     const provider = new WsProvider(wsUrl);
     const api = await ApiPromise.create({ provider, noInitWarn });
+    await api.isReady;
 
     return { api };
 };
