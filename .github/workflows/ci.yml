@@ -605,6 +605,22 @@ jobs:
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           PROXY_TYPE: ${{ matrix.proxy_type }}
 
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+      - name: Upload logs from Alice and Bob
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          path: /tmp/creditcoin3-node-*.std*
+
       - name: Commit changes for typedefs
         if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' && matrix.proxy == 'no' }}
         env:
@@ -623,15 +639,6 @@ jobs:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
           verbose: true
-
-      - name: Kill nodes
-        if: always()
-        continue-on-error: true
-        run: |
-          # if all went well kill the node. Otherwise GitHub Actions would exit on the
-          # previous step killing everything and we don't have to worry about
-          # dangling processes
-          killall -9 creditcoin3-node
 
   integration-test-blockchain:
     needs:
