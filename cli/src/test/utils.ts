@@ -1,4 +1,8 @@
 import execa = require('execa');
+import fs = require('fs');
+import os = require('os');
+import path = require('path');
+
 import { commandSync } from 'execa';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
@@ -68,15 +72,19 @@ export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: num
     }
 };
 
-function runNode(extraArgs: string) {
+function runNode(name: string, extraArgs: string) {
+    // warning: GitHub doesn't allow uploading files with colon in their name
+    const timeStamp = new Date().toISOString().replaceAll(':', '-');
+    const logPrefix = path.join(os.tmpdir(), `creditcoin3-node-${name}-${timeStamp}-log`);
+
     // warning: do NOT await, runs in background
     void execa(
         '../target/release/creditcoin3-node',
         `--chain dev --validator --pruning archive ${extraArgs}`.split(' '),
         {
             detached: true,
-            stdout: 'ignore',
-            stderr: 'ignore',
+            stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
+            stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
         },
     );
 }
@@ -89,10 +97,11 @@ export async function startAliceAndBob() {
     // disconnected from ws://127.0.0.1:9944: 1006:: Abnormal Closure
     await sleep(2000);
 
-    runNode('--alice --tmp --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463');
+    runNode('Alice', '--alice --tmp --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463');
     await sleep(2000);
 
     runNode(
+        'Bob',
         '--bob --tmp --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au --port 30335 --rpc-port 9955',
     );
     await sleep(1000);
