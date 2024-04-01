@@ -109,6 +109,7 @@ import type {
 import type {
     BeefyAuthoritySet,
     BeefyCommitment,
+    BeefyCompactSignedCommitment,
     BeefyEquivocationProof,
     BeefyId,
     BeefyNextAuthoritySet,
@@ -230,6 +231,7 @@ import type {
     ContractContractSpecV2,
     ContractContractSpecV3,
     ContractContractSpecV4,
+    ContractContractSpecV5,
     ContractCryptoHasher,
     ContractDiscriminant,
     ContractDisplayName,
@@ -241,6 +243,7 @@ import type {
     ContractEventSpecV0,
     ContractEventSpecV1,
     ContractEventSpecV2,
+    ContractEventSpecV3,
     ContractLayoutArray,
     ContractLayoutCell,
     ContractLayoutEnum,
@@ -264,6 +267,7 @@ import type {
     ContractMetadataV2,
     ContractMetadataV3,
     ContractMetadataV4,
+    ContractMetadataV5,
     ContractProject,
     ContractProjectContract,
     ContractProjectInfo,
@@ -1290,6 +1294,7 @@ declare module '@polkadot/types/types/registry' {
         BalanceStatus: BalanceStatus;
         BeefyAuthoritySet: BeefyAuthoritySet;
         BeefyCommitment: BeefyCommitment;
+        BeefyCompactSignedCommitment: BeefyCompactSignedCommitment;
         BeefyEquivocationProof: BeefyEquivocationProof;
         BeefyId: BeefyId;
         BeefyKey: BeefyKey;
@@ -1398,6 +1403,7 @@ declare module '@polkadot/types/types/registry' {
         ContractContractSpecV2: ContractContractSpecV2;
         ContractContractSpecV3: ContractContractSpecV3;
         ContractContractSpecV4: ContractContractSpecV4;
+        ContractContractSpecV5: ContractContractSpecV5;
         ContractCryptoHasher: ContractCryptoHasher;
         ContractDiscriminant: ContractDiscriminant;
         ContractDisplayName: ContractDisplayName;
@@ -1409,6 +1415,7 @@ declare module '@polkadot/types/types/registry' {
         ContractEventSpecV0: ContractEventSpecV0;
         ContractEventSpecV1: ContractEventSpecV1;
         ContractEventSpecV2: ContractEventSpecV2;
+        ContractEventSpecV3: ContractEventSpecV3;
         ContractExecResult: ContractExecResult;
         ContractExecResultOk: ContractExecResultOk;
         ContractExecResultResult: ContractExecResultResult;
@@ -1446,6 +1453,7 @@ declare module '@polkadot/types/types/registry' {
         ContractMetadataV2: ContractMetadataV2;
         ContractMetadataV3: ContractMetadataV3;
         ContractMetadataV4: ContractMetadataV4;
+        ContractMetadataV5: ContractMetadataV5;
         ContractProject: ContractProject;
         ContractProjectContract: ContractProjectContract;
         ContractProjectInfo: ContractProjectInfo;
