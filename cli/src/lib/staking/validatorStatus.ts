@@ -45,19 +45,15 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
 
     const redeemable = res.redeemable ? readAmountFromHex(res.redeemable.toString()) : new BN(0);
 
+    let total_we_can_withdraw = res.stakingLedger.total;
+
     // Get the unlocked chunks that are ready for withdrawal
     // by comparing the era of each chunk to the current era
-    const readyForWithdraw = res.stakingLedger.unlocking
-        .map((u: PalletStakingUnlockChunk) => {
-            const chunk: UnlockChunk = {
-                era: u.era.toNumber(),
-                value: u.value.toBn(),
-            };
-            return chunk;
-        })
-        .filter((u: UnlockChunk) => u.era <= currentEra.toNumber());
-
-    const canWithdraw = readyForWithdraw.length > 0;
+    res.stakingLedger.unlocking.forEach((u: PalletStakingUnlockChunk) => {
+        if (u.era.toNumber() <= currentEra.toNumber()) {
+            total_we_can_withdraw = u.value;
+        }
+    });
 
     const nextUnbondingDate = unlocking.length > 0 ? unlocking[0].era.toNumber() : null;
 
@@ -88,8 +84,8 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
         validating,
         waiting,
         active,
-        canWithdraw,
-        readyForWithdraw,
+        canWithdraw: !total_we_can_withdraw.isEmpty,
+        readyForWithdraw: total_we_can_withdraw.toBn(),
         nextUnbondingDate,
         nextUnbondingAmount: nextUnbondingAmount ?? new BN(0),
         redeemable,
@@ -110,11 +106,7 @@ export async function printValidatorStatus(status: Status | undefined, api: ApiP
     table.push(['Waiting', status.waiting ? 'Yes' : 'No']);
     table.push(['Active', status.active ? 'Yes' : 'No']);
     table.push(['Can withdraw', status.canWithdraw ? 'Yes' : 'No']);
-    if (status.canWithdraw) {
-        status.readyForWithdraw.forEach((chunk) => {
-            table.push([`Unlocked since era ${chunk.era}`, toCTCString(chunk.value)]);
-        });
-    }
+
     let nextUnlocking;
     if (status.nextUnbondingAmount?.eq(new BN(0))) {
         nextUnlocking = 'None';
@@ -146,15 +138,10 @@ export interface Status {
     waiting: boolean;
     active: boolean;
     canWithdraw: boolean;
-    readyForWithdraw: UnlockChunk[];
+    readyForWithdraw: BN;
     nextUnbondingDate: Option<number>;
     nextUnbondingAmount: Option<Balance>;
     redeemable: Balance;
-}
-
-interface UnlockChunk {
-    era: number;
-    value: Balance;
 }
 
 type Balance = BN;
