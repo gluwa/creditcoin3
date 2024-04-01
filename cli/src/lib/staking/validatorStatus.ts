@@ -45,13 +45,12 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
 
     const redeemable = res.redeemable ? readAmountFromHex(res.redeemable.toString()) : new BN(0);
 
-    let total_we_can_withdraw = res.stakingLedger.total;
+    let total_we_can_withdraw = res.stakingLedger.total.toBn();
 
-    // Get the unlocked chunks that are ready for withdrawal
-    // by comparing the era of each chunk to the current era
+    // Subtract the amount we can withdraw with chunks yet to be unlocked
     res.stakingLedger.unlocking.forEach((u: PalletStakingUnlockChunk) => {
-        if (u.era.toNumber() <= currentEra.toNumber()) {
-            total_we_can_withdraw = u.value;
+        if (u.era.toNumber() > currentEra.toNumber()) {
+            total_we_can_withdraw.sub(u.value.toBn())
         }
     });
 
@@ -84,8 +83,8 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
         validating,
         waiting,
         active,
-        canWithdraw: !total_we_can_withdraw.isEmpty,
-        readyForWithdraw: total_we_can_withdraw.toBn(),
+        canWithdraw: !total_we_can_withdraw.isZero(),
+        readyForWithdraw: total_we_can_withdraw,
         nextUnbondingDate,
         nextUnbondingAmount: nextUnbondingAmount ?? new BN(0),
         redeemable,
