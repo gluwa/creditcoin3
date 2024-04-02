@@ -1,3 +1,5 @@
+import timeDelta = require('time-delta');
+
 import { ApiPromise } from '@polkadot/api';
 import { BN } from '..';
 import { readAmount, readAmountFromHex, toCTCString } from '../balance';
@@ -6,20 +8,13 @@ import Table from 'cli-table3';
 import { PalletStakingUnlockChunk } from '@polkadot/types/lookup';
 
 function formatDaysHoursMinutes(ms: number) {
-    const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-    const daysms = ms % (24 * 60 * 60 * 1000);
-    const hours = Math.floor(daysms / (60 * 60 * 1000));
-    const hoursms = ms % (60 * 60 * 1000);
-    const minutes = Math.floor(hoursms / (60 * 1000));
-    const minutesms = ms % (60 * 1000);
-    const sec = Math.floor(minutesms / 1000);
-
-    const daysString = days > 0 ? `${days} days, ` : ``;
-    const hoursString = hours > 0 ? `${hours} hours, ` : ``;
-    const minutesString = minutes > 0 ? `${minutes} minutes, ` : ``;
-    const secString = sec > 0 ? `${sec} seconds` : ``;
-
-    return `${daysString}${hoursString}${minutesString}${secString}`;
+    // Note: argument here is milliseconds since the beginning of the epoch, 01.01.1970
+    const asDate = new Date(ms);
+    return timeDelta
+        .create({
+            locale: 'en',
+        })
+        .format(new Date(0), asDate);
 }
 
 export async function getValidatorStatus(address: string | undefined, api: ApiPromise) {
