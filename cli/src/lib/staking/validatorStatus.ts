@@ -98,7 +98,7 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
     return validatorStatus;
 }
 
-export async function validatorStatusTable(status: Status | undefined, api: ApiPromise) {
+export async function validatorStatusTable(status: Status | undefined, api: ApiPromise, humanReadable = true) {
     if (!status) {
         throw new Error('Status was undefined');
     }
@@ -121,7 +121,11 @@ export async function validatorStatusTable(status: Status | undefined, api: ApiP
     } else if (status.nextUnbondingAmount && status.nextUnbondingDate) {
         const nextUnbondingAmount = toCTCString(status.nextUnbondingAmount);
         const nextUnbondingDate = await timeTillEra(api, status.nextUnbondingDate);
-        nextUnlocking = `${nextUnbondingAmount} in ${formatDaysHoursMinutes(nextUnbondingDate.toNumber())}`;
+        if (humanReadable) {
+            nextUnlocking = `${nextUnbondingAmount} in ${formatDaysHoursMinutes(nextUnbondingDate.toNumber())}`;
+        } else {
+            nextUnlocking = `${nextUnbondingAmount} in ${nextUnbondingDate.toNumber()}`;
+        }
     }
     table.push(['Next unlocking', nextUnlocking]);
 
