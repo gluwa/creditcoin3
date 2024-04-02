@@ -53,6 +53,7 @@
         "ethers": "^6.11.1",
         "execa": "5.1.1",
         "js-guid": "^1.0.0",
-        "prompts": "^2.4.2"
+        "prompts": "^2.4.2",
+        "time-delta": "^1.0.0"
     }
 }
