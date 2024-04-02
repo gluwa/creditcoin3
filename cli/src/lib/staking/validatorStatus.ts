@@ -98,7 +98,7 @@ export async function getValidatorStatus(address: string | undefined, api: ApiPr
     return validatorStatus;
 }
 
-export async function printValidatorStatus(status: Status | undefined, api: ApiPromise) {
+export async function validatorStatusTable(status: Status | undefined, api: ApiPromise) {
     if (!status) {
         throw new Error('Status was undefined');
     }
@@ -125,6 +125,11 @@ export async function printValidatorStatus(status: Status | undefined, api: ApiP
     }
     table.push(['Next unlocking', nextUnlocking]);
 
+    return table;
+}
+
+export async function printValidatorStatus(status: Status | undefined, api: ApiPromise) {
+    const table = await validatorStatusTable(status, api);
     console.log(table.toString());
 }
 
