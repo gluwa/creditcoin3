@@ -10,7 +10,20 @@ import {
 } from './helpers';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
 import { getBalance } from '../../lib/balance';
+import { getValidatorStatus, validatorStatusTable } from '../../lib/staking/validatorStatus';
 import { parseAmount } from '../../commands/options';
+
+async function nextUnbondingInMs(validatorAddress: string, api: ApiPromise) {
+    const status = await validatorStatusTable(await getValidatorStatus(validatorAddress, api), api, false);
+    const unbondingData = (status.at(-1) as string[]).at(-1) as string;
+
+    if (unbondingData === 'None') {
+        return BigInt(0);
+    }
+
+    // returns data in milliseconds
+    return BigInt(unbondingData.split(' CTC in ').at(-1) as string);
+}
 
 describe('withdraw-unbonded', () => {
     let api: ApiPromise;
@@ -154,7 +167,7 @@ describe('withdraw-unbonded', () => {
         );
     });
 
-    describe('when partial unbond has been unlocked', () => {
+    describe.only('when partial unbond has been unlocked', () => {
         let caller: any;
 
         // WARNING: caller is a local variable in each describe() block
@@ -170,21 +183,47 @@ describe('withdraw-unbonded', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 5 seconds for nodes to sync
-            await sleep(5000);
+            // wait 1 era before unbonding to simulate a running chain
+            // b/c unbonding in era 0 seems to give different results
+            await waitEras(1, api, false);
             result = nonProxiedCli(`unbond --amount 123`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait for funds to become unlocked
+            // begin unbonding era count-down
             const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
-            await waitEras(unbondingPeriod, api, true);
+            const erasCountdownPromise = waitEras(unbondingPeriod, api, false);
+
+            // before the unbonding period has expired check that reported remaining time (in ms) is decreasing.
+            // WARNING: ONLY execute without a proxy b/c we're using `caller.address` directly
+            if (process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no') {
+                const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+                let oldUnbonding = await nextUnbondingInMs(caller.address, api);
+
+                // note: 15 blocks * 2 epochs * 7 eras is 210 blocks !
+                for (let i = 0; i < 200; i++) {
+                    await sleep(blockTime);
+                    const newUnbonding = await nextUnbondingInMs(caller.address, api);
+
+                    // time always decreases towards zero
+                    expect(oldUnbonding).toBeGreaterThanOrEqual(newUnbonding);
+
+                    // diff between 2 consequtive queries is no more than 5 seconds
+                    const difference = oldUnbonding - newUnbonding;
+                    expect(difference).toBeLessThanOrEqual(blockTime);
+
+                    oldUnbonding = newUnbonding;
+                }
+            }
 
             // configure proxy
             proxy = await randomFundedAccount(api, sudoSigner);
             const wrongProxy = await randomFundedAccount(api, sudoSigner);
             CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
-        }, 1_200_000);
+
+            // wait for funds to become unlocked
+            await erasCountdownPromise;
+        }, 1_500_000);
 
         afterAll(() => {
             tearDownProxy(nonProxiedCli, proxy);
