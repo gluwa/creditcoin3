@@ -36,6 +36,9 @@ use sp_core::H256;
 use sp_runtime::traits::BlakeTwo256;
 use std::time::Duration;
 
+// Attestation
+use creditcoin3_attestor_gossip::MessageSink;
+
 mod eth;
 
 use crate::client::RuntimeApiCollection;
@@ -64,6 +67,9 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     pub grandpa: Option<GrandpaDeps<BE>>,
 
     pub select_chain: SC,
+
+    /// Attestation message sink
+    pub message_sink: MessageSink<Block>,
 }
 
 /// Dependencies for GRANDPA
@@ -143,6 +149,7 @@ where
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
+    use creditcoin3_rpc_attestor::{AttestorGossip, AttestorGossipApiServer};
     use creditcoin3_rpc_debug::{Debug, DebugServer};
     use creditcoin3_rpc_trace::{Trace, TraceServer};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
@@ -164,10 +171,13 @@ where
         },
         select_chain,
         grandpa,
+        message_sink,
     } = deps;
 
     io.merge(System::new(Arc::clone(&client), Arc::clone(&pool), deny_unsafe).into_rpc())?;
     io.merge(TransactionPayment::new(Arc::clone(&client)).into_rpc())?;
+
+    io.merge(AttestorGossip::<Block>::new(message_sink).into_rpc())?;
 
     if let Some(command_sink) = command_sink {
         io.merge(

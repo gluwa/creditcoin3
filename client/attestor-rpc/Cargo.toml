@@ -1,0 +1,15 @@
+[package]
+name = "creditcoin3-rpc-attestor"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+creditcoin3-attestor-gossip = { path = "../attestor-gossip" }
+jsonrpsee = { workspace = true, features = ["client-core", "server", "macros"] }
+serde = { workspace = true }
+sp-core = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+log = { workspace = true }
+thiserror = { workspace = true }

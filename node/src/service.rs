@@ -61,6 +61,9 @@ where
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
+const ATTESTOR_GOSSIP_NAME: sc_network::ProtocolName =
+    sc_network::ProtocolName::Static("/attestor-gossip/1");
+
 pub fn new_partial<RuntimeApi, Executor, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
@@ -394,6 +397,11 @@ where
         &config.chain_spec,
     );
 
+    // Attestation
+    net_config.add_notification_protocol(creditcoin3_attestor_gossip::peers_set_config(
+        ATTESTOR_GOSSIP_NAME,
+    ));
+
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
@@ -448,6 +456,17 @@ where
     let enable_grandpa = !config.disable_grandpa && sealing.is_none();
     let prometheus_registry = config.prometheus_registry().cloned();
 
+    let (attestor_gossip, attestor_gossip_msg_sink) =
+        creditcoin3_attestor_gossip::start::<Block, _, _>(
+            network.clone(),
+            sync_service.clone(),
+            ATTESTOR_GOSSIP_NAME,
+            prometheus_registry.as_ref(),
+        );
+    task_manager
+        .spawn_essential_handle()
+        .spawn_blocking("attestor-gossip", None, attestor_gossip);
+
     // Channel for the rpc handler to communicate with the authorship task.
     let (command_sink, commands_stream) = mpsc::channel(1000);
 
@@ -495,6 +514,7 @@ where
         let pool = transaction_pool.clone();
         let network = network.clone();
         let sync_service = sync_service.clone();
+        let attestor_gossip_msg_sink = attestor_gossip_msg_sink.clone();
 
         let is_authority = role.is_authority();
         let enable_dev_signer = eth_config.enable_dev_signer;
@@ -585,6 +605,7 @@ where
                         shared_voter_state: shared_voter_state.clone(),
                         subscription_executor: subscription_task_executor.clone(),
                     }),
+                    message_sink: attestor_gossip_msg_sink.clone(),
                 };
                 rpc::create_full(
                     deps,

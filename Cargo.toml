@@ -84,6 +84,7 @@ sc-keystore = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-
 sc-network = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-network-common = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-network-sync = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
+sc-network-gossip = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-offchain = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-rpc = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-rpc-api = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
@@ -220,6 +221,9 @@ creditcoin3-rpc-core-trace = { path = "client/rpc-core/trace" }
 creditcoin3-rpc-core-types = { path = "client/rpc-core/types" }
 creditcoin3-rpc-debug = { path = "client/rpc/debug" }
 creditcoin3-rpc-trace = { path = "client/rpc/trace" }
+# Attestation
+creditcoin3-rpc-attestor = { path = "client/attestor-rpc" }
+creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 
 [profile.release]
 # Substrate runtime requires unwinding.

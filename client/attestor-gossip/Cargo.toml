@@ -1,0 +1,23 @@
+[package]
+name = "creditcoin3-attestor-gossip"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sc-network = { workspace = true }
+sc-network-gossip = { workspace = true }
+sc-network-common = { workspace = true }
+sp-runtime = { workspace = true, features = ["std"] }
+log = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, default-features = true }
+substrate-prometheus-endpoint = { workspace = true }
+parking_lot = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }

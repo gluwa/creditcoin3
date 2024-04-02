@@ -1520,6 +1520,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "creditcoin3-attestor-gossip"
+version = "3.24.1"
+dependencies = [
+ "futures 0.3.30",
+ "log",
+ "parity-scale-codec",
+ "parking_lot 0.12.1",
+ "sc-network",
+ "sc-network-common",
+ "sc-network-gossip",
+ "serde",
+ "sp-runtime",
+ "substrate-prometheus-endpoint",
+ "thiserror",
+]
+
+[[package]]
 name = "creditcoin3-cli-opt"
 version = "3.31.0"
 dependencies = [
@@ -1575,8 +1592,10 @@ version = "3.31.0"
 dependencies = [
  "async-trait",
  "clap",
+ "creditcoin3-attestor-gossip",
  "creditcoin3-cli-opt",
  "creditcoin3-primitives-ext",
+ "creditcoin3-rpc-attestor",
  "creditcoin3-rpc-debug",
  "creditcoin3-rpc-primitives-debug",
  "creditcoin3-rpc-trace",
@@ -1655,6 +1674,19 @@ dependencies = [
  "parity-scale-codec",
  "sp-runtime-interface",
  "sp-std",
+]
+
+[[package]]
+name = "creditcoin3-rpc-attestor"
+version = "0.1.0"
+dependencies = [
+ "creditcoin3-attestor-gossip",
+ "jsonrpsee",
+ "log",
+ "serde",
+ "sp-core",
+ "sp-runtime",
+ "thiserror",
 ]
 
 [[package]]
