@@ -1,4 +1,4 @@
-import { KeyringPair, Wallet, POINT_01_CTC, mnemonicGenerate } from '../lib';
+import { KeyringPair, Wallet, mnemonicGenerate } from '../lib';
 import { initKeyringPair } from '../lib/account/keyring';
 
 const createSigner = (who: 'alice' | 'bob' | 'random' | 'sudo'): KeyringPair => {
@@ -57,10 +57,6 @@ const setup = () => {
     if ((global as any).CREDITCOIN_API_URL === undefined) {
         const wsPort = process.env.CREDITCOIN_WS_PORT || '9944';
         (global as any).CREDITCOIN_API_URL = creditcoinApiUrl(`ws://127.0.0.1:${wsPort}`);
-    }
-
-    if ((global as any).CREDITCOIN_MINIMUM_TXN_FEE === undefined) {
-        (global as any).CREDITCOIN_MINIMUM_TXN_FEE = POINT_01_CTC;
     }
 
     if ((global as any).CREDITCOIN_HAS_SUDO === undefined) {
