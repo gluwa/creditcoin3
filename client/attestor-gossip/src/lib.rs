@@ -248,7 +248,7 @@ where
             if let Err(err) = res {
                 log::error!(target: "attestor-gossip", "Networking exited with error: {}", err);
             }
-            ()
+            
         }),
         msg_sender,
     )
