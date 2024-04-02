@@ -201,16 +201,18 @@ describe('withdraw-unbonded', () => {
                 let oldUnbonding = await nextUnbondingInMs(caller.address, api);
 
                 // note: 15 blocks * 2 epochs * 7 eras is 210 blocks !
-                for (let i = 0; i < 200; i++) {
+                const maxIterations = 200;
+                for (let i = 0; i < maxIterations; i++) {
+                    const errMsg = `Failed on iteration #${i}/${maxIterations}`;
                     await sleep(blockTime);
                     const newUnbonding = await nextUnbondingInMs(caller.address, api);
 
                     // time always decreases towards zero
-                    expect(oldUnbonding).toBeGreaterThanOrEqual(newUnbonding);
+                    expect(oldUnbonding, errMsg).toBeGreaterThanOrEqual(newUnbonding);
 
                     // diff between 2 consequtive queries is no more than 5 seconds
                     const difference = oldUnbonding - newUnbonding;
-                    expect(difference).toBeLessThanOrEqual(blockTime);
+                    expect(difference, errMsg).toBeLessThanOrEqual(blockTime);
 
                     oldUnbonding = newUnbonding;
                 }
