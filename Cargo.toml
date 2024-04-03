@@ -3,6 +3,7 @@ members = [
 	"node",
 	"runtime",
 	"runtime/generate-bags",
+	"pallets/attestation-poc",
 	"precompiles/substrate-transfer",
 ]
 resolver = "2"
@@ -192,6 +193,7 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
+pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 
 # Precompiles
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
