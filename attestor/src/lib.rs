@@ -23,6 +23,7 @@ impl<'a> Server<'a> {
         Server { config }
     }
 
+    /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&self) -> Result<()> {
         let cc3_client = cc3::Client::new(self.config.cc3_rpc_url, self.config.cc3_key)?;
         let cc3_client_ref: ActorRef<Client> = cc3_client.spawn();

@@ -23,6 +23,8 @@ pub struct AttestationModel {
     pub header_number: u64,
     pub attestor: AttestorIdModel,
     pub topic: TopicModel,
+    pub vrf_output: u64,
+    pub signature: sp_core::sr25519::Signature,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -86,6 +88,8 @@ where
             attestor: AttestorId::new(attestation.attestor.0),
             topic: Topic::new(attestation.topic.0),
             round: attestation.round,
+            vrf_output: attestation.vrf_output,
+            signature: attestation.signature,
         };
         self.sender
             .unbounded_send(Message::Attestation(attestation))

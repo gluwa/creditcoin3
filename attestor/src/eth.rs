@@ -7,6 +7,8 @@ use web3::{types::BlockId, Web3};
 
 use crate::attestation::{Attestor, NewBlock};
 
+/// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
+/// where we can send the new block to in order to start the attestation cycle
 pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> Result<()> {
     let ws = web3::transports::WebSocket::new(url).await?;
     let web3 = Web3::new(ws);

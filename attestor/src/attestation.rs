@@ -1,11 +1,30 @@
 use anyhow::Result;
 use kameo::{Actor, ActorRef, Message};
+use serde::{Deserialize, Serialize};
 use tracing::info;
 use web3::types::{Block, H256};
 
-use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
+use crate::cc3::{self, AttestationSubmit};
 
-use crate::cc3::{self, AttestationSubmit, GetAttestorId};
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttestationData {
+    pub header_number: u64,
+    pub header_hash: H256,
+}
+
+impl AttestationData {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        // Serialize header_number as little-endian bytes
+        bytes.extend_from_slice(&self.header_number.to_le_bytes());
+
+        // Serialize header_hash as little-endian bytes
+        bytes.extend_from_slice(&self.header_hash.as_bytes());
+
+        bytes
+    }
+}
 
 pub struct Attestor {
     pub cc3: ActorRef<cc3::Client>,
@@ -31,9 +50,8 @@ where
     type Reply = Result<()>;
 
     async fn handle(self, state: &mut Attestor) -> Self::Reply {
-        let attestor_id = state.cc3.send(GetAttestorId {}).await??;
         // handle the new block
-        let attestation = create_attestation(self.block, attestor_id).await?;
+        let attestation = create_attestation(self.block).await?;
 
         info!("trying to submit");
         let _ = state.cc3.send(AttestationSubmit { attestation }).await?;
@@ -42,16 +60,11 @@ where
     }
 }
 
-pub async fn create_attestation<T>(
-    block: Block<T>,
-    attestor_id: AttestorId,
-) -> Result<Attestation<H256>> {
-    let attestation = Attestation {
-        round: 1,
+// Create the attestation data from a web3::types::Block
+pub async fn create_attestation<T>(block: Block<T>) -> Result<AttestationData> {
+    let attestation = AttestationData {
         header_number: block.number.unwrap().as_u64(),
-        attestor: attestor_id.clone(),
         header_hash: block.hash.unwrap(),
-        topic: Topic::new(1),
     };
 
     Ok(attestation)

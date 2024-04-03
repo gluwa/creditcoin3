@@ -69,6 +69,8 @@ where
     pub header_number: u64,
     pub attestor: AttestorId,
     pub topic: Topic,
+    pub vrf_output: u64,
+    pub signature: sp_core::sr25519::Signature,
 }
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq)]

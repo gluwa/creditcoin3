@@ -36,6 +36,7 @@ async-trait.workspace = true
 tokio.workspace = true
 clap.workspace = true
 thiserror.workspace = true
+sp-core.workspace = true
 
 # Creditcoin deps
 creditcoin3-attestor-rpc = { path = "../client/attestor-rpc" }
