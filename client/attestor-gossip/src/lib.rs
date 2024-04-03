@@ -14,7 +14,10 @@ use parking_lot::Mutex;
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Validator};
 use serde::Serialize;
-use sp_runtime::traits::{Block as BlockT, Hash};
+use sp_runtime::{
+    traits::{Block as BlockT, Hash},
+    AccountId32,
+};
 use substrate_prometheus_endpoint::Registry;
 
 pub struct AttestorGossipValidator {}
@@ -28,11 +31,15 @@ impl AttestorGossipValidator {
 pub type Round = u64;
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AttestorId(u64);
+pub struct AttestorId(AccountId32);
 
 impl AttestorId {
-    pub fn new(id: u64) -> Self {
+    pub fn new(id: AccountId32) -> Self {
         Self(id)
+    }
+
+    pub fn from_public(public_key: [u8; 32]) -> Self {
+        Self(AccountId32::new(public_key))
     }
 }
 
@@ -248,7 +255,6 @@ where
             if let Err(err) = res {
                 log::error!(target: "attestor-gossip", "Networking exited with error: {}", err);
             }
-            
         }),
         msg_sender,
     )

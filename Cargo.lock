@@ -674,18 +674,22 @@ dependencies = [
 name = "attestor"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bincode",
+ "clap",
  "creditcoin3-attestor-gossip",
  "creditcoin3-attestor-rpc",
  "futures 0.3.30",
  "jsonrpsee 0.22.5",
  "jsonrpsee-core 0.22.5",
  "jsonrpsee-http-client",
+ "kameo",
  "nanorand",
  "serde",
  "subxt",
  "subxt-signer",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",
@@ -4541,6 +4545,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4767,6 +4780,34 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "sha2 0.10.8",
+]
+
+[[package]]
+name = "kameo"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79919755f59cb10e87899c55d6dc27d4886839d23d263fae415d7058d7823a85"
+dependencies = [
+ "dyn-clone",
+ "futures 0.3.30",
+ "itertools 0.13.0",
+ "kameo_macros",
+ "num_cpus",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "kameo_macros"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d16feb3c01a73a5fdaf7a5d1ac1a23f229ceb41c93456bc0543f2a7eea32974a"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.71",
 ]
 
 [[package]]
@@ -11149,6 +11190,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2 0.5.7",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.48.0",
 ]
 

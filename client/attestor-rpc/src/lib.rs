@@ -3,7 +3,7 @@ use jsonrpsee::{
     proc_macros::rpc,
 };
 use sp_core::{H160, H256};
-use sp_runtime::traits::Block as BlockT;
+use sp_runtime::{traits::Block as BlockT, AccountId32};
 
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Message, MessageSink, Topic};
 
@@ -26,7 +26,7 @@ pub struct AttestationModel {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct AttestorIdModel(pub u64);
+pub struct AttestorIdModel(pub AccountId32);
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct TopicModel(pub u64);
