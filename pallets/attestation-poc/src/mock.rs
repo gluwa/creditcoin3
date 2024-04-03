@@ -82,10 +82,8 @@ impl attestation_poc::Config for Test {
 
 // add more accounts when you need them
 // and update balances genesis below
-pub(crate) const COLLECTOR: AccountId = 0;
-pub(crate) const JOHN_DOE: AccountId = 5;
-pub(crate) const ATTESTOR_1: AccountId = 6;
-pub(crate) const ATTESTOR_2: AccountId = 7;
+pub(crate) const ATTESTOR_1: AccountId = 1;
+pub(crate) const ATTESTOR_2: AccountId = 2;
 
 #[derive(Default)]
 pub struct ExtBuilder;
@@ -98,12 +96,8 @@ impl ExtBuilder {
         // accounts 0 to 5 have initial balances
         pallet_balances::GenesisConfig::<Test> {
             balances: vec![
-                (COLLECTOR, 9_000_000_000_000_000_000),
-                (1, 10_000_000_000_000_000_000),
-                (2, 20_000_000_000_000_000_000),
-                (3, 30_000_000_000_000_000_000),
-                (4, 40_000_000_000_000_000_000),
-                (JOHN_DOE, 50_000_000_000_000_000_000),
+                (ATTESTOR_1, 9_000_000_000_000_000_000),
+                (ATTESTOR_2, 50_000_000_000_000_000_000),
             ],
         }
         .assimilate_storage(&mut t)
