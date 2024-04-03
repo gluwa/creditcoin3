@@ -98,7 +98,7 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 creditcoin3-rpc-trace = { workspace = true }
 
 # Attestation
-creditcoin3-rpc-attestor = { workspace = true }
+creditcoin3-attestor-rpc = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 
 [build-dependencies]

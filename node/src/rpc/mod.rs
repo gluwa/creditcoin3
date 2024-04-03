@@ -149,7 +149,7 @@ where
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
-    use creditcoin3_rpc_attestor::{AttestorGossip, AttestorGossipApiServer};
+    use creditcoin3_attestor_rpc::{AttestorGossip, AttestorGossipApiServer};
     use creditcoin3_rpc_debug::{Debug, DebugServer};
     use creditcoin3_rpc_trace::{Trace, TraceServer};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};

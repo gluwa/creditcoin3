@@ -1,5 +1,5 @@
 [package]
-name = "creditcoin3-rpc-attestor"
+name = "creditcoin3-attestor-rpc"
 version = "0.1.0"
 edition = "2021"
 

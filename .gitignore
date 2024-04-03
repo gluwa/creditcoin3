@@ -19,6 +19,7 @@ polkadot.*
 .DS_Store
 .idea/
 .cargo-remote.toml
+.cargo/
 
 # Added by cargo
 /target
