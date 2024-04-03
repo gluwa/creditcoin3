@@ -5,9 +5,7 @@ A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart cont
 ## Generation & Upstream
 
 This project was originally forked from the Frontier template. The template is maintained in the
-[Frontier](https://github.com/paritytech/frontier/tree/master/template) project repository, and can
-be used to generate a stand-alone template for use in an independent project via the included
-[template generation script](https://github.com/paritytech/frontier/blob/master/docs/node-template-release.md).
+[Frontier](https://github.com/paritytech/frontier/tree/master/template) project repository.
 
 A ready-to-use template generated this way is hosted for each Frontier release on the
 [substrate-developer-hub/frontier-node-template](https://github.com/substrate-developer-hub/frontier-node-template)
