@@ -833,6 +833,17 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
 }
 
+parameter_types! {
+    pub const MaxAttestors: u32 = 100;
+}
+
+impl pallet_attestation_poc::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
+    // TODO make this setting useful
+    type MaxAttestestationNodes = MaxAttestors;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -866,6 +877,8 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+
+        Attestation: pallet_attestation_poc,
     }
 );
 

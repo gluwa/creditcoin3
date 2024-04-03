@@ -13,6 +13,10 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(1, 1)
 	}
 
+	fn unregister_attestor() -> Weight {
+		Weight::from_parts(1,1)		
+	}
+
 	fn set_max_attestors() -> Weight {
 		Weight::from_parts(1,1)
 	}
@@ -21,6 +25,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(1,1)
 	}
 
+	fn unregister_invulernable() -> Weight {
+		Weight::from_parts(1,1)
+	}
 	fn set_max_invulnerables() -> Weight {
 		Weight::from_parts(1,1)
 	}

@@ -81,6 +81,8 @@ pallet-evm-precompile-substrate-transfer = { workspace = true }
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
 
+pallet-attestation-poc = { workspace = true }
+
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
 
