@@ -20,7 +20,7 @@ impl AttestationData {
         bytes.extend_from_slice(&self.header_number.to_le_bytes());
 
         // Serialize header_hash as little-endian bytes
-        bytes.extend_from_slice(&self.header_hash.as_bytes());
+        bytes.extend_from_slice(self.header_hash.as_bytes());
 
         bytes
     }

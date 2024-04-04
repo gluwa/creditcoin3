@@ -20,7 +20,8 @@ pub type Randomness = [u8; 32];
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    pub rpc_client: HttpClient,
+    pub url: String,
+    // pub rpc_client: HttpClient,
     pub keypair: Keypair,
 }
 
@@ -28,20 +29,39 @@ impl<'a> Client {
     /// Create a new instance of cc3 client
     /// - url: rpc url of a creditcoin node
     /// - key: secret phrase for a creditcoin key
-    pub fn new(url: &'a str, key: &'a str) -> Result<Self> {
+    pub fn new(url: impl Into<String> + Clone, key: &'a str) -> Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
 
-        let rpc_client = HttpClientBuilder::new().build(url)?;
-
         Ok(Self {
+            url: url.into(),
             keypair,
-            rpc_client,
         })
     }
 
+    /// Init the client, this bootstraps registration if not registered already
+    pub async fn init(&self) -> Result<()> {
+        let is_attestor_member = self.check_attestors_membership().await?;
+
+        if !is_attestor_member {
+            debug!("Registration in progress... Please wait...");
+            self.register().await?;
+        }
+
+        info!("Attestator ready to start!");
+
+        Ok(())
+    }
+
+    /// Get's a substrate client over websocket to the configured url
     pub async fn get_substrate_client(&self) -> Result<OnlineClient<SubstrateConfig>> {
-        Ok(OnlineClient::<SubstrateConfig>::from_url("ws://localhost:9944").await?)
+        debug!("connecting to {}", replace_http_with_ws(&self.url));
+        Ok(OnlineClient::<SubstrateConfig>::from_url(replace_http_with_ws(&self.url)).await?)
+    }
+
+    /// Get's an rpc http client to the configured url
+    fn get_rpc_client(&self) -> Result<HttpClient> {
+        Ok(HttpClientBuilder::new().build(&self.url)?)
     }
 
     /// Fetches the babe author VRF (Verifiable Random Functions) randomness at current block
@@ -57,17 +77,47 @@ impl<'a> Client {
             .await?
             .fetch(&storage_query)
             .await?
-            .unwrap();
+            .and_then(|v| v);
 
         Ok(result)
     }
 
-    pub async fn can_attest(&self) -> Result<bool> {
-        let _api = self.get_substrate_client().await?;
+    /// Check the clients membership in the attestor pallet
+    pub async fn check_attestors_membership(&self) -> Result<bool> {
+        let api = self.get_substrate_client().await?;
 
-        // Query pallet storage and check
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestors(subxt::utils::AccountId32::from(self.keypair.public_key()));
 
-        Ok(true)
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?
+            .is_some();
+
+        Ok(result)
+    }
+
+    /// Register to the attestation pallet
+    pub async fn register(&self) -> Result<()> {
+        let api = self.get_substrate_client().await?;
+
+        let tx = cc3::tx().attestation().register_attestor();
+
+        let ext = api
+            .tx()
+            .sign_and_submit_then_watch_default(&tx, &self.keypair)
+            .await?
+            .wait_for_finalized_success()
+            .await?;
+
+        let hash = ext.block_hash();
+        debug!("Registration extrinsic submitted with hash: {:?}", hash);
+
+        Ok(())
     }
 
     /// sign_babe_vrf signs babe's author vrf randomness with the configured key and returns the output as integer
@@ -117,18 +167,31 @@ pub enum Error {
     CannotAttest,
     FailedToSubmit,
     FailedToSignBabeVrf,
+    FailedToCheckEligibility,
+    InvalidAttestor,
+    FailedToGetRPcClient,
 }
 
 impl Message<Client> for AttestationSubmit {
     type Reply = Result<(), Error>;
 
+    /// Main attestation handler
+    /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
     async fn handle(self, state: &mut Client) -> Self::Reply {
         let vrf_output = state.sign_babe_vrf().await.map_err(|e| {
             error!("Error signing babe vrf: {:?}", e);
             Error::FailedToSignBabeVrf
         })?;
 
-        // TODO: Check if the signature value is above/below some threshold defined on chain
+        let is_attestor_member = state.check_attestors_membership().await.map_err(|e| {
+            error!("Error checking membership: {:?}", e);
+            Error::FailedToCheckEligibility
+        })?;
+
+        if !is_attestor_member {
+            error!("Attestor is not valid at current timeframe, please exit.");
+            return Err(Error::InvalidAttestor);
+        };
 
         // Sign the attestation data
         let signature = state.keypair.sign(&self.attestation.serialize());
@@ -145,8 +208,12 @@ impl Message<Client> for AttestationSubmit {
         };
 
         // Submit the attestation to the chain
-        let _ = state
-            .rpc_client
+        let rpc_client = state.get_rpc_client().map_err(|e| {
+            error!("Error getting rpc client: {:?}", e);
+            Error::FailedToGetRPcClient
+        })?;
+
+        let _ = rpc_client
             .request::<(), ArrayParams>("attestor_submitAttestation", rpc_params!(attestation))
             .await
             .map_err(|e| {
@@ -157,5 +224,17 @@ impl Message<Client> for AttestationSubmit {
         debug!("Attestation submitted");
 
         Ok(())
+    }
+}
+
+/// Helper function to format a http(s) endpoint to a ws(s) endpoint
+fn replace_http_with_ws(url: &str) -> String {
+    // Check if the URL starts with "http://" or "https://"
+    if let Some(stripped) = url.strip_prefix("http://") {
+        format!("ws://{}", stripped) // Replace "http://" with "ws://"
+    } else if let Some(stripped) = url.strip_prefix("https://") {
+        format!("wss://{}", stripped) // Replace "https://" with "wss://"
+    } else {
+        url.to_string()
     }
 }

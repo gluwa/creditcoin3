@@ -36,9 +36,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     let config = Config {
-        eth_rpc_url: &args.eth_rpc_url,
-        cc3_rpc_url: &args.cc3_rpc_url,
-        cc3_key: &args.cc3_key,
+        eth_rpc_url: args.eth_rpc_url,
+        cc3_rpc_url: args.cc3_rpc_url,
+        cc3_key: args.cc3_key,
     };
 
     let server = Server::new(config);
