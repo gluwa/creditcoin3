@@ -7,11 +7,16 @@ pub mod cc3;
 pub mod eth;
 
 #[derive(Debug, Clone)]
+/// Attestor server is configured using `Config`
 pub struct Server {
     config: Config,
 }
 
 #[derive(Debug, Clone)]
+/// Server configuration
+/// - `eth_rpc_url`: Source chain RPC url
+/// - `cc3_rpc_url`: Creditcoin RPC url (must have rpc + websocket features)
+/// - `cc3_key`: Mnemonic for a creditcoin3 account
 pub struct Config {
     pub eth_rpc_url: String,
     pub cc3_rpc_url: String,
@@ -19,6 +24,7 @@ pub struct Config {
 }
 
 impl Server {
+    /// Create a new server based on `Config`
     pub fn new(config: Config) -> Self {
         Server { config }
     }
@@ -28,10 +34,13 @@ impl Server {
         let cc3_client = cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key)?;
         cc3_client.init().await?;
 
+        // Create an Actor reference for the cc3 client
         let cc3_client_ref: ActorRef<Client> = cc3_client.spawn();
 
+        // Create an attestor
         let attestor = attestation::Attestor::new(cc3_client_ref).spawn();
 
+        // Subscribe to new eth head given the attestor
         eth::subscribe_to_new_heads(&self.config.eth_rpc_url, attestor).await?;
 
         Ok(())

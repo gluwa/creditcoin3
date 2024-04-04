@@ -30,7 +30,7 @@ pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> 
                         .block_with_txs(BlockId::Hash(block_hash))
                         .await?.unwrap();
 
-                    // Notify the cc3 client with a new block
+                    // Notify the attestor with a new block
                     let _ = attestor.send(NewBlock { block }).await?;
                 }
                 Some(Err(e)) => {

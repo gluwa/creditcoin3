@@ -26,11 +26,14 @@ impl AttestationData {
     }
 }
 
+/// Attestor is an actor that creates attestation based on a new block
+/// It will pass this attestation to the cc3 client to be submitted on chain
 pub struct Attestor {
     pub cc3: ActorRef<cc3::Client>,
 }
 
 impl Attestor {
+    /// Create a new Attestor given a cc3 client actor
     pub fn new(cc3: ActorRef<cc3::Client>) -> Self {
         Self { cc3 }
     }
@@ -52,8 +55,9 @@ where
     async fn handle(self, state: &mut Attestor) -> Self::Reply {
         // handle the new block
         let attestation = create_attestation(self.block).await?;
+        info!("Attestation created succesfully, notifiying cc3 client...");
 
-        info!("trying to submit");
+        // Notify cc3 client with an attestation to be submitted
         let _ = state.cc3.send(AttestationSubmit { attestation }).await?;
 
         Ok(())
@@ -61,6 +65,7 @@ where
 }
 
 // Create the attestation data from a web3::types::Block
+// TODO: do all required verification before creating the attestation data
 pub async fn create_attestation<T>(block: Block<T>) -> Result<AttestationData> {
     let attestation = AttestationData {
         header_number: block.number.unwrap().as_u64(),

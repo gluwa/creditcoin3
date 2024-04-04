@@ -19,16 +19,19 @@ pub mod cc3 {}
 pub type Randomness = [u8; 32];
 
 #[derive(Debug, Clone)]
+/// Cc3 client that is configured with an url and keypair
+/// Must connect to a node that has rpc and websocket enabled
+/// - `url`: Creditcoin3 url (rpc + websocket enabled)
+/// - `keypair`: Creditcoin3 keypair
 pub struct Client {
     pub url: String,
-    // pub rpc_client: HttpClient,
     pub keypair: Keypair,
 }
 
 impl<'a> Client {
     /// Create a new instance of cc3 client
-    /// - url: rpc url of a creditcoin node
-    /// - key: secret phrase for a creditcoin key
+    /// - `url`: rpc url of a creditcoin node
+    /// - `key`: secret phrase for a creditcoin key
     pub fn new(url: impl Into<String> + Clone, key: &'a str) -> Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
