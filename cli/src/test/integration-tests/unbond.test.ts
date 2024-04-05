@@ -71,14 +71,14 @@ describe('unbond', () => {
 
         testIf(
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
-            'should error with account balance too low message',
+            'should error with "Caller has insufficient funds" message',
             () => {
                 try {
                     CLI('unbond --amount 123');
                 } catch (error: any) {
                     expect(error.exitCode).toEqual(1);
                     expect(error.stderr).toContain(
-                        'Invalid Transaction: Inability to pay some fees , e.g. account balance too low',
+                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
                     );
                 }
             },
