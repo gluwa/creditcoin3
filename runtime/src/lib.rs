@@ -835,13 +835,15 @@ impl pallet_nomination_pools::Config for Runtime {
 
 parameter_types! {
     pub const MaxAttestors: u32 = 100;
+    pub const CommittmentInterval: u64 = 1000;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful
-    type MaxAttestestationNodes = MaxAttestors;
+    type MaxAttestationNodes = MaxAttestors;
+    type CommittmentInterval = CommittmentInterval;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

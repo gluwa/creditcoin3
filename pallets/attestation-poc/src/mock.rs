@@ -56,6 +56,7 @@ parameter_types! {
     pub const ExistentialDeposit: u128 = 500;
     pub const MaxLocks: u32 = 50;
     pub const MaxAttestorsDefault:u32 = 100;
+    pub const CommittmentInterval: u64 = 1000;
 }
 
 impl pallet_balances::Config for Test {
@@ -77,7 +78,8 @@ impl pallet_balances::Config for Test {
 impl attestation_poc::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
-    type MaxAttestestationNodes = MaxAttestorsDefault;
+    type MaxAttestationNodes = MaxAttestorsDefault;
+    type CommittmentInterval = CommittmentInterval;
 }
 
 // add more accounts when you need them

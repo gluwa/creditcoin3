@@ -28,7 +28,16 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	fn unregister_invulernable() -> Weight {
 		Weight::from_parts(1,1)
 	}
+
 	fn set_max_invulnerables() -> Weight {
+		Weight::from_parts(1,1)
+	}
+
+	fn attest_block() -> Weight {
+		Weight::from_parts(1,1)
+	}
+
+	fn bootstrap_chain() -> Weight {
 		Weight::from_parts(1,1)
 	}
 }

@@ -13,6 +13,7 @@ mod mock;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::types::{BlockNumber, BlockSerializable};
     use frame_support::dispatch::PostDispatchInfo;
     use frame_support::pallet_prelude::{CountedStorageMap, DispatchResult, OptionQuery};
     use frame_support::traits::Currency;
@@ -26,7 +27,11 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         // TODO: this is currently unused
-        type MaxAttestestationNodes: Get<u32>;
+        #[pallet::constant]
+        type MaxAttestationNodes: Get<u32>;
+        // TODO: Make this useful
+        #[pallet::constant]
+        type CommittmentInterval: Get<u64>;
     }
 
     pub trait WeightInfo {
@@ -36,6 +41,8 @@ pub mod pallet {
         fn register_invulnerable() -> Weight;
         fn unregister_invulernable() -> Weight;
         fn set_max_invulnerables() -> Weight;
+        fn attest_block() -> Weight;
+        fn bootstrap_chain() -> Weight;
     }
 
     #[pallet::storage]
@@ -71,13 +78,27 @@ pub mod pallet {
     pub fn MaxAttestorsDefault<T: Config>() -> u32 {
         // TODO: figure out how to do this from the value set in the runtime config
         // T::MaxAttestationNodes
-        100
+        T::MaxAttestationNodes::get()
     }
 
     #[pallet::type_value]
     pub fn MaxInvulernablesDefault<T: Config>() -> u32 {
-        100
+        T::MaxAttestationNodes::get()
     }
+
+    #[pallet::storage]
+    #[pallet::getter(fn last_block)]
+    pub type LastBlock<T: Config> = StorageValue<_, BlockSerializable, OptionQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn commitments)]
+    pub type Commitments<T: Config> = CountedStorageMap<
+        Hasher = Blake2_128Concat,
+        Key = BlockNumber,
+        // Value can be ignored
+        Value = BlockSerializable,
+        QueryKind = OptionQuery,
+    >;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -94,6 +115,12 @@ pub mod pallet {
         InvulnerableRegistered(T::AccountId),
 
         InvulnerableUnregistered(T::AccountId),
+
+        ChainBootstrapped(BlockSerializable),
+
+        BlockAttested(BlockSerializable),
+
+        CheckpointReached(BlockSerializable),
     }
 
     #[pallet::error]
@@ -121,6 +148,18 @@ pub mod pallet {
 
         /// The call the urnegister_invulnerable failed because the address is not invulnerable
         AddressIsNotInvulnerable,
+
+        /// The call to bootstrap_chain failed, the chain has previously been bootstrapped
+        ChainAlreadyBootstrapped,
+
+        /// The chain has not been bootstrapped and cannot be attested to
+        ChainIsNotBootstrapped,
+
+        /// The call to attest_block failed, the attestor is not eligible at this time
+        NotEligible,
+
+        /// The call to attest_block failed, the block's cryptographic committments were invalid
+        InvalidAttestation,
     }
 
     #[pallet::call]
@@ -223,6 +262,55 @@ pub mod pallet {
             MaxInvulnerables::<T>::put(new_max);
             Ok(())
         }
+
+        #[pallet::call_index(6)]
+        #[pallet::weight(<T as Config>::WeightInfo::attest_block())]
+        pub fn attest_block(
+            origin: OriginFor<T>,
+            block: BlockSerializable,
+            eligibility: u64,
+        ) -> DispatchResult {
+            let _ = ensure_signed(origin)?;
+
+            ensure!(
+                Self::chain_is_bootstrapped(),
+                Error::<T>::ChainIsNotBootstrapped,
+            );
+
+            ensure!(
+                Self::is_eligible_for_attestation(&block, eligibility),
+                Error::<T>::NotEligible,
+            );
+
+            ensure!(Self::is_block_valid(&block), Error::<T>::InvalidAttestation,);
+
+            LastBlock::<T>::set(Some(block.clone()));
+            Self::deposit_event(Event::<T>::BlockAttested(block.clone()));
+
+            if block.block_number % T::CommittmentInterval::get() == 0 {
+                Commitments::<T>::insert(block.block_number, block.clone());
+                Self::deposit_event(Event::<T>::CheckpointReached(block))
+            }
+
+            Ok(())
+        }
+
+        #[pallet::call_index(7)]
+        #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain())]
+        pub fn bootstrap_chain(origin: OriginFor<T>, block: BlockSerializable) -> DispatchResult {
+            let _ = ensure_root(origin)?;
+
+            ensure!(
+                !Self::chain_is_bootstrapped(),
+                Error::<T>::ChainAlreadyBootstrapped
+            );
+
+            LastBlock::<T>::put(block.clone());
+            Commitments::<T>::insert(block.block_number, block.clone());
+
+            Self::deposit_event(Event::<T>::ChainBootstrapped(block));
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -278,6 +366,26 @@ pub mod pallet {
         fn remove_invulnerable_and_emit_event(address: &T::AccountId) {
             Invlunerables::<T>::remove(address);
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(address.clone()));
+        }
+
+        fn chain_is_bootstrapped() -> bool {
+            let first_block = Self::last_block();
+
+            let mut first_commitment = Commitments::<T>::iter();
+            let first_commitment = first_commitment.next();
+
+            first_block.is_some() && first_commitment.is_some()
+        }
+
+        fn is_eligible_for_attestation(block: &BlockSerializable, eligiblity: u64) -> bool {
+            true
+        }
+
+        fn is_block_valid(block: &BlockSerializable) -> bool {
+            // unwrap here because we check if the chain is bootstrapped in the extrinsic
+            let last_block = Self::last_block().unwrap();
+
+            return last_block.digest == block.prev_digest;
         }
     }
 }
