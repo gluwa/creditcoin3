@@ -62,9 +62,9 @@ jobs:
           docker rm -f creditcoin-validator
           sleep 10
 
-      - name: Start docker-compose
+      - name: Start container via compose
         run: |
-          docker-compose up -d
+          docker compose up -d
 
       - name: Sanity check for persistently mounted directory
         run: |
@@ -72,10 +72,10 @@ jobs:
           docker exec creditcoin-validator ls -ld /creditcoin-node/data
           docker exec creditcoin-validator ls -la /creditcoin-node/data
 
-      - name: Collect docker-compose logs
+      - name: Collect compose logs
         if: always()
         run: |
-          docker-compose logs --no-color > docker-compose.log
+          docker compose logs --no-color > docker-compose.log
 
       - name: Upload logs
         if: always()
