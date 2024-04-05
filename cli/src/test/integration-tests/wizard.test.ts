@@ -51,14 +51,14 @@ describe('wizard', () => {
 
     testIf(
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
-        'should error with account balance too low message',
+        'should error with "Caller has insufficient funds" message',
         () => {
             try {
                 CLI('wizard --amount 900');
             } catch (error: any) {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    'Account does not have enough funds, it requires 2.000000000000000000 CTC',
+                expect(error.stderr).toContain(
+                    `Caller ${proxy.address} has insufficient funds to send the transaction`,
                 );
             }
         },
