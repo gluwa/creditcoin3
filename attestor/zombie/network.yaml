@@ -1,0 +1,41 @@
+settings:
+  provider: native
+relaychain:
+  default_command: ../../target/debug/creditcoin3-node
+  default_args:
+    # - "-lpeerset=trace"
+  chain: local
+  nodes:
+    - name: alice
+      validator: true
+      rpc_port: 9944
+      ws_port: 9944
+      prometheus_port: 9615
+    - name: bob
+      validator: true
+      rpc_port: 9945
+      ws_port: 9945
+      prometheus_port: 9616
+    - name: charlie
+      validator: true
+      rpc_port: 9946
+      ws_port: 9946
+      prometheus_port: 9617
+    - name: dave
+      validator: true
+      rpc_port: 9947
+      ws_port: 9947
+      prometheus_port: 9618
+    - name: eve
+      validator: true
+      rpc_port: 9948
+      ws_port: 9948
+      prometheus_port: 9619
+    - name: ferdie
+      validator: true
+      rpc_port: 9949
+      ws_port: 9949
+      prometheus_port: 9620
+# ./target/release/node-template --chain local --bob --validator
+# --tmp -linfo --bootnodes '/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWCZ93EbWqPzCSJFRs7H2tLBtxrrb5Gu3dW3ECRPnhaTQT'
+# --port 30334 --rpc-port 9945 -lpeerset=trace --prometheus-port=9616

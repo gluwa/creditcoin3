@@ -21,6 +21,10 @@ polkadot.*
 .cargo-remote.toml
 .cargo/
 
+# Zombienet bin
+attestor/zombie/zombienet-linux-x64
+attestor/zombie/zombienet-macos
+
 # Added by cargo
 /target
 
