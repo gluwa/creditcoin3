@@ -11,7 +11,7 @@ use tracing::{debug, error, info};
 
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
 
-use crate::attestation::AttestationData;
+use crate::attestation::Data;
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
 pub mod cc3 {}
@@ -123,7 +123,7 @@ impl<'a> Client {
         Ok(())
     }
 
-    /// sign_babe_vrf signs babe's author vrf randomness with the configured key and returns the output as integer
+    /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<u64> {
         let randomness = self.fetch_babe_randomness().await?.unwrap_or_default();
@@ -152,6 +152,7 @@ impl<'a> Client {
         Ok(s_component_integer)
     }
 
+    #[must_use]
     pub fn get_attestor_id(&self) -> AttestorId {
         AttestorId::from_public(self.keypair.public_key().0)
     }
@@ -162,7 +163,7 @@ impl Actor for Client {}
 // AttestationSubmit is a message that can be sent to submit an attestation over rpc to the cc3 node
 // It holds the attestation data to be signed by the attestor before submitting
 pub struct AttestationSubmit {
-    pub attestation: AttestationData,
+    pub attestation: Data,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,9 +235,9 @@ impl Message<Client> for AttestationSubmit {
 fn replace_http_with_ws(url: &str) -> String {
     // Check if the URL starts with "http://" or "https://"
     if let Some(stripped) = url.strip_prefix("http://") {
-        format!("ws://{}", stripped) // Replace "http://" with "ws://"
+        format!("ws://{stripped}") // Replace "http://" with "ws://"
     } else if let Some(stripped) = url.strip_prefix("https://") {
-        format!("wss://{}", stripped) // Replace "https://" with "wss://"
+        format!("wss://{stripped}") // Replace "https://" with "wss://"
     } else {
         url.to_string()
     }

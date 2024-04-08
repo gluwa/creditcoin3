@@ -25,6 +25,7 @@ pub struct Config {
 
 impl Server {
     /// Create a new server based on `Config`
+    #[must_use]
     pub fn new(config: Config) -> Self {
         Server { config }
     }

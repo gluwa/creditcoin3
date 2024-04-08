@@ -14,7 +14,7 @@ pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> 
     let web3 = Web3::new(ws);
 
     // Subscribe to new block headers
-    let mut subscription = web3.eth_subscribe().subscribe_new_heads().await.unwrap();
+    let mut subscription = web3.eth_subscribe().subscribe_new_heads().await?;
 
     debug!("subscription for new chain heads started...");
     // Kick it off
@@ -23,12 +23,12 @@ pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> 
             header = subscription.next() => match header {
                 Some(Ok(header)) => {
                     info!("New block header: {:?}", header.hash);
-                    let block_hash = header.hash.unwrap();
+                    let block_hash = header.hash.unwrap_or_else(|| panic!("Header Hash for block header: {header:?} not found, aborting now!"));
 
                     let block = web3
                         .eth()
                         .block_with_txs(BlockId::Hash(block_hash))
-                        .await?.unwrap();
+                        .await?.unwrap_or_else(|| panic!("Block with hash: {block_hash}, not found, aborting now!"));
 
                     // Notify the attestor with a new block
                     let _ = attestor.send(NewBlock { block }).await?;

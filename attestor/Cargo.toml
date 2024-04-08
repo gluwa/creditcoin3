@@ -12,6 +12,11 @@ path = "src/lib.rs"
 path = "bin/attestor.rs"
 name = "attestor"
 
+[lints.clippy]
+pedantic = "warn"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
 [package.metadata.release]
 release = false
 

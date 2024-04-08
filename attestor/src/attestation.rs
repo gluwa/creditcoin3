@@ -7,12 +7,13 @@ use web3::types::{Block, H256};
 use crate::cc3::{self, AttestationSubmit};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AttestationData {
+pub struct Data {
     pub header_number: u64,
     pub header_hash: H256,
 }
 
-impl AttestationData {
+impl Data {
+    #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
@@ -34,6 +35,7 @@ pub struct Attestor {
 
 impl Attestor {
     /// Create a new Attestor given a cc3 client actor
+    #[must_use]
     pub fn new(cc3: ActorRef<cc3::Client>) -> Self {
         Self { cc3 }
     }
@@ -54,7 +56,7 @@ where
 
     async fn handle(self, state: &mut Attestor) -> Self::Reply {
         // handle the new block
-        let attestation = create_attestation(self.block).await?;
+        let attestation = create(&self.block)?;
         info!("Attestation created succesfully, notifiying cc3 client...");
 
         // Notify cc3 client with an attestation to be submitted
@@ -66,10 +68,15 @@ where
 
 // Create the attestation data from a web3::types::Block
 // TODO: do all required verification before creating the attestation data
-pub async fn create_attestation<T>(block: Block<T>) -> Result<AttestationData> {
-    let attestation = AttestationData {
-        header_number: block.number.unwrap().as_u64(),
-        header_hash: block.hash.unwrap(),
+pub fn create<T>(block: &Block<T>) -> Result<Data> {
+    let attestation = Data {
+        header_number: block
+            .number
+            .ok_or(anyhow::anyhow!("Error unwrapping block number"))?
+            .as_u64(),
+        header_hash: block
+            .hash
+            .ok_or(anyhow::anyhow!("Error unwrapping block hash"))?,
     };
 
     Ok(attestation)
