@@ -1,8 +1,8 @@
 use anyhow::Result;
+use ethers::types::{Block, H256};
 use kameo::{Actor, ActorRef, Message};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use web3::types::{Block, H256};
 
 use crate::cc3::{self, AttestationSubmit};
 

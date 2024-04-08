@@ -1,41 +1,28 @@
 use anyhow::Result;
-use futures::stream::StreamExt;
+use ethers::providers::{Middleware, Provider, StreamExt, Ws};
 use kameo::ActorRef;
 use tokio::select;
-use tracing::{debug, error, info};
-use web3::{types::BlockId, Web3};
+use tracing::{debug, info};
 
 use crate::attestation::{Attestor, NewBlock};
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
 /// where we can send the new block to in order to start the attestation cycle
 pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> Result<()> {
-    let ws = web3::transports::WebSocket::new(url).await?;
-    let web3 = Web3::new(ws);
-
-    // Subscribe to new block headers
-    let mut subscription = web3.eth_subscribe().subscribe_new_heads().await?;
+    let provider = Provider::<Ws>::connect(url).await?;
+    let mut stream = provider.subscribe_blocks().await?;
 
     debug!("subscription for new chain heads started...");
     // Kick it off
     loop {
         select! {
-            header = subscription.next() => match header {
-                Some(Ok(header)) => {
-                    info!("New block header: {:?}", header.hash);
-                    let block_hash = header.hash.unwrap_or_else(|| panic!("Header Hash for block header: {header:?} not found, aborting now!"));
-
-                    let block = web3
-                        .eth()
-                        .block_with_txs(BlockId::Hash(block_hash))
-                        .await?.unwrap_or_else(|| panic!("Block with hash: {block_hash}, not found, aborting now!"));
+            block = stream.next() => match block {
+                Some(block) => {
+                    info!("New block header: {:?}", block.hash);
 
                     // Notify the attestor with a new block
                     let _ = attestor.send(NewBlock { block }).await?;
-                }
-                Some(Err(e)) => {
-                    error!("error getting next block: {:?}", e);
-                }
+                },
                 None => panic!("no block"),
             },
         }
