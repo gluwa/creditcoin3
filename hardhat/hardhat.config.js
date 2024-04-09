@@ -5,9 +5,10 @@ module.exports = {
   solidity: "0.8.24",
   networks: {
     hardhat: {
+      gas: "auto",
       mining: {
-        auto: true, // Enable auto mining
-        interval: 5000 // Mine a new block every 5 seconds
+        auto: false, // Enable auto mining
+        interval: 8000 // Mine a new block every 5 seconds
       }
     }
   }

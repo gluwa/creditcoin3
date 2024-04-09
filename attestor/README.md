@@ -134,3 +134,10 @@ log output like
 ```log
 2024-01-11 10:19:21 Received message: Attestation(Attestation { round: 321, header_hash: 0x123456789abcdeff123456789abcdeff123456789abcdeff123456789abcdeff, header_number: 999, attestor: AttestorId(109876), topic: Topic(12345) })
 ```
+
+### Do a transfer
+
+```sh
+cd hardhat
+npx hardhat --network localhost run scripts/Transfer.js
+```

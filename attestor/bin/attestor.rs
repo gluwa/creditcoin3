@@ -19,6 +19,9 @@ pub struct Attestor {
 
     #[arg(short, long)]
     verbose: bool,
+
+    #[arg(short, long)]
+    dev: bool,
 }
 
 #[tokio::main]

@@ -7,6 +7,7 @@ use kameo::{Actor, Message};
 use serde::{Deserialize, Serialize};
 use subxt::{OnlineClient, SubstrateConfig};
 use subxt_signer::{sr25519::Keypair, SecretUri};
+use thiserror::Error;
 use tracing::{debug, error, info};
 
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
@@ -166,28 +167,34 @@ pub struct AttestationSubmit {
     pub attestation: Data,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Error)]
 pub enum Error {
+    #[error("Cannot attest")]
     CannotAttest,
+    #[error("Failed to submit RPC")]
     FailedToSubmit,
+    #[error("Failed to sign Babe VRF output")]
     FailedToSignBabeVrf,
+    #[error("Failed to check eligibility")]
     FailedToCheckEligibility,
+    #[error("Invalid attestor")]
     InvalidAttestor,
+    #[error("Failed to get cc3 RPC client")]
     FailedToGetRPcClient,
 }
 
-impl Message<Client> for AttestationSubmit {
+impl Message<AttestationSubmit> for Client {
     type Reply = Result<(), Error>;
 
     /// Main attestation handler
     /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
-    async fn handle(self, state: &mut Client) -> Self::Reply {
-        let vrf_output = state.sign_babe_vrf().await.map_err(|e| {
+    async fn handle(&mut self, msg: AttestationSubmit) -> Self::Reply {
+        let vrf_output = self.sign_babe_vrf().await.map_err(|e| {
             error!("Error signing babe vrf: {:?}", e);
             Error::FailedToSignBabeVrf
         })?;
 
-        let is_attestor_member = state.check_attestors_membership().await.map_err(|e| {
+        let is_attestor_member = self.check_attestors_membership().await.map_err(|e| {
             error!("Error checking membership: {:?}", e);
             Error::FailedToCheckEligibility
         })?;
@@ -198,21 +205,21 @@ impl Message<Client> for AttestationSubmit {
         };
 
         // Sign the attestation data
-        let signature = state.keypair.sign(&self.attestation.serialize());
+        let signature = self.keypair.sign(&msg.attestation.serialize());
 
         // Create final attestation object
         let attestation = Attestation {
-            attestor: state.get_attestor_id(),
+            attestor: self.get_attestor_id(),
             round: 1,
-            header_hash: self.attestation.header_hash,
-            header_number: self.attestation.header_number,
+            header_hash: msg.attestation.header_hash,
+            header_number: msg.attestation.header_number.saturating_to::<u64>(),
             topic: Topic::new(1),
             vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
         };
 
         // Submit the attestation to the chain
-        let rpc_client = state.get_rpc_client().map_err(|e| {
+        let rpc_client = self.get_rpc_client().map_err(|e| {
             error!("Error getting rpc client: {:?}", e);
             Error::FailedToGetRPcClient
         })?;
@@ -225,7 +232,7 @@ impl Message<Client> for AttestationSubmit {
                 Error::FailedToSubmit
             });
 
-        debug!("Attestation submitted");
+        info!("Attestation submitted");
 
         Ok(())
     }

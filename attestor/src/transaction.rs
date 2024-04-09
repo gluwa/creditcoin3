@@ -1,0 +1,57 @@
+use alloy::consensus::Signed;
+use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy};
+use alloy::core::primitives::{Address, U256};
+
+pub trait BlockItem: Sized {
+    fn to_bytes(&self) -> Vec<u8>;
+
+    fn chain_id(&self) -> u64;
+    fn block_number(&self) -> U256;
+    fn index(&self) -> u64;
+    fn from(&self) -> Address;
+    fn to(&self) -> Option<Address>;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Transaction(pub alloy::rpc::types::eth::Transaction);
+
+impl BlockItem for Transaction {
+    fn to_bytes(&self) -> Vec<u8> {
+        match self.0.transaction_type {
+            Some(0) => {
+                let tx: Signed<TxLegacy> = self.0.clone().try_into().unwrap();
+                alloy::rlp::encode(tx.into_parts().0)
+            }
+            Some(1) => {
+                let tx: Signed<TxEip1559> = self.0.clone().try_into().unwrap();
+                alloy::rlp::encode(tx.into_parts().0)
+            }
+            Some(2) => {
+                let tx: Signed<TxEip2930> = self.0.clone().try_into().unwrap();
+                alloy::rlp::encode(tx.into_parts().0)
+            }
+            Some(_) => Vec::new(),
+            None => Vec::new(),
+        }
+    }
+
+    fn chain_id(&self) -> u64 {
+        self.0.chain_id.unwrap_or_default()
+    }
+
+    fn index(&self) -> u64 {
+        self.0.transaction_index.unwrap_or_default()
+    }
+
+    fn block_number(&self) -> U256 {
+        U256::saturating_from(self.0.block_number.unwrap_or_default())
+    }
+
+    fn from(&self) -> Address {
+        self.0.from
+    }
+
+    fn to(&self) -> Option<Address> {
+        self.0.to
+    }
+}

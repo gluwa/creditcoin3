@@ -11,3 +11,9 @@ REPORT_GAS=true npx hardhat test
 npx hardhat node
 npx hardhat ignition deploy ./ignition/modules/Lock.js
 ```
+
+## Doing a transfer
+
+```sh
+npx hardhat --network localhost run scripts/Transfer.js
+```

@@ -1,15 +1,21 @@
+use alloy::primitives::{B256, U256};
+use alloy::rpc::types::eth::{Block, BlockTransactions};
 use anyhow::Result;
-use ethers::types::{Block, H256};
 use kameo::{Actor, ActorRef, Message};
-use serde::{Deserialize, Serialize};
-use tracing::info;
+use starknet_crypto::FieldElement;
+use thiserror::Error;
+use tracing::{error, info};
 
 use crate::cc3::{self, AttestationSubmit};
+use crate::merkle;
+use crate::transaction::BlockItem;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Data {
-    pub header_number: u64,
-    pub header_hash: H256,
+    pub header_number: U256,
+    pub header_hash: B256,
+    pub tx_root: FieldElement,
+    pub rx_root: FieldElement,
 }
 
 impl Data {
@@ -18,10 +24,10 @@ impl Data {
         let mut bytes = Vec::new();
 
         // Serialize header_number as little-endian bytes
-        bytes.extend_from_slice(&self.header_number.to_le_bytes());
+        bytes.extend_from_slice(&self.header_number.to_be_bytes_vec());
 
         // Serialize header_hash as little-endian bytes
-        bytes.extend_from_slice(self.header_hash.as_bytes());
+        bytes.extend_from_slice(&self.header_hash.to_vec());
 
         bytes
     }
@@ -44,40 +50,95 @@ impl Attestor {
 impl Actor for Attestor {}
 
 // Define NewBlock message
-pub struct NewBlock<T> {
-    pub block: Block<T>,
+pub struct NewBlock {
+    pub block: Block,
 }
 
-impl<B> Message<Attestor> for NewBlock<B>
-where
-    B: Send + Sync + 'static,
-{
+impl Message<NewBlock> for Attestor {
     type Reply = Result<()>;
 
-    async fn handle(self, state: &mut Attestor) -> Self::Reply {
+    async fn handle(&mut self, msg: NewBlock) -> Self::Reply {
         // handle the new block
-        let attestation = create(&self.block)?;
+        let attestation = match create(&msg.block).await {
+            Ok(attestation) => attestation,
+            Err(e) => {
+                error!("Error creating attestation: {:?}", e);
+                return Ok(());
+            }
+        };
+
         info!("Attestation created succesfully, notifiying cc3 client...");
 
         // Notify cc3 client with an attestation to be submitted
-        let _ = state.cc3.send(AttestationSubmit { attestation }).await?;
+        let _ = self.cc3.send(AttestationSubmit { attestation }).await?;
 
         Ok(())
     }
 }
 
-// Create the attestation data from a web3::types::Block
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("No Transactions")]
+    NoTransactions,
+    #[error("Error building merkle tree")]
+    ErrorBuildingMerkleTree,
+    #[error("Error unwrapping blockdata {0}")]
+    ErrorUnwrappingBlock(String),
+}
+
+// Create the attestation data from a ethers::types::Block
 // TODO: do all required verification before creating the attestation data
-pub fn create<T>(block: &Block<T>) -> Result<Data> {
+pub async fn create(block: &Block) -> Result<Data, Error> {
+    // Create rlp's for all transactions
+    let mut rlps = match &block.transactions {
+        BlockTransactions::Full(tx) => tx
+            .into_iter()
+            .map(|tx| super::transaction::Transaction(tx.clone()).to_bytes())
+            .collect(),
+        _ => {
+            info!("No full tx");
+            vec![]
+        }
+    };
+
+    if rlps.len() == 0 {
+        info!("No transactions in block, not doing anything now...");
+        return Err(Error::NoTransactions);
+    }
+
+    // create the merkle tree
+    duplicate_elements(&mut rlps);
+    info!("rlp len: {:?}", rlps[0].len());
+    let tx_tree = merkle::tree::create(rlps).map_err(|e| {
+        error!("Error creating tree: {:?}", e);
+        Error::NoTransactions
+    })?;
+
+    let f: FieldElement = tx_tree.root().into();
+    info!("tree tx root: {:?}", f);
+
     let attestation = Data {
-        header_number: block
-            .number
-            .ok_or(anyhow::anyhow!("Error unwrapping block number"))?
-            .as_u64(),
+        header_number: U256::saturating_from(
+            block
+                .header
+                .number
+                .ok_or(Error::ErrorUnwrappingBlock("Block number".to_string()))?,
+        ),
         header_hash: block
+            .header
             .hash
-            .ok_or(anyhow::anyhow!("Error unwrapping block hash"))?,
+            .ok_or(Error::ErrorUnwrappingBlock("Block hash".to_string()))?,
+        tx_root: tx_tree.root().into(),
+        rx_root: tx_tree.root().into(),
     };
 
     Ok(attestation)
+}
+
+fn duplicate_elements<T: Clone>(vec: &mut Vec<T>) {
+    let len = vec.len();
+    for i in 0..len {
+        // Insert a copy of the element at index i immediately after it
+        vec.insert(i + 1, vec[i].clone());
+    }
 }
