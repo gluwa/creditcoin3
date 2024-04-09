@@ -3,6 +3,7 @@ import timeDelta = require('time-delta');
 import { ApiPromise } from '@polkadot/api';
 import { BN } from '..';
 import { readAmount, readAmountFromHex, toCTCString } from '../balance';
+import { getChainStatus } from '../chain/status';
 import { timeTillEra } from './era';
 import Table from 'cli-table3';
 import { PalletStakingUnlockChunk } from '@polkadot/types/lookup';
@@ -97,8 +98,14 @@ export async function validatorStatusTable(status: Status | undefined, api: ApiP
     if (!status) {
         throw new Error('Status was undefined');
     }
+
+    const [currentEra, chainStatus] = await Promise.all([api.query.staking.currentEra(), getChainStatus(api)]);
+
     const table = new Table({
-        head: ['Status'],
+        head: [
+            `Active: ${chainStatus.eraInfo.era}; Current: ${currentEra}; Session: ${chainStatus.eraInfo.currentSession}`,
+            `Block: ${chainStatus.bestNumber}; Finalized: ${chainStatus.bestFinalizedNumber}`,
+        ],
     });
     table.push(['Bonded', status.bonded ? 'Yes' : 'No']);
     table.push(['Validating', status.validating ? 'Yes' : 'No']);

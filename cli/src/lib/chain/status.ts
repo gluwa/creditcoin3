@@ -1,5 +1,4 @@
 import { ApiPromise } from '@polkadot/api';
-import Table from 'cli-table3';
 
 interface ChainStatus {
     name: string;
@@ -33,20 +32,4 @@ async function getEraInfo(api: ApiPromise): Promise<EraInfo> {
         currentSession: (session.currentIndex.toNumber() % session.sessionsPerEra.toNumber()) + 1,
         sessionsPerEra: session.sessionsPerEra.toNumber(),
     };
-}
-
-export function printChainStatus(status: ChainStatus) {
-    const { eraInfo } = status;
-    const table = new Table({
-        head: [status.name],
-    });
-
-    table.push(
-        ['Best Block', status.bestNumber],
-        ['Best Finalized Block', status.bestFinalizedNumber],
-        ['Era', eraInfo.era],
-        ['Session', `${eraInfo.currentSession}/${eraInfo.sessionsPerEra}`],
-    );
-    console.log('Chain status:');
-    console.log(table.toString());
 }
