@@ -30,9 +30,9 @@ async function statusAction(options: OptionValues) {
     }
 
     if (showValidatorStatus) {
-        const validator = options.substrateAddress as string;
-        const validatorStatus = await getValidatorStatus(validator, api);
-        console.log(`Validator ${validator}:`);
+        const validatorAddr = options.substrateAddress as string;
+        const validatorStatus = await getValidatorStatus(validatorAddr, api);
+        console.log(`Validator ${validatorAddr}:`);
         await printValidatorStatus(validatorStatus, api);
     }
 

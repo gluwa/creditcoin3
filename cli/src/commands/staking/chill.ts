@@ -17,9 +17,8 @@ async function chillAction(options: OptionValues) {
 
     const keyring = await initKeyring(options);
 
-    const address = delegateAddress(keyring);
-
-    const status = await getValidatorStatus(address, api);
+    const validatorAddr = delegateAddress(keyring);
+    const status = await getValidatorStatus(validatorAddr, api);
 
     requireStatus(status, 'validating');
 
