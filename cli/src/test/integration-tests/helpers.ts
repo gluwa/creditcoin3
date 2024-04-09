@@ -30,10 +30,7 @@ export async function fundAddressesFromSudo(addresses: string[], amount: BN, url
     return tx;
 }
 
-export async function waitEras(eras: number, api: ApiPromise, force = true) {
-    if (force) {
-        await forceNewEra(api);
-    }
+export async function waitEras(eras: number, api: ApiPromise) {
     let eraInfo = await api.derive.session.info();
     let currentEra = eraInfo.currentEra.toNumber();
     const targetEra = currentEra + eras;
