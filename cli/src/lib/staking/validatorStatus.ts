@@ -97,8 +97,17 @@ export async function validatorStatusTable(status: Status | undefined, api: ApiP
     if (!status) {
         throw new Error('Status was undefined');
     }
+    const [currentEra, lastBlock, lastFinalized] = await Promise.all([
+        api.query.staking.currentEra(),
+        api.rpc.chain.getBlock(),
+        api.rpc.chain.getBlock(await api.rpc.chain.getFinalizedHead()),
+    ]);
+
     const table = new Table({
-        head: ['Status'],
+        head: [
+            `Current Era: ${currentEra.toString()}`,
+            `Block: ${lastBlock.block.header.number.toString()}; Finalized: ${lastFinalized.block.header.number.toString()}`,
+        ],
     });
     table.push(['Bonded', status.bonded ? 'Yes' : 'No']);
     table.push(['Validating', status.validating ? 'Yes' : 'No']);
