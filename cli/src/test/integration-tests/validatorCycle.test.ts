@@ -172,7 +172,7 @@ describeIf(
             // the unbonded amount and end up with more funds than the initial funding
             const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
             console.log('Unbonding period: ', unbondingPeriod);
-            await waitEras(unbondingPeriod + 1, api, true);
+            await waitEras(unbondingPeriod + 1, api);
 
             result = CLI('withdraw-unbonded');
             expect(result.exitCode).toEqual(0);

@@ -78,7 +78,7 @@ describe('withdraw-unbonded', () => {
 
             // wait for funds to become unlocked
             const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
-            await waitEras(unbondingPeriod, api, true);
+            await waitEras(unbondingPeriod, api);
 
             // configure proxy
             proxy = await randomFundedAccount(api, sudoSigner);
@@ -178,7 +178,7 @@ describe('withdraw-unbonded', () => {
 
             // wait for funds to become unlocked
             const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
-            await waitEras(unbondingPeriod, api, true);
+            await waitEras(unbondingPeriod, api);
 
             // configure proxy
             proxy = await randomFundedAccount(api, sudoSigner);
