@@ -94,8 +94,8 @@ describe('distribute-rewards', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 5 seconds for nodes to sync
-            await sleep(5000);
+            // wait 2 seconds for nodes to sync
+            await sleep(2000);
             const newBalance = await getBalance(sudoSigner.address, api);
             // https://polkadot.js.org/docs/api/start/types.basics/#working-with-numbers
             // .toNumber() can overflow: Number can only safely store up to 53 bits

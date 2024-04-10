@@ -96,8 +96,8 @@ describe('bond', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 5 seconds for nodes to sync
-            await sleep(5000);
+            // wait 2 seconds for nodes to sync
+            await sleep(2000);
             const newBalance = await getBalance(caller.address, api);
             expect(newBalance.bonded.toString()).toBe(three33.toString());
             expect(newBalance.locked.toString()).toBe(three33.toString());
@@ -107,8 +107,8 @@ describe('bond', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 5 seconds for nodes to sync
-            await sleep(5000);
+            // wait 2 seconds for nodes to sync
+            await sleep(2000);
             const newerBalance = await getBalance(caller.address, api);
             expect(newerBalance.bonded.toString()).toBe(four44.toString());
             expect(newerBalance.locked.toString()).toBe(four44.toString());
