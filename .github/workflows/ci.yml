@@ -591,6 +591,26 @@ jobs:
               echo "git_diff=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Extra ENV for PRs towards dev branch
+        if: github.base_ref == 'dev'
+        id: for-dev-prs
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          echo "${{ github.base_ref }}"
+          echo "======================================="
+
+          echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
+
+      - name: Extra ENV for other PRs and commits
+        if: github.base_ref != 'dev'
+        id: non-dev-prs
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          echo "${{ github.base_ref }}"
+          echo "======================================="
+
+          echo "validator_cycle=yes" >> "$GITHUB_OUTPUT"
+
       - name: Build creditcoin-cli
         working-directory: ./cli
         run: |
@@ -604,6 +624,7 @@ jobs:
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           PROXY_TYPE: ${{ matrix.proxy_type }}
+          EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO: ${{ steps.for-dev-prs.outputs.validator_cycle || steps.non-dev-prs.outputs.validator_cycle }}
 
       - name: Kill nodes
         if: always()
