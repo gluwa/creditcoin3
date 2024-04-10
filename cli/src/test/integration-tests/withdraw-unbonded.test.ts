@@ -70,8 +70,8 @@ describe('withdraw-unbonded', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 5 seconds for nodes to sync
-            await sleep(5000);
+            // wait 2 seconds for nodes to sync
+            await sleep(2000);
             result = nonProxiedCli(`unbond --amount 123`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
@@ -137,8 +137,8 @@ describe('withdraw-unbonded', () => {
                 expect(result.exitCode).toEqual(0);
                 expect(result.stdout).toContain('Transaction included at block');
 
-                // wait 5 seconds for nodes to sync
-                await sleep(5000);
+                // wait 2 seconds for nodes to sync
+                await sleep(2000);
                 const newBalance = await getBalance(caller.address, api);
                 expect(newBalance.locked.toString()).toBe(zero.toString());
 
@@ -170,8 +170,8 @@ describe('withdraw-unbonded', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 5 seconds for nodes to sync
-            await sleep(5000);
+            // wait 2 seconds for nodes to sync
+            await sleep(2000);
             result = nonProxiedCli(`unbond --amount 123`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
@@ -207,8 +207,8 @@ describe('withdraw-unbonded', () => {
                 expect(result.exitCode).toEqual(0);
                 expect(result.stdout).toContain('Transaction included at block');
 
-                // wait 5 seconds for nodes to sync
-                await sleep(5000);
+                // wait 2 seconds for nodes to sync
+                await sleep(2000);
                 const newBalance = await getBalance(caller.address, api);
                 expect(newBalance.transferable > oldBalance.transferable).toBe(true);
                 expect(newBalance.bonded.toString()).toBe(three77.toString());
