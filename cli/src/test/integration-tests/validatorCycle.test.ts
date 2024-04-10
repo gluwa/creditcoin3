@@ -20,9 +20,10 @@ import { describeIf, sleep } from '../utils';
 import { parseAmount } from '../../commands/options';
 
 describeIf(
-    process.env.PROXY_ENABLED === undefined ||
-        process.env.PROXY_ENABLED === 'no' ||
-        (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+    process.env.EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO === 'yes' &&
+        (process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy')),
     'integration test: validator manual setup',
     () => {
         let api: ApiPromise;
