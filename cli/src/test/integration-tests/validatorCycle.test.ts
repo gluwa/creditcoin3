@@ -38,7 +38,8 @@ describeIf(
 
             // Create a reference to sudo for funding accounts
             sudoSigner = initAliceKeyring();
-        });
+            await increaseValidatorCount(api, sudoSigner);
+        }, 20_000);
 
         beforeEach(async () => {
             const stashSecret = CLIBuilder({})('new').stdout.split('Seed phrase: ')[1];
@@ -112,9 +113,7 @@ describeIf(
             const stashStatusAfterValidating = await getValidatorStatus(caller.address, api);
             expect(stashStatusAfterValidating?.waiting).toBe(true);
 
-            // After increasing the validator count, (forcing an era- currently not) and waiting for the next era,
-            // the validator should become elected & active.
-            await increaseValidatorCount(api, initAliceKeyring(), 2);
+            // wait for the next era, the validator should become elected & active.
             await waitEras(2, api);
             const stashStatusAfterEra = await getValidatorStatus(caller.address, api);
             expect(stashStatusAfterEra?.active).toBe(true);
