@@ -77,8 +77,8 @@ describe('chill', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            // wait 10 seconds for nodes to sync
-            await sleep(10000);
+            // wait 2 seconds for nodes to sync
+            await sleep(2000);
             const status = await getValidatorStatus(caller.address, api);
             expect(status?.validating).toBe(true);
         }, 200_000);
@@ -124,8 +124,8 @@ describe('chill', () => {
                 expect(result.exitCode).toEqual(0);
                 expect(result.stdout).toContain('Transaction included at block');
 
-                // wait 5 seconds for nodes to sync
-                await sleep(5000);
+                // wait 2 seconds for nodes to sync
+                await sleep(2000);
 
                 const status = await getValidatorStatus(caller.address, api);
                 expect(status?.validating).toBe(false);
