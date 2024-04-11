@@ -1,4 +1,5 @@
 use anyhow::Result;
+use creditcoin3_attestor_gossip::Felt;
 use kameo::{Actor, ActorRef, Message};
 use thiserror::Error;
 use tracing::{debug, error, info};
@@ -11,8 +12,8 @@ use crate::{merkle, merkle::tree::FieldElement, transaction};
 pub struct Data {
     pub header_number: u64,
     pub header_hash: [u8; 32],
-    pub tx_root: FieldElement,
-    pub rx_root: FieldElement,
+    pub tx_root: Felt,
+    pub rx_root: Felt,
 }
 
 impl Data {
@@ -25,6 +26,12 @@ impl Data {
 
         // Serialize header_hash as little-endian bytes
         bytes.extend_from_slice(&self.header_hash.to_vec());
+
+        // Serialize tx_root as little-endian bytes
+        bytes.extend_from_slice(&self.tx_root);
+
+        // Serialize rx_root as little-endian bytes
+        bytes.extend_from_slice(&self.rx_root);
 
         bytes
     }

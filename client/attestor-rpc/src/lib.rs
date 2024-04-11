@@ -21,6 +21,8 @@ pub struct AttestationModel {
     pub round: u64,
     pub header_hash: EncodedHash,
     pub header_number: u64,
+    pub tx_root: [u8; 32],
+    pub rx_root: [u8; 32],
     pub attestor: AttestorIdModel,
     pub topic: TopicModel,
     pub vrf_output: u64,
@@ -85,6 +87,8 @@ where
                 RpcError::Custom(format!("Failed to convert header hash: {e}"))
             })?,
             header_number: attestation.header_number,
+            tx_root: attestation.tx_root,
+            rx_root: attestation.rx_root,
             attestor: AttestorId::new(attestation.attestor.0),
             topic: Topic::new(attestation.topic.0),
             round: attestation.round,

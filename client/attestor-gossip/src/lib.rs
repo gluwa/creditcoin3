@@ -20,6 +20,7 @@ use sp_runtime::{
 };
 use substrate_prometheus_endpoint::Registry;
 
+pub type Felt = [u8; 32];
 pub struct AttestorGossipValidator {}
 
 impl AttestorGossipValidator {
@@ -59,7 +60,7 @@ pub fn round_topic<B: BlockT>(round: Round, topic: Topic) -> B::Hash {
     <<B as BlockT>::Header as sp_runtime::traits::Header>::Hashing::hash(&round_topic)
 }
 
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Attestation<H>
 where
     H: Serialize,
@@ -67,6 +68,8 @@ where
     pub round: u64,
     pub header_hash: H,
     pub header_number: u64,
+    pub tx_root: Felt,
+    pub rx_root: Felt,
     pub attestor: AttestorId,
     pub topic: Topic,
     pub vrf_output: u64,

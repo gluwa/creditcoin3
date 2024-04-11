@@ -213,6 +213,8 @@ impl Message<AttestationSubmit> for Client {
             round: 1,
             header_hash: hex::encode(msg.attestation.header_hash),
             header_number: msg.attestation.header_number,
+            tx_root: msg.attestation.tx_root,
+            rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
             vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),

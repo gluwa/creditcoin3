@@ -1,3 +1,4 @@
+use creditcoin3_attestor_gossip::Felt;
 use merkletree::{merkle::Element, proof::Proof, store::VecStore};
 use std::hash::Hash;
 use thiserror::Error;
@@ -69,5 +70,13 @@ impl Element for TreeElement {
 impl Into<FieldElement> for TreeElement {
     fn into(self) -> FieldElement {
         FieldElement::from_byte_slice_be(self.as_ref()).unwrap()
+    }
+}
+
+impl From<TreeElement> for Felt {
+    fn from(tree_element: TreeElement) -> Felt {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&tree_element.0.as_slice());
+        bytes
     }
 }

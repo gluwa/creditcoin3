@@ -2226,6 +2226,7 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-runtime",
+ "starknet-crypto",
  "substrate-prometheus-endpoint",
  "thiserror",
 ]
