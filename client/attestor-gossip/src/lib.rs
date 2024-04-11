@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::{
     future::Future,
     pin::Pin,
@@ -5,28 +6,89 @@ use std::{
     task::{Context, Poll},
 };
 
+use attestor_primitives::{AttestationData, Felt};
 use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     FutureExt as _, StreamExt,
 };
 use parity_scale_codec::{Decode, Encode};
 use parking_lot::Mutex;
-use sc_network::ProtocolName;
-use sc_network_gossip::{GossipEngine, Validator};
+use sc_network::{PeerId, ProtocolName};
+use sc_network_gossip::{GossipEngine, ValidationResult, Validator, ValidatorContext};
 use serde::Serialize;
+use sp_core::{Pair, H256};
 use sp_runtime::{
     traits::{Block as BlockT, Hash},
     AccountId32,
 };
 use substrate_prometheus_endpoint::Registry;
 
-pub type Felt = [u8; 32];
-pub struct AttestorGossipValidator {}
+pub struct AttestorGossipValidator<B>
+where
+    B: BlockT,
+{
+    _phantom: PhantomData<B>,
+}
 
-impl AttestorGossipValidator {
-    pub const fn new() -> Self {
-        Self {}
+impl<B> AttestorGossipValidator<B>
+where
+    B: BlockT<Hash = H256>,
+{
+    pub fn new() -> Self {
+        Self {
+            _phantom: Default::default(),
+        }
     }
+
+    fn validate_attestation(
+        &self,
+        attestation: &Attestation<B::Hash>,
+        _sender: &PeerId,
+    ) -> Action<B::Hash> {
+        let round = attestation.round;
+        let x = self.verify_signature(attestation);
+        if x {
+            log::info!(target: "attestor-gossip", "Attestation signature is valid");
+            Action::Keep(round_topic::<B>(round, attestation.topic.clone()))
+        } else {
+            // TODO: slash stake in the future
+            log::info!(target: "attestor-gossip", "Attestation signature is invalid");
+            Action::Discard
+        }
+    }
+
+    // Check it the signature is valid given the header number and header hash from the attestation for now.
+    // Will need extending once we start submitting actual attestations
+    fn verify_signature(&self, attestation: &Attestation<B::Hash>) -> bool {
+        let header_number = attestation.header_number;
+        let header_hash = attestation.header_hash;
+        let tx_root = attestation.tx_root;
+        let rx_root = attestation.rx_root;
+        let att = AttestationData {
+            header_number,
+            header_hash,
+            tx_root,
+            rx_root,
+        };
+
+        let message = att.serialize();
+        let signature = &attestation.signature;
+        let public_key: sp_core::sr25519::Public =
+            sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());
+
+        let is_valid = sp_core::sr25519::Pair::verify(signature, message, &public_key);
+        is_valid
+    }
+
+    fn validate_attestation_request(&self) -> Action<B::Hash> {
+        Action::Discard
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Action<H> {
+    Keep(H),
+    Discard,
 }
 
 pub type Round = u64;
@@ -102,25 +164,43 @@ impl<H: Serialize> Message<H> {
     }
 }
 
-impl<B: BlockT> Validator<B> for AttestorGossipValidator {
+impl<B> Validator<B> for AttestorGossipValidator<B>
+where
+    B: BlockT<Hash = H256>,
+{
     fn validate(
         &self,
-        _context: &mut dyn sc_network_gossip::ValidatorContext<B>,
-        _sender: &sc_network::PeerId,
+        context: &mut dyn ValidatorContext<B>,
+        sender: &PeerId,
         data: &[u8],
-    ) -> sc_network_gossip::ValidationResult<<B as BlockT>::Hash> {
-        let message = match Message::<B::Hash>::decode(&mut &data[..]) {
-            Ok(message) => message,
+    ) -> ValidationResult<B::Hash> {
+        let action = match Message::<B::Hash>::decode(&mut &data[..]) {
+            Ok(Message::Attestation(att)) => {
+                log::info!(target: "attestor-gossip", "Received attestation: {:?}", att);
+                self.validate_attestation(&att, sender)
+            }
+            Ok(Message::AttestationRequest {
+                round,
+                topic,
+                attestor,
+            }) => {
+                log::info!(target: "attestor-gossip", "Received attestation request from {:?} for round {:?} and topic {:?}", attestor, round, topic);
+                self.validate_attestation_request()
+            }
             Err(err) => {
                 log::error!(target: "attestor-gossip", "Error decoding block hash in message: {:?}", err);
-                return sc_network_gossip::ValidationResult::Discard;
+                Action::Discard
             }
         };
 
-        log::info!(target: "attestor-gossip", "Received message: {:?}", message);
-        let topic = message.round_topic::<B>();
-
-        sc_network_gossip::ValidationResult::ProcessAndKeep(topic)
+        match action {
+            Action::Keep(topic) => {
+                log::info!(target: "attestor-gossip", "Broadcasting message for topic {:?}", topic);
+                context.broadcast_message(topic, data.to_vec(), false);
+                ValidationResult::ProcessAndKeep(topic)
+            }
+            Action::Discard => ValidationResult::Discard,
+        }
     }
 }
 
@@ -137,7 +217,7 @@ pub struct Networking<B: BlockT, N: Network<B>, S: Syncing<B>> {
     sync: S,
     gossip_engine: Arc<Mutex<GossipEngine<B>>>,
     #[allow(dead_code)]
-    validator: Arc<AttestorGossipValidator>,
+    validator: Arc<AttestorGossipValidator<B>>,
     msg_stream: Mutex<UnboundedReceiver<Message<HashFor<B>>>>,
 }
 
@@ -154,12 +234,12 @@ pub struct State<H> {
     pub best: Option<BestKnown<H>>,
 }
 
-impl<B: BlockT, N: Network<B>, S: Syncing<B>> Networking<B, N, S> {
+impl<B: BlockT<Hash = H256>, N: Network<B>, S: Syncing<B>> Networking<B, N, S> {
     fn new(
         network: N,
         sync: S,
         protocol_name: ProtocolName,
-        validator: Arc<AttestorGossipValidator>,
+        validator: Arc<AttestorGossipValidator<B>>,
         prometheus_registry: Option<&Registry>,
         msg_stream: UnboundedReceiver<Message<HashFor<B>>>,
     ) -> Self {
@@ -219,7 +299,7 @@ fn networking<B, N, S>(
     msg_stream: UnboundedReceiver<Message<HashFor<B>>>,
 ) -> Networking<B, N, S>
 where
-    B: BlockT,
+    B: BlockT<Hash = H256>,
     N: Network<B>,
     S: Syncing<B>,
 {
@@ -243,7 +323,7 @@ pub fn start<B, N, S>(
     prometheus_registry: Option<&Registry>,
 ) -> (impl Future<Output = ()>, MessageSink<B>)
 where
-    B: BlockT,
+    B: BlockT<Hash = H256>,
     N: Network<B>,
     S: Syncing<B>,
 {

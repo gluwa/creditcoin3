@@ -5,6 +5,7 @@ members = [
 	"runtime/generate-bags",
 	"pallets/attestation-poc",
 	"attestor",
+	"primitives/attestor",
 	"precompiles/substrate-transfer",
 ]
 resolver = "2"

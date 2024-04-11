@@ -1,11 +1,14 @@
 use anyhow::Result;
-use creditcoin3_attestor_gossip::Felt;
 use kameo::{Actor, Message};
+use sp_core::H256;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+use crate::cc3::{self, AttestationSubmit};
 use crate::merkle::tree::BinaryMerkle;
+use crate::transaction::BlockItem;
 use crate::{merkle, transaction};
+use attestor_primitives::AttestationData;
 
 /// Attestor is an actor that creates attestation based on a new block
 /// It will pass this attestation to the cc3 client to be submitted on chain
@@ -39,39 +42,10 @@ pub enum Error {
     ErrorUnwrappingBlock(String),
 }
 
-#[derive(Debug, Clone)]
-pub struct Data {
-    pub header_number: u64,
-    pub header_hash: [u8; 32],
-    pub tx_root: Felt,
-    pub rx_root: Felt,
-}
-
-impl Data {
-    #[must_use]
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-
-        // Serialize header_number as little-endian bytes
-        bytes.extend_from_slice(self.header_number.to_be_bytes().as_ref());
-
-        // Serialize header_hash as little-endian bytes
-        bytes.extend_from_slice(self.header_hash.as_ref());
-
-        // Serialize tx_root as little-endian bytes
-        bytes.extend_from_slice(&self.tx_root);
-
-        // Serialize rx_root as little-endian bytes
-        bytes.extend_from_slice(&self.rx_root);
-
-        bytes
-    }
-}
-
 // Define NewBlock message
 pub struct NewBlock {
     pub header_number: u64,
-    pub header_hash: [u8; 32],
+    pub header_hash: H256,
     pub transactions: Vec<transaction::Transaction>,
     pub receipts: Vec<transaction::Receipt>,
 }
@@ -108,7 +82,7 @@ impl NewBlock {
 
 impl Message<NewBlock> for Attestor {
     /// Reply is the attestation data or error
-    type Reply = Result<Data, Error>;
+    type Reply = Result<AttestationData, Error>;
 
     async fn handle(&mut self, msg: NewBlock) -> Self::Reply {
         // handle the new block
@@ -126,10 +100,10 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create(new_block: &NewBlock) -> Result<Data, Error> {
+pub fn create(new_block: &NewBlock) -> Result<AttestationData, Error> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
 
-    let attestation = Data {
+    let attestation = AttestationData {
         header_number: new_block.header_number,
         header_hash: new_block.header_hash,
         tx_root: tx_tree.root().into(),

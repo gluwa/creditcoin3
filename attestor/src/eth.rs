@@ -86,7 +86,7 @@ pub async fn subscribe_to_new_heads(
             let attestation = attestor
                 .send(NewBlock {
                     header_number: block.header.number.unwrap().saturating_to::<u64>(),
-                    header_hash: block.header.hash.unwrap().0,
+                    header_hash: sp_core::H256(block.header.hash.unwrap().0),
                     transactions,
                     receipts,
                 })

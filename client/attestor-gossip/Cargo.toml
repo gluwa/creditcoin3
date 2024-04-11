@@ -23,3 +23,4 @@ futures = { workspace = true }
 thiserror = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 starknet-crypto = "0.6.2"
+attestor-primitives = { path = "../../primitives/attestor" }

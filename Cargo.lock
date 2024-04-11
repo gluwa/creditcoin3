@@ -1241,6 +1241,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "async-trait",
+ "attestor-primitives",
  "bincode",
  "clap",
  "creditcoin3-attestor-gossip",
@@ -1264,6 +1265,13 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",
+]
+
+[[package]]
+name = "attestor-primitives"
+version = "3.24.1"
+dependencies = [
+ "sp-core",
 ]
 
 [[package]]
@@ -2216,6 +2224,7 @@ dependencies = [
 name = "creditcoin3-attestor-gossip"
 version = "3.31.0"
 dependencies = [
+ "attestor-primitives",
  "futures 0.3.30",
  "log",
  "parity-scale-codec",

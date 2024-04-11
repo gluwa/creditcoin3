@@ -1,4 +1,4 @@
-use creditcoin3_attestor_gossip::Felt;
+use attestor_primitives::Felt;
 use merkletree::{merkle::Element, proof::Proof, store::VecStore};
 use std::hash::Hash;
 use thiserror::Error;

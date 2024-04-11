@@ -12,7 +12,7 @@ use tracing::{debug, error, info};
 
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
 
-use crate::attestation::Data;
+use attestor_primitives::AttestationData;
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
 pub mod cc3 {}
@@ -164,7 +164,7 @@ impl Actor for Client {}
 // AttestationSubmit is a message that can be sent to submit an attestation over rpc to the cc3 node
 // It holds the attestation data to be signed by the attestor before submitting
 pub struct AttestationSubmit {
-    pub attestation: Data,
+    pub attestation: AttestationData,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Error)]

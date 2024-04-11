@@ -74,3 +74,4 @@ starknet-crypto = "0.6.2"
 creditcoin3-attestor-rpc = { path = "../client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "../client/attestor-gossip" }
 merkletree = "0.23.0"
+attestor-primitives = { path = "../primitives/attestor" }
