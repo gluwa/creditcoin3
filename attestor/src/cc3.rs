@@ -128,7 +128,7 @@ impl<'a> Client {
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<u64> {
         let randomness = self.fetch_babe_randomness().await?.unwrap_or_default();
-        info!("Babe VRF Randomness: {:?}", randomness);
+        info!("Babe VRF Randomness: {}", hex::encode(randomness));
 
         // Sign the randomness
         let signature = self.keypair.sign(&randomness);
@@ -147,8 +147,8 @@ impl<'a> Client {
             s_component_bytes[6],
             s_component_bytes[7],
         ]);
-        info!("S Component Bytes: {:?}", s_component_bytes);
-        info!("S Component Integer: {:?}", s_component_integer);
+        debug!("S Component Bytes: {:?}", s_component_bytes);
+        debug!("S Component Integer: {:?}", s_component_integer);
 
         Ok(s_component_integer)
     }

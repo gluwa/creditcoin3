@@ -4,7 +4,7 @@ use anyhow::Result;
 use kameo::{Actor, ActorRef, Message};
 use starknet_crypto::FieldElement;
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::cc3::{self, AttestationSubmit};
 use crate::merkle;
@@ -106,16 +106,16 @@ pub async fn create(block: &Block) -> Result<Data, Error> {
         return Err(Error::NoTransactions);
     }
 
-    // create the merkle tree
-    duplicate_elements(&mut rlps);
-    info!("rlp len: {:?}", rlps[0].len());
+    // TODO: see if we can create a tree with 1 element
+    // Currently a tree with 1 element gives errors
+    if rlps.len() == 1 {
+        duplicate_elements(&mut rlps);
+    }
+
     let tx_tree = merkle::tree::create(rlps).map_err(|e| {
         error!("Error creating tree: {:?}", e);
         Error::NoTransactions
     })?;
-
-    let f: FieldElement = tx_tree.root().into();
-    info!("tree tx root: {:?}", f);
 
     let attestation = Data {
         header_number: U256::saturating_from(
@@ -131,6 +131,8 @@ pub async fn create(block: &Block) -> Result<Data, Error> {
         tx_root: tx_tree.root().into(),
         rx_root: tx_tree.root().into(),
     };
+
+    debug!("tree tx root: {:?}", attestation.tx_root);
 
     Ok(attestation)
 }

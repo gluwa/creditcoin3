@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use starknet_crypto::{pedersen_hash, FieldElement};
-use std::hash::{BuildHasher, DefaultHasher, Hash};
+use std::hash::{BuildHasher, Hash};
 
 use super::tree::TreeElement;
 
@@ -9,10 +9,10 @@ pub struct StarknetPedersenHash(pub FieldElement);
 
 impl std::hash::Hasher for StarknetPedersenHash {
     fn finish(&self) -> u64 {
-        let hash_bytes = self.0.as_ref(); // Get the bytes of the TreeElement
-        let mut hasher = DefaultHasher::new();
-        hash_bytes.hash(&mut hasher); // Hash the bytes of the TreeElement
-        hasher.finish() // Return the final hash value
+        // FIXME: contract is broken by design
+        unimplemented!(
+            "Hasher's contract (finish function is not used) is deliberately broken by design"
+        )
     }
 
     fn write(&mut self, bytes: &[u8]) {

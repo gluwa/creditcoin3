@@ -7,8 +7,8 @@ module.exports = {
     hardhat: {
       gas: "auto",
       mining: {
-        auto: false, // Enable auto mining
-        interval: 8000 // Mine a new block every 5 seconds
+        auto: true // Enable auto mining
+        // interval: 8000 // Mine a new block every 5 seconds
       }
     }
   }

@@ -1,8 +1,10 @@
-use super::pedersen;
 use anyhow::Result;
 use merkletree::{merkle::Element, proof::Proof, store::VecStore};
 use starknet_crypto::FieldElement;
 use std::hash::Hash;
+use tracing::debug;
+
+use super::pedersen;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct TreeElement(pub Vec<u8>);
@@ -36,9 +38,8 @@ impl Element for TreeElement {
 }
 
 pub fn create(rlps: Vec<Vec<u8>>) -> Result<TxRxBinaryMerkleTree> {
-    tracing::debug!("rlps len: {}", rlps.len());
     let tree = merkletree::merkle::MerkleTree::from_data(rlps)?;
-    tracing::debug!("tree: {tree:?}");
+    debug!("tree: {tree:?}");
     Ok(tree)
 }
 
