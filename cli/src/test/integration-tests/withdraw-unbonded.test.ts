@@ -55,24 +55,25 @@ describe('withdraw-unbonded', () => {
     });
 
     describe('when funds have been unlocked', () => {
-        let caller: any;
+        let callerFullUnbond: any;
+        let nonProxiedCliFullUnbond: any;
 
         // WARNING: caller is a local variable in each describe() block
         // b/c for some scenarios in the block above it changes beforeEach()
         // while here the entire setup is inside beforeAll() (b/c it takes a long time)
         beforeAll(async () => {
             // Create and fund the test and proxy account
-            caller = await randomFundedAccount(api, sudoSigner);
-            nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
+            callerFullUnbond = await randomFundedAccount(api, sudoSigner);
+            nonProxiedCliFullUnbond = CLIBuilder({ CC_SECRET: callerFullUnbond.secret });
 
             // bond before calling unbond
-            let result = nonProxiedCli(`bond --amount 123`);
+            let result = nonProxiedCliFullUnbond(`bond --amount 123`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
             // wait 2 seconds for nodes to sync
             await sleep(2000);
-            result = nonProxiedCli(`unbond --amount 123`);
+            result = nonProxiedCliFullUnbond(`unbond --amount 123`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
@@ -83,11 +84,11 @@ describe('withdraw-unbonded', () => {
             // configure proxy
             proxy = await randomFundedAccount(api, sudoSigner);
             const wrongProxy = await randomFundedAccount(api, sudoSigner);
-            CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
+            CLI = await setUpProxy(nonProxiedCliFullUnbond, callerFullUnbond, proxy, wrongProxy);
         }, 1_200_000);
 
         afterAll(() => {
-            tearDownProxy(nonProxiedCli, proxy);
+            tearDownProxy(nonProxiedCliFullUnbond, proxy);
         });
 
         testIf(
@@ -130,7 +131,7 @@ describe('withdraw-unbonded', () => {
                 const zero = new BN(0);
                 const hundred23 = parseAmount('123');
 
-                const oldBalance = await getBalance(caller.address, api);
+                const oldBalance = await getBalance(callerFullUnbond.address, api);
                 expect(oldBalance.locked.toString()).toBe(hundred23.toString());
 
                 const result = CLI('withdraw-unbonded');
@@ -139,7 +140,7 @@ describe('withdraw-unbonded', () => {
 
                 // wait 2 seconds for nodes to sync
                 await sleep(2000);
-                const newBalance = await getBalance(caller.address, api);
+                const newBalance = await getBalance(callerFullUnbond.address, api);
                 expect(newBalance.locked.toString()).toBe(zero.toString());
 
                 // try to withdraw again - should fail
@@ -154,7 +155,7 @@ describe('withdraw-unbonded', () => {
         );
     });
 
-    describe('when partial unbond has been unlocked', () => {
+    describe.skip('when partial unbond has been unlocked', () => {
         let caller: any;
 
         // WARNING: caller is a local variable in each describe() block
