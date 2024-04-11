@@ -11,7 +11,8 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use crate::{
-    attestation::{Attestor, NewBlock},
+    attestation::{self, Attestor, NewBlock},
+    cc3::{self, AttestationSubmit, Client},
     transaction,
 };
 
@@ -24,12 +25,18 @@ pub enum Error {
     #[error("Ethereum RPC error {0}")]
     EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
     #[error("Actor send error {0}")]
-    SendError(#[from] kameo::SendError<NewBlock, anyhow::Error>),
+    AttestationError(#[from] kameo::SendError<NewBlock, attestation::Error>),
+    #[error("Actor send error {0}")]
+    Cc3Error(#[from] kameo::SendError<AttestationSubmit, cc3::Error>),
 }
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
 /// where we can send the new block to in order to start the attestation cycle
-pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> Result<(), Error> {
+pub async fn subscribe_to_new_heads(
+    url: &str,
+    attestor: ActorRef<Attestor>,
+    cc3_client: ActorRef<Client>,
+) -> Result<(), Error> {
     // Create a provider.
     let ws = WsConnect::new(url);
     let provider = ProviderBuilder::new().on_ws(ws).await?;
@@ -78,7 +85,7 @@ pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> 
             };
 
             // Notify the attestor with a new block
-            let _ = attestor
+            let attestation = attestor
                 .send(NewBlock {
                     header_number: block.header.number.unwrap().saturating_to::<u64>(),
                     header_hash: block.header.hash.unwrap().0,
@@ -86,6 +93,8 @@ pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> 
                     receipts,
                 })
                 .await?;
+
+            let _ = cc3_client.send(AttestationSubmit { attestation }).await?;
         } else {
             panic!("no block");
         }

@@ -1,7 +1,6 @@
 use alloy::consensus::{ReceiptWithBloom, Signed};
 use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy};
 use alloy::core::primitives::{Address, Log, U256};
-use alloy::rpc::types::eth;
 
 pub trait BlockItem: Sized {
     fn to_bytes(&self) -> Vec<u8>;
@@ -14,7 +13,7 @@ pub trait BlockItem: Sized {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Transaction(pub eth::Transaction);
+pub struct Transaction(pub alloy::rpc::types::eth::Transaction);
 
 impl BlockItem for Transaction {
     fn to_bytes(&self) -> Vec<u8> {

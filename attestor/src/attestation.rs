@@ -1,12 +1,38 @@
 use anyhow::Result;
 use creditcoin3_attestor_gossip::Felt;
-use kameo::{Actor, ActorRef, Message};
+use kameo::{Actor, Message};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use crate::cc3::{self, AttestationSubmit};
+use crate::merkle::tree::TxRxBinaryMerkleTree;
 use crate::transaction::BlockItem;
-use crate::{merkle, merkle::tree::FieldElement, transaction};
+use crate::{merkle, transaction};
+
+/// Attestor is an actor that creates attestation based on a new block
+/// It will pass this attestation to the cc3 client to be submitted on chain
+pub struct Attestor {}
+
+impl Attestor {
+    /// Create a new Attestor given a cc3 client actor
+    #[must_use]
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Actor for Attestor {}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("No Transactions")]
+    NoTransactions,
+    #[error("Error building merkle tree")]
+    ErrorBuildingMerkleTree,
+    #[error("Error building attestation")]
+    ErrorBuildingAttestation(String),
+    #[error("Error unwrapping blockdata {0}")]
+    ErrorUnwrappingBlock(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct Data {
@@ -37,22 +63,6 @@ impl Data {
     }
 }
 
-/// Attestor is an actor that creates attestation based on a new block
-/// It will pass this attestation to the cc3 client to be submitted on chain
-pub struct Attestor {
-    pub cc3: ActorRef<cc3::Client>,
-}
-
-impl Attestor {
-    /// Create a new Attestor given a cc3 client actor
-    #[must_use]
-    pub fn new(cc3: ActorRef<cc3::Client>) -> Self {
-        Self { cc3 }
-    }
-}
-
-impl Actor for Attestor {}
-
 // Define NewBlock message
 pub struct NewBlock {
     pub header_number: u64,
@@ -61,8 +71,41 @@ pub struct NewBlock {
     pub receipts: Vec<transaction::Receipt>,
 }
 
+/// Rlps is the rlp::encoded version of either a Transaction or Receipt
+pub type Rlps = Vec<Vec<u8>>;
+
+impl NewBlock {
+    fn to_transactions_rlps(&self) -> Rlps {
+        self.transactions
+            .iter()
+            .map(|tx| tx.to_bytes())
+            .collect::<Vec<Vec<u8>>>()
+    }
+
+    fn to_receipts_rlps(&self) -> Rlps {
+        self.receipts
+            .iter()
+            .map(|rx| rx.to_bytes())
+            .collect::<Vec<Vec<u8>>>()
+    }
+
+    fn get_tx_rx_merkle_trees(
+        &self,
+    ) -> Result<(TxRxBinaryMerkleTree, TxRxBinaryMerkleTree), Error> {
+        // Create rlp's for all transactions
+        let tx_rlps = self.to_transactions_rlps();
+        let rx_rlps = self.to_receipts_rlps();
+
+        let tx_tree = rlps_to_merkletree(tx_rlps)?;
+        let rx_tree = rlps_to_merkletree(rx_rlps)?;
+
+        Ok((tx_tree, rx_tree))
+    }
+}
+
 impl Message<NewBlock> for Attestor {
-    type Reply = Result<()>;
+    /// Reply is the attestation data or error
+    type Reply = Result<Data, Error>;
 
     async fn handle(&mut self, msg: NewBlock) -> Self::Reply {
         // handle the new block
@@ -70,76 +113,18 @@ impl Message<NewBlock> for Attestor {
             Ok(attestation) => attestation,
             Err(e) => {
                 error!("Error creating attestation: {:?}", e);
-                return Ok(());
+                return Err(Error::ErrorBuildingAttestation(e.to_string()));
             }
         };
 
-        info!("Attestation created succesfully, notifiying cc3 client...");
-
-        // Notify cc3 client with an attestation to be submitted
-        let _ = self.cc3.send(AttestationSubmit { attestation }).await?;
-
-        Ok(())
+        Ok(attestation)
     }
 }
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("No Transactions")]
-    NoTransactions,
-    #[error("Error building merkle tree")]
-    ErrorBuildingMerkleTree,
-    #[error("Error unwrapping blockdata {0}")]
-    ErrorUnwrappingBlock(String),
-}
-
-// Create the attestation data from a ethers::types::Block
+// Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
 pub async fn create(new_block: &NewBlock) -> Result<Data, Error> {
-    // Create rlp's for all transactions
-    let mut tx_rlps = new_block
-        .transactions
-        .iter()
-        .map(|tx| tx.to_bytes())
-        .collect::<Vec<Vec<u8>>>();
-
-    if tx_rlps.len() == 0 {
-        info!("No transactions in block, not doing anything now...");
-        return Err(Error::NoTransactions);
-    }
-
-    // TODO: see if we can create a tree with 1 element
-    // Currently a tree with 1 element gives errors
-    if tx_rlps.len() == 1 {
-        duplicate_elements(&mut tx_rlps);
-    }
-
-    let tx_tree = merkle::tree::create(tx_rlps).map_err(|e| {
-        error!("Error creating tree: {:?}", e);
-        Error::NoTransactions
-    })?;
-
-    let mut rx_rlps = new_block
-        .receipts
-        .iter()
-        .map(|r| r.to_bytes())
-        .collect::<Vec<Vec<u8>>>();
-
-    if rx_rlps.len() == 0 {
-        info!("No transactions in block, not doing anything now...");
-        return Err(Error::NoTransactions);
-    }
-
-    // TODO: see if we can create a tree with 1 element
-    // Currently a tree with 1 element gives errors
-    if rx_rlps.len() == 1 {
-        duplicate_elements(&mut rx_rlps);
-    }
-
-    let rx_tree = merkle::tree::create(rx_rlps).map_err(|e| {
-        error!("Error creating tree: {:?}", e);
-        Error::NoTransactions
-    })?;
+    let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
 
     let attestation = Data {
         header_number: new_block.header_number,
@@ -152,6 +137,27 @@ pub async fn create(new_block: &NewBlock) -> Result<Data, Error> {
     debug!("tree rx root: {:?}", attestation.rx_root);
 
     Ok(attestation)
+}
+
+/// Construct a pedersen merkletree from given input
+fn rlps_to_merkletree(mut rlps: Rlps) -> Result<merkle::tree::TxRxBinaryMerkleTree, Error> {
+    if rlps.len() == 0 {
+        info!("No transactions in block, not doing anything now...");
+        return Err(Error::NoTransactions);
+    }
+
+    // TODO: see if we can create a tree with 1 element
+    // Currently a tree with 1 element gives errors
+    if rlps.len() == 1 {
+        duplicate_elements(&mut rlps);
+    }
+
+    let tree = merkle::tree::create(rlps).map_err(|e| {
+        error!("Error creating tree: {:?}", e);
+        Error::NoTransactions
+    })?;
+
+    Ok(tree)
 }
 
 fn duplicate_elements<T: Clone>(vec: &mut Vec<T>) {
