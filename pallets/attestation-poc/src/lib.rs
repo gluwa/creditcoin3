@@ -14,13 +14,10 @@ mod mock;
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BlockNumber, BlockSerializable};
-    use frame_support::dispatch::PostDispatchInfo;
+
     use frame_support::pallet_prelude::{CountedStorageMap, DispatchResult, OptionQuery};
-    use frame_support::traits::Currency;
-    use frame_support::{pallet_prelude::*, Blake2_128Concat, Twox64Concat};
+    use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
-    use log::info;
-    use sp_runtime::traits::{BlockNumberProvider, Zero};
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -377,7 +374,7 @@ pub mod pallet {
             first_block.is_some() && first_commitment.is_some()
         }
 
-        fn is_eligible_for_attestation(block: &BlockSerializable, eligiblity: u64) -> bool {
+        fn is_eligible_for_attestation(_block: &BlockSerializable, _eligiblity: u64) -> bool {
             true
         }
 

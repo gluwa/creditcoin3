@@ -1,14 +1,11 @@
+use crate::merkle::tree::BinaryMerkle;
+use crate::{merkle, transaction};
 use anyhow::Result;
+use attestor_primitives::AttestationData;
 use kameo::{Actor, Message};
 use sp_core::H256;
 use thiserror::Error;
 use tracing::{debug, error, info};
-
-use crate::cc3::{self, AttestationSubmit};
-use crate::merkle::tree::BinaryMerkle;
-use crate::transaction::BlockItem;
-use crate::{merkle, transaction};
-use attestor_primitives::AttestationData;
 
 /// Attestor is an actor that creates attestation based on a new block
 /// It will pass this attestation to the cc3 client to be submitted on chain
