@@ -1,19 +1,16 @@
-use alloy::primitives::{B256, U256};
-use alloy::rpc::types::eth::{Block, BlockTransactions};
 use anyhow::Result;
 use kameo::{Actor, ActorRef, Message};
-use starknet_crypto::FieldElement;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
 use crate::cc3::{self, AttestationSubmit};
-use crate::merkle;
 use crate::transaction::BlockItem;
+use crate::{merkle, merkle::tree::FieldElement, transaction};
 
 #[derive(Debug, Clone)]
 pub struct Data {
-    pub header_number: U256,
-    pub header_hash: B256,
+    pub header_number: u64,
+    pub header_hash: [u8; 32],
     pub tx_root: FieldElement,
     pub rx_root: FieldElement,
 }
@@ -24,7 +21,7 @@ impl Data {
         let mut bytes = Vec::new();
 
         // Serialize header_number as little-endian bytes
-        bytes.extend_from_slice(&self.header_number.to_be_bytes_vec());
+        bytes.extend_from_slice(&self.header_number.to_be_bytes().to_vec());
 
         // Serialize header_hash as little-endian bytes
         bytes.extend_from_slice(&self.header_hash.to_vec());
@@ -51,7 +48,10 @@ impl Actor for Attestor {}
 
 // Define NewBlock message
 pub struct NewBlock {
-    pub block: Block,
+    pub header_number: u64,
+    pub header_hash: [u8; 32],
+    pub transactions: Vec<transaction::Transaction>,
+    pub receipts: Vec<transaction::Receipt>,
 }
 
 impl Message<NewBlock> for Attestor {
@@ -59,7 +59,7 @@ impl Message<NewBlock> for Attestor {
 
     async fn handle(&mut self, msg: NewBlock) -> Self::Reply {
         // handle the new block
-        let attestation = match create(&msg.block).await {
+        let attestation = match create(&msg).await {
             Ok(attestation) => attestation,
             Err(e) => {
                 error!("Error creating attestation: {:?}", e);
@@ -88,51 +88,61 @@ pub enum Error {
 
 // Create the attestation data from a ethers::types::Block
 // TODO: do all required verification before creating the attestation data
-pub async fn create(block: &Block) -> Result<Data, Error> {
+pub async fn create(new_block: &NewBlock) -> Result<Data, Error> {
     // Create rlp's for all transactions
-    let mut rlps = match &block.transactions {
-        BlockTransactions::Full(tx) => tx
-            .into_iter()
-            .map(|tx| super::transaction::Transaction(tx.clone()).to_bytes())
-            .collect(),
-        _ => {
-            info!("No full tx");
-            vec![]
-        }
-    };
+    let mut tx_rlps = new_block
+        .transactions
+        .iter()
+        .map(|tx| tx.to_bytes())
+        .collect::<Vec<Vec<u8>>>();
 
-    if rlps.len() == 0 {
+    if tx_rlps.len() == 0 {
         info!("No transactions in block, not doing anything now...");
         return Err(Error::NoTransactions);
     }
 
     // TODO: see if we can create a tree with 1 element
     // Currently a tree with 1 element gives errors
-    if rlps.len() == 1 {
-        duplicate_elements(&mut rlps);
+    if tx_rlps.len() == 1 {
+        duplicate_elements(&mut tx_rlps);
     }
 
-    let tx_tree = merkle::tree::create(rlps).map_err(|e| {
+    let tx_tree = merkle::tree::create(tx_rlps).map_err(|e| {
+        error!("Error creating tree: {:?}", e);
+        Error::NoTransactions
+    })?;
+
+    let mut rx_rlps = new_block
+        .receipts
+        .iter()
+        .map(|r| r.to_bytes())
+        .collect::<Vec<Vec<u8>>>();
+
+    if rx_rlps.len() == 0 {
+        info!("No transactions in block, not doing anything now...");
+        return Err(Error::NoTransactions);
+    }
+
+    // TODO: see if we can create a tree with 1 element
+    // Currently a tree with 1 element gives errors
+    if rx_rlps.len() == 1 {
+        duplicate_elements(&mut rx_rlps);
+    }
+
+    let rx_tree = merkle::tree::create(rx_rlps).map_err(|e| {
         error!("Error creating tree: {:?}", e);
         Error::NoTransactions
     })?;
 
     let attestation = Data {
-        header_number: U256::saturating_from(
-            block
-                .header
-                .number
-                .ok_or(Error::ErrorUnwrappingBlock("Block number".to_string()))?,
-        ),
-        header_hash: block
-            .header
-            .hash
-            .ok_or(Error::ErrorUnwrappingBlock("Block hash".to_string()))?,
+        header_number: new_block.header_number,
+        header_hash: new_block.header_hash,
         tx_root: tx_tree.root().into(),
-        rx_root: tx_tree.root().into(),
+        rx_root: rx_tree.root().into(),
     };
 
     debug!("tree tx root: {:?}", attestation.tx_root);
+    debug!("tree rx root: {:?}", attestation.rx_root);
 
     Ok(attestation)
 }

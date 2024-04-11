@@ -1,6 +1,7 @@
 use alloy::{
     providers::{Provider, ProviderBuilder},
     rpc::client::WsConnect,
+    rpc::types::eth::BlockTransactions,
     transports::TransportErrorKind,
 };
 use anyhow::Result;
@@ -9,7 +10,10 @@ use kameo::ActorRef;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use crate::attestation::{Attestor, NewBlock};
+use crate::{
+    attestation::{Attestor, NewBlock},
+    transaction,
+};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -49,8 +53,39 @@ pub async fn subscribe_to_new_heads(url: &str, attestor: ActorRef<Attestor>) -> 
                 .await?
                 .ok_or(Error::FailedToFetchBlock(hash.to_string()))?;
 
+            // TODO: find a way to query receipts on a hardhat node (or some sidecar) https://github.com/NomicFoundation/hardhat/issues/4761
+            let receipts = provider
+                .get_block_receipts(alloy::rpc::types::eth::BlockNumberOrTag::Number(
+                    block.header.number.unwrap().saturating_to::<u64>(),
+                ))
+                .await?;
+
+            let receipts = receipts
+                .into_iter()
+                .flatten()
+                .map(|r| transaction::Receipt(r))
+                .collect();
+
+            let transactions = match block.transactions {
+                BlockTransactions::Full(tx) => tx
+                    .into_iter()
+                    .map(|tx| super::transaction::Transaction(tx))
+                    .collect(),
+                _ => {
+                    info!("No full tx");
+                    vec![]
+                }
+            };
+
             // Notify the attestor with a new block
-            let _ = attestor.send(NewBlock { block }).await?;
+            let _ = attestor
+                .send(NewBlock {
+                    header_number: block.header.number.unwrap().saturating_to::<u64>(),
+                    header_hash: block.header.hash.unwrap().0,
+                    transactions,
+                    receipts,
+                })
+                .await?;
         } else {
             panic!("no block");
         }

@@ -211,8 +211,8 @@ impl Message<AttestationSubmit> for Client {
         let attestation = Attestation {
             attestor: self.get_attestor_id(),
             round: 1,
-            header_hash: msg.attestation.header_hash,
-            header_number: msg.attestation.header_number.saturating_to::<u64>(),
+            header_hash: hex::encode(msg.attestation.header_hash),
+            header_number: msg.attestation.header_number,
             topic: Topic::new(1),
             vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
