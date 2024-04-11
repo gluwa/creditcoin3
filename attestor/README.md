@@ -14,7 +14,7 @@ Document explaining how to setup and run the attestation POC
 2. Compile creditcoin `cd .. && cargo build --features fast-runtime`
 
 3. Grab a zombienet binary from
-   [https://github.com/paritytech/zombienet/releases/tag/v1.3.99](here) and put
+  [here](https://github.com/paritytech/zombienet/releases/tag/v1.3.99) and put
    it somewhere (for example in the `zombie` directory).
 
 4. [Install subkey](https://docs.substrate.io/reference/command-line-tools/subkey/) To generate keys.
