@@ -95,14 +95,15 @@ appearing every ~6 seconds as new blocks are produced.
 2024-01-11 10:19:18 ✨ Imported #6 (0x2bda…18ed)
 ```
 
-### Hardhat node
+### Anvil node
 
 Open a pane for a local EVM network simulation
 
-```sh
-../hardhat
-npx hardhat node
-```
+- Install [foundry](https://book.getfoundry.sh/getting-started/installation)
+
+Run `anvil`
+
+(Deprecated hardhat because it's not supporting `eth_getTransactionReceipt` rpc call)
 
 ### Run Attestors
 
@@ -138,6 +139,6 @@ log output like
 ### Do a transfer
 
 ```sh
-cd hardhat
+cd ../hardhat
 npx hardhat --network localhost run scripts/Transfer.js
 ```
