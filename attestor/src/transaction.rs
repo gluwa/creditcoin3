@@ -30,8 +30,7 @@ impl BlockItem for Transaction {
                 let tx: Signed<TxEip2930> = self.0.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
-            Some(_) => Vec::new(),
-            None => Vec::new(),
+            Some(_) | None => Vec::new(),
         }
     }
 
@@ -64,9 +63,6 @@ impl BlockItem for Receipt {
         let rwb = self.0.inner.as_receipt_with_bloom().unwrap();
         let receipt = rwb.receipt.clone();
 
-        let mut new_receipt = alloy::consensus::Receipt::default();
-        new_receipt.cumulative_gas_used = receipt.cumulative_gas_used;
-        new_receipt.status = receipt.status;
         let logs = receipt
             .logs
             .into_iter()
@@ -75,7 +71,12 @@ impl BlockItem for Receipt {
                 log.unwrap()
             })
             .collect::<Vec<Log>>();
-        new_receipt.logs = logs;
+
+        let new_receipt = alloy::consensus::Receipt {
+            cumulative_gas_used: receipt.cumulative_gas_used,
+            status: receipt.status,
+            logs,
+        };
 
         let rwb_new: ReceiptWithBloom<Log> = ReceiptWithBloom::new(new_receipt, rwb.logs_bloom);
         alloy::rlp::encode(&rwb_new)

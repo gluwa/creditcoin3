@@ -70,18 +70,16 @@ pub async fn subscribe_to_new_heads(
             let receipts = receipts
                 .into_iter()
                 .flatten()
-                .map(|r| transaction::Receipt(r))
+                .map(transaction::Receipt)
                 .collect();
 
-            let transactions = match block.transactions {
-                BlockTransactions::Full(tx) => tx
-                    .into_iter()
-                    .map(|tx| super::transaction::Transaction(tx))
-                    .collect(),
-                _ => {
-                    info!("No full tx");
-                    vec![]
-                }
+            let transactions = if let BlockTransactions::Full(tx) = block.transactions {
+                tx.into_iter()
+                    .map(super::transaction::Transaction)
+                    .collect()
+            } else {
+                info!("No full tx");
+                vec![]
             };
 
             // Notify the attestor with a new block
@@ -94,7 +92,7 @@ pub async fn subscribe_to_new_heads(
                 })
                 .await?;
 
-            let _ = cc3_client.send(AttestationSubmit { attestation }).await?;
+            cc3_client.send(AttestationSubmit { attestation }).await?;
         } else {
             panic!("no block");
         }

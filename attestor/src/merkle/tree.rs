@@ -9,28 +9,25 @@ pub use starknet_crypto::FieldElement;
 use super::pedersen;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
-/// TreeElement of a merkletree
-pub struct TreeElement(pub Vec<u8>);
+/// `TElement` of a merkletree
+pub struct TElement(pub Vec<u8>);
 
-impl AsRef<[u8]> for TreeElement {
+impl AsRef<[u8]> for TElement {
     fn as_ref(&self) -> &[u8] {
-        &self.0.as_slice()
+        self.0.as_slice()
     }
 }
 
 /// Merkle tree type
 /// Leaves are hashed with pedersen hash and stored in a vector
-pub type TxRxBinaryMerkleTree = merkletree::merkle::MerkleTree<
-    TreeElement,
-    pedersen::StarknetPedersenHash,
-    VecStore<TreeElement>,
->;
+pub type BinaryMerkle =
+    merkletree::merkle::MerkleTree<TElement, pedersen::StarknetPedersenHash, VecStore<TElement>>;
 
 /// Proof of a merkle tree leaf
-pub type TxRxBinaryMerkleProof = Proof<TreeElement>;
+pub type BinaryMerkleProof = Proof<TElement>;
 
 /// Result type
-pub type Result = std::result::Result<TxRxBinaryMerkleTree, Error>;
+pub type Result = std::result::Result<BinaryMerkle, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -43,7 +40,7 @@ pub enum Error {
 /// Create a merkletree given input of byte slices
 /// We need atleast a vector of length 2 otherwise we cannot construct a merkle tree
 pub fn create(rlps: Vec<Vec<u8>>) -> Result {
-    if rlps.len() < 1 {
+    if rlps.is_empty() {
         return Err(Error::ErrorCreatingTree);
     }
 
@@ -53,7 +50,7 @@ pub fn create(rlps: Vec<Vec<u8>>) -> Result {
     Ok(tree)
 }
 
-impl Element for TreeElement {
+impl Element for TElement {
     fn byte_len() -> usize {
         32
     }
@@ -63,18 +60,18 @@ impl Element for TreeElement {
     }
 
     fn from_slice(bytes: &[u8]) -> Self {
-        TreeElement(Vec::from(bytes))
+        TElement(Vec::from(bytes))
     }
 }
 
-impl Into<FieldElement> for TreeElement {
-    fn into(self) -> FieldElement {
-        FieldElement::from_byte_slice_be(self.as_ref()).unwrap()
+impl From<TElement> for FieldElement {
+    fn from(val: TElement) -> Self {
+        FieldElement::from_byte_slice_be(val.as_ref()).unwrap()
     }
 }
 
-impl From<TreeElement> for Felt {
-    fn from(tree_element: TreeElement) -> Felt {
+impl From<TElement> for Felt {
+    fn from(tree_element: TElement) -> Felt {
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(&tree_element.0.as_slice());
         bytes

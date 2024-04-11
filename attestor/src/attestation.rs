@@ -4,13 +4,18 @@ use kameo::{Actor, Message};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use crate::merkle::tree::TxRxBinaryMerkleTree;
-use crate::transaction::BlockItem;
+use crate::merkle::tree::BinaryMerkle;
 use crate::{merkle, transaction};
 
 /// Attestor is an actor that creates attestation based on a new block
 /// It will pass this attestation to the cc3 client to be submitted on chain
 pub struct Attestor {}
+
+impl Default for Attestor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Attestor {
     /// Create a new Attestor given a cc3 client actor
@@ -48,10 +53,10 @@ impl Data {
         let mut bytes = Vec::new();
 
         // Serialize header_number as little-endian bytes
-        bytes.extend_from_slice(&self.header_number.to_be_bytes().to_vec());
+        bytes.extend_from_slice(self.header_number.to_be_bytes().as_ref());
 
         // Serialize header_hash as little-endian bytes
-        bytes.extend_from_slice(&self.header_hash.to_vec());
+        bytes.extend_from_slice(self.header_hash.as_ref());
 
         // Serialize tx_root as little-endian bytes
         bytes.extend_from_slice(&self.tx_root);
@@ -71,27 +76,25 @@ pub struct NewBlock {
     pub receipts: Vec<transaction::Receipt>,
 }
 
-/// Rlps is the rlp::encoded version of either a Transaction or Receipt
+/// Rlps is the `rlp::encoded` version of either a Transaction or Receipt
 pub type Rlps = Vec<Vec<u8>>;
 
 impl NewBlock {
     fn to_transactions_rlps(&self) -> Rlps {
         self.transactions
             .iter()
-            .map(|tx| tx.to_bytes())
+            .map(transaction::BlockItem::to_bytes)
             .collect::<Vec<Vec<u8>>>()
     }
 
     fn to_receipts_rlps(&self) -> Rlps {
         self.receipts
             .iter()
-            .map(|rx| rx.to_bytes())
+            .map(transaction::BlockItem::to_bytes)
             .collect::<Vec<Vec<u8>>>()
     }
 
-    fn get_tx_rx_merkle_trees(
-        &self,
-    ) -> Result<(TxRxBinaryMerkleTree, TxRxBinaryMerkleTree), Error> {
+    fn get_tx_rx_merkle_trees(&self) -> Result<(BinaryMerkle, BinaryMerkle), Error> {
         // Create rlp's for all transactions
         let tx_rlps = self.to_transactions_rlps();
         let rx_rlps = self.to_receipts_rlps();
@@ -109,7 +112,7 @@ impl Message<NewBlock> for Attestor {
 
     async fn handle(&mut self, msg: NewBlock) -> Self::Reply {
         // handle the new block
-        let attestation = match create(&msg).await {
+        let attestation = match create(&msg) {
             Ok(attestation) => attestation,
             Err(e) => {
                 error!("Error creating attestation: {:?}", e);
@@ -123,7 +126,7 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub async fn create(new_block: &NewBlock) -> Result<Data, Error> {
+pub fn create(new_block: &NewBlock) -> Result<Data, Error> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
 
     let attestation = Data {
@@ -140,8 +143,8 @@ pub async fn create(new_block: &NewBlock) -> Result<Data, Error> {
 }
 
 /// Construct a pedersen merkletree from given input
-fn rlps_to_merkletree(mut rlps: Rlps) -> Result<merkle::tree::TxRxBinaryMerkleTree, Error> {
-    if rlps.len() == 0 {
+fn rlps_to_merkletree(mut rlps: Rlps) -> Result<merkle::tree::BinaryMerkle, Error> {
+    if rlps.is_empty() {
         info!("No transactions in block, not doing anything now...");
         return Err(Error::NoTransactions);
     }
