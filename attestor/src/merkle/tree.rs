@@ -73,7 +73,7 @@ impl From<TElement> for FieldElement {
 impl From<TElement> for Felt {
     fn from(tree_element: TElement) -> Felt {
         let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(&tree_element.0.as_slice());
+        bytes.copy_from_slice(tree_element.0.as_slice());
         bytes
     }
 }
