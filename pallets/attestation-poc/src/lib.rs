@@ -14,7 +14,7 @@ mod mock;
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BlockNumber, BlockSerializable};
-
+    use frame_support::inherent::{InherentIdentifier, IsFatalError};
     use frame_support::pallet_prelude::{CountedStorageMap, DispatchResult, OptionQuery};
     use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
@@ -40,6 +40,7 @@ pub mod pallet {
         fn set_max_invulnerables() -> Weight;
         fn attest_block() -> Weight;
         fn bootstrap_chain() -> Weight;
+        fn set() -> Weight;
     }
 
     #[pallet::storage]
@@ -307,6 +308,79 @@ pub mod pallet {
 
             Self::deposit_event(Event::<T>::ChainBootstrapped(block));
             Ok(())
+        }
+
+        #[pallet::call_index(8)]
+        #[pallet::weight(<T as Config>::WeightInfo::set())]
+        pub fn set(origin: OriginFor<T>, _attestation: InherentType) -> DispatchResult {
+            ensure_none(origin)?;
+
+            Ok(())
+        }
+    }
+
+    pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
+
+    // TODO: should be some kind of storage structure that has:
+    // - BLS aggreated signatures
+    // - Attestors that were included in the creation of the signature
+    // Eventually only store the signature
+    pub type InherentType = sp_std::vec::Vec<u8>;
+
+    #[derive(Encode, sp_runtime::RuntimeDebug)]
+    #[cfg_attr(feature = "std", derive(Decode))]
+    pub enum InherentError {
+        NotValid,
+        Duplicate,
+    }
+
+    impl IsFatalError for InherentError {
+        fn is_fatal_error(&self) -> bool {
+            match self {
+                InherentError::NotValid => true,
+                InherentError::Duplicate => true,
+            }
+        }
+    }
+
+    #[pallet::inherent]
+    impl<T: Config> ProvideInherent for Pallet<T> {
+        type Call = Call<T>;
+        type Error = InherentError;
+        const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
+
+        fn create_inherent(data: &InherentData) -> Option<Self::Call> {
+            let attestation = data
+                .get_data::<InherentType>(&INHERENT_IDENTIFIER)
+                .expect("Attestation inherent data not correctly encoded");
+            // .expect("Attestation inherent data must be provided");
+
+            if let Some(attestation) = attestation {
+                Some(Call::set { attestation })
+            } else {
+                None
+            }
+
+            // let next_time = cmp::max(data, Self::now() + T::MinimumPeriod::get());
+            // Some(Call::set { now: next_time })
+        }
+
+        fn check_inherent(
+            _call: &Self::Call,
+            data: &InherentData,
+        ) -> sp_std::result::Result<(), Self::Error> {
+            let _data = data
+                .get_data::<InherentType>(&INHERENT_IDENTIFIER)
+                .expect("Timestamp inherent data not correctly encoded");
+            // .expect("Timestamp inherent data must be provided");
+
+            // TODO: verify again some basic things
+
+            Ok(())
+        }
+
+        fn is_inherent(call: &Self::Call) -> bool {
+            matches!(call, Call::set { .. })
         }
     }
 

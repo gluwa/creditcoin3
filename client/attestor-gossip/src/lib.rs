@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use sc_network::{PeerId, ProtocolName};
 use sc_network_gossip::{GossipEngine, ValidationResult, Validator, ValidatorContext};
 use serde::Serialize;
-use sp_core::{Pair, H256};
+use sp_core::{Pair, H256, U256};
 use sp_runtime::{
     traits::{Block as BlockT, Hash},
     AccountId32,
@@ -28,6 +28,15 @@ where
     B: BlockT,
 {
     _phantom: PhantomData<B>,
+}
+
+impl<B> Default for AttestorGossipValidator<B>
+where
+    B: BlockT<Hash = H256>,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<B> AttestorGossipValidator<B>
@@ -76,8 +85,7 @@ where
         let public_key: sp_core::sr25519::Public =
             sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());
 
-        let is_valid = sp_core::sr25519::Pair::verify(signature, message, &public_key);
-        is_valid
+        sp_core::sr25519::Pair::verify(signature, message, &public_key)
     }
 
     fn validate_attestation_request(&self) -> Action<B::Hash> {
@@ -134,7 +142,7 @@ where
     pub rx_root: Felt,
     pub attestor: AttestorId,
     pub topic: Topic,
-    pub vrf_output: u64,
+    pub vrf_output: U256,
     pub signature: sp_core::sr25519::Signature,
 }
 

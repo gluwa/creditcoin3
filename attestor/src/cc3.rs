@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use alloy::primitives::U256;
 use anyhow::Result;
 use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
@@ -126,31 +127,35 @@ impl<'a> Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(&self) -> Result<u64> {
-        let randomness = self.fetch_babe_randomness().await?.unwrap_or_default();
+    pub async fn sign_babe_vrf(&self) -> Result<U256, Error> {
+        let randomness = self
+            .fetch_babe_randomness()
+            .await
+            .map_err(|e| {
+                error!("Error getting babe vrf output: {:?}", e);
+                Error::FailedToGetBabeVrf
+            })?
+            .ok_or(Error::BabeVrfOuputInvalid)?;
         info!("Babe VRF Randomness: {}", hex::encode(randomness));
+
+        let randomness_as_u256 = U256::from_le_bytes(randomness);
 
         // Sign the randomness
         let signature = self.keypair.sign(&randomness);
 
-        // Extract the `S` component bytes of the signature
-        let s_component_bytes = &signature.0[32..64];
+        // Convert `S` component bytes to a [u8; 32] array
+        let mut s_component_array = [0; 32];
+        s_component_array.copy_from_slice(&signature.0[32..64]);
 
         // Convert `S` component bytes to an integer
-        let s_component_integer = u64::from_le_bytes([
-            s_component_bytes[0],
-            s_component_bytes[1],
-            s_component_bytes[2],
-            s_component_bytes[3],
-            s_component_bytes[4],
-            s_component_bytes[5],
-            s_component_bytes[6],
-            s_component_bytes[7],
-        ]);
-        debug!("S Component Bytes: {:?}", s_component_bytes);
-        debug!("S Component Integer: {:?}", s_component_integer);
+        let signature_output_as_u256 = U256::from_le_bytes(s_component_array);
 
-        Ok(s_component_integer)
+        info!(
+            "Signature output is above or below threshold: {}",
+            signature_output_as_u256 > randomness_as_u256
+        );
+
+        Ok(signature_output_as_u256)
     }
 
     #[must_use]
@@ -173,6 +178,10 @@ pub enum Error {
     CannotAttest,
     #[error("Failed to submit RPC")]
     FailedToSubmit,
+    #[error("Failed to get Babe VRF")]
+    FailedToGetBabeVrf,
+    #[error("Babe VRF output is invalid")]
+    BabeVrfOuputInvalid,
     #[error("Failed to sign Babe VRF output")]
     FailedToSignBabeVrf,
     #[error("Failed to check eligibility")]
@@ -216,7 +225,7 @@ impl Message<AttestationSubmit> for Client {
             tx_root: msg.attestation.tx_root,
             rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
-            vrf_output,
+            vrf_output: sp_core::U256::from_little_endian(vrf_output.as_le_slice()),
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
         };
 

@@ -2,7 +2,7 @@ use jsonrpsee::{
     core::{async_trait, Error as RpcError, RpcResult},
     proc_macros::rpc,
 };
-use sp_core::{H160, H256};
+use sp_core::{H160, H256, U256};
 use sp_runtime::{traits::Block as BlockT, AccountId32};
 
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Message, MessageSink, Topic};
@@ -25,7 +25,7 @@ pub struct AttestationModel {
     pub rx_root: [u8; 32],
     pub attestor: AttestorIdModel,
     pub topic: TopicModel,
-    pub vrf_output: u64,
+    pub vrf_output: U256,
     pub signature: sp_core::sr25519::Signature,
 }
 

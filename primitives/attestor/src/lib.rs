@@ -15,10 +15,10 @@ impl AttestationData {
         let mut bytes = Vec::new();
 
         // Serialize header_number as little-endian bytes
-        bytes.extend_from_slice(&self.header_number.to_be_bytes().to_vec());
+        bytes.extend_from_slice(self.header_number.to_be_bytes().as_ref());
 
         // Serialize header_hash as little-endian bytes
-        bytes.extend_from_slice(&self.header_hash.0.to_vec());
+        bytes.extend_from_slice(self.header_hash.0.as_ref());
 
         // Serialize tx_root as little-endian bytes
         bytes.extend_from_slice(&self.tx_root);

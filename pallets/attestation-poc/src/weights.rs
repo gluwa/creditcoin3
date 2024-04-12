@@ -40,4 +40,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	fn bootstrap_chain() -> Weight {
 		Weight::from_parts(1,1)
 	}
+
+	fn set() -> Weight {
+		Weight::from_parts(1,1)
+	}
 }
