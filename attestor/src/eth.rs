@@ -63,7 +63,7 @@ pub async fn subscribe_to_new_heads(
             // TODO: find a way to query receipts on a hardhat node (or some sidecar) https://github.com/NomicFoundation/hardhat/issues/4761
             let receipts = provider
                 .get_block_receipts(alloy::rpc::types::eth::BlockNumberOrTag::Number(
-                    block.header.number.unwrap().saturating_to::<u64>(),
+                    block.header.number.unwrap(),
                 ))
                 .await?;
 
@@ -85,7 +85,7 @@ pub async fn subscribe_to_new_heads(
             // Notify the attestor with a new block
             let attestation = attestor
                 .send(NewBlock {
-                    header_number: block.header.number.unwrap().saturating_to::<u64>(),
+                    header_number: block.header.number.unwrap(),
                     header_hash: sp_core::H256(block.header.hash.unwrap().0),
                     transactions,
                     receipts,

@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "attestor-primitives"
-version = "3.24.1"
+version = "3.31.0"
 dependencies = [
  "sp-core",
 ]
