@@ -87,6 +87,22 @@ impl<'a> Client {
         Ok(result)
     }
 
+    pub async fn _fetch_comittee_size(&self) -> Result<u32> {
+        let api = self.get_substrate_client().await?;
+
+        let storage_query = cc3::storage().attestation().comittee_set_size();
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?
+            .ok_or(Error::FailedToGetComitteSetSize)?;
+
+        Ok(result)
+    }
+
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self) -> Result<bool> {
         let api = self.get_substrate_client().await?;
@@ -190,6 +206,8 @@ pub enum Error {
     InvalidAttestor,
     #[error("Failed to get cc3 RPC client")]
     FailedToGetRPcClient,
+    #[error("Failed to get comittee set size")]
+    FailedToGetComitteSetSize,
 }
 
 impl Message<AttestationSubmit> for Client {
