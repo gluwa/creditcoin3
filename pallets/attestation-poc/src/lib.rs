@@ -11,13 +11,19 @@ mod benchmarking;
 #[cfg(test)]
 mod mock;
 
+#[cfg(test)]
+mod tests;
+
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{BlockNumber, BlockSerializable};
     use frame_support::inherent::{InherentIdentifier, IsFatalError};
-    use frame_support::pallet_prelude::{CountedStorageMap, DispatchResult, OptionQuery};
+    use frame_support::pallet_prelude::{
+        CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
+    };
     use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
+    use sp_std::vec::Vec;
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -36,11 +42,12 @@ pub mod pallet {
         fn unregister_attestor() -> Weight;
         fn set_max_attestors() -> Weight;
         fn register_invulnerable() -> Weight;
-        fn unregister_invulernable() -> Weight;
+        fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
         fn attest_block() -> Weight;
         fn bootstrap_chain() -> Weight;
         fn set() -> Weight;
+        fn set_comitte_set_size() -> Weight;
     }
 
     #[pallet::storage]
@@ -98,8 +105,33 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
+    #[pallet::storage]
+    #[pallet::getter(fn comittee_set_size)]
+    pub type ComitteeSetSize<T: Config> = StorageValue<_, u32, ValueQuery>;
+
     #[pallet::pallet]
     pub struct Pallet<T>(_);
+
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        pub comittee_set_size: u32,
+        pub invulnerables: Vec<T::AccountId>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            let comittee_set_size = &self.comittee_set_size;
+            ComitteeSetSize::<T>::put(comittee_set_size);
+
+            let invulnerables = &self.invulnerables;
+            for invulnerable in invulnerables.iter() {
+                Invlunerables::<T>::insert(invulnerable, true);
+                Attestors::<T>::insert(invulnerable, true);
+            }
+        }
+    }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -119,6 +151,8 @@ pub mod pallet {
         BlockAttested(BlockSerializable),
 
         CheckpointReached(BlockSerializable),
+
+        ComitteeSetSizeChanged(u32),
     }
 
     #[pallet::error]
@@ -185,11 +219,6 @@ pub mod pallet {
                 Error::<T>::AddressNotAttestor
             );
 
-            ensure!(
-                Self::address_is_not_invulnerable(&who),
-                Error::<T>::AddressIsInvulnerable
-            );
-
             Self::remove_attestor_and_emit_event(&who);
 
             Ok(())
@@ -198,7 +227,7 @@ pub mod pallet {
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
         pub fn set_max_attestors(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
-            let _ = ensure_root(origin)?;
+            ensure_root(origin)?;
 
             let count = Attestors::<T>::count();
 
@@ -215,42 +244,35 @@ pub mod pallet {
 
         #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::register_invulnerable())]
-        pub fn register_invulnerable(origin: OriginFor<T>) -> DispatchResult {
-            let who = ensure_signed(origin.clone())?;
+        pub fn register_invulnerable(
+            origin: OriginFor<T>,
+            attestor: T::AccountId,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
 
-            // notice the not compared to the similar check in register_attestor
-            ensure!(
-                Self::address_is_attestor(&who),
-                Error::<T>::AddressNotAttestor,
-            );
-
-            Self::try_insert_invulnerable_ane_emit_event(&who)
+            Self::try_insert_invulnerable_and_emit_event(&attestor)
         }
 
         #[pallet::call_index(4)]
-        #[pallet::weight(<T as Config>::WeightInfo::unregister_invulernable())]
-        pub fn unregister_invulernable(origin: OriginFor<T>) -> DispatchResult {
-            let who = ensure_signed(origin.clone())?;
+        #[pallet::weight(<T as Config>::WeightInfo::unregister_invulnerable())]
+        pub fn unregister_invulnerable(
+            origin: OriginFor<T>,
+            attestor: T::AccountId,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
 
             ensure!(
-                Self::address_is_attestor(&who),
-                Error::<T>::AddressNotAttestor
-            );
-
-            ensure!(
-                Self::address_is_invulnerable(&who),
+                Self::address_is_invulnerable(&attestor),
                 Error::<T>::AddressIsNotInvulnerable
             );
 
-            Self::remove_invulnerable_and_emit_event(&who);
-
-            Ok(())
+            Self::remove_invulnerable_and_emit_event(&attestor)
         }
 
         #[pallet::call_index(5)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_invulnerables())]
         pub fn set_max_invulnerables(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
-            let _ = ensure_root(origin)?;
+            ensure_root(origin)?;
 
             ensure!(
                 new_max < Invlunerables::<T>::count(),
@@ -296,7 +318,7 @@ pub mod pallet {
         #[pallet::call_index(7)]
         #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain())]
         pub fn bootstrap_chain(origin: OriginFor<T>, block: BlockSerializable) -> DispatchResult {
-            let _ = ensure_root(origin)?;
+            ensure_root(origin)?;
 
             ensure!(
                 !Self::chain_is_bootstrapped(),
@@ -314,6 +336,21 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set())]
         pub fn set(origin: OriginFor<T>, _attestation: InherentType) -> DispatchResult {
             ensure_none(origin)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(9)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_comitte_set_size())]
+        pub fn set_comittee_set_size(
+            origin: OriginFor<T>,
+            new_comittee_set_size: u32,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ComitteeSetSize::<T>::put(new_comittee_set_size);
+
+            Self::deposit_event(Event::<T>::ComitteeSetSizeChanged(new_comittee_set_size));
 
             Ok(())
         }
@@ -355,11 +392,7 @@ pub mod pallet {
                 .expect("Attestation inherent data not correctly encoded");
             // .expect("Attestation inherent data must be provided");
 
-            if let Some(attestation) = attestation {
-                Some(Call::set { attestation })
-            } else {
-                None
-            }
+            attestation.map(|attestation| Call::set { attestation })
 
             // let next_time = cmp::max(data, Self::now() + T::MinimumPeriod::get());
             // Some(Call::set { now: next_time })
@@ -388,6 +421,7 @@ pub mod pallet {
         pub fn address_is_attestor(address: &T::AccountId) -> bool {
             Attestors::<T>::contains_key(address)
         }
+
         pub fn address_is_not_attestor(address: &T::AccountId) -> bool {
             !Self::address_is_attestor(address)
         }
@@ -410,7 +444,10 @@ pub mod pallet {
             Invlunerables::<T>::count() < MaxInvulnerables::<T>::get()
         }
 
-        fn try_insert_invulnerable_ane_emit_event(address: &T::AccountId) -> DispatchResult {
+        /// Insert address as attestor & invulnerable
+        fn try_insert_invulnerable_and_emit_event(address: &T::AccountId) -> DispatchResult {
+            Self::try_insert_attestor_and_emit_event(address)?;
+
             ensure!(
                 Self::vulnerable_list_has_space(),
                 Error::<T>::InvulnerableListFull
@@ -425,18 +462,20 @@ pub mod pallet {
             Invlunerables::<T>::contains_key(address)
         }
 
-        fn address_is_not_invulnerable(address: &T::AccountId) -> bool {
-            !Self::address_is_invulnerable(address)
-        }
-
         fn remove_attestor_and_emit_event(address: &T::AccountId) {
             Attestors::<T>::remove(address.clone());
             Self::deposit_event(Event::<T>::AttestorUnregistered(address.clone()));
         }
 
-        fn remove_invulnerable_and_emit_event(address: &T::AccountId) {
+        // Remove address as invulnerable and attestor
+        fn remove_invulnerable_and_emit_event(address: &T::AccountId) -> DispatchResult {
+            Self::remove_attestor_and_emit_event(address);
+
+            // Remove from invulnerables
             Invlunerables::<T>::remove(address);
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(address.clone()));
+
+            Ok(())
         }
 
         fn chain_is_bootstrapped() -> bool {
@@ -456,172 +495,7 @@ pub mod pallet {
             // unwrap here because we check if the chain is bootstrapped in the extrinsic
             let last_block = Self::last_block().unwrap();
 
-            return last_block.digest == block.prev_digest;
+            last_block.digest == block.prev_digest
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mock::{Attestation, ExtBuilder, RuntimeOrigin, Test, ATTESTOR_1, ATTESTOR_2};
-    use assert_matches::assert_matches;
-    use frame_support::{assert_err, assert_ok};
-    use sp_runtime::traits::BadOrigin;
-
-    fn attestor_1() -> RuntimeOrigin {
-        RuntimeOrigin::signed(ATTESTOR_1)
-    }
-
-    fn attestor_2() -> RuntimeOrigin {
-        RuntimeOrigin::signed(ATTESTOR_2)
-    }
-
-    #[test]
-    fn register_attestor_should_work_happy_path() {
-        ExtBuilder.build_and_execute(|| {
-            assert_ok!(Attestation::register_attestor(RuntimeOrigin::signed(
-                ATTESTOR_1
-            )));
-        })
-    }
-
-    #[test]
-    fn register_attestor_should_fail_when_address_is_already_registered() {
-        ExtBuilder.build_and_execute(|| {
-            assert_ok!(Attestation::register_attestor(RuntimeOrigin::signed(
-                ATTESTOR_1
-            )));
-
-            assert_err!(
-                Attestation::register_attestor(RuntimeOrigin::signed(ATTESTOR_1)),
-                Error::<Test>::AlreadyAttestor
-            );
-        })
-    }
-
-    #[test]
-    fn register_attestor_should_fail_when_list_is_full() {
-        ExtBuilder.build_and_execute(|| {
-            let root = RuntimeOrigin::root();
-            let attestor_1 = attestor_1();
-            let attestor_2 = attestor_2();
-
-            assert_ok!(Attestation::set_max_attestors(root, 1));
-            assert_ok!(Attestation::register_attestor(attestor_1));
-            assert_err!(
-                Attestation::register_attestor(attestor_2),
-                Error::<Test>::AttestorListFull
-            );
-        })
-    }
-
-    // TODO: make this smarter and rely on the runtime value instead of the function
-    #[test]
-    fn max_attestor_default_should_be_100() {
-        ExtBuilder.build_and_execute(|| assert_matches!(Attestation::max_attestors(), 100))
-    }
-
-    #[test]
-    fn max_invulnerable_default_should_be_100() {
-        ExtBuilder.build_and_execute(|| assert_matches!(Attestation::max_invulnerables(), 100))
-    }
-
-    #[test]
-    fn set_max_attestors_should_error_with_non_root_origin() {
-        ExtBuilder.build_and_execute(|| {
-            let bad_origin = attestor_1();
-            assert_err!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin)
-        })
-    }
-
-    #[test]
-    fn set_max_invulnerables_should_error_with_non_root_origin() {
-        ExtBuilder.build_and_execute(|| {
-            let bad_origin = attestor_1();
-            assert_err!(
-                Attestation::set_max_invulnerables(bad_origin, 200),
-                BadOrigin
-            )
-        })
-    }
-
-    #[test]
-    fn set_max_attestors_should_error_if_list_is_truncated() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor_1 = attestor_1();
-            let attestor_2 = attestor_2();
-            assert_ok!(Attestation::register_attestor(attestor_1));
-            assert_ok!(Attestation::register_attestor(attestor_2));
-            assert_err!(
-                Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
-                Error::<Test>::MaxAttestorsCannotBeChanged
-            );
-        })
-    }
-
-    #[test]
-    fn unregister_attestor_should_work_happy_path() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = attestor_1();
-            assert_ok!(Attestation::register_attestor(attestor.clone()));
-            assert_ok!(Attestation::unregister_attestor(attestor));
-        })
-    }
-
-    #[test]
-    fn unregister_attestor_should_fail_when_address_is_not_registered() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = attestor_1();
-            assert_err!(
-                Attestation::unregister_attestor(attestor),
-                Error::<Test>::AddressNotAttestor
-            );
-        })
-    }
-    #[test]
-    fn unregister_attestor_should_fail_when_address_is_invulnerable() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = attestor_1();
-            assert_ok!(Attestation::register_attestor(attestor.clone()));
-            assert_ok!(Attestation::register_invulnerable(attestor.clone()));
-            assert_err!(
-                Attestation::unregister_attestor(attestor),
-                Error::<Test>::AddressIsInvulnerable
-            );
-        })
-    }
-
-    #[test]
-    fn unregister_invulnerable_should_work_happy_path() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = attestor_1();
-            assert_ok!(Attestation::register_attestor(attestor.clone()));
-
-            assert_ok!(Attestation::register_invulnerable(attestor.clone()));
-            assert_ok!(Attestation::unregister_invulernable(attestor));
-        })
-    }
-
-    #[test]
-    fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = attestor_1();
-            assert_err!(
-                Attestation::unregister_invulernable(attestor),
-                Error::<Test>::AddressNotAttestor
-            );
-        })
-    }
-    #[test]
-    fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
-        ExtBuilder.build_and_execute(|| {
-            let attestor = attestor_1();
-            assert_ok!(Attestation::register_attestor(attestor.clone()));
-            assert_err!(
-                Attestation::unregister_invulernable(attestor),
-                Error::<Test>::AddressIsNotInvulnerable
-            );
-        })
     }
 }

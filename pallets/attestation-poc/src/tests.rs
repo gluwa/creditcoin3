@@ -1,0 +1,222 @@
+use super::*;
+use crate::mock::{
+    Attestation, ExtBuilder, RuntimeOrigin, Test, ATTESTOR_1, ATTESTOR_2, DEFAULT_COMITTEE_SET_SIZE,
+};
+use assert_matches::assert_matches;
+use frame_support::{assert_err, assert_ok};
+use sp_runtime::traits::BadOrigin;
+
+fn attestor_1() -> RuntimeOrigin {
+    RuntimeOrigin::signed(ATTESTOR_1)
+}
+
+fn attestor_2() -> RuntimeOrigin {
+    RuntimeOrigin::signed(ATTESTOR_2)
+}
+
+#[test]
+fn register_attestor_should_work_happy_path() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(RuntimeOrigin::signed(
+            ATTESTOR_1
+        )));
+    })
+}
+
+#[test]
+fn register_attestor_should_fail_when_address_is_already_registered() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(RuntimeOrigin::signed(
+            ATTESTOR_1
+        )));
+
+        assert_err!(
+            Attestation::register_attestor(RuntimeOrigin::signed(ATTESTOR_1)),
+            Error::<Test>::AlreadyAttestor
+        );
+    })
+}
+
+#[test]
+fn register_attestor_should_fail_when_list_is_full() {
+    ExtBuilder.build_and_execute(|| {
+        let root = RuntimeOrigin::root();
+        let attestor_1 = attestor_1();
+        let attestor_2 = attestor_2();
+
+        assert_ok!(Attestation::set_max_attestors(root, 2));
+        assert_ok!(Attestation::register_attestor(attestor_1));
+        assert_err!(
+            Attestation::register_attestor(attestor_2),
+            Error::<Test>::AttestorListFull
+        );
+    })
+}
+
+// TODO: make this smarter and rely on the runtime value instead of the function
+#[test]
+fn max_attestor_default_should_be_100() {
+    ExtBuilder.build_and_execute(|| assert_matches!(Attestation::max_attestors(), 100))
+}
+
+#[test]
+fn max_invulnerable_default_should_be_100() {
+    ExtBuilder.build_and_execute(|| assert_matches!(Attestation::max_invulnerables(), 100))
+}
+
+#[test]
+fn set_max_attestors_should_error_with_non_root_origin() {
+    ExtBuilder.build_and_execute(|| {
+        let bad_origin = attestor_1();
+        assert_err!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin)
+    })
+}
+
+#[test]
+fn set_max_invulnerables_should_error_with_non_root_origin() {
+    ExtBuilder.build_and_execute(|| {
+        let bad_origin = attestor_1();
+        assert_err!(
+            Attestation::set_max_invulnerables(bad_origin, 200),
+            BadOrigin
+        )
+    })
+}
+
+#[test]
+fn set_max_attestors_should_error_if_list_is_truncated() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor_1 = attestor_1();
+        let attestor_2 = attestor_2();
+        assert_ok!(Attestation::register_attestor(attestor_1));
+        assert_ok!(Attestation::register_attestor(attestor_2));
+        assert_err!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
+            Error::<Test>::MaxAttestorsCannotBeChanged
+        );
+    })
+}
+
+#[test]
+fn unregister_attestor_should_work_happy_path() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = attestor_1();
+        assert_ok!(Attestation::register_attestor(attestor.clone()));
+        assert_ok!(Attestation::unregister_attestor(attestor));
+    })
+}
+
+#[test]
+fn unregister_attestor_should_fail_when_address_is_not_registered() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = attestor_1();
+        assert_err!(
+            Attestation::unregister_attestor(attestor),
+            Error::<Test>::AddressNotAttestor
+        );
+    })
+}
+
+#[test]
+fn unregister_invulnerable_should_work_happy_path() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = attestor_1();
+        assert_ok!(Attestation::register_attestor(attestor.clone()));
+
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::root(),
+            ATTESTOR_1
+        ));
+        assert_ok!(Attestation::unregister_invulnerable(
+            RuntimeOrigin::root(),
+            ATTESTOR_1
+        ));
+    })
+}
+
+#[test]
+fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
+    ExtBuilder.build_and_execute(|| {
+        assert_err!(
+            Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
+            Error::<Test>::AddressIsNotInvulnerable
+        );
+    })
+}
+#[test]
+fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = attestor_1();
+        assert_ok!(Attestation::register_attestor(attestor.clone()));
+        assert_err!(
+            Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
+            Error::<Test>::AddressIsNotInvulnerable
+        );
+    })
+}
+
+#[test]
+fn test_set_max_comittee_size_root_works() {
+    ExtBuilder.build_and_execute(|| {
+        let comittee_size = Attestation::comittee_set_size();
+        assert_eq!(comittee_size, DEFAULT_COMITTEE_SET_SIZE);
+
+        let new_comittee_size = 512;
+        assert_ok!(Attestation::set_comittee_set_size(
+            RuntimeOrigin::root(),
+            new_comittee_size
+        ));
+
+        let comittee_size = Attestation::comittee_set_size();
+        assert_eq!(comittee_size, new_comittee_size);
+    })
+}
+
+#[test]
+fn test_set_max_comittee_size_other_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = attestor_1();
+
+        assert_err!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
+    })
+}
+
+#[test]
+fn add_invulnerable_also_adds_as_attestor_works() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::root(),
+            ATTESTOR_1
+        ));
+
+        assert!(Attestation::attestors(ATTESTOR_1));
+        assert!(Attestation::invulnerables(ATTESTOR_1))
+    })
+}
+
+// Rare case that an invulnerable signals unregister and then sudo removes that one as invulnerable
+#[test]
+fn remove_invulnerable_that_is_not_attestor_works() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::root(),
+            ATTESTOR_1
+        ));
+
+        // Unregister
+        let attestor = attestor_1();
+        assert_ok!(Attestation::unregister_attestor(attestor));
+
+        // Not an attestor anymore
+        assert!(!Attestation::attestors(ATTESTOR_1));
+
+        // Still invulnerable
+        assert!(Attestation::invulnerables(ATTESTOR_1));
+
+        // Remove as invulnerable
+        assert_ok!(Attestation::unregister_invulnerable(
+            RuntimeOrigin::root(),
+            ATTESTOR_1
+        ));
+    })
+}

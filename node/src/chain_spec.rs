@@ -19,9 +19,9 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping, BabeConfig,
-    Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig, SS58Prefix, SessionConfig,
-    Signature, StakingConfig, WASM_BINARY,
+    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping,
+    AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig,
+    SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -152,6 +152,8 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     vec![authority_keys_from_seed("Alice")],
                     // Ethereum chain ID
                     SS58Prefix::get() as u64,
+                    250,
+                    vec![get_account_id_from_seed::<sr25519::Public>("Ferdie")],
                 ),
                 enable_manual_seal,
             }
@@ -208,6 +210,8 @@ pub fn local_testnet_config() -> ChainSpec {
                     authority_keys_from_seed("Bob"),
                 ],
                 SS58Prefix::get() as u64,
+                250,
+                vec![get_account_id_from_seed::<sr25519::Public>("Ferdie")],
             )
         },
         // Bootnodes
@@ -246,6 +250,8 @@ fn testnet_genesis(
     endowed_evm_accounts: Vec<[u8; 20]>,
     initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
+    comittee_set_size: u32,
+    attestation_invulnerables: Vec<AccountId>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -353,5 +359,9 @@ fn testnet_genesis(
         dynamic_fee: Default::default(),
         base_fee: Default::default(),
         nomination_pools: Default::default(),
+        attestation: AttestationConfig {
+            comittee_set_size,
+            invulnerables: attestation_invulnerables,
+        },
     }
 }

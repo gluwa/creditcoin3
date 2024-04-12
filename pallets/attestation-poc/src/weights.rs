@@ -25,7 +25,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(1,1)
 	}
 
-	fn unregister_invulernable() -> Weight {
+	fn unregister_invulnerable() -> Weight {
 		Weight::from_parts(1,1)
 	}
 
@@ -42,6 +42,10 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	}
 
 	fn set() -> Weight {
+		Weight::from_parts(1,1)
+	}
+
+	fn set_comitte_set_size() -> Weight {
 		Weight::from_parts(1,1)
 	}
 }

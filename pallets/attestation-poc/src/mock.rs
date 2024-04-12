@@ -86,6 +86,9 @@ impl attestation_poc::Config for Test {
 // and update balances genesis below
 pub(crate) const ATTESTOR_1: AccountId = 1;
 pub(crate) const ATTESTOR_2: AccountId = 2;
+pub(crate) const ATTESTOR_3: AccountId = 3;
+
+pub(crate) const DEFAULT_COMITTEE_SET_SIZE: u32 = 250;
 
 #[derive(Default)]
 pub struct ExtBuilder;
@@ -96,14 +99,20 @@ impl ExtBuilder {
             .build_storage()
             .unwrap();
         // accounts 0 to 5 have initial balances
-        pallet_balances::GenesisConfig::<Test> {
+        let b = pallet_balances::GenesisConfig::<Test> {
             balances: vec![
                 (ATTESTOR_1, 9_000_000_000_000_000_000),
                 (ATTESTOR_2, 50_000_000_000_000_000_000),
             ],
-        }
-        .assimilate_storage(&mut t)
-        .unwrap();
+        };
+        b.assimilate_storage(&mut t).unwrap();
+
+        let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+            comittee_set_size: DEFAULT_COMITTEE_SET_SIZE,
+            invulnerables: vec![ATTESTOR_3],
+        };
+        pallet_genesis.assimilate_storage(&mut t).unwrap();
+
         t.into()
     }
 
