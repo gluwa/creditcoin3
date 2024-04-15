@@ -20,8 +20,13 @@ export async function getChainStatus(api: ApiPromise): Promise<ChainStatus> {
 }
 
 interface EraInfo {
+    /// The active era is the era being currently rewarded. Validator set of this era must be
+    /// equal to [`SessionInterface::validators`].
     activeEra: number;
+    /// This is the latest planned era, depending on how the Session pallet queues the validator
+    /// set, it might be active or not.
     currentEra: number;
+    /// ^^^ NOTE: the name currentEra is misleading b/c the current one is the active one!
     currentSession: number;
     sessionsPerEra: number;
 }
