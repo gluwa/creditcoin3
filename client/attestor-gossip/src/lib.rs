@@ -142,7 +142,7 @@ where
     pub rx_root: Felt,
     pub attestor: AttestorId,
     pub topic: Topic,
-    pub vrf_output: U256,
+    pub vrf_output: (U256, u32),
     pub signature: sp_core::sr25519::Signature,
 }
 

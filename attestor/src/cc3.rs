@@ -169,8 +169,8 @@ impl<'a> Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(&self) -> Result<U256, Error> {
-        let (randomness, _current_block_number) =
+    pub async fn sign_babe_vrf(&self) -> Result<(U256, u32), Error> {
+        let (randomness, current_block_number) =
             self.fetch_babe_randomness().await.map_err(|e| {
                 error!("Error getting babe vrf output: {:?}", e);
                 Error::FailedToGetBabeVrf
@@ -197,7 +197,7 @@ impl<'a> Client {
             signature_output_as_u256 > randomness_as_u256
         );
 
-        Ok(signature_output_as_u256)
+        Ok((signature_output_as_u256, current_block_number))
     }
 
     #[must_use]
@@ -269,8 +269,10 @@ impl Message<AttestationSubmit> for Client {
             tx_root: msg.attestation.tx_root,
             rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
-            // Make vrf output a tuple or struct that also hold the block number where it was signed at (execution chain number)
-            vrf_output: sp_core::U256::from_little_endian(vrf_output.as_le_slice()),
+            vrf_output: (
+                sp_core::U256::from_little_endian(vrf_output.0.as_le_slice()),
+                vrf_output.1,
+            ),
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
         };
 

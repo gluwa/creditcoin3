@@ -25,7 +25,7 @@ pub struct AttestationModel {
     pub rx_root: [u8; 32],
     pub attestor: AttestorIdModel,
     pub topic: TopicModel,
-    pub vrf_output: U256,
+    pub vrf_output: (U256, u32),
     pub signature: sp_core::sr25519::Signature,
 }
 
