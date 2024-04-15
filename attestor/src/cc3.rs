@@ -69,22 +69,48 @@ impl<'a> Client {
         Ok(HttpClientBuilder::new().build(&self.url)?)
     }
 
-    /// Fetches the babe author VRF (Verifiable Random Functions) randomness at current block
-    pub(crate) async fn fetch_babe_randomness(&self) -> Result<Option<Randomness>> {
+    /// Fetches the babe randomness from 2 epochs ago
+    /// Returns the random at that time + the current block number (where it was calculated from)
+    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, u32)> {
         let api = self.get_substrate_client().await?;
 
-        let storage_query = cc3::storage().babe().author_vrf_randomness();
+        // Get epoch duration
+        let epoch_duration = api
+            .constants()
+            .at(&cc3::constants().babe().epoch_duration())?;
 
-        // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
-        let result = api
+        // Get current block number
+        let current_block_number = api
             .storage()
             .at_latest()
             .await?
-            .fetch(&storage_query)
+            .fetch(&cc3::storage().system().number())
             .await?
-            .and_then(|v| v);
+            .unwrap_or_default();
 
-        Ok(result)
+        // Calculate a block number that falls into the range of 2 epoch ago
+        // current block - (epoch duration in block * 2)
+        let block_to_query = current_block_number
+            .checked_sub((epoch_duration * 2) as u32)
+            .unwrap_or_default();
+
+        let block_hash_to_query = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&cc3::storage().system().block_hash(block_to_query))
+            .await?
+            .ok_or(Error::FailedToGetBabeVrf)?;
+
+        info!("Getting babe randomness at block: {block_to_query}");
+        // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
+        let randomness = api
+            .storage()
+            .at(block_hash_to_query)
+            .fetch(&cc3::storage().babe().randomness())
+            .await?;
+
+        Ok((randomness, current_block_number))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
@@ -144,14 +170,14 @@ impl<'a> Client {
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<U256, Error> {
-        let randomness = self
-            .fetch_babe_randomness()
-            .await
-            .map_err(|e| {
+        let (randomness, _current_block_number) =
+            self.fetch_babe_randomness().await.map_err(|e| {
                 error!("Error getting babe vrf output: {:?}", e);
                 Error::FailedToGetBabeVrf
-            })?
-            .ok_or(Error::BabeVrfOuputInvalid)?;
+            })?;
+
+        let randomness = randomness.ok_or(Error::BabeVrfOuputInvalid)?;
+
         info!("Babe VRF Randomness: {}", hex::encode(randomness));
 
         let randomness_as_u256 = U256::from_le_bytes(randomness);
@@ -243,6 +269,7 @@ impl Message<AttestationSubmit> for Client {
             tx_root: msg.attestation.tx_root,
             rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
+            // Make vrf output a tuple or struct that also hold the block number where it was signed at (execution chain number)
             vrf_output: sp_core::U256::from_little_endian(vrf_output.as_le_slice()),
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
         };
