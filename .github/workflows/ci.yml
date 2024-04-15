@@ -314,65 +314,65 @@ jobs:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
 
-  build-creditcoin-node:
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [devnet, testnet]
-    name: build-creditcoin-node-for-${{ matrix.target }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+#  build-creditcoin-node:
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        target: [devnet, testnet]
+#    name: build-creditcoin-node-for-${{ matrix.target }}
+#    runs-on: ubuntu-24.04
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - name: Set-Up
+#        run: |
+#          sudo apt-get update
+#          sudo apt install -y curl
+#
+#      - name: Install protobuf
+#        uses: arduino/setup-protoc@v3
+#        with:
+#          repo-token: ${{ secrets.GITHUB_TOKEN }}
+#
+#      - name: Configure rustc version
+#        run: |
+#          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+#          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+#
+#      - name: Install Rust toolchain
+#        uses: actions-rs/toolchain@v1
+#        with:
+#          toolchain: ${{ env.RUSTC_VERSION }}
+#          target: wasm32-unknown-unknown
+#          profile: minimal
+#          override: true
+#      - uses: Swatinem/rust-cache@v2
+#        with:
+#          shared-key: build-creditcoin-node
+#
+#      - name: Extra compiler flags
+#        if: matrix.target == 'devnet'
+#        id: compiler-flags
+#        run: |
+#          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
+#
+#      - name: Build SUT
+#        uses: actions-rs/cargo@v1
+#        with:
+#          command: build
+#          args: --release ${{ steps.compiler-flags.outputs.extra }}
+#
+#      - name: Upload creditcoin-node binary
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: creditcoin-node-${{ matrix.target }}
+#          path: target/release/creditcoin3-node
+#
+#      - name: Upload WASM runtime
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
+#          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
 #  build-creditcoin-node-for-testing:
 #    needs:
