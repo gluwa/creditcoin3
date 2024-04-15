@@ -99,11 +99,11 @@ export async function validatorStatusTable(status: Status | undefined, api: ApiP
         throw new Error('Status was undefined');
     }
 
-    const [currentEra, chainStatus] = await Promise.all([api.query.staking.currentEra(), getChainStatus(api)]);
+    const chainStatus = await getChainStatus(api);
 
     const table = new Table({
         head: [
-            `Active: ${chainStatus.eraInfo.era}; Current: ${currentEra}; Session: ${chainStatus.eraInfo.currentSession}`,
+            `Active: ${chainStatus.eraInfo.activeEra}; Current: ${chainStatus.eraInfo.currentEra}; Session: ${chainStatus.eraInfo.currentSession}`,
             `Block: ${chainStatus.bestNumber}; Finalized: ${chainStatus.bestFinalizedNumber}`,
         ],
     });
