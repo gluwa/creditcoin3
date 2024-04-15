@@ -41,11 +41,19 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(1,1)
 	}
 
-	fn set() -> Weight {
+	fn commit_attestation() -> Weight {
 		Weight::from_parts(1,1)
 	}
 
 	fn set_comitte_set_size() -> Weight {
+		Weight::from_parts(1,1)
+	}
+
+	fn add_supported_chain() -> Weight {
+		Weight::from_parts(1,1)
+	}
+
+	fn remove_supported_chain() -> Weight {
 		Weight::from_parts(1,1)
 	}
 }

@@ -80,6 +80,7 @@ impl attestation_poc::Config for Test {
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;
     type CommittmentInterval = CommittmentInterval;
+    type BlsSignature = [u8; 42];
 }
 
 // add more accounts when you need them
@@ -110,6 +111,7 @@ impl ExtBuilder {
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             comittee_set_size: DEFAULT_COMITTEE_SET_SIZE,
             invulnerables: vec![ATTESTOR_3],
+            supported_chains: vec![1],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();
 

@@ -154,6 +154,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     SS58Prefix::get() as u64,
                     250,
                     vec![get_account_id_from_seed::<sr25519::Public>("Ferdie")],
+                    vec![1],
                 ),
                 enable_manual_seal,
             }
@@ -212,6 +213,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 SS58Prefix::get() as u64,
                 250,
                 vec![get_account_id_from_seed::<sr25519::Public>("Ferdie")],
+                vec![1],
             )
         },
         // Bootnodes
@@ -252,6 +254,7 @@ fn testnet_genesis(
     chain_id: u64,
     comittee_set_size: u32,
     attestation_invulnerables: Vec<AccountId>,
+    supported_chains: Vec<u8>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -362,6 +365,7 @@ fn testnet_genesis(
         attestation: AttestationConfig {
             comittee_set_size,
             invulnerables: attestation_invulnerables,
+            supported_chains,
         },
     }
 }

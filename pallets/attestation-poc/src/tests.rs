@@ -220,3 +220,16 @@ fn remove_invulnerable_that_is_not_attestor_works() {
         ));
     })
 }
+
+#[test]
+fn adding_a_supported_chain_works() {
+    ExtBuilder.build_and_execute(|| {
+        let supported_chains = Attestation::supported_chains();
+        assert_eq!(supported_chains.len(), 1);
+
+        assert_ok!(Attestation::add_supported_chain(RuntimeOrigin::root(), 2));
+
+        let supported_chains = Attestation::supported_chains();
+        assert_eq!(supported_chains.len(), 2);
+    })
+}

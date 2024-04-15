@@ -844,6 +844,7 @@ impl pallet_attestation_poc::Config for Runtime {
     // TODO make this setting useful
     type MaxAttestationNodes = MaxAttestors;
     type CommittmentInterval = CommittmentInterval;
+    type BlsSignature = [u8; 42];
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

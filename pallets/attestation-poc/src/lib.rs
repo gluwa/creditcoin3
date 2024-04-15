@@ -16,14 +16,16 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{BlockNumber, BlockSerializable};
+    use crate::types::{Attestation, AttestationInput, BlockNumber, ChainId, Digest, InherentType};
     use frame_support::inherent::{InherentIdentifier, IsFatalError};
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
     use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
+    use log::debug;
+    use parity_scale_codec::FullCodec;
+    use sp_std::{fmt::Debug, vec::Vec};
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -35,7 +37,25 @@ pub mod pallet {
         // TODO: Make this useful
         #[pallet::constant]
         type CommittmentInterval: Get<u64>;
+
+        /// The type of the BLS aggregated signature
+        type BlsSignature: FullCodec
+            + Clone
+            + Debug
+            + PartialEq
+            + Eq
+            + Send
+            + Sync
+            + TypeInfo
+            + MaxEncodedLen
+            + Into<Vec<u8>>;
     }
+
+    // Attestation insert type
+    pub type AttestationInsert<T> = Attestation<<T as Config>::BlsSignature>;
+
+    // Attestation creation type
+    pub type AttestationCreate<T> = AttestationInput<<T as Config>::BlsSignature>;
 
     pub trait WeightInfo {
         fn register_attestor() -> Weight;
@@ -46,8 +66,10 @@ pub mod pallet {
         fn set_max_invulnerables() -> Weight;
         fn attest_block() -> Weight;
         fn bootstrap_chain() -> Weight;
-        fn set() -> Weight;
+        fn commit_attestation() -> Weight;
         fn set_comitte_set_size() -> Weight;
+        fn add_supported_chain() -> Weight;
+        fn remove_supported_chain() -> Weight;
     }
 
     #[pallet::storage]
@@ -92,22 +114,30 @@ pub mod pallet {
     }
 
     #[pallet::storage]
-    #[pallet::getter(fn last_block)]
-    pub type LastBlock<T: Config> = StorageValue<_, BlockSerializable, OptionQuery>;
+    #[pallet::getter(fn attestations)]
+    pub type Attestations<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainId,
+        Blake2_128Concat,
+        BlockNumber,
+        AttestationInsert<T>,
+        OptionQuery,
+    >;
 
     #[pallet::storage]
-    #[pallet::getter(fn commitments)]
-    pub type Commitments<T: Config> = CountedStorageMap<
-        Hasher = Blake2_128Concat,
-        Key = BlockNumber,
-        // Value can be ignored
-        Value = BlockSerializable,
-        QueryKind = OptionQuery,
-    >;
+    #[pallet::getter(fn last_attesation_digest)]
+    pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, Digest, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn comittee_set_size)]
     pub type ComitteeSetSize<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+    pub type SupportedChainsVec = BoundedVec<ChainId, ConstU32<256>>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn supported_chains)]
+    pub type SupportedChains<T: Config> = StorageValue<_, SupportedChainsVec, ValueQuery>;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -117,6 +147,7 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         pub comittee_set_size: u32,
         pub invulnerables: Vec<T::AccountId>,
+        pub supported_chains: Vec<ChainId>,
     }
 
     #[pallet::genesis_build]
@@ -130,6 +161,12 @@ pub mod pallet {
                 Invlunerables::<T>::insert(invulnerable, true);
                 Attestors::<T>::insert(invulnerable, true);
             }
+
+            let mut chains: SupportedChainsVec = BoundedVec::new();
+            for chain in self.supported_chains.clone().into_iter() {
+                chains.try_push(chain).unwrap();
+            }
+            SupportedChains::<T>::set(chains);
         }
     }
 
@@ -146,17 +183,20 @@ pub mod pallet {
 
         InvulnerableUnregistered(T::AccountId),
 
-        ChainBootstrapped(BlockSerializable),
+        ChainBootstrapped(ChainId, AttestationInsert<T>),
 
-        BlockAttested(BlockSerializable),
+        BlockAttested(ChainId, AttestationInsert<T>),
 
-        CheckpointReached(BlockSerializable),
+        CheckpointReached(ChainId, AttestationInsert<T>),
 
         ComitteeSetSizeChanged(u32),
     }
 
     #[pallet::error]
     pub enum Error<T> {
+        //// If we cannot add a chain
+        CannotAddChain,
+
         /// The AccountId supplied has already been registered
         AlreadyAttestor,
 
@@ -192,11 +232,47 @@ pub mod pallet {
 
         /// The call to attest_block failed, the block's cryptographic committments were invalid
         InvalidAttestation,
+
+        // If there is no digest stored yet
+        NoPreviousDigest,
+
+        // If there is a duplicate attestation
+        AttestationExists,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
+        #[pallet::weight(<T as Config>::WeightInfo::add_supported_chain())]
+        pub fn add_supported_chain(origin: OriginFor<T>, chain_id: ChainId) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let mut chains = SupportedChains::<T>::get();
+            chains
+                .try_push(chain_id)
+                .map_err(|_| Error::<T>::CannotAddChain)?;
+
+            SupportedChains::<T>::set(chains);
+
+            Ok(())
+        }
+
+        #[pallet::call_index(1)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_comitte_set_size())]
+        pub fn set_comittee_set_size(
+            origin: OriginFor<T>,
+            new_comittee_set_size: u32,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ComitteeSetSize::<T>::put(new_comittee_set_size);
+
+            Self::deposit_event(Event::<T>::ComitteeSetSizeChanged(new_comittee_set_size));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::register_attestor())]
         pub fn register_attestor(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
@@ -209,7 +285,7 @@ pub mod pallet {
             Self::try_insert_attestor_and_emit_event(&who)
         }
 
-        #[pallet::call_index(1)]
+        #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
         pub fn unregister_attestor(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
@@ -224,7 +300,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(2)]
+        #[pallet::call_index(4)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
         pub fn set_max_attestors(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
             ensure_root(origin)?;
@@ -242,7 +318,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(3)]
+        #[pallet::call_index(5)]
         #[pallet::weight(<T as Config>::WeightInfo::register_invulnerable())]
         pub fn register_invulnerable(
             origin: OriginFor<T>,
@@ -253,7 +329,7 @@ pub mod pallet {
             Self::try_insert_invulnerable_and_emit_event(&attestor)
         }
 
-        #[pallet::call_index(4)]
+        #[pallet::call_index(6)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_invulnerable())]
         pub fn unregister_invulnerable(
             origin: OriginFor<T>,
@@ -269,7 +345,7 @@ pub mod pallet {
             Self::remove_invulnerable_and_emit_event(&attestor)
         }
 
-        #[pallet::call_index(5)]
+        #[pallet::call_index(7)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_invulnerables())]
         pub fn set_max_invulnerables(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
             ensure_root(origin)?;
@@ -283,74 +359,47 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(6)]
-        #[pallet::weight(<T as Config>::WeightInfo::attest_block())]
-        pub fn attest_block(
-            origin: OriginFor<T>,
-            block: BlockSerializable,
-            eligibility: u64,
-        ) -> DispatchResult {
-            let _ = ensure_signed(origin)?;
-
-            ensure!(
-                Self::chain_is_bootstrapped(),
-                Error::<T>::ChainIsNotBootstrapped,
-            );
-
-            ensure!(
-                Self::is_eligible_for_attestation(&block, eligibility),
-                Error::<T>::NotEligible,
-            );
-
-            ensure!(Self::is_block_valid(&block), Error::<T>::InvalidAttestation,);
-
-            LastBlock::<T>::set(Some(block.clone()));
-            Self::deposit_event(Event::<T>::BlockAttested(block.clone()));
-
-            if block.block_number % T::CommittmentInterval::get() == 0 {
-                Commitments::<T>::insert(block.block_number, block.clone());
-                Self::deposit_event(Event::<T>::CheckpointReached(block))
-            }
-
-            Ok(())
-        }
-
-        #[pallet::call_index(7)]
+        #[pallet::call_index(8)]
         #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain())]
-        pub fn bootstrap_chain(origin: OriginFor<T>, block: BlockSerializable) -> DispatchResult {
+        pub fn bootstrap_chain(
+            origin: OriginFor<T>,
+            chain_id: ChainId,
+            block_number: BlockNumber,
+            attestation: AttestationCreate<T>,
+        ) -> DispatchResult {
             ensure_root(origin)?;
 
-            ensure!(
-                !Self::chain_is_bootstrapped(),
-                Error::<T>::ChainAlreadyBootstrapped
-            );
+            let digest = attestation.digest;
+            LastDigest::<T>::set(chain_id, Some(digest));
 
-            LastBlock::<T>::put(block.clone());
-            Commitments::<T>::insert(block.block_number, block.clone());
+            let attestation_insert = AttestationInsert::<T>::new(attestation, digest);
+            Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
 
-            Self::deposit_event(Event::<T>::ChainBootstrapped(block));
-            Ok(())
-        }
-
-        #[pallet::call_index(8)]
-        #[pallet::weight(<T as Config>::WeightInfo::set())]
-        pub fn set(origin: OriginFor<T>, _attestation: InherentType) -> DispatchResult {
-            ensure_none(origin)?;
-
+            Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation_insert));
             Ok(())
         }
 
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_comitte_set_size())]
-        pub fn set_comittee_set_size(
+        #[pallet::weight(<T as Config>::WeightInfo::commit_attestation())]
+        pub fn commit_attestation(
             origin: OriginFor<T>,
-            new_comittee_set_size: u32,
+            chain_id: ChainId,
+            block_number: BlockNumber,
+            attestation: AttestationCreate<T>,
         ) -> DispatchResult {
-            ensure_root(origin)?;
+            ensure_none(origin)?;
 
-            ComitteeSetSize::<T>::put(new_comittee_set_size);
+            let digest = if let Some(digest) = LastDigest::<T>::get(chain_id) {
+                digest
+            } else {
+                debug!("First attestation for chain, otherwise something is wrong");
+                attestation.digest
+            };
 
-            Self::deposit_event(Event::<T>::ComitteeSetSizeChanged(new_comittee_set_size));
+            LastDigest::<T>::set(chain_id, Some(digest));
+
+            let attestation_insert = AttestationInsert::<T>::new(attestation, digest);
+            Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
 
             Ok(())
         }
@@ -359,10 +408,10 @@ pub mod pallet {
     pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
     // TODO: should be some kind of storage structure that has:
-    // - BLS aggreated signatures
+    // - BLS aggregated signatures
     // - Attestors that were included in the creation of the signature
     // Eventually only store the signature
-    pub type InherentType = sp_std::vec::Vec<u8>;
+    pub type InherentInputType<T> = InherentType<<T as Config>::BlsSignature>;
 
     #[derive(Encode, sp_runtime::RuntimeDebug)]
     #[cfg_attr(feature = "std", derive(Decode))]
@@ -387,33 +436,53 @@ pub mod pallet {
         const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
 
         fn create_inherent(data: &InherentData) -> Option<Self::Call> {
-            let attestation = data
-                .get_data::<InherentType>(&INHERENT_IDENTIFIER)
+            let inherent_data = data
+                .get_data::<InherentInputType<T>>(&INHERENT_IDENTIFIER)
                 .expect("Attestation inherent data not correctly encoded");
-            // .expect("Attestation inherent data must be provided");
 
-            attestation.map(|attestation| Call::set { attestation })
+            // Check if atleast the attestation was not already submitted
+            if let Some(attestation_data) = inherent_data {
+                if let Some(digest) = LastDigest::<T>::get(attestation_data.chain_id) {
+                    if digest == attestation_data.attestation.digest {
+                        log::error!("Attestation with digest: {:?} is duplicate", digest);
+                        return None;
+                    }
+                }
 
-            // let next_time = cmp::max(data, Self::now() + T::MinimumPeriod::get());
-            // Some(Call::set { now: next_time })
+                Some(Call::commit_attestation {
+                    attestation: attestation_data.attestation,
+                    chain_id: attestation_data.chain_id,
+                    block_number: attestation_data.block_number,
+                })
+            } else {
+                log::info!("No attestation data provided");
+                None
+            }
         }
 
         fn check_inherent(
             _call: &Self::Call,
             data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
-            let _data = data
-                .get_data::<InherentType>(&INHERENT_IDENTIFIER)
+            let inherent_data = data
+                .get_data::<InherentInputType<T>>(&INHERENT_IDENTIFIER)
                 .expect("Timestamp inherent data not correctly encoded");
-            // .expect("Timestamp inherent data must be provided");
 
-            // TODO: verify again some basic things
+            // Check if atleast the attestation was not already submitted
+            if let Some(attestation_data) = inherent_data {
+                if let Some(digest) = LastDigest::<T>::get(attestation_data.chain_id) {
+                    if digest == attestation_data.attestation.digest {
+                        log::error!("Attestation with digest: {:?} is duplicate", digest);
+                        return Err(InherentError::Duplicate);
+                    }
+                }
+            }
 
             Ok(())
         }
 
         fn is_inherent(call: &Self::Call) -> bool {
-            matches!(call, Call::set { .. })
+            matches!(call, Call::commit_attestation { .. })
         }
     }
 
@@ -476,26 +545,6 @@ pub mod pallet {
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(address.clone()));
 
             Ok(())
-        }
-
-        fn chain_is_bootstrapped() -> bool {
-            let first_block = Self::last_block();
-
-            let mut first_commitment = Commitments::<T>::iter();
-            let first_commitment = first_commitment.next();
-
-            first_block.is_some() && first_commitment.is_some()
-        }
-
-        fn is_eligible_for_attestation(_block: &BlockSerializable, _eligiblity: u64) -> bool {
-            true
-        }
-
-        fn is_block_valid(block: &BlockSerializable) -> bool {
-            // unwrap here because we check if the chain is bootstrapped in the extrinsic
-            let last_block = Self::last_block().unwrap();
-
-            last_block.digest == block.prev_digest
         }
     }
 }
