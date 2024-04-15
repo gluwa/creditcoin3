@@ -20,15 +20,18 @@ export async function getChainStatus(api: ApiPromise): Promise<ChainStatus> {
 }
 
 interface EraInfo {
-    era: number;
+    activeEra: number;
+    currentEra: number;
     currentSession: number;
     sessionsPerEra: number;
 }
 
 async function getEraInfo(api: ApiPromise): Promise<EraInfo> {
-    const session = await api.derive.session.info();
+    const [session, currentEra] = await Promise.all([api.derive.session.info(), api.query.staking.currentEra()]);
+
     return {
-        era: session.activeEra.toNumber(),
+        activeEra: session.activeEra.toNumber(),
+        currentEra: Number(currentEra),
         currentSession: (session.currentIndex.toNumber() % session.sessionsPerEra.toNumber()) + 1,
         sessionsPerEra: session.sessionsPerEra.toNumber(),
     };
