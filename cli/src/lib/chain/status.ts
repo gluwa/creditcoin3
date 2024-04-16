@@ -8,13 +8,16 @@ interface ChainStatus {
 }
 
 export async function getChainStatus(api: ApiPromise): Promise<ChainStatus> {
-    const bestNumber = await api.derive.chain.bestNumber();
-    const bestFinalizedNumber = await api.derive.chain.bestNumberFinalized();
-    const eraInfo = await getEraInfo(api);
+    const [bestBlock, bestFinalized, eraInfo] = await Promise.all([
+        api.rpc.chain.getBlock(),
+        api.rpc.chain.getBlock(await api.rpc.chain.getFinalizedHead()),
+        getEraInfo(api),
+    ]);
+
     return {
         name: api.runtimeVersion.specName.toString(),
-        bestNumber: bestNumber.toNumber(),
-        bestFinalizedNumber: bestFinalizedNumber.toNumber(),
+        bestNumber: bestBlock.block.header.number.toNumber(),
+        bestFinalizedNumber: bestFinalized.block.header.number.toNumber(),
         eraInfo,
     };
 }
