@@ -6,12 +6,13 @@ use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use kameo::{Actor, Message};
 use serde::{Deserialize, Serialize};
+use sp_core::H256;
 use subxt::{OnlineClient, SubstrateConfig};
 use subxt_signer::{sr25519::Keypair, SecretUri};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
+use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic, VrfOutput};
 
 use attestor_primitives::AttestationData;
 
@@ -71,7 +72,7 @@ impl<'a> Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random at that time + the current block number (where it was calculated from)
-    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, u32)> {
+    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, H256)> {
         let api = self.get_substrate_client().await?;
 
         // Get epoch duration
@@ -110,7 +111,7 @@ impl<'a> Client {
             .fetch(&cc3::storage().babe().randomness())
             .await?;
 
-        Ok((randomness, current_block_number))
+        Ok((randomness, block_hash_to_query))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
@@ -169,12 +170,11 @@ impl<'a> Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(&self) -> Result<(U256, u32), Error> {
-        let (randomness, current_block_number) =
-            self.fetch_babe_randomness().await.map_err(|e| {
-                error!("Error getting babe vrf output: {:?}", e);
-                Error::FailedToGetBabeVrf
-            })?;
+    pub async fn sign_babe_vrf(&self) -> Result<(U256, H256), Error> {
+        let (randomness, block_hash) = self.fetch_babe_randomness().await.map_err(|e| {
+            error!("Error getting babe vrf output: {:?}", e);
+            Error::FailedToGetBabeVrf
+        })?;
 
         let randomness = randomness.ok_or(Error::BabeVrfOuputInvalid)?;
 
@@ -197,7 +197,7 @@ impl<'a> Client {
             signature_output_as_u256 > randomness_as_u256
         );
 
-        Ok((signature_output_as_u256, current_block_number))
+        Ok((signature_output_as_u256, block_hash))
     }
 
     #[must_use]
@@ -242,7 +242,7 @@ impl Message<AttestationSubmit> for Client {
     /// Main attestation handler
     /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
     async fn handle(&mut self, msg: AttestationSubmit) -> Self::Reply {
-        let vrf_output = self.sign_babe_vrf().await.map_err(|e| {
+        let (vrf_output, block_hash) = self.sign_babe_vrf().await.map_err(|e| {
             error!("Error signing babe vrf: {:?}", e);
             Error::FailedToSignBabeVrf
         })?;
@@ -269,10 +269,10 @@ impl Message<AttestationSubmit> for Client {
             tx_root: msg.attestation.tx_root,
             rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
-            vrf_output: (
-                sp_core::U256::from_little_endian(vrf_output.0.as_le_slice()),
-                vrf_output.1,
-            ),
+            vrf_output: VrfOutput {
+                vrf_number: sp_core::U256::from_little_endian(vrf_output.as_le_slice()),
+                block_hash,
+            },
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
         };
 

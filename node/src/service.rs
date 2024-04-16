@@ -455,9 +455,11 @@ where
     let name = config.network.node_name.clone();
     let enable_grandpa = !config.disable_grandpa && sealing.is_none();
     let prometheus_registry = config.prometheus_registry().cloned();
+    let client = client.clone();
 
     let (attestor_gossip, attestor_gossip_msg_sink) =
         creditcoin3_attestor_gossip::start::<Block, _, _>(
+            client,
             network.clone(),
             sync_service.clone(),
             ATTESTOR_GOSSIP_NAME,

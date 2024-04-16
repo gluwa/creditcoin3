@@ -1,96 +1,48 @@
-use std::marker::PhantomData;
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use sc_client_api::{client::BlockBackend, Backend};
+use std::fmt::Debug;
+use std::{marker::PhantomData, sync::Arc};
+use thiserror::Error;
+use worker::Worker;
 
-use attestor_primitives::{AttestationData, Felt};
-use futures::{
-    channel::mpsc::{UnboundedReceiver, UnboundedSender},
-    FutureExt as _, StreamExt,
-};
+use attestor_primitives::Felt;
 use parity_scale_codec::{Decode, Encode};
 use parking_lot::Mutex;
-use sc_network::{PeerId, ProtocolName};
-use sc_network_gossip::{GossipEngine, ValidationResult, Validator, ValidatorContext};
-use serde::Serialize;
-use sp_core::{Pair, H256, U256};
-use sp_runtime::{
-    traits::{Block as BlockT, Hash},
-    AccountId32,
-};
+use sc_network::ProtocolName;
+use sc_network_gossip::GossipEngine;
+use sc_utils::mpsc::{TracingUnboundedReceiver, TracingUnboundedSender};
+use serde::{Deserialize, Serialize};
+use sp_api::{HeaderT, ProvideRuntimeApi};
+use sp_consensus_babe::BabeApi;
+use sp_core::{H256, U256};
+use sp_runtime::{traits::Block as BlockT, AccountId32};
 use substrate_prometheus_endpoint::Registry;
 
-pub struct AttestorGossipValidator<B>
-where
-    B: BlockT,
-{
-    _phantom: PhantomData<B>,
+pub mod validator;
+pub mod worker;
+
+use validator::AttestorGossipValidator;
+
+pub type HashFor<B> = <B as BlockT>::Hash;
+
+pub type MessageSink<B> = TracingUnboundedSender<Message<HashFor<B>>>;
+
+pub(crate) struct AttestorComms<B: BlockT> {
+    pub gossip_engine: GossipEngine<B>,
+    pub gossip_validator: Arc<AttestorGossipValidator<B>>,
+    pub gossip_report_stream: TracingUnboundedReceiver<Message<HashFor<B>>>,
+    // pub on_demand_justifications: OnDemandJustificationsEngine<B>,
 }
 
-impl<B> Default for AttestorGossipValidator<B>
-where
-    B: BlockT<Hash = H256>,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<B> AttestorGossipValidator<B>
-where
-    B: BlockT<Hash = H256>,
-{
-    pub fn new() -> Self {
-        Self {
-            _phantom: Default::default(),
-        }
-    }
-
-    fn validate_attestation(
-        &self,
-        attestation: &Attestation<B::Hash>,
-        _sender: &PeerId,
-    ) -> Action<B::Hash> {
-        let round = attestation.round;
-        let x = self.verify_signature(attestation);
-        if x {
-            log::info!(target: "attestor-gossip", "Attestation signature is valid");
-            Action::Keep(round_topic::<B>(round, attestation.topic.clone()))
-        } else {
-            // TODO: slash stake in the future
-            log::info!(target: "attestor-gossip", "Attestation signature is invalid");
-            Action::Discard
-        }
-    }
-
-    // Check it the signature is valid given the header number and header hash from the attestation for now.
-    // Will need extending once we start submitting actual attestations
-    fn verify_signature(&self, attestation: &Attestation<B::Hash>) -> bool {
-        let header_number = attestation.header_number;
-        let header_hash = attestation.header_hash;
-        let tx_root = attestation.tx_root;
-        let rx_root = attestation.rx_root;
-        let att = AttestationData {
-            header_number,
-            header_hash,
-            tx_root,
-            rx_root,
-        };
-
-        let message = att.serialize();
-        let signature = &attestation.signature;
-        let public_key: sp_core::sr25519::Public =
-            sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());
-
-        sp_core::sr25519::Pair::verify(signature, message, &public_key)
-    }
-
-    fn validate_attestation_request(&self) -> Action<B::Hash> {
-        Action::Discard
-    }
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Gossip engine exited")]
+    GossipEngineExited,
+    #[error("Invalid attestation signature")]
+    InvalidAttestationDataSignature,
+    #[error("Invalid attestation vrf output")]
+    InvalidAttestationVrfOuput,
+    #[error("Sp api error")]
+    SpApiError(#[from] sp_api::ApiError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -101,7 +53,7 @@ pub enum Action<H> {
 
 pub type Round = u64;
 
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttestorId(AccountId32);
 
 impl AttestorId {
@@ -114,7 +66,7 @@ impl AttestorId {
     }
 }
 
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Topic(u64);
 
 impl Topic {
@@ -123,14 +75,7 @@ impl Topic {
     }
 }
 
-pub fn round_topic<B: BlockT>(round: Round, topic: Topic) -> B::Hash {
-    let mut round_topic = Vec::new();
-    round.encode_to(&mut round_topic);
-    topic.encode_to(&mut round_topic);
-    <<B as BlockT>::Header as sp_runtime::traits::Header>::Hashing::hash(&round_topic)
-}
-
-#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attestation<H>
 where
     H: Serialize,
@@ -142,74 +87,24 @@ where
     pub rx_root: Felt,
     pub attestor: AttestorId,
     pub topic: Topic,
-    pub vrf_output: (U256, u32),
+    pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,
 }
 
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq)]
+#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VrfOutput {
+    pub vrf_number: U256,
+    pub block_hash: H256,
+}
+
+#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Message<H>
 where
     H: Serialize,
 {
     Attestation(Attestation<H>),
-    AttestationRequest {
-        round: u64,
-        topic: Topic,
-        attestor: AttestorId,
-    },
-}
-
-impl<H: Serialize> Message<H> {
-    pub fn round_topic<B: BlockT>(&self) -> H
-    where
-        H: From<<B as BlockT>::Hash> + Serialize,
-    {
-        let (round, topic) = match self {
-            Message::Attestation(Attestation { round, topic, .. }) => (round, topic),
-            Message::AttestationRequest { round, topic, .. } => (round, topic),
-        };
-        round_topic::<B>(*round, topic.clone()).into()
-    }
-}
-
-impl<B> Validator<B> for AttestorGossipValidator<B>
-where
-    B: BlockT<Hash = H256>,
-{
-    fn validate(
-        &self,
-        context: &mut dyn ValidatorContext<B>,
-        sender: &PeerId,
-        data: &[u8],
-    ) -> ValidationResult<B::Hash> {
-        let action = match Message::<B::Hash>::decode(&mut &data[..]) {
-            Ok(Message::Attestation(att)) => {
-                log::info!(target: "attestor-gossip", "Received attestation: {:?}", att);
-                self.validate_attestation(&att, sender)
-            }
-            Ok(Message::AttestationRequest {
-                round,
-                topic,
-                attestor,
-            }) => {
-                log::info!(target: "attestor-gossip", "Received attestation request from {:?} for round {:?} and topic {:?}", attestor, round, topic);
-                self.validate_attestation_request()
-            }
-            Err(err) => {
-                log::error!(target: "attestor-gossip", "Error decoding block hash in message: {:?}", err);
-                Action::Discard
-            }
-        };
-
-        match action {
-            Action::Keep(topic) => {
-                log::info!(target: "attestor-gossip", "Broadcasting message for topic {:?}", topic);
-                context.broadcast_message(topic, data.to_vec(), false);
-                ValidationResult::ProcessAndKeep(topic)
-            }
-            Action::Discard => ValidationResult::Discard,
-        }
-    }
+    // Could be more messages to drop / slash or ignore certain attestors
+    // ...
 }
 
 pub trait Network<B: BlockT>: sc_network_gossip::Network<B> + Clone + Send + 'static {}
@@ -217,19 +112,6 @@ impl<B: BlockT, N: sc_network_gossip::Network<B> + Clone + Send + 'static> Netwo
 
 pub trait Syncing<B: BlockT>: sc_network_gossip::Syncing<B> + Clone + Send + 'static {}
 impl<B: BlockT, S: sc_network_gossip::Syncing<B> + Clone + Send + 'static> Syncing<B> for S {}
-
-pub struct Networking<B: BlockT, N: Network<B>, S: Syncing<B>> {
-    #[allow(dead_code)]
-    network: N,
-    #[allow(dead_code)]
-    sync: S,
-    gossip_engine: Arc<Mutex<GossipEngine<B>>>,
-    #[allow(dead_code)]
-    validator: Arc<AttestorGossipValidator<B>>,
-    msg_stream: Mutex<UnboundedReceiver<Message<HashFor<B>>>>,
-}
-
-pub type HashFor<B> = <B as BlockT>::Hash;
 
 pub struct BestKnown<H> {
     pub hash: H,
@@ -242,115 +124,90 @@ pub struct State<H> {
     pub best: Option<BestKnown<H>>,
 }
 
-impl<B: BlockT<Hash = H256>, N: Network<B>, S: Syncing<B>> Networking<B, N, S> {
-    fn new(
-        network: N,
-        sync: S,
-        protocol_name: ProtocolName,
-        validator: Arc<AttestorGossipValidator<B>>,
-        prometheus_registry: Option<&Registry>,
-        msg_stream: UnboundedReceiver<Message<HashFor<B>>>,
-    ) -> Self {
-        let gossip_engine = Arc::new(Mutex::new(GossipEngine::new(
-            network.clone(),
-            sync.clone(),
-            protocol_name,
-            validator.clone(),
-            prometheus_registry,
-        )));
-        Self {
-            network,
-            sync,
-            gossip_engine,
-            validator,
-            msg_stream: Mutex::new(msg_stream),
-        }
-    }
+/// Attestor gadget network parameters.
+pub struct AttestorNetworkParams<B: BlockT, N, S> {
+    /// Network implementing gossip, requests and sync-oracle.
+    pub network: Arc<N>,
+    /// Syncing service implementing a sync oracle and an event stream for peers.
+    pub sync: Arc<S>,
+    /// Handle for receiving notification events.
+    // pub notification_service: Box<dyn NotificationService>,
+    /// Chain specific Attestor gossip protocol name. See
+    /// [`communication::attestor_protocol_name::gossip_protocol_name`].
+    pub gossip_protocol_name: ProtocolName,
+    /// Chain specific Attestor on-demand justifications protocol name. See
+    /// [`communication::attestor_protocol_name::justifications_protocol_name`].
+    pub justifications_protocol_name: ProtocolName,
+
+    pub _phantom: PhantomData<B>,
 }
 
-impl<B: BlockT, N: Network<B>, S: Syncing<B>> Future for Networking<B, N, S> {
-    type Output = Result<(), Error>;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.msg_stream.lock().poll_next_unpin(cx) {
-            Poll::Ready(Some(message)) => {
-                log::info!(target: "attestor-gossip", "Got message to gossip {:?}", message);
-                self.gossip_engine.lock().gossip_message(
-                    message.round_topic::<B>(),
-                    message.encode(),
-                    false,
-                );
-            }
-            Poll::Ready(None) => {}
-            Poll::Pending => {}
-        }
-
-        match self.gossip_engine.lock().poll_unpin(cx) {
-            Poll::Ready(()) => return Poll::Ready(Err(Error::GossipEngineExited)),
-            Poll::Pending => {}
-        }
-
-        Poll::Pending
-    }
+pub struct AttestorGossipParams<B: BlockT, BE, N, R, S> {
+    /// Attestor client
+    // pub client: Arc<C>,
+    /// Client Backend
+    pub backend: Arc<BE>,
+    /// Runtime Api Provider
+    pub runtime: Arc<R>,
+    /// Attestor voter network params
+    pub network_params: AttestorNetworkParams<B, N, S>,
+    /// Minimal delta between blocks, BEEFY should vote for
+    pub min_block_delta: u32,
+    /// Prometheus metric registry
+    pub prometheus_registry: Option<Registry>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("Gossip engine exited")]
-    GossipEngineExited,
-}
-
-fn networking<B, N, S>(
-    network: N,
-    sync: S,
-    protocol_name: ProtocolName,
-    prometheus_registry: Option<&Registry>,
-    msg_stream: UnboundedReceiver<Message<HashFor<B>>>,
-) -> Networking<B, N, S>
-where
-    B: BlockT<Hash = H256>,
-    N: Network<B>,
+pub fn start_attestor_gossip_gadget<B, BE, N, R, S>(
+    attestor_params: AttestorGossipParams<B, BE, N, R, S>,
+) where
+    B: BlockT,
+    BE: Backend<B>,
+    R: ProvideRuntimeApi<B> + Send + Sync + 'static,
+    R::Api: BabeApi<B>,
+    R::Api: BlockBackend<B>,
+    N: Network<B> + Send + Sync,
     S: Syncing<B>,
+    <<B as BlockT>::Header as HeaderT>::Number: From<sp_core::U256>,
+    H256: From<<B as BlockT>::Hash>,
+    <B as BlockT>::Hash: From<H256>,
 {
-    let validator = Arc::new(AttestorGossipValidator::new());
-    Networking::new(
+    let AttestorGossipParams {
+        // client,
+        backend,
+        runtime,
+        network_params,
+        min_block_delta,
+        prometheus_registry,
+    } = attestor_params;
+
+    let AttestorNetworkParams {
         network,
         sync,
-        protocol_name,
-        validator,
-        prometheus_registry,
-        msg_stream,
-    )
-}
+        // notification_service,
+        gossip_protocol_name,
+        justifications_protocol_name,
+        ..
+    } = network_params;
 
-pub type MessageSink<B> = UnboundedSender<Message<HashFor<B>>>;
+    let (gossip_validator, gossip_report_stream) = AttestorGossipValidator::<B>::new();
+    let validator: Arc<AttestorGossipValidator<B>> = Arc::new(gossip_validator);
+    let gossip_engine = GossipEngine::new(
+        network.clone(),
+        sync.clone(),
+        gossip_protocol_name.clone(),
+        validator.clone(),
+        None,
+    );
 
-pub fn start<B, N, S>(
-    network: N,
-    sync: S,
-    protocol_name: ProtocolName,
-    prometheus_registry: Option<&Registry>,
-) -> (impl Future<Output = ()>, MessageSink<B>)
-where
-    B: BlockT<Hash = H256>,
-    N: Network<B>,
-    S: Syncing<B>,
-{
-    let (msg_sender, msg_stream) = futures::channel::mpsc::unbounded();
-    (
-        networking(
-            network,
-            sync,
-            protocol_name,
-            prometheus_registry,
-            msg_stream,
-        )
-        .map(|res| {
-            if let Err(err) = res {
-                log::error!(target: "attestor-gossip", "Networking exited with error: {}", err);
-            }
-        }),
-        msg_sender,
-    )
+    let mut attestor_comms = AttestorComms {
+        gossip_engine,
+        gossip_validator: validator,
+        gossip_report_stream,
+    };
+
+    let worker: Worker<B, R> = Worker::new(attestor_comms, runtime.clone().into());
+
+    worker.start();
 }
 
 pub fn peers_set_config(protocol_name: ProtocolName) -> sc_network::config::NonDefaultSetConfig {
