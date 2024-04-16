@@ -7,6 +7,7 @@ import { commandSync } from 'execa';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
 import { ApiPromise, expectNoDispatchError, newApi } from '../lib';
+import { getChainStatus } from '../lib/chain/status';
 
 export const describeIf = (condition: boolean, name: string, fn: any) =>
     condition ? describe(name, fn) : describe.skip(name, fn);
@@ -48,26 +49,21 @@ export const extractFee = async (
     }
 };
 
-export const getCreditcoinBlockNumber = async (api: ApiPromise): Promise<number> => {
-    const response = await api.rpc.chain.getBlock();
-    return response.block.header.number.toNumber();
-};
-
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // wait until a certain amount of blocks have elapsed
 export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: number; maxRetries?: number }) => {
     const { maxRetries = 10, minBlocks = 2 } = opts ?? {};
-    const initialCreditcoinBlockNumber = await getCreditcoinBlockNumber(api);
+    const initialCreditcoinBlockNumber = (await getChainStatus(api)).bestNumber;
 
     let retriesCount = 0;
-    let creditcoinBlockNumber = await getCreditcoinBlockNumber(api);
+    let creditcoinBlockNumber = initialCreditcoinBlockNumber;
 
     // wait a min amount of blocks since the initial call to give time to any pending
     // transactions, e.g. test setup to make it into a block
     while (retriesCount < maxRetries && creditcoinBlockNumber <= initialCreditcoinBlockNumber + minBlocks) {
         await sleep(5000);
-        creditcoinBlockNumber = await getCreditcoinBlockNumber(api);
+        creditcoinBlockNumber = (await getChainStatus(api)).bestNumber;
         retriesCount++;
     }
 };
@@ -118,15 +114,10 @@ export async function expectIsFinalizing() {
     // the test suite and we don't yet have access to an API object :-(
     const api = (await newApi((global as any).CREDITCOIN_API_URL)).api;
 
-    const [lastBlockNumber, finalized] = await Promise.all([
-        getCreditcoinBlockNumber(api),
-        api.rpc.chain.getBlock(await api.rpc.chain.getFinalizedHead()),
-    ]);
-
-    const lastFinalizedNumber = finalized.block.header.number.toNumber();
+    const chainStatus = await getChainStatus(api);
 
     // tolerate at most 5 blocks difference
-    expect(lastBlockNumber - lastFinalizedNumber).toBeLessThanOrEqual(5);
+    expect(chainStatus.bestNumber - chainStatus.bestFinalizedNumber).toBeLessThanOrEqual(5);
 
     // disconnect b/c Alice will start reporting: Too many connections. Please try again later.
     // which causes the calling beforeEach() to timeout after the 8th .test.ts file is executed
