@@ -68,12 +68,10 @@ function extractTotals(
     return [mapped, total, isStalled];
 }
 
-export async function getValidatorStatus(address: string | undefined, api: ApiPromise) {
-    if (!address) {
+export async function getValidatorStatus(stash: string | undefined, api: ApiPromise) {
+    if (!stash) {
         return;
     }
-
-    const stash = address;
 
     // Get the staking information for the stash
     const [res, progress] = await Promise.all([api.derive.staking.account(stash), api.derive.session.progress()]);
