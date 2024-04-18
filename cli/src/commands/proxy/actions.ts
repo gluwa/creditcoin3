@@ -1,7 +1,7 @@
 import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { initKeyring } from '../../lib/account/keyring';
-import { signSendAndWatchCcKeyring, requireEnoughFundsToSend } from '../../lib/tx';
+import { signSendAndWatchCcKeyring, requireKeyringHasSufficientFunds } from '../../lib/tx';
 import { addressIsAlreadyProxy, addressIsProxy, filterProxiesByAddress, proxiesForAddress } from '../../lib/proxy';
 
 export async function setProxyAction(options: OptionValues) {
@@ -26,7 +26,7 @@ export async function setProxyAction(options: OptionValues) {
     }
 
     const call = api.tx.proxy.addProxy(proxyAddr, proxyType, 0);
-    await requireEnoughFundsToSend(call, callerAddress, api);
+    await requireKeyringHasSufficientFunds(call, callerKeyring, api);
     const result = await signSendAndWatchCcKeyring(call, api, callerKeyring);
 
     console.log(result);
@@ -82,7 +82,7 @@ export async function removeProxyAction(options: OptionValues) {
         const call = api.tx.proxy.removeProxy(proxy, type, delay);
 
         try {
-            await requireEnoughFundsToSend(call, callerAddress, api);
+            await requireKeyringHasSufficientFunds(call, callerKeyring, api);
             console.log(`Removing proxy ${proxy} with type ${type.toString()}`);
             const result = await signSendAndWatchCcKeyring(call, api, callerKeyring);
             console.log(result);
