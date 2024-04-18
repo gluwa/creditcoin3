@@ -1,7 +1,7 @@
 import { OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { initCallerKeyring } from '../../lib/account/keyring';
-import { signSendAndWatch, requireEnoughFundsToSend } from '../../lib/tx';
+import { initKeyring } from '../../lib/account/keyring';
+import { signSendAndWatchCcKeyring, requireEnoughFundsToSend } from '../../lib/tx';
 import { addressIsAlreadyProxy, addressIsProxy, filterProxiesByAddress, proxiesForAddress } from '../../lib/proxy';
 
 export async function setProxyAction(options: OptionValues) {
@@ -10,11 +10,13 @@ export async function setProxyAction(options: OptionValues) {
     const proxyType = options.type;
 
     const { api } = await newApi(url as string);
-    const callerKeyring = await initCallerKeyring(options);
+    const callerKeyring = await initKeyring(options);
+    // note: no proxy used here, access .pair.address directly
+    const callerAddress = callerKeyring.pair.address;
 
-    const existingProxiesForAddress = await proxiesForAddress(callerKeyring.address, api);
+    const existingProxiesForAddress = await proxiesForAddress(callerAddress, api);
     if (existingProxiesForAddress.length >= 1) {
-        console.error(`ERROR: There is already an existing proxy set for ${callerKeyring.address}`);
+        console.error(`ERROR: There is already an existing proxy set for ${callerAddress}`);
         process.exit(1);
     }
 
@@ -24,8 +26,8 @@ export async function setProxyAction(options: OptionValues) {
     }
 
     const call = api.tx.proxy.addProxy(proxyAddr, proxyType, 0);
-    await requireEnoughFundsToSend(call, callerKeyring.address, api);
-    const result = await signSendAndWatch(call, api, callerKeyring);
+    await requireEnoughFundsToSend(call, callerAddress, api);
+    const result = await signSendAndWatchCcKeyring(call, api, callerKeyring);
 
     console.log(result);
     process.exit(result.status);
@@ -33,15 +35,16 @@ export async function setProxyAction(options: OptionValues) {
 
 export async function viewProxyAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
-    const callerKeyring = await initCallerKeyring(options);
-    const callerAddress = callerKeyring.address;
+    const callerKeyring = await initKeyring(options);
+    // note: no proxy used here, access .pair.address directly
+    const callerAddress = callerKeyring.pair.address;
     const proxies = await proxiesForAddress(callerAddress, api);
 
     if (proxies.length === 0) {
         console.log(`No proxies for address ${callerAddress}`);
         process.exit(0);
     }
-    console.log(`Proxies for address ${callerKeyring.address}`);
+    console.log(`Proxies for address ${callerAddress}`);
     for (const p of proxies) {
         console.log(p.toString());
     }
@@ -51,9 +54,9 @@ export async function viewProxyAction(options: OptionValues) {
 export async function removeProxyAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    // force=true means we get back the keyring even though we enabled the --proxy flag
-    const callerKeyring = await initCallerKeyring(options);
-    const callerAddress = callerKeyring.address;
+    const callerKeyring = await initKeyring(options);
+    // note: no proxy used here, access .pair.address directly
+    const callerAddress = callerKeyring.pair.address;
 
     const proxies = await proxiesForAddress(callerAddress, api);
     if (proxies.length === 0) {
@@ -81,7 +84,7 @@ export async function removeProxyAction(options: OptionValues) {
         try {
             await requireEnoughFundsToSend(call, callerAddress, api);
             console.log(`Removing proxy ${proxy} with type ${type.toString()}`);
-            const result = await signSendAndWatch(call, api, callerKeyring);
+            const result = await signSendAndWatchCcKeyring(call, api, callerKeyring);
             console.log(result);
             success.push(p.toString());
         } catch (e) {
