@@ -106,12 +106,14 @@ export function canPay(balance: AccountBalance, amount: BN, existentialDeposit =
     return availableAfter.gte(existentialDeposit);
 }
 
-export async function requireEnoughFundsToSend(
+export async function requireKeyringHasSufficientFunds(
     tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
-    address: string,
+    keyring: CcKeyring,
     api: ApiPromise,
     amount = new BN(0),
 ) {
+    const address = delegateAddress(keyring);
+
     const balance = await getBalance(address, api);
     const txFee = await getTxFee(tx, address);
     const totalCost = amount.add(txFee);
@@ -124,16 +126,6 @@ export async function requireEnoughFundsToSend(
         );
         process.exit(1);
     }
-}
-
-export async function requireKeyringHasSufficientFunds(
-    tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
-    keyring: CcKeyring,
-    api: ApiPromise,
-    amount = new BN(0),
-) {
-    const address = delegateAddress(keyring);
-    return requireEnoughFundsToSend(tx, address, api, amount);
 }
 
 export async function signSendAndWatchCcKeyring(
