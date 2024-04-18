@@ -2,12 +2,12 @@ import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { chill } from '../../lib/staking/chill';
 import { initKeyring, delegateAddress } from '../../lib/account/keyring';
-import { useProxyOption } from '../options';
+import { proxyForOption } from '../options';
 
 export function makeChillCommand() {
     const cmd = new Command('chill');
     cmd.description('Signal intention to stop validating from a Controller account');
-    cmd.addOption(useProxyOption);
+    cmd.addOption(proxyForOption);
     cmd.action(chillAction);
     return cmd;
 }

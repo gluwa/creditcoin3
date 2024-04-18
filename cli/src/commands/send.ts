@@ -2,7 +2,7 @@ import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../lib/tx';
 import { initKeyring } from '../lib/account/keyring';
-import { amountOption, substrateAddressOption, useProxyOption } from './options';
+import { amountOption, substrateAddressOption, proxyForOption } from './options';
 import { filterProxiesByAddress, hasProxyType, proxiesForAddress } from '../lib/proxy';
 
 export function makeSendCommand() {
@@ -10,7 +10,7 @@ export function makeSendCommand() {
     cmd.description('Send CTC from an account');
     cmd.addOption(amountOption.makeOptionMandatory());
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.addOption(useProxyOption);
+    cmd.addOption(proxyForOption);
     cmd.action(sendAction);
     return cmd;
 }

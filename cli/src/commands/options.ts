@@ -109,7 +109,7 @@ export const mandatoryProxyOption = new Option(
 ).argParser(parseSubstrateAddress);
 mandatoryProxyOption.makeOptionMandatory();
 
-export const useProxyOption = new Option(
-    '--use-proxy [proxied-address]',
+export const proxyForOption = new Option(
+    '--proxy-for [substrate-address]',
     'Use proxy account for this call. Needs to specify the proxied Substrate address',
 ).argParser(parseSubstrateAddress);
