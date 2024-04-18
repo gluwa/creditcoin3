@@ -1,7 +1,9 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
+use std::marker::PhantomData;
 use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 
+use creditcoin3_attestor_gossip::AttestorGossipParams;
 use futures::{channel::mpsc, prelude::*};
 // Substrate
 use sc_client_api::{Backend, BlockBackend};
@@ -12,10 +14,12 @@ use sc_network_sync::warp::WarpSyncParams;
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
+use sc_utils::mpsc::tracing_unbounded;
 use sp_api::ConstructRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
+
 // Runtime
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
@@ -457,17 +461,28 @@ where
     let prometheus_registry = config.prometheus_registry().cloned();
     let client = client.clone();
 
-    let (attestor_gossip, attestor_gossip_msg_sink) =
-        creditcoin3_attestor_gossip::start::<Block, _, _>(
-            client,
-            network.clone(),
-            sync_service.clone(),
-            ATTESTOR_GOSSIP_NAME,
-            prometheus_registry.as_ref(),
-        );
+    let (attestor_gossip_msg_sink, msg_stream) =
+        tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
+
+    let attestor = creditcoin3_attestor_gossip::start_attestor_gossip_gadget::<_, _, _, _, _, _>(
+        AttestorGossipParams {
+            client: client.clone(),
+            backend: backend.clone(),
+            runtime: client.clone(),
+            network_params: creditcoin3_attestor_gossip::AttestorNetworkParams {
+                network: network.clone(),
+                sync: sync_service.clone(),
+                gossip_protocol_name: ATTESTOR_GOSSIP_NAME,
+                msg_stream,
+                phantom: PhantomData,
+            },
+            min_block_delta: 2,
+            prometheus_registry: prometheus_registry.clone(),
+        },
+    );
     task_manager
         .spawn_essential_handle()
-        .spawn_blocking("attestor-gossip", None, attestor_gossip);
+        .spawn_blocking("attestor-gossip", None, attestor);
 
     // Channel for the rpc handler to communicate with the authorship task.
     let (command_sink, commands_stream) = mpsc::channel(1000);

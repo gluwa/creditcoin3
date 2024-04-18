@@ -1,21 +1,19 @@
-use sc_client_api::{client::BlockBackend, Backend};
-use std::fmt::Debug;
-use std::{marker::PhantomData, sync::Arc};
-use thiserror::Error;
-use worker::Worker;
-
 use attestor_primitives::Felt;
 use parity_scale_codec::{Decode, Encode};
-use parking_lot::Mutex;
+use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
-use sc_network_gossip::GossipEngine;
+use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
 use sc_utils::mpsc::{TracingUnboundedReceiver, TracingUnboundedSender};
 use serde::{Deserialize, Serialize};
-use sp_api::{HeaderT, ProvideRuntimeApi};
+use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::{H256, U256};
 use sp_runtime::{traits::Block as BlockT, AccountId32};
+use std::fmt::Debug;
+use std::{marker::PhantomData, sync::Arc};
 use substrate_prometheus_endpoint::Registry;
+use thiserror::Error;
+use worker::Worker;
 
 pub mod validator;
 pub mod worker;
@@ -24,12 +22,13 @@ use validator::AttestorGossipValidator;
 
 pub type HashFor<B> = <B as BlockT>::Hash;
 
-pub type MessageSink<B> = TracingUnboundedSender<Message<HashFor<B>>>;
+pub type MessageSink<B> = TracingUnboundedSender<Message<B>>;
 
 pub(crate) struct AttestorComms<B: BlockT> {
     pub gossip_engine: GossipEngine<B>,
+    #[allow(dead_code)]
     pub gossip_validator: Arc<AttestorGossipValidator<B>>,
-    pub gossip_report_stream: TracingUnboundedReceiver<Message<HashFor<B>>>,
+    pub gossip_report_stream: TracingUnboundedReceiver<Message<B>>,
     // pub on_demand_justifications: OnDemandJustificationsEngine<B>,
 }
 
@@ -76,12 +75,9 @@ impl Topic {
 }
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Attestation<H>
-where
-    H: Serialize,
-{
+pub struct Attestation<B> {
     pub round: u64,
-    pub header_hash: H,
+    pub header_hash: B,
     pub header_number: u64,
     pub tx_root: Felt,
     pub rx_root: Felt,
@@ -98,20 +94,11 @@ pub struct VrfOutput {
 }
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Message<H>
-where
-    H: Serialize,
-{
-    Attestation(Attestation<H>),
+pub enum Message<B: BlockT> {
+    Attestation(Attestation<HashFor<B>>),
     // Could be more messages to drop / slash or ignore certain attestors
     // ...
 }
-
-pub trait Network<B: BlockT>: sc_network_gossip::Network<B> + Clone + Send + 'static {}
-impl<B: BlockT, N: sc_network_gossip::Network<B> + Clone + Send + 'static> Network<B> for N {}
-
-pub trait Syncing<B: BlockT>: sc_network_gossip::Syncing<B> + Clone + Send + 'static {}
-impl<B: BlockT, S: sc_network_gossip::Syncing<B> + Clone + Send + 'static> Syncing<B> for S {}
 
 pub struct BestKnown<H> {
     pub hash: H,
@@ -137,14 +124,17 @@ pub struct AttestorNetworkParams<B: BlockT, N, S> {
     pub gossip_protocol_name: ProtocolName,
     /// Chain specific Attestor on-demand justifications protocol name. See
     /// [`communication::attestor_protocol_name::justifications_protocol_name`].
-    pub justifications_protocol_name: ProtocolName,
+    // pub justifications_protocol_name: ProtocolName,
 
-    pub _phantom: PhantomData<B>,
+    /// External rpc message stream
+    pub msg_stream: TracingUnboundedReceiver<Message<B>>,
+
+    pub phantom: PhantomData<B>,
 }
 
-pub struct AttestorGossipParams<B: BlockT, BE, N, R, S> {
+pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S> {
     /// Attestor client
-    // pub client: Arc<C>,
+    pub client: Arc<C>,
     /// Client Backend
     pub backend: Arc<BE>,
     /// Runtime Api Provider
@@ -157,27 +147,25 @@ pub struct AttestorGossipParams<B: BlockT, BE, N, R, S> {
     pub prometheus_registry: Option<Registry>,
 }
 
-pub fn start_attestor_gossip_gadget<B, BE, N, R, S>(
-    attestor_params: AttestorGossipParams<B, BE, N, R, S>,
+pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S>(
+    attestor_params: AttestorGossipParams<B, BE, C, N, R, S>,
 ) where
     B: BlockT,
     BE: Backend<B>,
+    C: Client<B, BE> + BlockBackend<B>,
     R: ProvideRuntimeApi<B> + Send + Sync + 'static,
     R::Api: BabeApi<B>,
-    R::Api: BlockBackend<B>,
-    N: Network<B> + Send + Sync,
-    S: Syncing<B>,
-    <<B as BlockT>::Header as HeaderT>::Number: From<sp_core::U256>,
+    N: GossipNetwork<B> + Send + Sync + 'static,
+    S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
+    // H: std::hash::Hash + Serialize + Debug,
 {
     let AttestorGossipParams {
-        // client,
-        backend,
+        client,
         runtime,
         network_params,
-        min_block_delta,
-        prometheus_registry,
+        ..
     } = attestor_params;
 
     let AttestorNetworkParams {
@@ -185,11 +173,12 @@ pub fn start_attestor_gossip_gadget<B, BE, N, R, S>(
         sync,
         // notification_service,
         gossip_protocol_name,
-        justifications_protocol_name,
+        // justifications_protocol_name,
+        msg_stream,
         ..
     } = network_params;
 
-    let (gossip_validator, gossip_report_stream) = AttestorGossipValidator::<B>::new();
+    let gossip_validator = AttestorGossipValidator::<B>::new();
     let validator: Arc<AttestorGossipValidator<B>> = Arc::new(gossip_validator);
     let gossip_engine = GossipEngine::new(
         network.clone(),
@@ -199,15 +188,15 @@ pub fn start_attestor_gossip_gadget<B, BE, N, R, S>(
         None,
     );
 
-    let mut attestor_comms = AttestorComms {
+    let attestor_comms = AttestorComms {
         gossip_engine,
         gossip_validator: validator,
-        gossip_report_stream,
+        gossip_report_stream: msg_stream,
     };
 
-    let worker: Worker<B, R> = Worker::new(attestor_comms, runtime.clone().into());
+    let worker: Worker<B, R, BE, C> = Worker::new(attestor_comms, runtime.clone(), client.clone());
 
-    worker.start();
+    worker.start().await;
 }
 
 pub fn peers_set_config(protocol_name: ProtocolName) -> sc_network::config::NonDefaultSetConfig {
@@ -224,4 +213,32 @@ pub fn peers_set_config(protocol_name: ProtocolName) -> sc_network::config::NonD
             non_reserved_mode: sc_network::config::NonReservedPeerMode::Deny,
         },
     }
+}
+
+use sc_client_api::{BlockchainEvents, Finalizer, HeaderBackend};
+/// A convenience Attestor client trait that defines all the type bounds a Attestor client
+/// has to satisfy. Ideally that should actually be a trait alias. Unfortunately as
+/// of today, Rust does not allow a type alias to be used as a trait bound. Tracking
+/// issue is <https://github.com/rust-lang/rust/issues/41517>.
+pub trait Client<B, BE>:
+    BlockchainEvents<B> + HeaderBackend<B> + Finalizer<B, BE> + Send + Sync
+where
+    B: BlockT,
+    BE: Backend<B>,
+{
+    // empty
+}
+
+impl<B, BE, T> Client<B, BE> for T
+where
+    B: BlockT,
+    BE: Backend<B>,
+    T: BlockchainEvents<B>
+        + HeaderBackend<B>
+        + Finalizer<B, BE>
+        + ProvideRuntimeApi<B>
+        + Send
+        + Sync,
+{
+    // empty
 }

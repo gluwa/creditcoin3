@@ -3,10 +3,6 @@ use parity_scale_codec::Decode;
 use parity_scale_codec::Encode;
 use sc_network::PeerId;
 use sc_network_gossip::{ValidationResult, Validator, ValidatorContext};
-use sc_utils::mpsc::TracingUnboundedReceiver;
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
-use serde::Serialize;
-use sp_api::HeaderT;
 use sp_core::{Pair, H256};
 use sp_runtime::traits::{Block as BlockT, Hash};
 use std::marker::PhantomData;
@@ -20,7 +16,6 @@ where
     Block: BlockT,
 {
     _phantom: PhantomData<Block>,
-    report_sender: TracingUnboundedSender<Message<HashFor<Block>>>,
 }
 
 impl<B> AttestorGossipValidator<B>
@@ -28,16 +23,10 @@ where
     B: BlockT,
     H256: From<<B as BlockT>::Hash>,
 {
-    pub fn new() -> (Self, TracingUnboundedReceiver<Message<HashFor<B>>>) {
-        let (tx, rx) = tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
-
-        (
-            Self {
-                _phantom: Default::default(),
-                report_sender: tx,
-            },
-            rx,
-        )
+    pub fn new() -> Self {
+        Self {
+            _phantom: Default::default(),
+        }
     }
 
     pub fn validate_attestation(
@@ -80,7 +69,6 @@ where
 impl<Block> Validator<Block> for AttestorGossipValidator<Block>
 where
     Block: BlockT,
-    <<Block as BlockT>::Header as HeaderT>::Number: From<sp_core::U256>,
     H256: From<<Block as BlockT>::Hash>,
 {
     fn validate(
@@ -89,7 +77,7 @@ where
         sender: &PeerId,
         data: &[u8],
     ) -> ValidationResult<Block::Hash> {
-        let action = match Message::<Block::Hash>::decode(&mut &data[..]) {
+        let action = match Message::<Block>::decode(&mut &data[..]) {
             Ok(Message::Attestation(att)) => {
                 log::info!(target: "attestor-gossip", "Received attestation: {:?}", att);
                 match self.validate_attestation(&att, sender) {
@@ -120,15 +108,17 @@ where
 // TODO, what is this
 use super::{Round, Topic};
 
-impl<H: Serialize> Message<H> {
-    pub fn round_topic<B: BlockT>(&self) -> H
-    where
-        H: From<<B as BlockT>::Hash> + Serialize,
-    {
-        let (round, topic) = match self {
-            Message::Attestation(Attestation { round, topic, .. }) => (round, topic),
-        };
-        round_topic::<B>(*round, topic.clone()).into()
+impl<B> Message<B>
+where
+    B: BlockT,
+{
+    pub fn round_topic<Block: BlockT>(&self) -> B::Hash {
+        match self {
+            Message::Attestation(attestation) => {
+                let (round, topic) = (attestation.round, attestation.topic.clone());
+                round_topic::<B>(round, topic).into()
+            }
+        }
     }
 }
 
