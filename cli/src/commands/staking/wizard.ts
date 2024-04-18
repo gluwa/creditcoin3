@@ -5,7 +5,7 @@ import { StakingPalletValidatorPrefs } from '../../lib/staking/validate';
 import { TxStatus, requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { percentFromPerbill } from '../../lib/perbill';
 import { CcKeyring, initKeyring, isProxy, delegateAddress } from '../../lib/account/keyring';
-import { AccountBalance, getBalance, parseCTCString, printBalance, toCTCString } from '../../lib/balance';
+import { AccountBalance, getBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
 import { amountOption, proxyForOption } from '../options';
 import { isProxyFor } from '../../lib/proxy';
@@ -64,26 +64,11 @@ export function makeWizardCommand() {
         // Prompt continue
         await promptContinue(interactive);
 
-        // Balance checks
-        const grosslyEstimatedFee = parseCTCString('2');
-        let balance;
-
         if (isProxy(keyring)) {
-            // Check proxy balance for fee
             await checkIfProxyIsValidOrExit(keyring.pair.address, address, api);
-            const proxyBalance = await getBalance(keyring.pair.address, api);
-            checkStashBalance(keyring.pair.address, proxyBalance, grosslyEstimatedFee);
-            // Check stash balance for bond amount
-            const stashBalance = await getBalance(address, api);
-            checkStashBalance(address, stashBalance, amount);
-            balance = stashBalance;
-        } else {
-            // Check stash balance for both fee and bond amount
-            const stashBalance = await getBalance(address, api);
-            const amountWithFee = amount.add(grosslyEstimatedFee);
-            checkStashBalance(address, stashBalance, amountWithFee);
-            balance = stashBalance;
         }
+
+        const balance = await getBalance(address, api);
 
         // Bond CTC
         if (bondStep) {
@@ -122,15 +107,6 @@ export function makeWizardCommand() {
         process.exit(batchResult.status);
     });
     return cmd;
-}
-
-function checkStashBalance(address: string, balance: AccountBalance, amount: BN) {
-    if (balance.transferable.lt(amount)) {
-        console.log(`Account does not have enough funds, it requires ${toCTCString(amount)}`);
-        printBalance(balance);
-        console.log(`Please send funds to address ${address} and try again.`);
-        process.exit(1);
-    }
 }
 
 function checkIfAlreadyBonded(balance: AccountBalance) {
