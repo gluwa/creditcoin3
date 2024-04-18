@@ -155,7 +155,7 @@ export async function requireKeyringHasSufficientFunds(
             console.error(
                 `Caller ${proxyAddress} has insufficient funds to send the transaction (requires ${toCTCString(
                     txFee,
-                )}); transaction cancelled.`,
+                )}, only ${toCTCString(proxyBalance.transferable)} available); transaction cancelled.`,
             );
             process.exit(1);
         }
@@ -171,7 +171,7 @@ export async function requireKeyringHasSufficientFunds(
         console.error(
             `Caller ${address} has insufficient funds to send the transaction (requires ${toCTCString(
                 totalCost,
-            )}); transaction cancelled.`,
+            )}, only ${toCTCString(balance.transferable)} available); transaction cancelled.`,
         );
         process.exit(1);
     }

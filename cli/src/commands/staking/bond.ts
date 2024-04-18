@@ -1,11 +1,11 @@
 import { Command, OptionValues } from 'commander';
-import { ApiPromise, BN, newApi } from '../../lib';
+import { BN, newApi } from '../../lib';
 import { bond, parseRewardDestination } from '../../lib/staking';
 import { promptContinue, setInteractivity } from '../../lib/interactive';
-import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/balance';
+import { toCTCString, checkAmount } from '../../lib/balance';
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
-import { initKeyring, delegateAddress } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { amountOption, proxyForOption } from '../options';
 
 export function makeBondCommand() {
@@ -28,10 +28,6 @@ async function bondAction(options: OptionValues) {
     const { amount, rewardDestination, extra, interactive } = parseOptions(options);
 
     const callerKeyring = await initKeyring(options);
-    const callerAddress = delegateAddress(callerKeyring);
-
-    // Check if caller has enough balance, caller may be a proxy account
-    await checkBalance(amount, api, callerAddress);
 
     console.log('Creating bond transaction...');
     console.log('Reward destination:', rewardDestination);
@@ -46,20 +42,6 @@ async function bondAction(options: OptionValues) {
 
     console.log(bondTxResult.info);
     process.exit(bondTxResult.status);
-}
-
-async function checkBalance(amount: BN, api: ApiPromise, address: string) {
-    const balance = await getBalance(address, api);
-    checkBalanceAgainstBondAmount(balance, amount);
-}
-
-function checkBalanceAgainstBondAmount(balance: AccountBalance, amount: BN) {
-    if (balance.transferable.lt(amount)) {
-        console.error(
-            `Insufficient funds to bond ${toCTCString(amount)}, only ${toCTCString(balance.transferable)} available`,
-        );
-        process.exit(1);
-    }
 }
 
 function parseOptions(options: OptionValues) {
