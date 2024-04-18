@@ -1,7 +1,7 @@
 import { ApiPromise } from '@polkadot/api';
 import { BN, mnemonicGenerate, newApi } from '../../lib';
-import { initKeyringPair } from '../../lib/account/keyring';
-import { signSendAndWatch } from '../../lib/tx';
+import { initKeyringPair, CallerKeyring } from '../../lib/account/keyring';
+import { signSendAndWatchCcKeyring } from '../../lib/tx';
 import { commandSync } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
@@ -17,7 +17,8 @@ export async function fundFromSudo(address: string, amount: BN, url = ALICE_NODE
     const { api } = await newApi(url);
     const call = api.tx.balances.forceSetBalance(address, amount.toString());
     const tx = api.tx.sudo.sudo(call);
-    return signSendAndWatch(tx, api, initAliceKeyring());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: initAliceKeyring() };
+    return signSendAndWatchCcKeyring(tx, api, sudoKeyring);
 }
 
 export async function fundAddressesFromSudo(addresses: string[], amount: BN, url = ALICE_NODE_URL) {
@@ -46,7 +47,8 @@ export async function waitEras(eras: number, api: ApiPromise) {
 export async function forceNewEra(api: ApiPromise) {
     const tx = api.tx.staking.forceNewEraAlways();
     const sudoTx = api.tx.sudo.sudo(tx);
-    await signSendAndWatch(sudoTx, api, initAliceKeyring());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: initAliceKeyring() };
+    await signSendAndWatchCcKeyring(sudoTx, api, sudoKeyring);
 }
 
 export function randomTestAccount(secret = '') {
@@ -66,14 +68,20 @@ export function initAliceKeyring() {
 export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPair, amount: BN = parseAmount('1000')) {
     const account = randomTestAccount();
     const fundTx = await fundAddressesFromSudo([account.address], amount);
-    await signSendAndWatch(fundTx, api, sudoSigner);
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    await signSendAndWatchCcKeyring(fundTx, api, sudoKeyring);
     return account;
 }
 
 export async function increaseValidatorCount(api: ApiPromise, sudoSigner: KeyringPair, additional = 3) {
     const oldCount = (await api.query.staking.validatorCount()).toNumber();
 
-    await signSendAndWatch(api.tx.sudo.sudo(api.tx.staking.increaseValidatorCount(additional)), api, sudoSigner);
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    await signSendAndWatchCcKeyring(
+        api.tx.sudo.sudo(api.tx.staking.increaseValidatorCount(additional)),
+        api,
+        sudoKeyring,
+    );
 
     const newCount = (await api.query.staking.validatorCount()).toNumber();
     expect(newCount).toEqual(oldCount + additional);
@@ -134,5 +142,6 @@ export function tearDownProxy(cli: any, proxy: any) {
 }
 
 export async function setMinBondConfig(api: ApiPromise, value: number) {
-    await setStakingConfig(initAliceKeyring(), api, null, value, null, null, null, null);
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: initAliceKeyring() };
+    await setStakingConfig(sudoKeyring, api, null, value, null, null, null, null);
 }

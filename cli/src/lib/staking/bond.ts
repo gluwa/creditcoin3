@@ -1,7 +1,7 @@
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { ISubmittableResult } from '@polkadot/types/types';
-import { ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '..';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring, signSendAndWatch } from '../tx';
+import { ApiPromise, BN, MICROUNITS_PER_CTC } from '..';
+import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../tx';
 import { CcKeyring } from '../account/keyring';
 
 export type RewardDestination = 'Staked' | 'Stash';
@@ -57,7 +57,7 @@ export function parseRewardDestination(rewardDestinationRaw: string): RewardDest
 }
 
 export async function setStakingConfig(
-    callerKeyring: KeyringPair,
+    callerKeyring: CcKeyring,
     api: ApiPromise,
     minNomitatorBond: any,
     minValidatorBond: any,
@@ -76,7 +76,7 @@ export async function setStakingConfig(
     );
 
     const sudoTx = api.tx.sudo.sudo(configTx);
-    await signSendAndWatch(sudoTx, api, callerKeyring);
+    await signSendAndWatchCcKeyring(sudoTx, api, callerKeyring);
 }
 
 function setStakingConfigOp(op: any): any {
