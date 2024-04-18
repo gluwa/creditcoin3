@@ -6,7 +6,7 @@ import { AccountBalance, getBalance, toCTCString, checkAmount } from '../../lib/
 
 import { inputOrDefault, parseBoolean, parseChoiceOrExit } from '../../lib/parsing';
 import { initKeyring, delegateAddress } from '../../lib/account/keyring';
-import { amountOption, useProxyOption } from '../options';
+import { amountOption, proxyForOption } from '../options';
 
 export function makeBondCommand() {
     const cmd = new Command('bond');
@@ -17,7 +17,7 @@ export function makeBondCommand() {
         'Specify reward destination account to use for new account',
     );
     cmd.option('-x, --extra', 'Bond as extra, adding more funds to an existing bond');
-    cmd.addOption(useProxyOption);
+    cmd.addOption(proxyForOption);
     cmd.action(bondAction);
     return cmd;
 }

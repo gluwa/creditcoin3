@@ -2,12 +2,12 @@ import { Command, OptionValues } from 'commander';
 import { getValidatorStatus, newApi, requireStatus } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring, delegateAddress } from '../../lib/account/keyring';
-import { useProxyOption } from '../options';
+import { proxyForOption } from '../options';
 
 export function makeWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded');
     cmd.description('Withdraw unbonded funds from a stash account');
-    cmd.addOption(useProxyOption);
+    cmd.addOption(proxyForOption);
     cmd.action(withdrawUnbondedAction);
     return cmd;
 }
