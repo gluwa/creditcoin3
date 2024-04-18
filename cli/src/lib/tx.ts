@@ -5,7 +5,8 @@ import { AccountBalance, getBalance, toCTCString } from './balance';
 import { ApiPromise, BN, KeyringPair } from '.';
 import { CcKeyring, delegateAddress } from './account/keyring';
 
-export async function signSendAndWatch(
+// WARNING: this function should not be used directly, use signSendAndWatchCcKeyring() instead!
+async function internalSignSendAndWatch(
     tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
     api: ApiPromise,
     signer: KeyringPair,
@@ -81,6 +82,26 @@ export async function signSendAndWatch(
     });
 }
 
+export async function signSendAndWatchCcKeyring(
+    tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
+    api: ApiPromise,
+    keyring: CcKeyring,
+) {
+    switch (keyring.type) {
+        case 'caller':
+            return await internalSignSendAndWatch(tx, api, keyring.pair);
+        case 'proxy': {
+            const proxyTx = api.tx.proxy.proxy(keyring.proxiedAddress, null, tx.method);
+            return await internalSignSendAndWatch(proxyTx, api, keyring.pair);
+        }
+        default:
+            const assertExhaustive = (_t: never) => {
+                throw new Error(`Invalid keyring type`);
+            };
+            return assertExhaustive(keyring);
+    }
+}
+
 // eslint-disable-next-line no-shadow
 export enum TxStatus {
     ok,
@@ -125,25 +146,5 @@ export async function requireKeyringHasSufficientFunds(
             )}); transaction cancelled.`,
         );
         process.exit(1);
-    }
-}
-
-export async function signSendAndWatchCcKeyring(
-    tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
-    api: ApiPromise,
-    keyring: CcKeyring,
-) {
-    switch (keyring.type) {
-        case 'caller':
-            return await signSendAndWatch(tx, api, keyring.pair);
-        case 'proxy': {
-            const proxyTx = api.tx.proxy.proxy(keyring.proxiedAddress, null, tx.method);
-            return await signSendAndWatch(proxyTx, api, keyring.pair);
-        }
-        default:
-            const assertExhaustive = (_t: never) => {
-                throw new Error(`Invalid keyring type`);
-            };
-            return assertExhaustive(keyring);
     }
 }
