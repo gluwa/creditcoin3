@@ -3,7 +3,7 @@ import { ISubmittableResult } from '@polkadot/types/types';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { AccountBalance, getBalance, toCTCString } from './balance';
 import { ApiPromise, BN, KeyringPair } from '.';
-import { CcKeyring, delegateAddress } from './account/keyring';
+import { CcKeyring, ProxyKeyring, delegateAddress, isProxy } from './account/keyring';
 
 // WARNING: this function should not be used directly, use signSendAndWatchCcKeyring() instead!
 async function internalSignSendAndWatch(
@@ -82,6 +82,10 @@ async function internalSignSendAndWatch(
     });
 }
 
+function proxyTx(tx: SubmittableExtrinsic<'promise', ISubmittableResult>, api: ApiPromise, keyring: ProxyKeyring) {
+    return api.tx.proxy.proxy(keyring.proxiedAddress, null, tx.method);
+}
+
 export async function signSendAndWatchCcKeyring(
     tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
     api: ApiPromise,
@@ -91,8 +95,8 @@ export async function signSendAndWatchCcKeyring(
         case 'caller':
             return await internalSignSendAndWatch(tx, api, keyring.pair);
         case 'proxy': {
-            const proxyTx = api.tx.proxy.proxy(keyring.proxiedAddress, null, tx.method);
-            return await internalSignSendAndWatch(proxyTx, api, keyring.pair);
+            const wrappedTx = proxyTx(tx, api, keyring);
+            return await internalSignSendAndWatch(wrappedTx, api, keyring.pair);
         }
         default:
             const assertExhaustive = (_t: never) => {
@@ -134,10 +138,34 @@ export async function requireKeyringHasSufficientFunds(
     amount = new BN(0),
 ) {
     const address = delegateAddress(keyring);
+    let totalCost = amount;
+
+    // proxy inly pays transaction fees
+    if (isProxy(keyring)) {
+        const proxyAddress = keyring.pair.address;
+        // construct the proxy transaction call in order to calculate fees more accurately
+        const wrappedTx = proxyTx(tx, api, keyring as ProxyKeyring);
+
+        const [proxyBalance, txFee] = await Promise.all([
+            getBalance(proxyAddress, api),
+            getTxFee(wrappedTx, proxyAddress),
+        ]);
+
+        if (!canPay(proxyBalance, txFee)) {
+            console.error(
+                `Caller ${proxyAddress} has insufficient funds to send the transaction (requires ${toCTCString(
+                    txFee,
+                )}); transaction cancelled.`,
+            );
+            process.exit(1);
+        }
+    } else {
+        // when not using proxy caller needs amount + txFee
+        const txFee = await getTxFee(tx, address);
+        totalCost = amount.add(txFee);
+    }
 
     const balance = await getBalance(address, api);
-    const txFee = await getTxFee(tx, address);
-    const totalCost = amount.add(txFee);
 
     if (!canPay(balance, totalCost)) {
         console.error(
