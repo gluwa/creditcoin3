@@ -1,6 +1,6 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { Command, OptionValues } from 'commander';
-import { initCallerKeyring } from '../lib/account/keyring';
+import { initKeyring } from '../lib/account/keyring';
 import { substrateAddressToEvmAddress } from '../lib/evm/address';
 
 export function makeShowAddressCommand() {
@@ -13,11 +13,11 @@ export function makeShowAddressCommand() {
 async function showAddressAction(options: OptionValues) {
     await cryptoWaitReady();
 
-    const caller = await initCallerKeyring(options);
+    const caller = await initKeyring(options);
+    // note: no proxy used here, access .pair.address directly
+    const evmAddress = substrateAddressToEvmAddress(caller.pair.address);
 
-    const evmAddress = substrateAddressToEvmAddress(caller.address);
-
-    console.log('Account Substrate address:', caller.address);
+    console.log('Account Substrate address:', caller.pair.address);
     console.log('Associated EVM address:', evmAddress);
 
     process.exit(0);
