@@ -1,6 +1,7 @@
-import { signSendAndWatch } from '../../lib/tx';
+import { signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
 import { ApiPromise, KeyringPair, newApi } from '../../lib';
+import { CallerKeyring } from '../../lib/account/keyring';
 import { randomEvmAccount } from './evmHelpers';
 import { getEVMBalanceOf } from '../../lib/evm/balance';
 import { convertWsToHttp } from '../../lib/evm/rpc';
@@ -64,7 +65,8 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
                 // Fund associated EVM address
                 const evmFundTX = api.tx.balances.forceSetBalance({ Address20: evmAddress }, parseAmount('100'));
                 const evmFundSudoTX = api.tx.sudo.sudo(evmFundTX);
-                await signSendAndWatch(evmFundSudoTX, api, initAliceKeyring());
+                const sudoKeyring: CallerKeyring = { type: 'caller', pair: initAliceKeyring() };
+                await signSendAndWatchCcKeyring(evmFundSudoTX, api, sudoKeyring);
 
                 // Check that the EVM account has a balance
                 const evmBalance = await getEVMBalanceOf(evmAddress, convertWsToHttp(ALICE_NODE_URL));
