@@ -8,13 +8,13 @@ import { promptContinue, setInteractivity } from '../../lib/interactive';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { getValidatorStatus, requireStatus } from '../../lib/staking';
 import { initKeyring, delegateAddress } from '../../lib/account/keyring';
-import { amountOption, useProxyOption } from '../options';
+import { amountOption, proxyForOption } from '../options';
 
 export function makeUnbondCommand() {
     const cmd = new Command('unbond');
     cmd.description('Schedule a bonded CTC to be unlocked');
     cmd.addOption(amountOption.makeOptionMandatory());
-    cmd.addOption(useProxyOption);
+    cmd.addOption(proxyForOption);
     cmd.action(unbondAction);
     return cmd;
 }

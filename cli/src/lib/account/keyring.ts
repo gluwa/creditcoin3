@@ -101,9 +101,9 @@ export type CcKeyring = ProxyKeyring | CallerKeyring;
 
 export async function initKeyring(options: OptionValues): Promise<CcKeyring> {
     try {
-        if (options.useProxy) {
+        if (options.proxyFor) {
             const proxy = await initKeyringFromEnvOrPrompt('CC_PROXY_SECRET', 'proxy', options);
-            return { type: 'proxy', pair: proxy, proxiedAddress: options.useProxy };
+            return { type: 'proxy', pair: proxy, proxiedAddress: options.proxyFor };
         }
         const caller = await initKeyringFromEnvOrPrompt('CC_SECRET', 'caller', options);
         return { type: 'caller', pair: caller };
