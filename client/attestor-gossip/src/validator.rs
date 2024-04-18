@@ -7,7 +7,7 @@ use sp_core::{Pair, H256};
 use sp_runtime::traits::{Block as BlockT, Hash};
 use std::marker::PhantomData;
 
-use crate::HashFor;
+use crate::{worker::votes_topic, HashFor};
 
 use super::{Action, Attestation, Error, Message};
 
@@ -34,7 +34,6 @@ where
         attestation: &Attestation<HashFor<B>>,
         _sender: &PeerId,
     ) -> Result<Action<B::Hash>, Error> {
-        let round = attestation.round;
         let valid_sig = self.verify_signature(attestation);
         if !valid_sig {
             log::info!(target: "attestor-gossip", "Attestation signature is invalid");
@@ -42,10 +41,7 @@ where
         };
 
         log::info!(target: "attestor-gossip", "Attestation signature is valid");
-        Ok(Action::Keep(round_topic::<B>(
-            round,
-            attestation.topic.clone(),
-        )))
+        Ok(Action::Keep(votes_topic::<B>()))
     }
 
     // Check it the signature is valid given the header number and header hash from the attestation for now.

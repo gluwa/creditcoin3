@@ -93,7 +93,7 @@ impl<'a> Client {
         // current block - (epoch duration in block * 2)
         let block_to_query = current_block_number
             .checked_sub((epoch_duration * 2) as u32)
-            .unwrap_or_default();
+            .unwrap_or(1);
 
         let block_hash_to_query = api
             .storage()

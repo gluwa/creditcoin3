@@ -122,13 +122,8 @@ pub struct AttestorNetworkParams<B: BlockT, N, S> {
     /// Chain specific Attestor gossip protocol name. See
     /// [`communication::attestor_protocol_name::gossip_protocol_name`].
     pub gossip_protocol_name: ProtocolName,
-    /// Chain specific Attestor on-demand justifications protocol name. See
-    /// [`communication::attestor_protocol_name::justifications_protocol_name`].
-    // pub justifications_protocol_name: ProtocolName,
-
     /// External rpc message stream
     pub msg_stream: TracingUnboundedReceiver<Message<B>>,
-
     pub phantom: PhantomData<B>,
 }
 
@@ -159,7 +154,6 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S>(
     S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
-    // H: std::hash::Hash + Serialize + Debug,
 {
     let AttestorGossipParams {
         client,

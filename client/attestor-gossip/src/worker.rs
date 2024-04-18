@@ -136,12 +136,6 @@ where
         match message {
             Message::Attestation(attestation) => {
                 self.verify_vrf(attestation)?;
-
-                let topic = votes_topic::<B>();
-
-                self.comms
-                    .gossip_engine
-                    .gossip_message(topic, message.encode(), false);
             }
         }
 
