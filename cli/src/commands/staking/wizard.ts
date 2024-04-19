@@ -48,7 +48,6 @@ export function makeWizardCommand() {
         console.log(`💰 Stash account: ${address}`);
 
         if (isProxy(keyring)) {
-            console.log(`⚠️ Using a proxy account! Stash should be bonded in advance!`);
             console.log(`🤐 Proxy account: ${keyring.pair.address}`);
         }
         if (bondStep && amount) {
