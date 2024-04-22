@@ -8,7 +8,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "3.24.1"
+version = "3.25.1"
 authors = ["Gluwa Inc. Developer Support <support.dev@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"

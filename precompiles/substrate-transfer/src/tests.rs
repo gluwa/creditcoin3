@@ -3,9 +3,9 @@ use crate::mock::{
     *,
 };
 
-use std::str::from_utf8;
 use precompile_utils::testing::*;
 use sp_core::{H160, H256};
+use std::str::from_utf8;
 
 // No test of invalid selectors since we have a fallback behavior (deposit).
 fn precompiles() -> Precompiles<Runtime> {
@@ -64,7 +64,9 @@ fn transfer_insufficient_balance() {
                     from_utf8(&output)
                         .unwrap()
                         .contains("Dispatched call failed with error: ")
-                        && from_utf8(&output).unwrap().contains("Arithmetic(Underflow)")
+                        && from_utf8(&output)
+                            .unwrap()
+                            .contains("Arithmetic(Underflow)")
                 });
 
             let bob: Account = bob_account.0.into();
