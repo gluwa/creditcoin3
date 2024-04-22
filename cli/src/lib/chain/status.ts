@@ -1,5 +1,4 @@
 import { ApiPromise } from '@polkadot/api';
-import Table from 'cli-table3';
 
 interface ChainStatus {
     name: string;
@@ -9,44 +8,39 @@ interface ChainStatus {
 }
 
 export async function getChainStatus(api: ApiPromise): Promise<ChainStatus> {
-    const bestNumber = await api.derive.chain.bestNumber();
-    const bestFinalizedNumber = await api.derive.chain.bestNumberFinalized();
-    const eraInfo = await getEraInfo(api);
+    const [bestBlock, bestFinalized, eraInfo] = await Promise.all([
+        api.rpc.chain.getBlock(),
+        api.rpc.chain.getBlock(await api.rpc.chain.getFinalizedHead()),
+        getEraInfo(api),
+    ]);
+
     return {
         name: api.runtimeVersion.specName.toString(),
-        bestNumber: bestNumber.toNumber(),
-        bestFinalizedNumber: bestFinalizedNumber.toNumber(),
+        bestNumber: bestBlock.block.header.number.toNumber(),
+        bestFinalizedNumber: bestFinalized.block.header.number.toNumber(),
         eraInfo,
     };
 }
 
 interface EraInfo {
-    era: number;
+    /// The active era is the era being currently rewarded. Validator set of this era must be
+    /// equal to [`SessionInterface::validators`].
+    activeEra: number;
+    /// This is the latest planned era, depending on how the Session pallet queues the validator
+    /// set, it might be active or not.
+    currentEra: number;
+    /// ^^^ NOTE: the name currentEra is misleading b/c the current one is the active one!
     currentSession: number;
     sessionsPerEra: number;
 }
 
 async function getEraInfo(api: ApiPromise): Promise<EraInfo> {
-    const session = await api.derive.session.info();
+    const [session, currentEra] = await Promise.all([api.derive.session.info(), api.query.staking.currentEra()]);
+
     return {
-        era: session.activeEra.toNumber(),
+        activeEra: session.activeEra.toNumber(),
+        currentEra: Number(currentEra),
         currentSession: (session.currentIndex.toNumber() % session.sessionsPerEra.toNumber()) + 1,
         sessionsPerEra: session.sessionsPerEra.toNumber(),
     };
-}
-
-export function printChainStatus(status: ChainStatus) {
-    const { eraInfo } = status;
-    const table = new Table({
-        head: [status.name],
-    });
-
-    table.push(
-        ['Best Block', status.bestNumber],
-        ['Best Finalized Block', status.bestFinalizedNumber],
-        ['Era', eraInfo.era],
-        ['Session', `${eraInfo.currentSession}/${eraInfo.sessionsPerEra}`],
-    );
-    console.log('Chain status:');
-    console.log(table.toString());
 }
