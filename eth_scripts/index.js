@@ -46,7 +46,7 @@ const contractABI = [
 const source = "0x5D098dA732b72b6c98a184F7538A2dCB5D13962C";
 
 // Specify the address of the deployed contract
-const contractAddress = "0x0000000000000000000000000000000000000801"; // Replace this with your contract address
+const contractAddress = "0x0000000000000000000000000000000000000fd1"; // Replace this with your contract address
 
 // Specify your private key for authentication
 // const privateKey = '8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b'; // Replace this with your private key
@@ -77,7 +77,7 @@ async function callContract() {
     // const toAddress = "5EZzUWruaxVgcV38FWuBZ59SFiP3mgsyuQvoDgk83SBAxbSe";
 
     // Alice
-    const toAddress = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+    // const toAddress = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
     const toPubkey =
       "0xf457bb0e786485e6ac1e63fc0fa511a0f72d319e3dc57a65da699d87cfe3284e";
     console.log(`bytes ${hexToU8a(toPubkey)}`);
@@ -90,8 +90,7 @@ async function callContract() {
     // Call the transfer function on the contract
     const amount = ethers.parseEther("10.0");
 
-    let options = { value: amount };
-    const result = await contract.transfer_substrate(toPubkey, amount, options);
+    const result = await contract.transfer_substrate(toPubkey, amount);
     console.log("Transaction result:", result);
     const r = await result.wait();
     console.log(r);
