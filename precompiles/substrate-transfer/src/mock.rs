@@ -1,6 +1,6 @@
 use super::*;
 
-use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
+use frame_support::{construct_runtime, DefaultNoBound, parameter_types, traits::Everything, weights::Weight};
 use pallet_evm::{EnsureAddressNever, EnsureAddressRoot, IdentityAddressMapping};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
@@ -222,15 +222,10 @@ construct_runtime!(
     }
 );
 
+#[derive(Default)]
 pub(crate) struct ExtBuilder {
     // endowed accounts with balances
     balances: Vec<(AccountId, Balance)>,
-}
-
-impl Default for ExtBuilder {
-    fn default() -> ExtBuilder {
-        ExtBuilder { balances: vec![] }
-    }
 }
 
 impl ExtBuilder {

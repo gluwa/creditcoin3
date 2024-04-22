@@ -61,10 +61,10 @@ fn transfer_insufficient_balance() {
                     },
                 )
                 .execute_reverts(|output| {
-                    from_utf8(&output)
+                    from_utf8(output)
                         .unwrap()
                         .contains("Dispatched call failed with error: ")
-                        && from_utf8(&output)
+                        && from_utf8(output)
                             .unwrap()
                             .contains("Arithmetic(Underflow)")
                 });
