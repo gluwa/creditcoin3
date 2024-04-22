@@ -5,7 +5,6 @@ import { BN } from '..';
 import { readAmount, toCTCString } from '../balance';
 import { getChainStatus } from '../chain/status';
 import Table from 'cli-table3';
-import { PalletStakingUnlockChunk } from '@polkadot/types/lookup';
 
 import type { DeriveSessionProgress, DeriveStakingAccount } from '@polkadot/api-derive/types';
 import { BN_ONE, BN_ZERO } from '@polkadot/util';
@@ -90,24 +89,8 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
     // Get the total staked amount
     const totalStaked = readAmount(res.stakingLedger.total.toString());
     const bonded = totalStaked.gt(new BN(0));
-
-    // Get information about any unbonding tokens and unlocked chunks
-    const currentEra = (await api.query.staking.currentEra()).unwrap();
-    const redeemable = res.redeemable ? res.redeemable : new BN(0);
-
-    // Get the unlocked chunks that are ready for withdrawal
-    // by comparing the era of each chunk to the current era
-    const readyForWithdraw = res.stakingLedger.unlocking
-        .map((u: PalletStakingUnlockChunk) => {
-            const chunk: UnlockChunk = {
-                era: u.era.toNumber(),
-                value: u.value.toBn(),
-            };
-            return chunk;
-        })
-        .filter((u: UnlockChunk) => u.era <= currentEra.toNumber());
-
-    const canWithdraw = readyForWithdraw.length > 0;
+    const readyForWithdraw = res.redeemable ? res.redeemable : new BN(0);
+    const canWithdraw = readyForWithdraw > new BN(0);
 
     // Get lists of all validators, active validators, and waiting validators
     const validatorEntries = await api.query.staking.validators
@@ -137,7 +120,6 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
         canWithdraw,
         readyForWithdraw,
         nextUnlocking,
-        redeemable,
     };
 
     return validatorStatus;
@@ -162,9 +144,7 @@ export async function validatorStatusTable(status: Status | undefined, api: ApiP
     table.push(['Active', status.active ? 'Yes' : 'No']);
     table.push(['Can withdraw', status.canWithdraw ? 'Yes' : 'No']);
     if (status.canWithdraw) {
-        status.readyForWithdraw.forEach((chunk) => {
-            table.push([`Unlocked since era ${chunk.era}`, toCTCString(chunk.value)]);
-        });
+        table.push(['Unlocked funds', toCTCString(status.readyForWithdraw)]);
     }
 
     if (!status.nextUnlocking.length) {
@@ -207,14 +187,8 @@ export interface Status {
     waiting: boolean;
     active: boolean;
     canWithdraw: boolean;
-    readyForWithdraw: UnlockChunk[];
+    readyForWithdraw: Balance;
     nextUnlocking: UnlockChunkWithInfo[];
-    redeemable: Balance;
-}
-
-interface UnlockChunk {
-    era: number;
-    value: Balance;
 }
 
 interface UnlockChunkWithInfo {
