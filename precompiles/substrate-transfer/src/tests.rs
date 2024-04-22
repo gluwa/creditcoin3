@@ -64,9 +64,7 @@ fn transfer_insufficient_balance() {
                     from_utf8(output)
                         .unwrap()
                         .contains("Dispatched call failed with error: ")
-                        && from_utf8(output)
-                            .unwrap()
-                            .contains("Arithmetic(Underflow)")
+                        && from_utf8(output).unwrap().contains("Arithmetic(Underflow)")
                 });
 
             let bob: Account = bob_account.0.into();
