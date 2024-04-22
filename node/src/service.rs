@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 
-use creditcoin3_attestor_gossip::AttestorGossipParams;
+use creditcoin3_attestor_gossip::{inherent::AttestationInherent, AttestorGossipParams};
 use futures::{channel::mpsc, prelude::*};
 // Substrate
 use sc_client_api::{Backend, BlockBackend};
@@ -464,7 +464,7 @@ where
     let (attestor_gossip_msg_sink, msg_stream) =
         tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
 
-    let attestor = creditcoin3_attestor_gossip::start_attestor_gossip_gadget::<_, _, _, _, _, _>(
+    let attestor = creditcoin3_attestor_gossip::start_attestor_gossip_gadget::<_, _, _, _, _, _, _>(
         AttestorGossipParams {
             client: client.clone(),
             backend: backend.clone(),
@@ -478,6 +478,11 @@ where
             },
             min_block_delta: 2,
             prometheus_registry: prometheus_registry.clone(),
+            create_inherent_data_providers: move |_, attestation| async move {
+                // let data = InherentDataProvider::new(attestation, signatures);
+
+                Ok(attestation)
+            },
         },
     );
     task_manager

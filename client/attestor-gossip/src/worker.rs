@@ -1,15 +1,20 @@
 use futures::StreamExt;
+use log::{error, info};
 use parity_scale_codec::{Decode, Encode};
 use sc_client_api::{Backend, BlockBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
+use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Hash, Header as HeaderT};
+use std::collections::HashMap;
 use std::{marker::PhantomData, sync::Arc};
 
-use crate::{Client, HashFor};
+use crate::{inherent::AttestationInherent, Client, HashFor, LOG_TARGET};
 
 use super::{Attestation, AttestorComms, Error, Message};
+
+const THRESHOLD: usize = 3; // You can set this to any appropriate threshold value
 
 /// Gossip engine votes messages topic
 pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
@@ -19,7 +24,10 @@ where
     <<B::Header as HeaderT>::Hashing as Hash>::hash(b"attestor-votes")
 }
 
-pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C> {
+type Round = u64;
+type BlockNumber = u64;
+
+pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
     /// Best attestation we have in the cache (latest)
     #[allow(dead_code)]
     pub best_attestation: Option<Attestation<HashFor<B>>>,
@@ -33,25 +41,50 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C> {
     pub client: Arc<C>,
     /// Client Backend
     pub backend: PhantomData<BE>,
+
+    /// Block attestations. Maps a blocknumber to a list of valid attestations
+    pub block_attestations: HashMap<(Round, BlockNumber), Vec<Attestation<HashFor<B>>>>,
+
+    /// Inherent data providers
+    pub create_inherent_data_providers: CIDP,
 }
 
-impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C> Worker<B, RA, BE, C>
+pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
+    /// communication (created once, but returned and reused if worker is restarted/reinitialized)
+    pub comms: AttestorComms<B>,
+
+    /// runtime api access
+    pub runtime: Arc<RuntimeApi>,
+
+    pub client: Arc<C>,
+
+    /// Inherent data providers
+    pub create_inherent_data_providers: CIDP,
+
+    /// Client Backend
+    pub backend: PhantomData<BE>,
+}
+
+impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, CIDP> Worker<B, RA, BE, C, CIDP>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: BabeApi<B>,
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
+    CIDP: CreateInherentDataProviders<B, AttestationInherent<HashFor<B>>> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
     // H: std::hash::Hash + Serialize + Debug,
 {
-    pub fn new(comms: AttestorComms<B>, runtime: Arc<RA>, client: Arc<C>) -> Self {
+    pub fn new(params: WorkerParams<B, RA, BE, C, CIDP>) -> Self {
         Worker {
             best_attestation: None,
-            comms,
-            runtime,
-            client,
+            comms: params.comms,
+            runtime: params.runtime,
+            client: params.client,
+            create_inherent_data_providers: params.create_inherent_data_providers,
+            block_attestations: HashMap::new(),
             backend: PhantomData,
         }
     }
@@ -102,15 +135,14 @@ where
                         // ....
 
                         if let Some(vote) = vote {
-                            log::info!(target: "attestor-gossip", "GOT A VOTE: {:?}", vote);
+                            info!(target: LOG_TARGET, "📝 GOT A VOTE: {:?}", vote);
 
-                            match self.triage_message(&vote) {
+                            match self.triage_message(vote).await {
                                 Ok(()) => {
-                                    log::info!(target: "attestor-gossip", "Got a valid gossiped message {:?}", vote);
-                                    // TODO: store in memmory
+                                    info!(target: LOG_TARGET, "📝 Got a valid gossiped message");
                                 },
                                 Err(e) => {
-                                    log::error!(target: "attestor-gossip", "Got error for message err: {:?}", e);
+                                    error!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
                                 }
                             }
                         } else {
@@ -121,7 +153,7 @@ where
                     message = message_stream.next() => {
                         if let Some(message) = message {
                             let topic = votes_topic::<B>();
-                            log::info!(target: "attestor-gossip", "Got message to gossip {:?}, on topic: {:?}", message, topic);
+                            info!(target: LOG_TARGET, "📝 📝 Got message to gossip {:?}, on topic: {:?}", message, topic);
                             gossip_engine.gossip_message(
                                 topic,
                                 message.encode(),
@@ -132,10 +164,21 @@ where
         }
     }
 
-    fn triage_message(&mut self, message: &Message<B>) -> Result<(), Error> {
+    async fn triage_message(&mut self, message: Message<B>) -> Result<(), Error> {
         match message {
             Message::Attestation(attestation) => {
-                self.verify_vrf(attestation)?;
+                self.verify_vrf(&attestation)?;
+
+                if self.add_to_round(attestation) {
+                    // conclude round
+                    // create the inherent
+                    // Somehow get the current block?
+                    info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
+                    // self.create_inherent_data(parent, attestation).await?;
+                    // flush round
+                } else {
+                    info!(target: LOG_TARGET, "📝 Received a valid vote, need more in order to conclude the round...");
+                }
             }
         }
 
@@ -147,10 +190,10 @@ where
         let runtime = self.runtime.runtime_api();
 
         let config = runtime.configuration(attestation.vrf_output.block_hash.into())?;
-        log::info!(target: "attestor-gossip", "Epoch config: {:?}", config);
+        info!(target: LOG_TARGET, "📝 Epoch config: {:?}", config);
 
         let vrf_epoch = runtime.current_epoch(attestation.vrf_output.block_hash.into())?;
-        log::info!(target: "attestor-gossip", "Vrf epoch: {:?}", vrf_epoch);
+        info!(target: LOG_TARGET, "📝 Vrf epoch: {:?}", vrf_epoch);
 
         let client = self.client.clone();
 
@@ -165,6 +208,21 @@ where
         Ok(())
     }
 
+    /// Add attestation to round, returns if we need to conclude the round or not
+    fn add_to_round(&mut self, attestation: Attestation<HashFor<B>>) -> bool {
+        let k = (attestation.round, attestation.header_number);
+
+        let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
+            attestations.push(attestation);
+            attestations.len() >= THRESHOLD
+        } else {
+            self.block_attestations.insert(k, vec![attestation]);
+            false // Newly inserted, so it cannot exceed the threshold yet
+        };
+
+        exceed_threshold
+    }
+
     /// In practice, this method would:
     /// 1. Gather all attesations for a round, create a BLS signature
     /// 2. Check if the current validator where this is running is allowed to create the next block
@@ -172,6 +230,29 @@ where
     /// 4. Flush memory
     fn _submit_attestation(&mut self, attestation: Attestation<HashFor<B>>) -> Result<(), Error> {
         self.best_attestation = Some(attestation);
+
+        Ok(())
+    }
+
+    /// Create inherent data
+    pub async fn create_inherent_data(
+        &self,
+        parent: B::Hash,
+        attestation: &Attestation<HashFor<B>>,
+    ) -> Result<(), Error> {
+        let data = AttestationInherent {
+            attestation: attestation.clone(),
+            signatures: vec![],
+        };
+
+        let _ = self
+            .create_inherent_data_providers
+            .create_inherent_data_providers(parent, data)
+            .await
+            .map_err(|e| {
+                error!("Error creating inherent data: {e}");
+                Error::ErrorCreatingInherent
+            });
 
         Ok(())
     }

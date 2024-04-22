@@ -1,5 +1,17 @@
+use frame_support::inherent::InherentIdentifier;
+use parity_scale_codec::{Decode, Encode};
 use sp_core::H256;
+
 pub type Felt = [u8; 32];
+
+pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
+
+#[derive(Encode, Decode, sp_runtime::RuntimeDebug)]
+// #[cfg_attr(feature = "std", derive(Decode))]
+pub enum InherentError {
+    NotValid,
+    Duplicate,
+}
 
 #[derive(Debug, Clone)]
 pub struct AttestationData {

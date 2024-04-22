@@ -11,3 +11,6 @@ repository.workspace = true
 
 [dependencies]
 sp-core = { workspace = true }
+parity-scale-codec = { workspace = true }
+frame-support = { workspace = true }
+sp-runtime = { workspace = true }

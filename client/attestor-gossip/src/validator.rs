@@ -7,7 +7,7 @@ use sp_core::{Pair, H256};
 use sp_runtime::traits::{Block as BlockT, Hash};
 use std::marker::PhantomData;
 
-use crate::{worker::votes_topic, HashFor};
+use crate::{worker::votes_topic, HashFor, LOG_TARGET};
 
 use super::{Action, Attestation, Error, Message};
 
@@ -36,11 +36,11 @@ where
     ) -> Result<Action<B::Hash>, Error> {
         let valid_sig = self.verify_signature(attestation);
         if !valid_sig {
-            log::info!(target: "attestor-gossip", "Attestation signature is invalid");
+            log::info!(target: LOG_TARGET, "📝 Attestation signature is invalid");
             return Err(Error::InvalidAttestationDataSignature);
         };
 
-        log::info!(target: "attestor-gossip", "Attestation signature is valid");
+        log::info!(target: LOG_TARGET, "📝 Attestation signature is valid");
         Ok(Action::Keep(votes_topic::<B>()))
     }
 
@@ -75,24 +75,24 @@ where
     ) -> ValidationResult<Block::Hash> {
         let action = match Message::<Block>::decode(&mut &data[..]) {
             Ok(Message::Attestation(att)) => {
-                log::info!(target: "attestor-gossip", "Received attestation: {:?}", att);
+                log::info!(target: LOG_TARGET, "📝 Received attestation: {:?}", att);
                 match self.validate_attestation(&att, sender) {
                     Ok(a) => a,
                     Err(err) => {
-                        log::error!(target: "attestor-gossip", "Error decoding block hash in message: {:?}", err);
+                        log::error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);
                         Action::Discard
                     }
                 }
             }
             Err(err) => {
-                log::error!(target: "attestor-gossip", "Error decoding block hash in message: {:?}", err);
+                log::error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);
                 Action::Discard
             }
         };
 
         match action {
             Action::Keep(topic) => {
-                log::info!(target: "attestor-gossip", "Broadcasting message for topic {:?}", topic);
+                log::info!(target: LOG_TARGET, "📝 Broadcasting message for topic {:?}", topic);
                 context.broadcast_message(topic, data.to_vec(), false);
                 ValidationResult::ProcessAndKeep(topic)
             }

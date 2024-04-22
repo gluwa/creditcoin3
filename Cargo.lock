@@ -1271,7 +1271,10 @@ dependencies = [
 name = "attestor-primitives"
 version = "3.31.0"
 dependencies = [
+ "frame-support",
+ "parity-scale-codec",
  "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -2224,6 +2227,7 @@ dependencies = [
 name = "creditcoin3-attestor-gossip"
 version = "3.31.0"
 dependencies = [
+ "async-trait",
  "attestor-primitives",
  "futures 0.3.30",
  "log",
@@ -2238,6 +2242,7 @@ dependencies = [
  "sp-api",
  "sp-consensus-babe",
  "sp-core",
+ "sp-inherents",
  "sp-runtime",
  "starknet-crypto",
  "substrate-prometheus-endpoint",

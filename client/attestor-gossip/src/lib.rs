@@ -8,21 +8,27 @@ use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::{H256, U256};
+use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::{traits::Block as BlockT, AccountId32};
 use std::fmt::Debug;
 use std::{marker::PhantomData, sync::Arc};
 use substrate_prometheus_endpoint::Registry;
 use thiserror::Error;
-use worker::Worker;
+use worker::{Worker, WorkerParams};
 
+pub mod inherent;
 pub mod validator;
 pub mod worker;
 
 use validator::AttestorGossipValidator;
 
+use inherent::AttestationInherent;
+
 pub type HashFor<B> = <B as BlockT>::Hash;
 
 pub type MessageSink<B> = TracingUnboundedSender<Message<B>>;
+
+const LOG_TARGET: &str = "attestor-gossip";
 
 pub(crate) struct AttestorComms<B: BlockT> {
     pub gossip_engine: GossipEngine<B>,
@@ -40,6 +46,8 @@ pub enum Error {
     InvalidAttestationDataSignature,
     #[error("Invalid attestation vrf output")]
     InvalidAttestationVrfOuput,
+    #[error("Error creating inherent data")]
+    ErrorCreatingInherent,
     #[error("Sp api error")]
     SpApiError(#[from] sp_api::ApiError),
 }
@@ -127,7 +135,7 @@ pub struct AttestorNetworkParams<B: BlockT, N, S> {
     pub phantom: PhantomData<B>,
 }
 
-pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S> {
+pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP> {
     /// Attestor client
     pub client: Arc<C>,
     /// Client Backend
@@ -140,10 +148,12 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S> {
     pub min_block_delta: u32,
     /// Prometheus metric registry
     pub prometheus_registry: Option<Registry>,
+    /// Inherent data providers
+    pub create_inherent_data_providers: CIDP,
 }
 
-pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S>(
-    attestor_params: AttestorGossipParams<B, BE, C, N, R, S>,
+pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
+    attestor_params: AttestorGossipParams<B, BE, C, N, R, S, CIDP>,
 ) where
     B: BlockT,
     BE: Backend<B>,
@@ -154,11 +164,13 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S>(
     S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
+    CIDP: CreateInherentDataProviders<B, AttestationInherent<HashFor<B>>> + 'static,
 {
     let AttestorGossipParams {
         client,
         runtime,
         network_params,
+        create_inherent_data_providers,
         ..
     } = attestor_params;
 
@@ -188,7 +200,15 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S>(
         gossip_report_stream: msg_stream,
     };
 
-    let worker: Worker<B, R, BE, C> = Worker::new(attestor_comms, runtime.clone(), client.clone());
+    let worker_params = WorkerParams {
+        comms: attestor_comms,
+        runtime: runtime.clone(),
+        client: client.clone(),
+        create_inherent_data_providers,
+        backend: std::marker::PhantomData,
+    };
+
+    let worker: Worker<B, R, BE, C, CIDP> = Worker::new(worker_params);
 
     worker.start().await;
 }
