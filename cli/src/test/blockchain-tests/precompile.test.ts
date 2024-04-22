@@ -1,5 +1,5 @@
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
-import contractABI = require("./artifacts/SubstrateTransfer.json");
+import contractABI = require('./artifacts/SubstrateTransfer.json');
 
 describe('Substrate seamless transfer precompile', (): void => {
     let provider: WebSocketProvider;
@@ -16,13 +16,9 @@ describe('Substrate seamless transfer precompile', (): void => {
         const alith = new ethers.Wallet(privateKey).connect(provider);
 
         // precompile contract deployed at 4049 to hex
-        precompileContractAddress = "0x0000000000000000000000000000000000000fd1";
+        precompileContractAddress = '0x0000000000000000000000000000000000000fd1';
 
-        const contract = new ethers.Contract(
-            precompileContractAddress,
-            contractABI,
-            alith
-        );
+        const contract = new ethers.Contract(precompileContractAddress, contractABI, alith);
 
         const balance = await provider.getBalance(alith.address);
 
@@ -30,7 +26,7 @@ describe('Substrate seamless transfer precompile', (): void => {
 
         bobBalance = await provider.getBalance(bobKeyring?.address);
 
-        const amount = parseEther("10.0");
+        const amount = parseEther('10.0');
         const gasPrice = (await provider.getFeeData()).gasPrice;
 
         const result = await contract.transfer_substrate(bobKeyring?.address, amount, {
