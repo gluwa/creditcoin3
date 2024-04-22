@@ -68,32 +68,24 @@ async function callContract() {
   console.log(`contract code: ${code}`);
 
   const balance = await provider.getBalance(source);
-
   console.log(ethers.formatUnits(balance));
 
   try {
-    // Specify the recipient address as a 32-byte hexadecimal string
-    //  const toAddress = "5Hb5bu243bFZcs7E8Qjv1pRVaTyKw1nL6Q1KvVMRSApaFPES"; // Example address
-    // const toAddress = "5EZzUWruaxVgcV38FWuBZ59SFiP3mgsyuQvoDgk83SBAxbSe";
-
-    // Alice
-    // const toAddress = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
     const toPubkey =
-      "0xf457bb0e786485e6ac1e63fc0fa511a0f72d319e3dc57a65da699d87cfe3284e";
+      "0xf615f1b14094e7c32a5d57e60ef5bdd448856acebf2728d00edef61908273270";
     console.log(`bytes ${hexToU8a(toPubkey)}`);
-
-    // const p = ethers.encodeBytes32String(toAddress);
-    // console.log(p);
-    // let hash = ethers.sha256(destination);
-    // console.log(hash);
 
     // Call the transfer function on the contract
     const amount = ethers.parseEther("10.0");
 
-    const result = await contract.transfer_substrate(toPubkey, amount);
+    const gasPrice = (await provider.getFeeData()).gasPrice;
+    const result = await contract.transfer_substrate(toPubkey, amount, {
+      gasPrice: gasPrice,
+    });
+
     console.log("Transaction result:", result);
-    const r = await result.wait();
-    console.log(r);
+    const receipt = await result.wait();
+    console.log(`Transaction receipt: ${receipt}`);
   } catch (error) {
     console.error("Error:", error);
   }
