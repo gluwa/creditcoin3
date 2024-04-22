@@ -149,7 +149,6 @@ std = [
 	"creditcoin3-evm-tracer/std",
 	"creditcoin3-rpc-primitives-debug/std",
 	"pallet-evm-precompile-substrate-transfer/std",
-	"precompile-utils/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
