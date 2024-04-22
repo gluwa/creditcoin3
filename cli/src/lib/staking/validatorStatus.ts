@@ -2,7 +2,7 @@ import timeDelta = require('time-delta');
 
 import { ApiPromise } from '@polkadot/api';
 import { BN } from '..';
-import { readAmount, readAmountFromHex, toCTCString } from '../balance';
+import { readAmount, toCTCString } from '../balance';
 import { getChainStatus } from '../chain/status';
 import Table from 'cli-table3';
 import { PalletStakingUnlockChunk } from '@polkadot/types/lookup';
@@ -93,7 +93,7 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
 
     // Get information about any unbonding tokens and unlocked chunks
     const currentEra = (await api.query.staking.currentEra()).unwrap();
-    const redeemable = res.redeemable ? readAmountFromHex(res.redeemable.toString()) : new BN(0);
+    const redeemable = res.redeemable ? res.redeemable : new BN(0);
 
     // Get the unlocked chunks that are ready for withdrawal
     // by comparing the era of each chunk to the current era
