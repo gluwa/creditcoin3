@@ -1,6 +1,6 @@
 use super::*;
 
-use frame_support::{construct_runtime, DefaultNoBound, parameter_types, traits::Everything, weights::Weight};
+use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_evm::{EnsureAddressNever, EnsureAddressRoot, IdentityAddressMapping};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
