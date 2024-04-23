@@ -1,11 +1,11 @@
 use futures::StreamExt;
 use log::{error, info};
 use parity_scale_codec::{Decode, Encode};
-use sc_client_api::{Backend, BlockBackend};
+use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
-use sp_inherents::CreateInherentDataProviders;
+use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
 use sp_runtime::traits::{Block as BlockT, Hash, Header as HeaderT};
 use std::collections::HashMap;
 use std::{marker::PhantomData, sync::Arc};
@@ -40,7 +40,7 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
 
     pub client: Arc<C>,
     /// Client Backend
-    pub backend: PhantomData<BE>,
+    pub backend: Arc<BE>,
 
     /// Block attestations. Maps a blocknumber to a list of valid attestations
     pub block_attestations: HashMap<(Round, BlockNumber), Vec<Attestation<HashFor<B>>>>,
@@ -62,7 +62,7 @@ pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, 
     pub create_inherent_data_providers: CIDP,
 
     /// Client Backend
-    pub backend: PhantomData<BE>,
+    pub backend: Arc<BE>,
 }
 
 impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, CIDP> Worker<B, RA, BE, C, CIDP>
@@ -85,7 +85,7 @@ where
             client: params.client,
             create_inherent_data_providers: params.create_inherent_data_providers,
             block_attestations: HashMap::new(),
-            backend: PhantomData,
+            backend: params.backend,
         }
     }
 
@@ -169,12 +169,15 @@ where
             Message::Attestation(attestation) => {
                 self.verify_vrf(&attestation)?;
 
-                if self.add_to_round(attestation) {
+                if self.add_to_round(attestation.clone()) {
                     // conclude round
                     // create the inherent
+                    let best_block_hash = self.backend.blockchain().info().best_hash;
+
                     // Somehow get the current block?
                     info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
-                    // self.create_inherent_data(parent, attestation).await?;
+                    self.create_inherent_data(best_block_hash, &attestation)
+                        .await?;
                     // flush round
                 } else {
                     info!(target: LOG_TARGET, "📝 Received a valid vote, need more in order to conclude the round...");
@@ -245,14 +248,27 @@ where
             signatures: vec![],
         };
 
-        let _ = self
+        let inherent_data_providers = self
             .create_inherent_data_providers
             .create_inherent_data_providers(parent, data)
             .await
             .map_err(|e| {
                 error!("Error creating inherent data: {e}");
                 Error::ErrorCreatingInherent
-            });
+            })?;
+
+        let x = inherent_data_providers
+            .create_inherent_data()
+            .await
+            .map_err(|e| {
+                error!(
+                    target: LOG_TARGET,
+                    "Failed to create inherent data.",
+                );
+                Error::ErrorCreatingInherent
+            })?;
+
+        // log::info!(target: LOG_TARGET, "inherent data: {:?}", x.);
 
         Ok(())
     }

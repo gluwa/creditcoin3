@@ -171,6 +171,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
         runtime,
         network_params,
         create_inherent_data_providers,
+        backend,
         ..
     } = attestor_params;
 
@@ -205,7 +206,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
         runtime: runtime.clone(),
         client: client.clone(),
         create_inherent_data_providers,
-        backend: std::marker::PhantomData,
+        backend: backend.clone(),
     };
 
     let worker: Worker<B, R, BE, C, CIDP> = Worker::new(worker_params);

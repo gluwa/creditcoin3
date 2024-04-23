@@ -5,6 +5,7 @@ use sp_inherents::{Error, InherentData, InherentIdentifier};
 use crate::Attestation;
 
 /// Provider for inherent data.
+#[derive(Debug, Clone)]
 pub struct AttestationInherent<B> {
     pub attestation: Attestation<B>,
     pub signatures: Vec<u8>,
