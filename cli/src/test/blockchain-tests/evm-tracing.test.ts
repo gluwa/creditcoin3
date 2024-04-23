@@ -35,11 +35,10 @@ describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void =
         await call.wait();
 
         txHash = call?.hash;
+        expect(txHash).toBeDefined();
     }, 25000);
 
     test('debug_traceTransaction', async () => {
-        expect(txHash).toBeDefined();
-
         // call rpc method `debug_traceTransaction`
         const traceTxResponse = await provider.send('debug_traceTransaction', [txHash]);
         expect(traceTxResponse?.gas).toBeDefined();
@@ -47,8 +46,6 @@ describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void =
     });
 
     test('debug_traceBlockByHash', async () => {
-        expect(txHash).toBeDefined();
-
         // get transaction block information from tx hash
         const tx = await provider.getTransaction(txHash);
         expect(tx).toBeDefined();
