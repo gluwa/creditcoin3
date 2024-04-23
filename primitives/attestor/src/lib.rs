@@ -1,6 +1,9 @@
-use frame_support::inherent::InherentIdentifier;
+#![cfg_attr(not(feature = "std"), no_std)]
+
+use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode};
 use sp_core::H256;
+use sp_std::vec::Vec;
 
 pub type Felt = [u8; 32];
 
@@ -13,8 +16,30 @@ pub enum InherentError {
     Duplicate,
 }
 
+impl IsFatalError for InherentError {
+    fn is_fatal_error(&self) -> bool {
+        match self {
+            InherentError::NotValid => true,
+            InherentError::Duplicate => true,
+        }
+    }
+}
+
+pub type BlsSignature = [u8; 42];
+
+#[derive(Debug, Clone, Decode, Encode)]
+pub struct AttestationInherentData {
+    pub chain_id: u8,
+    pub block_number: u64,
+    pub signature: BlsSignature,
+    pub tx_root: H256,
+    pub rx_root: H256,
+    pub digest: H256,
+}
+
 #[derive(Debug, Clone)]
 pub struct AttestationData {
+    pub chain_id: u8,
     pub header_number: u64,
     pub header_hash: H256,
     pub tx_root: Felt,

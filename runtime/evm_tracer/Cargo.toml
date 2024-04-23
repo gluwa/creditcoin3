@@ -28,6 +28,7 @@ evm-runtime = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 log = { workspace = true }
+
 [features]
 default = ["std"]
 std = [
@@ -42,6 +43,8 @@ std = [
 	"pallet-evm/std",
 	"parity-scale-codec/std",
 	"sp-core/std",
+	"sp-io/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"log/std",
 ]

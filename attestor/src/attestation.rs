@@ -44,6 +44,7 @@ pub enum Error {
 
 // Define NewBlock message
 pub struct NewBlock {
+    pub chain_id: u8,
     pub header_number: u64,
     pub header_hash: H256,
     pub transactions: Vec<transaction::Transaction>,
@@ -104,6 +105,7 @@ pub fn create(new_block: &NewBlock) -> Result<AttestationData, Error> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
 
     let attestation = AttestationData {
+        chain_id: new_block.chain_id,
         header_number: new_block.header_number,
         header_hash: new_block.header_hash,
         tx_root: tx_tree.root().into(),

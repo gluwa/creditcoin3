@@ -1275,6 +1275,7 @@ dependencies = [
  "parity-scale-codec",
  "sp-core",
  "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]
@@ -6910,6 +6911,7 @@ name = "pallet-attestation-poc"
 version = "3.31.0"
 dependencies = [
  "assert_matches",
+ "attestor-primitives",
  "frame-benchmarking",
  "frame-support",
  "frame-system",

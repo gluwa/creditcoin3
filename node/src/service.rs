@@ -282,8 +282,7 @@ where
         let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
             fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
 
-        let attestation_inherent_provider: AttestationInherent<Block> =
-            AttestationInherent::new(None);
+        let attestation_inherent_provider: AttestationInherent = AttestationInherent::new(None);
 
         Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
     };
@@ -466,6 +465,13 @@ where
     let prometheus_registry = config.prometheus_registry().cloned();
     let client = client.clone();
 
+    // Can't move this into this closure
+    let attestation_provider: Arc<
+        std::sync::Mutex<creditcoin3_attestor_gossip::inherent::Provider>,
+    > = Arc::new(std::sync::Mutex::new(
+        creditcoin3_attestor_gossip::inherent::Provider::new(),
+    ));
+
     let (attestor_gossip_msg_sink, msg_stream) =
         tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
 
@@ -489,6 +495,7 @@ where
 
                 Ok(attestation)
             },
+            inherent_provider: attestation_provider.clone(),
         },
     );
     task_manager
@@ -709,26 +716,26 @@ where
         let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
         let target_gas_price = eth_config.target_gas_price;
 
-        // Can't move this into this closure
-        let mut attestation_provider = creditcoin3_attestor_gossip::inherent::Provider::new();
+        let create_inherent_data_providers = move |_parent, ()| {
+            let attestation_provider = attestation_provider.clone();
+            async move {
+                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 
-        let create_inherent_data_providers = move |_parent, ()| async move {
-            let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-
-            let slot =
+                let slot =
                 sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
                     *timestamp,
                     slot_duration,
                 );
 
-            let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
-                fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+                let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
+                    fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
 
-            let attestation_to_submit = attestation_provider.get();
-            let attestation_inherent_provider: AttestationInherent<Block> =
-                AttestationInherent::new(None);
+                let attestation_to_submit = attestation_provider.lock().unwrap().get();
+                let attestation_inherent_provider: AttestationInherent =
+                    AttestationInherent::new(attestation_to_submit);
 
-            Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
+                Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
+            }
         };
 
         let babe = sc_consensus_babe::start_babe(sc_consensus_babe::BabeParams {

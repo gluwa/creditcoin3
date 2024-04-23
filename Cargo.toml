@@ -195,6 +195,7 @@ creditcoin3-rpc-trace = { path = "client/rpc/trace" }
 # Attestation
 creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
+attestor-primitives = { path = "primitives/attestor", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

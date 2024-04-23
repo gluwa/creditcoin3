@@ -1,52 +1,49 @@
 use anyhow::Result;
-use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
+use attestor_primitives::{AttestationInherentData, InherentError, INHERENT_IDENTIFIER};
 use sp_core::Decode;
 use sp_inherents::{Error, InherentData, InherentIdentifier};
 
-use crate::Attestation;
-
-pub struct Provider<B> {
-    pub attestation_queue: Vec<Attestation<B>>,
+pub struct Provider {
+    pub attestation_queue: Vec<AttestationInherentData>,
 }
 
-impl<B> Provider<B> {
+impl Provider {
     pub fn new() -> Self {
         Self {
             attestation_queue: vec![],
         }
     }
 
-    pub fn create(&mut self, attestation: Attestation<B>) -> Result<()> {
+    pub fn create(&mut self, attestation: AttestationInherentData) -> Result<()> {
         self.attestation_queue.push(attestation);
 
         Ok(())
     }
 
-    pub fn get(&mut self) -> Option<Attestation<B>> {
+    pub fn get(&mut self) -> Option<AttestationInherentData> {
         self.attestation_queue.pop()
     }
 }
 
-pub struct AttestationInherent<B> {
-    pub attestation: Option<Attestation<B>>,
+pub struct AttestationInherent {
+    pub attestation: Option<AttestationInherentData>,
 }
 
-impl<B> AttestationInherent<B> {
-    pub fn new(attestation: Option<Attestation<B>>) -> Self {
+impl AttestationInherent {
+    pub fn new(attestation: Option<AttestationInherentData>) -> Self {
         Self { attestation }
     }
 }
 
 #[async_trait::async_trait]
-impl<B> sp_inherents::InherentDataProvider for AttestationInherent<B>
-where
-    B: Send + Sync,
-{
+impl sp_inherents::InherentDataProvider for AttestationInherent {
     async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), Error> {
         log::info!("CALLING GOSSIP INHERENT PROVIDER");
 
         if let Some(_attestation) = &self.attestation {
-            inherent_data.put_data(INHERENT_IDENTIFIER, &_attestation.attestor)
+            log::info!("GOT ATTESTATION TO SUBMIT");
+
+            inherent_data.put_data(INHERENT_IDENTIFIER, &_attestation)
         } else {
             Ok(())
         }

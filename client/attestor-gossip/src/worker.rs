@@ -1,3 +1,4 @@
+use attestor_primitives::AttestationInherentData;
 use futures::StreamExt;
 use log::{error, info};
 use parity_scale_codec::{Decode, Encode};
@@ -5,10 +6,10 @@ use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
-use sp_inherents::{CreateInherentDataProviders, InherentDataProvider};
+use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Hash, Header as HeaderT};
 use std::collections::HashMap;
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::{Arc, Mutex};
 
 use crate::{Client, HashFor, LOG_TARGET};
 
@@ -25,7 +26,7 @@ where
 }
 
 // Should be ChainID
-type Round = u64;
+type ChainId = u8;
 
 type BlockNumber = u64;
 
@@ -45,10 +46,12 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     pub backend: Arc<BE>,
 
     /// Block attestations. Maps a blocknumber to a list of valid attestations
-    pub block_attestations: HashMap<(Round, BlockNumber), Vec<Attestation<HashFor<B>>>>,
+    pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<Attestation<HashFor<B>>>>,
 
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
+
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
 }
 
 pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
@@ -65,6 +68,8 @@ pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, 
 
     /// Client Backend
     pub backend: Arc<BE>,
+
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
 }
 
 impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, CIDP> Worker<B, RA, BE, C, CIDP>
@@ -88,6 +93,7 @@ where
             create_inherent_data_providers: params.create_inherent_data_providers,
             block_attestations: HashMap::new(),
             backend: params.backend,
+            inherent_provider: params.inherent_provider,
         }
     }
 
@@ -171,11 +177,12 @@ where
             Message::Attestation(attestation) => {
                 self.verify_vrf(&attestation)?;
 
-                if self.add_to_round(attestation.clone()) {
+                if let Some(inherent) = self.add_to_round(attestation.clone()) {
                     // conclude round
                     // create the inherent
-                    let best_block_hash = self.backend.blockchain().info().best_hash;
+                    let _best_block_hash = self.backend.blockchain().info().best_hash;
 
+                    let _ = self.inherent_provider.lock().unwrap().create(inherent);
                     // Somehow get the current block?
                     info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
                     // self.create_inherent_data(best_block_hash, &attestation)
@@ -214,18 +221,34 @@ where
     }
 
     /// Add attestation to round, returns if we need to conclude the round or not
-    fn add_to_round(&mut self, attestation: Attestation<HashFor<B>>) -> bool {
-        let k = (attestation.round, attestation.header_number);
+    fn add_to_round(
+        &mut self,
+        attestation: Attestation<HashFor<B>>,
+    ) -> Option<AttestationInherentData> {
+        let k = (attestation.chain_id, attestation.header_number);
 
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
-            attestations.push(attestation);
+            attestations.push(attestation.clone());
             attestations.len() >= THRESHOLD
         } else {
-            self.block_attestations.insert(k, vec![attestation]);
+            self.block_attestations.insert(k, vec![attestation.clone()]);
             false // Newly inserted, so it cannot exceed the threshold yet
         };
 
-        exceed_threshold
+        let bls: [u8; 42] = [0; 42];
+
+        if exceed_threshold {
+            return Some(AttestationInherentData {
+                chain_id: attestation.chain_id,
+                block_number: attestation.header_number,
+                signature: bls,
+                tx_root: H256(attestation.tx_root),
+                rx_root: H256(attestation.rx_root),
+                digest: H256::random(),
+            });
+        }
+
+        None
     }
 
     /// In practice, this method would:

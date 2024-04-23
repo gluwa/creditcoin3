@@ -270,7 +270,7 @@ impl Message<AttestationSubmit> for Client {
         // Create final attestation object
         let attestation = Attestation {
             attestor: self.get_attestor_id(),
-            round: 1,
+            chain_id: msg.attestation.chain_id,
             header_hash: hex::encode(msg.attestation.header_hash),
             header_number: msg.attestation.header_number,
             tx_root: msg.attestation.tx_root,

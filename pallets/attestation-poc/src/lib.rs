@@ -16,8 +16,8 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{Attestation, AttestationInput, BlockNumber, ChainId, Digest, InherentType};
-    use frame_support::inherent::{InherentIdentifier, IsFatalError};
+    use crate::types::{Attestation, AttestationInput, BlockNumber, ChainId, Digest};
+    use attestor_primitives::{AttestationInherentData, InherentError, INHERENT_IDENTIFIER};
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
@@ -48,7 +48,7 @@ pub mod pallet {
             + Sync
             + TypeInfo
             + MaxEncodedLen
-            + Into<Vec<u8>>;
+            + From<[u8; 42]>;
     }
 
     // Attestation insert type
@@ -384,7 +384,6 @@ pub mod pallet {
         pub fn commit_attestation(
             origin: OriginFor<T>,
             chain_id: ChainId,
-            block_number: BlockNumber,
             attestation: AttestationCreate<T>,
         ) -> DispatchResult {
             ensure_none(origin)?;
@@ -398,34 +397,11 @@ pub mod pallet {
 
             LastDigest::<T>::set(chain_id, Some(digest));
 
+            let block_number = attestation.block_number;
             let attestation_insert = AttestationInsert::<T>::new(attestation, digest);
             Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
 
             Ok(())
-        }
-    }
-
-    pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
-
-    // TODO: should be some kind of storage structure that has:
-    // - BLS aggregated signatures
-    // - Attestors that were included in the creation of the signature
-    // Eventually only store the signature
-    pub type InherentInputType<T> = InherentType<<T as Config>::BlsSignature>;
-
-    #[derive(Encode, sp_runtime::RuntimeDebug)]
-    #[cfg_attr(feature = "std", derive(Decode))]
-    pub enum InherentError {
-        NotValid,
-        Duplicate,
-    }
-
-    impl IsFatalError for InherentError {
-        fn is_fatal_error(&self) -> bool {
-            match self {
-                InherentError::NotValid => true,
-                InherentError::Duplicate => true,
-            }
         }
     }
 
@@ -437,22 +413,27 @@ pub mod pallet {
 
         fn create_inherent(data: &InherentData) -> Option<Self::Call> {
             let inherent_data = data
-                .get_data::<InherentInputType<T>>(&INHERENT_IDENTIFIER)
+                .get_data::<AttestationInherentData>(&INHERENT_IDENTIFIER)
                 .expect("Attestation inherent data not correctly encoded");
 
             // Check if atleast the attestation was not already submitted
             if let Some(attestation_data) = inherent_data {
                 if let Some(digest) = LastDigest::<T>::get(attestation_data.chain_id) {
-                    if digest == attestation_data.attestation.digest {
+                    if digest == attestation_data.digest {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
                         return None;
                     }
-                }
+                };
 
                 Some(Call::commit_attestation {
-                    attestation: attestation_data.attestation,
+                    attestation: AttestationInput {
+                        block_number: attestation_data.block_number,
+                        bls: attestation_data.signature.into(),
+                        digest: attestation_data.digest,
+                        rx_root: attestation_data.rx_root,
+                        tx_root: attestation_data.tx_root,
+                    },
                     chain_id: attestation_data.chain_id,
-                    block_number: attestation_data.block_number,
                 })
             } else {
                 log::info!("No attestation data provided");
@@ -465,13 +446,13 @@ pub mod pallet {
             data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
             let inherent_data = data
-                .get_data::<InherentInputType<T>>(&INHERENT_IDENTIFIER)
+                .get_data::<AttestationInherentData>(&INHERENT_IDENTIFIER)
                 .expect("Timestamp inherent data not correctly encoded");
 
             // Check if atleast the attestation was not already submitted
             if let Some(attestation_data) = inherent_data {
                 if let Some(digest) = LastDigest::<T>::get(attestation_data.chain_id) {
-                    if digest == attestation_data.attestation.digest {
+                    if digest == attestation_data.digest {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
                         return Err(InherentError::Duplicate);
                     }

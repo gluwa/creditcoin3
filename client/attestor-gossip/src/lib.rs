@@ -11,7 +11,8 @@ use sp_core::{H256, U256};
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::{traits::Block as BlockT, AccountId32};
 use std::fmt::Debug;
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 use substrate_prometheus_endpoint::Registry;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
@@ -82,7 +83,7 @@ impl Topic {
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attestation<B> {
-    pub round: u64,
+    pub chain_id: u8,
     pub header_hash: B,
     pub header_number: u64,
     pub tx_root: Felt,
@@ -148,6 +149,7 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP> {
     pub prometheus_registry: Option<Registry>,
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
 }
 
 pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
@@ -170,6 +172,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
         network_params,
         create_inherent_data_providers,
         backend,
+        inherent_provider,
         ..
     } = attestor_params;
 
@@ -205,6 +208,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
         client: client.clone(),
         create_inherent_data_providers,
         backend: backend.clone(),
+        inherent_provider,
     };
 
     let worker: Worker<B, R, BE, C, CIDP> = Worker::new(worker_params);

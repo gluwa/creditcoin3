@@ -1,10 +1,9 @@
 use attestor_primitives::AttestationData;
 use parity_scale_codec::Decode;
-use parity_scale_codec::Encode;
 use sc_network::PeerId;
 use sc_network_gossip::{ValidationResult, Validator, ValidatorContext};
 use sp_core::{Pair, H256};
-use sp_runtime::traits::{Block as BlockT, Hash};
+use sp_runtime::traits::Block as BlockT;
 use std::marker::PhantomData;
 
 use crate::{worker::votes_topic, HashFor, LOG_TARGET};
@@ -50,6 +49,7 @@ where
         let h = H256::from(attestation.header_hash);
 
         let msg = AttestationData {
+            chain_id: attestation.chain_id,
             header_number: attestation.header_number,
             header_hash: h,
             tx_root: attestation.tx_root,
@@ -99,28 +99,4 @@ where
             Action::Discard => ValidationResult::Discard,
         }
     }
-}
-
-// TODO, what is this
-use super::{Round, Topic};
-
-impl<B> Message<B>
-where
-    B: BlockT,
-{
-    pub fn round_topic<Block: BlockT>(&self) -> B::Hash {
-        match self {
-            Message::Attestation(attestation) => {
-                let (round, topic) = (attestation.round, attestation.topic.clone());
-                round_topic::<B>(round, topic).into()
-            }
-        }
-    }
-}
-
-pub fn round_topic<B: BlockT>(round: Round, topic: Topic) -> B::Hash {
-    let mut round_topic = Vec::new();
-    round.encode_to(&mut round_topic);
-    topic.encode_to(&mut round_topic);
-    <<B as BlockT>::Header as sp_runtime::traits::Header>::Hashing::hash(&round_topic)
 }

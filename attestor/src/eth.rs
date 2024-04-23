@@ -85,6 +85,7 @@ pub async fn subscribe_to_new_heads(
             // Notify the attestor with a new block
             let attestation = attestor
                 .send(NewBlock {
+                    chain_id: 42,
                     header_number: block.header.number.unwrap(),
                     header_hash: sp_core::H256(block.header.hash.unwrap().0),
                     transactions,
