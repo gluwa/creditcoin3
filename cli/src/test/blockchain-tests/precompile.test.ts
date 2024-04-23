@@ -4,38 +4,36 @@ import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
 
 describe('Substrate seamless transfer precompile', (): void => {
-    let provider: WebSocketProvider;
-    let precompileContractAddress: string;
-    let txHash: string;
-    let receipt: string;
+    let contract: any;
+    let amount: bigint;
+    let pair: any;
+    let gasPrice: any;
 
     beforeAll(async () => {
-        provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
+        const provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
+
+        // precompile contract deployed at 4049 to hex, see runtime/src/precompiles.rs for more
+        const precompileContractAddress = '0x0000000000000000000000000000000000000fd1';
 
         const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
         const alith = new ethers.Wallet(privateKey, provider);
 
-        // precompile contract deployed at 4049 to hex, see runtime/src/precompiles.rs for more
-        precompileContractAddress = '0x0000000000000000000000000000000000000fd1';
-
-        const contract = new ethers.Contract(precompileContractAddress, contractABI, alith);
+        contract = new ethers.Contract(precompileContractAddress, contractABI, alith);
 
         const target = new Keyring();
-        const pair = target.addFromMnemonic(mnemonicGenerate());
+        pair = target.addFromMnemonic(mnemonicGenerate());
 
-        const amount = parseEther('10.0');
-        const gasPrice = (await provider.getFeeData()).gasPrice;
+        amount = parseEther('10.0');
+        gasPrice = (await provider.getFeeData()).gasPrice;
+    }, 25000);
 
+    test('transfer_substrate', async () => {
         const result = await contract.transfer_substrate(pair.addressRaw, amount, {
             gasPrice,
         });
-
-        receipt = await result.wait();
-        txHash = result?.hash;
-    }, 25000);
-
-    test('substrate_transfer', () => {
+        const receipt = await result.wait();
+        const txHash = result?.hash;
         expect(txHash).toBeDefined();
         expect(receipt).toBeDefined();
-    });
+    }, 25000);
 });
