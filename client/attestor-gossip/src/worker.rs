@@ -10,7 +10,7 @@ use sp_runtime::traits::{Block as BlockT, Hash, Header as HeaderT};
 use std::collections::HashMap;
 use std::{marker::PhantomData, sync::Arc};
 
-use crate::{inherent::AttestationInherent, Client, HashFor, LOG_TARGET};
+use crate::{Client, HashFor, LOG_TARGET};
 
 use super::{Attestation, AttestorComms, Error, Message};
 
@@ -24,7 +24,9 @@ where
     <<B::Header as HeaderT>::Hashing as Hash>::hash(b"attestor-votes")
 }
 
+// Should be ChainID
 type Round = u64;
+
 type BlockNumber = u64;
 
 pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
@@ -72,7 +74,7 @@ where
     RA::Api: BabeApi<B>,
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
-    CIDP: CreateInherentDataProviders<B, AttestationInherent<HashFor<B>>> + 'static,
+    CIDP: CreateInherentDataProviders<B, ()> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
     // H: std::hash::Hash + Serialize + Debug,
@@ -176,8 +178,8 @@ where
 
                     // Somehow get the current block?
                     info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
-                    self.create_inherent_data(best_block_hash, &attestation)
-                        .await?;
+                    // self.create_inherent_data(best_block_hash, &attestation)
+                    //     .await?;
                     // flush round
                 } else {
                     info!(target: LOG_TARGET, "📝 Received a valid vote, need more in order to conclude the round...");
@@ -237,39 +239,40 @@ where
         Ok(())
     }
 
-    /// Create inherent data
-    pub async fn create_inherent_data(
-        &self,
-        parent: B::Hash,
-        attestation: &Attestation<HashFor<B>>,
-    ) -> Result<(), Error> {
-        let data = AttestationInherent {
-            attestation: attestation.clone(),
-            signatures: vec![],
-        };
+    // pub async fn create_inherent_data(
+    //     &self,
+    //     parent: B::Hash,
+    //     attestation: &Attestation<HashFor<B>>,
+    // ) -> Result<(), Error> {
+    //     let data = AttestationInherent {
+    //         attestation: attestation.clone(),
+    //         signatures: vec![],
+    //     };
 
-        let inherent_data_providers = self
-            .create_inherent_data_providers
-            .create_inherent_data_providers(parent, data)
-            .await
-            .map_err(|e| {
-                error!("Error creating inherent data: {e}");
-                Error::ErrorCreatingInherent
-            })?;
+    //     let inherent_data_providers = self
+    //         .create_inherent_data_providers
+    //         .create_inherent_data_providers(parent, data)
+    //         .await
+    //         .map_err(|e| {
+    //             error!("Error creating inherent data: {e}");
+    //             Error::ErrorCreatingInherent
+    //         })?;
 
-        let x = inherent_data_providers
-            .create_inherent_data()
-            .await
-            .map_err(|e| {
-                error!(
-                    target: LOG_TARGET,
-                    "Failed to create inherent data.",
-                );
-                Error::ErrorCreatingInherent
-            })?;
+    //     let inherent_data = inherent_data_providers
+    //         .create_inherent_data()
+    //         .await
+    //         .map_err(|e| {
+    //             error!(
+    //                 target: LOG_TARGET,
+    //                 "Failed to create inherent data.",
+    //             );
+    //             Error::ErrorCreatingInherent
+    //         })?;
 
-        // log::info!(target: LOG_TARGET, "inherent data: {:?}", x.);
+    //     // WHAT HAPPENS WITH INHERENT DATA
 
-        Ok(())
-    }
+    //     // log::info!(target: LOG_TARGET, "inherent data: {:?}", x.);
+
+    //     Ok(())
+    // }
 }

@@ -6,6 +6,7 @@ use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 use creditcoin3_attestor_gossip::{inherent::AttestationInherent, AttestorGossipParams};
 use futures::{channel::mpsc, prelude::*};
 // Substrate
+use log;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
@@ -280,7 +281,11 @@ where
 
         let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
             fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
-        Ok((slot, timestamp, dynamic_fee))
+
+        let attestation_inherent_provider: AttestationInherent<Block> =
+            AttestationInherent::new(None);
+
+        Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
     };
 
     let frontier_block_import = FrontierBlockImport::new(babe_import, client.clone());
@@ -479,6 +484,7 @@ where
             min_block_delta: 2,
             prometheus_registry: prometheus_registry.clone(),
             create_inherent_data_providers: move |_, attestation| async move {
+                log::info!("CREATING INHERENT DATA PROVIDER IN ATTESTOR PACKAGE");
                 // let data = InherentDataProvider::new(attestation, signatures);
 
                 Ok(attestation)
@@ -703,6 +709,9 @@ where
         let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
         let target_gas_price = eth_config.target_gas_price;
 
+        // Can't move this into this closure
+        let mut attestation_provider = creditcoin3_attestor_gossip::inherent::Provider::new();
+
         let create_inherent_data_providers = move |_parent, ()| async move {
             let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 
@@ -714,7 +723,12 @@ where
 
             let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
                 fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
-            Ok((slot, timestamp, dynamic_fee))
+
+            let attestation_to_submit = attestation_provider.get();
+            let attestation_inherent_provider: AttestationInherent<Block> =
+                AttestationInherent::new(None);
+
+            Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
         };
 
         let babe = sc_consensus_babe::start_babe(sc_consensus_babe::BabeParams {

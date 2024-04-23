@@ -22,8 +22,6 @@ pub mod worker;
 
 use validator::AttestorGossipValidator;
 
-use inherent::AttestationInherent;
-
 pub type HashFor<B> = <B as BlockT>::Hash;
 
 pub type MessageSink<B> = TracingUnboundedSender<Message<B>>;
@@ -164,7 +162,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
     S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
-    CIDP: CreateInherentDataProviders<B, AttestationInherent<HashFor<B>>> + 'static,
+    CIDP: CreateInherentDataProviders<B, ()> + 'static,
 {
     let AttestorGossipParams {
         client,
