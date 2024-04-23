@@ -2,7 +2,10 @@ use crate::merkle::tree::BinaryMerkle;
 use crate::{merkle, transaction};
 use anyhow::Result;
 use attestor_primitives::AttestationData;
-use kameo::{Actor, Message};
+use kameo::{
+    actor::Actor,
+    message::{Context, Message},
+};
 use sp_core::H256;
 use thiserror::Error;
 use tracing::{debug, error, info};
@@ -81,7 +84,7 @@ impl Message<NewBlock> for Attestor {
     /// Reply is the attestation data or error
     type Reply = Result<AttestationData, Error>;
 
-    async fn handle(&mut self, msg: NewBlock) -> Self::Reply {
+    async fn handle(&mut self, msg: NewBlock, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         // handle the new block
         let attestation = match create(&msg) {
             Ok(attestation) => attestation,

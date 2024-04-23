@@ -1,5 +1,5 @@
 use anyhow::Result;
-use kameo::Spawn;
+use kameo::spawn;
 
 pub mod attestation;
 pub mod cc3;
@@ -37,10 +37,10 @@ impl Server {
         cc3_client.init().await?;
 
         // Create an Actor reference for the cc3 client
-        let cc3_client = cc3_client.spawn();
+        let cc3_client = spawn(cc3_client);
 
         // Create an attestor
-        let attestor = attestation::Attestor::new().spawn();
+        let attestor = spawn(attestation::Attestor::new());
 
         // Subscribe to new eth head given the attestor and cc3 client
         eth::subscribe_to_new_heads(&self.config.eth_rpc_url, attestor, cc3_client).await?;

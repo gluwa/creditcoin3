@@ -4,7 +4,10 @@ use alloy::primitives::U256;
 use anyhow::Result;
 use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
-use kameo::{Actor, Message};
+use kameo::{
+    actor::Actor,
+    message::{Context, Message},
+};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use subxt::{OnlineClient, SubstrateConfig};
@@ -241,7 +244,11 @@ impl Message<AttestationSubmit> for Client {
 
     /// Main attestation handler
     /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
-    async fn handle(&mut self, msg: AttestationSubmit) -> Self::Reply {
+    async fn handle(
+        &mut self,
+        msg: AttestationSubmit,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
         let (vrf_output, block_hash) = self.sign_babe_vrf().await.map_err(|e| {
             error!("Error signing babe vrf: {:?}", e);
             Error::FailedToSignBabeVrf

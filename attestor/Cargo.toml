@@ -31,7 +31,7 @@ jsonrpsee-core = "0.22"
 subxt = "0.35"
 subxt-signer = "0.35"
 anyhow = "1.0.81"
-kameo = { version = "0.5" }
+kameo = { version = "0.8" }
 alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "node-bindings",
     "providers",
@@ -46,20 +46,6 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
 ] }
 once_cell = "1.19.0"
 futures-util = "0.3"
-
-
-# Workspace deps
-# tracing.workspace = true
-# futures.workspace = true
-# async-trait.workspace = true
-# tokio.workspace = true
-# clap.workspace = true
-# thiserror.workspace = true
-# sp-core.workspace = true
-# hex.workspace = true
-# ethereum.workspace = true
-# ethereum-types.workspace = true
-
 futures = "0.3.30"
 async-trait = "0.1"
 tracing = "0.1.40"
@@ -71,7 +57,7 @@ hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 starknet-crypto = "0.6.2"
 
 # Creditcoin deps
-creditcoin3-attestor-rpc = { path = "../client/attestor-rpc" }
-creditcoin3-attestor-gossip = { path = "../client/attestor-gossip" }
+creditcoin3-attestor-rpc = { path = "../client/attestor-rpc", default-features = false }
+creditcoin3-attestor-gossip = { path = "../client/attestor-gossip", default-features = false }
 merkletree = "0.23.0"
 attestor-primitives = { path = "../primitives/attestor" }
