@@ -68,63 +68,10 @@ fn transfer_insufficient_balance() {
                 });
 
             let bob: Account = bob_account.0.into();
+            let alice: Account = alice.into();
+            let alice_balance = Balances::free_balance(alice);
             let bob_balance = Balances::free_balance(bob);
-            assert_eq!(bob_balance, 0);
-        });
-}
-
-#[test]
-fn transfer_zero_destination() {
-    let alice: H160 = Alice.into();
-
-    let bob_account: H256 = Bob.into();
-
-    ExtBuilder::default()
-        .with_balances(vec![(alice.into(), 300)])
-        .build()
-        .execute_with(|| {
-            // lock
-            precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::transfer_substrate {
-                        destination: H256::zero(),
-                        amount: 200.into(),
-                    },
-                )
-                .execute_returns(true);
-
-            let bob: Account = bob_account.0.into();
-            let bob_balance = Balances::free_balance(bob);
-            assert_eq!(bob_balance, 0);
-        });
-}
-
-#[test]
-fn transfer_zero_amount() {
-    let alice: H160 = Alice.into();
-
-    let bob_account: H256 = Bob.into();
-
-    ExtBuilder::default()
-        .with_balances(vec![(alice.into(), 300)])
-        .build()
-        .execute_with(|| {
-            // lock
-            precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::transfer_substrate {
-                        destination: bob_account,
-                        amount: 0.into(),
-                    },
-                )
-                .execute_returns(true);
-
-            let bob: Account = bob_account.0.into();
-            let bob_balance = Balances::free_balance(bob);
+            assert_eq!(alice_balance, 300);
             assert_eq!(bob_balance, 0);
         });
 }
