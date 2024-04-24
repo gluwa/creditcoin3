@@ -61,10 +61,11 @@ describe('Substrate seamless transfer precompile', (): void => {
 
     test('transfer_substrate insufficient funds path', async () => {
         amount = parseEther('1000000000.0');
-        const result = await contract.transfer_substrate(destination.addressRaw, amount, {
-            gasPrice,
-        });
 
-        expect(result).toContain('execution reverted');
+        await expect(
+            contract.transfer_substrate(destination.addressRaw, amount, {
+                gasPrice,
+            }),
+        ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
     }, 25000);
 });
