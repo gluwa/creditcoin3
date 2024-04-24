@@ -72,6 +72,10 @@ describe('Precompile: transfer_substrate()', (): void => {
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
         // ^^^ appears to come from can_withdraw()
         // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/impl_fungible.rs#L110
+
+        // Alice paid gas fees regardless of the error
+        const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
+        expect(alithBalanceAfter).toBeLessThan(alithBalanceBefore);
     });
 
     test('should fail when sending more than available funds', async () => {
@@ -85,5 +89,9 @@ describe('Precompile: transfer_substrate()', (): void => {
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Token\(FundsUnavailable\)/);
         // ^^^ appears to come from do_transfer_reserved()
         // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/lib.rs#L1098
+
+        // Alice paid gas fees regardless of the error
+        const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
+        expect(alithBalanceAfter).toBeLessThan(alithBalanceBefore);
     });
 });
