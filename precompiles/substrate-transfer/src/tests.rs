@@ -13,7 +13,7 @@ fn precompiles() -> Precompiles<Runtime> {
 }
 
 #[test]
-fn transfer() {
+fn transfer_substrate_when_sender_has_enough_funds_should_work() {
     let alice: H160 = Alice.into();
 
     let bob_account: H256 = Bob.into();
@@ -41,7 +41,7 @@ fn transfer() {
 }
 
 #[test]
-fn transfer_insufficient_balance() {
+fn transfer_substrate_when_sender_has_insufficient_funds_should_error() {
     let alice: H160 = Alice.into();
 
     let bob_account: H256 = Bob.into();
