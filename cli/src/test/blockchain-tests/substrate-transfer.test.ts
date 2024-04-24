@@ -36,11 +36,11 @@ describe('Precompile: transfer_substrate()', (): void => {
 
     afterAll(async () => {
         await api.disconnect();
-    }, 10_000);
+    });
 
     beforeEach(async () => {
         gasPrice = (await provider.getFeeData()).gasPrice;
-    }, 25000);
+    });
 
     test('should work when caller has enough funds', async () => {
         amount = parseEther('10.0');
@@ -56,7 +56,7 @@ describe('Precompile: transfer_substrate()', (): void => {
         expect(receipt).toBeDefined();
         expect(alithBalanceBefore).toBe(alithBalanceAfter + amount + BigInt(receipt.cumulativeGasUsed * gasPrice));
         expect(destinationBalanceAfter).toBe(destinationBalanceBefore + BigInt(amount));
-    }, 25000);
+    });
 
     test('should fail when sending more than total issuance', async () => {
         // a local development chain starts with total issuance of 14 M CTC
@@ -69,7 +69,7 @@ describe('Precompile: transfer_substrate()', (): void => {
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
         // ^^^ appears to come from can_withdraw()
         // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/impl_fungible.rs#L110
-    }, 25000);
+    });
 
     test('should fail when sending more than available funds', async () => {
         // Alice starts with 1M CTC, try sending 1.9 mil
