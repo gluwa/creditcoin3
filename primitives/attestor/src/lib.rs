@@ -34,10 +34,10 @@ pub struct AttestationInherentData {
     pub signature: BlsSignature,
     pub tx_root: H256,
     pub rx_root: H256,
-    pub digest: H256,
+    pub digest: Digest,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttestationData {
     pub chain_id: u8,
     pub header_number: u64,
@@ -45,6 +45,8 @@ pub struct AttestationData {
     pub tx_root: Felt,
     pub rx_root: Felt,
 }
+
+pub type Digest = H256;
 
 impl AttestationData {
     #[must_use]
@@ -64,5 +66,10 @@ impl AttestationData {
         bytes.extend_from_slice(&self.rx_root);
 
         bytes
+    }
+
+    /// Blake2 256 hash from attestation data
+    pub fn digest(&self) -> Digest {
+        H256::from(&sp_io::hashing::blake2_256(&self.serialize()))
     }
 }

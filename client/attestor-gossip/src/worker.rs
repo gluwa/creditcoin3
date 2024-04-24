@@ -1,4 +1,4 @@
-use attestor_primitives::AttestationInherentData;
+use attestor_primitives::{AttestationData, AttestationInherentData, Digest};
 use futures::StreamExt;
 use log::{error, info};
 use parity_scale_codec::{Decode, Encode};
@@ -7,13 +7,13 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
 use sp_inherents::CreateInherentDataProviders;
-use sp_runtime::traits::{Block as BlockT, Hash, Header as HeaderT};
+use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::{Client, HashFor, LOG_TARGET};
 
-use super::{Attestation, AttestorComms, Error, Message};
+use super::{Attestation, AttestorComms, AttestorId, Error, Message};
 
 const THRESHOLD: usize = 3; // You can set this to any appropriate threshold value
 
@@ -22,7 +22,7 @@ pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
 where
     B: BlockT,
 {
-    <<B::Header as HeaderT>::Hashing as Hash>::hash(b"attestor-votes")
+    <<B::Header as HeaderT>::Hashing as HashT>::hash(b"attestor-votes")
 }
 
 // Should be ChainID
@@ -46,9 +46,10 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     pub backend: Arc<BE>,
 
     /// Block attestations. Maps a blocknumber to a list of valid attestations
-    pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<Attestation<HashFor<B>>>>,
+    pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
 
     /// Inherent data providers
+    #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
 
     pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
@@ -177,17 +178,23 @@ where
             Message::Attestation(attestation) => {
                 self.verify_vrf(&attestation)?;
 
-                if let Some(inherent) = self.add_to_round(attestation.clone()) {
+                if self.add_to_round(&attestation) {
                     // conclude round
                     // create the inherent
                     let _best_block_hash = self.backend.blockchain().info().best_hash;
 
-                    let _ = self.inherent_provider.lock().unwrap().create(inherent);
-                    // Somehow get the current block?
-                    info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
-                    // self.create_inherent_data(best_block_hash, &attestation)
-                    //     .await?;
-                    // flush round
+                    if let Some(inherent) = self.submit_attestation(attestation) {
+                        info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
+                        let _ = match self.inherent_provider.lock() {
+                            Ok(mut provider) => provider.create(inherent),
+                            Err(e) => {
+                                error!("error acquiring lock, {:?}", e);
+                                Ok(())
+                            }
+                        };
+                    } else {
+                        info!(target: LOG_TARGET,"📝 cannot submit attestation");
+                    }
                 } else {
                     info!(target: LOG_TARGET, "📝 Received a valid vote, need more in order to conclude the round...");
                 }
@@ -202,10 +209,10 @@ where
         let runtime = self.runtime.runtime_api();
 
         let config = runtime.configuration(attestation.vrf_output.block_hash.into())?;
-        info!(target: LOG_TARGET, "📝 Epoch config: {:?}", config);
+        info!(target: LOG_TARGET, "📝 Epoch config: {:?}", config.epoch_length);
 
         let vrf_epoch = runtime.current_epoch(attestation.vrf_output.block_hash.into())?;
-        info!(target: LOG_TARGET, "📝 Vrf epoch: {:?}", vrf_epoch);
+        info!(target: LOG_TARGET, "📝 Vrf epoch: {:?}", vrf_epoch.epoch_index);
 
         let client = self.client.clone();
 
@@ -221,81 +228,75 @@ where
     }
 
     /// Add attestation to round, returns if we need to conclude the round or not
-    fn add_to_round(
+    fn add_to_round(&mut self, attestation: &Attestation<HashFor<B>>) -> bool {
+        // Hash the attestation data
+        let attestation_data: AttestationData = attestation.clone().into();
+        let digest = attestation_data.digest();
+
+        let k = (attestation.chain_id, attestation.header_number);
+
+        let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
+            attestations.push((attestation.attestor.clone(), digest));
+            attestations.len() >= THRESHOLD
+        } else {
+            self.block_attestations
+                .insert(k, vec![(attestation.attestor.clone(), digest)]);
+            false // Newly inserted, so it cannot exceed the threshold yet
+        };
+
+        // If exceeds threshold check if we can have a majority of attestors that have pushed the same attestation
+        exceed_threshold
+    }
+
+    /// In practice, this method would:
+    /// 1. Gather all attesations for a round, create a BLS signature
+    /// 2. Submit the inherent transaction containing the attestation
+    /// 3. Flush memory
+    fn submit_attestation(
         &mut self,
         attestation: Attestation<HashFor<B>>,
     ) -> Option<AttestationInherentData> {
         let k = (attestation.chain_id, attestation.header_number);
 
-        let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
-            attestations.push(attestation.clone());
-            attestations.len() >= THRESHOLD
-        } else {
-            self.block_attestations.insert(k, vec![attestation.clone()]);
-            false // Newly inserted, so it cannot exceed the threshold yet
-        };
+        let attestations = self.block_attestations.get(&k).unwrap();
+        let (major_digest, major_count) = find_major_digest(attestations);
 
-        let bls: [u8; 42] = [0; 42];
-
-        if exceed_threshold {
-            return Some(AttestationInherentData {
+        if major_count >= THRESHOLD {
+            let bls: [u8; 42] = [0; 42]; // Placeholder for BLS signature computation
+            let res = Some(AttestationInherentData {
                 chain_id: attestation.chain_id,
                 block_number: attestation.header_number,
+                tx_root: H256(attestation.tx_root.clone()),
+                rx_root: H256(attestation.rx_root.clone()),
                 signature: bls,
-                tx_root: H256(attestation.tx_root),
-                rx_root: H256(attestation.rx_root),
-                digest: H256::random(),
+                digest: major_digest,
             });
+
+            // Update best attestation
+            self.best_attestation = Some(attestation);
+
+            // Flush memory
+            self.block_attestations.remove(&k);
+
+            res
+        } else {
+            // Handle case where no single digest is dominant
+            // e.g., log an error, alert, etc.
+            // Optionally return a list of incorrect attestors
+            None
         }
+    }
+}
 
-        None
+/// Function to find the most frequently occurring digest
+fn find_major_digest(attestations: &Vec<(AttestorId, Digest)>) -> (Digest, usize) {
+    let mut digest_count: HashMap<Digest, usize> = HashMap::new();
+    for (_, digest) in attestations {
+        *digest_count.entry(digest.clone()).or_insert(0) += 1;
     }
 
-    /// In practice, this method would:
-    /// 1. Gather all attesations for a round, create a BLS signature
-    /// 2. Check if the current validator where this is running is allowed to create the next block
-    /// 3. If yes, submit the inherent transaction containing the attestation
-    /// 4. Flush memory
-    fn _submit_attestation(&mut self, attestation: Attestation<HashFor<B>>) -> Result<(), Error> {
-        self.best_attestation = Some(attestation);
-
-        Ok(())
-    }
-
-    // pub async fn create_inherent_data(
-    //     &self,
-    //     parent: B::Hash,
-    //     attestation: &Attestation<HashFor<B>>,
-    // ) -> Result<(), Error> {
-    //     let data = AttestationInherent {
-    //         attestation: attestation.clone(),
-    //         signatures: vec![],
-    //     };
-
-    //     let inherent_data_providers = self
-    //         .create_inherent_data_providers
-    //         .create_inherent_data_providers(parent, data)
-    //         .await
-    //         .map_err(|e| {
-    //             error!("Error creating inherent data: {e}");
-    //             Error::ErrorCreatingInherent
-    //         })?;
-
-    //     let inherent_data = inherent_data_providers
-    //         .create_inherent_data()
-    //         .await
-    //         .map_err(|e| {
-    //             error!(
-    //                 target: LOG_TARGET,
-    //                 "Failed to create inherent data.",
-    //             );
-    //             Error::ErrorCreatingInherent
-    //         })?;
-
-    //     // WHAT HAPPENS WITH INHERENT DATA
-
-    //     // log::info!(target: LOG_TARGET, "inherent data: {:?}", x.);
-
-    //     Ok(())
-    // }
+    digest_count
+        .into_iter()
+        .max_by_key(|&(_, count)| count)
+        .unwrap_or((H256::zero(), 0))
 }

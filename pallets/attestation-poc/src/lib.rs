@@ -401,6 +401,8 @@ pub mod pallet {
             let attestation_insert = AttestationInsert::<T>::new(attestation, digest);
             Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
 
+            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation_insert));
+
             Ok(())
         }
     }

@@ -1,4 +1,4 @@
-use attestor_primitives::Felt;
+use attestor_primitives::{AttestationData, Felt};
 use parity_scale_codec::{Decode, Encode};
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
@@ -92,6 +92,21 @@ pub struct Attestation<B> {
     pub topic: Topic,
     pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,
+}
+
+impl<B> Into<AttestationData> for Attestation<B>
+where
+    B: Into<H256>,
+{
+    fn into(self) -> AttestationData {
+        AttestationData {
+            chain_id: self.chain_id,
+            header_number: self.header_number,
+            header_hash: self.header_hash.into(),
+            tx_root: self.tx_root,
+            rx_root: self.rx_root,
+        }
+    }
 }
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
