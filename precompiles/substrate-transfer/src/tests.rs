@@ -34,6 +34,12 @@ fn transfer_substrate_when_sender_has_enough_funds_should_work() {
                 )
                 .execute_returns(true);
 
+            // Alice --
+            let alice: Account = alice.into();
+            let alice_balance = Balances::free_balance(alice);
+            assert_eq!(alice_balance, 100);
+
+            // Bob ++
             let bob: Account = bob_account.0.into();
             let bob_balance = Balances::free_balance(bob);
             assert_eq!(bob_balance, 200);
@@ -67,11 +73,14 @@ fn transfer_substrate_when_sender_has_insufficient_funds_should_error() {
                         && from_utf8(output).unwrap().contains("Arithmetic(Underflow)")
                 });
 
-            let bob: Account = bob_account.0.into();
+            // Alice - no change
             let alice: Account = alice.into();
             let alice_balance = Balances::free_balance(alice);
-            let bob_balance = Balances::free_balance(bob);
             assert_eq!(alice_balance, 300);
+
+            // Bob - no change
+            let bob: Account = bob_account.0.into();
+            let bob_balance = Balances::free_balance(bob);
             assert_eq!(bob_balance, 10);
         });
 }
