@@ -1,5 +1,5 @@
 use crate::mock::{
-    Account::{Alice, Precompile},
+    Account::{Alice, Bob, Precompile},
     *,
 };
 
@@ -47,7 +47,7 @@ fn transfer_substrate_when_sender_has_insufficient_funds_should_error() {
     let bob_account: H256 = Bob.into();
 
     ExtBuilder::default()
-        .with_balances(vec![(alice.into(), 300)])
+        .with_balances(vec![(alice.into(), 300), (Bob, 10)])
         .build()
         .execute_with(|| {
             // lock
@@ -72,6 +72,6 @@ fn transfer_substrate_when_sender_has_insufficient_funds_should_error() {
             let alice_balance = Balances::free_balance(alice);
             let bob_balance = Balances::free_balance(bob);
             assert_eq!(alice_balance, 300);
-            assert_eq!(bob_balance, 0);
+            assert_eq!(bob_balance, 10);
         });
 }
