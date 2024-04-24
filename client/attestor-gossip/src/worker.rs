@@ -5,7 +5,7 @@ use parity_scale_codec::{Decode, Encode};
 use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
-use sp_core::H256;
+use sp_core::{Pair, H256, U256};
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
 use std::collections::HashMap;
@@ -83,6 +83,7 @@ where
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
+    <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
     // H: std::hash::Hash + Serialize + Debug,
 {
     pub fn new(params: WorkerParams<B, RA, BE, C, CIDP>) -> Self {
@@ -144,8 +145,6 @@ where
                         // ....
 
                         if let Some(vote) = vote {
-                            info!(target: LOG_TARGET, "📝 GOT A VOTE: {:?}", vote);
-
                             match self.triage_message(vote).await {
                                 Ok(()) => {
                                     info!(target: LOG_TARGET, "📝 Got a valid gossiped message");
@@ -204,25 +203,60 @@ where
         Ok(())
     }
 
+    /// Verify the VRF output for an attestation.
+    /// This checks if the attestor that submitted this attestations vrf output is correct
+    /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
+    /// TODO: check if the eligibility check is good enough
     fn verify_vrf(&self, attestation: &Attestation<HashFor<B>>) -> Result<(), Error> {
         // check if the attestation vrf output is submitted correctly and is eligible for attesting
         let runtime = self.runtime.runtime_api();
-
-        let config = runtime.configuration(attestation.vrf_output.block_hash.into())?;
-        info!(target: LOG_TARGET, "📝 Epoch config: {:?}", config.epoch_length);
-
-        let vrf_epoch = runtime.current_epoch(attestation.vrf_output.block_hash.into())?;
-        info!(target: LOG_TARGET, "📝 Vrf epoch: {:?}", vrf_epoch.epoch_index);
-
         let client = self.client.clone();
 
-        let _hash_at_height = client
-            .block_hash((attestation.header_number as u32).into())
+        // Get the blockchain info (current info)
+        let blockchain_info = self.backend.blockchain().info();
+
+        // Get the vrf at 2 epochs ago
+        let config = runtime.configuration(blockchain_info.best_hash)?;
+        let target_epoch_block: u64 =
+            blockchain_info.best_number.into() - (config.epoch_length * 2);
+        info!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", target_epoch_block);
+
+        let target_epoch_hash = client
+            .block_hash((target_epoch_block as u32).into())
             .ok()
             .flatten()
-            .expect("Genesis block exists; qed");
+            .expect("Target block exists; qed");
 
-        let _randomness = vrf_epoch.randomness;
+        let runtime = self.runtime.runtime_api();
+        let vrf_target_epoch: sp_consensus_babe::Epoch =
+            runtime.current_epoch(target_epoch_hash)?;
+
+        // Get the vrf for the attestation that was submitted
+        let runtime = self.runtime.runtime_api();
+        let vrf_epoch: sp_consensus_babe::Epoch =
+            runtime.current_epoch(attestation.vrf_output.block_hash.into())?;
+
+        // Format the randomness as a number
+        let randomness_u256 = U256::from_little_endian(&vrf_epoch.randomness);
+
+        if attestation.vrf_output.vrf_number >= randomness_u256 {
+            info!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
+
+            // now check if the number that the attestor generated actually is correct ?
+            // otherwise, slash the attestor
+            let public_key =
+                sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());
+
+            let is_valid = sp_core::sr25519::Pair::verify(
+                &attestation.vrf_output.signature,
+                vrf_target_epoch.randomness,
+                &public_key,
+            );
+
+            info!(target: LOG_TARGET, "📝 Vrf output for {:?} signature is valid: {is_valid}", attestation.attestor);
+        } else {
+            info!(target: LOG_TARGET, "📝 Vrf output for {:?} is invalid ❌", attestation.attestor);
+        }
 
         Ok(())
     }

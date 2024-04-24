@@ -75,7 +75,7 @@ where
     ) -> ValidationResult<Block::Hash> {
         let action = match Message::<Block>::decode(&mut &data[..]) {
             Ok(Message::Attestation(att)) => {
-                log::info!(target: LOG_TARGET, "📝 Received attestation: {:?}", att);
+                log::info!(target: LOG_TARGET, "📝 Received attestation by: {:?}", att.attestor);
                 match self.validate_attestation(&att, sender) {
                     Ok(a) => a,
                     Err(err) => {

@@ -9,7 +9,10 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::{H256, U256};
 use sp_inherents::CreateInherentDataProviders;
-use sp_runtime::{traits::Block as BlockT, AccountId32};
+use sp_runtime::{
+    traits::{Block as BlockT, Header as HeaderT},
+    AccountId32,
+};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
@@ -111,6 +114,7 @@ where
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VrfOutput {
+    pub signature: sp_core::sr25519::Signature,
     pub vrf_number: U256,
     pub block_hash: H256,
 }
@@ -180,6 +184,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
+    <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
 {
     let AttestorGossipParams {
         client,

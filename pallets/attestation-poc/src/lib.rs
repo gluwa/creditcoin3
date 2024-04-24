@@ -395,11 +395,12 @@ pub mod pallet {
                 attestation.digest
             };
 
-            LastDigest::<T>::set(chain_id, Some(digest));
-
             let block_number = attestation.block_number;
-            let attestation_insert = AttestationInsert::<T>::new(attestation, digest);
+            let attestation_insert = AttestationInsert::<T>::new(attestation.clone(), digest);
             Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
+
+            // Update last digest
+            LastDigest::<T>::set(chain_id, Some(attestation.digest));
 
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation_insert));
 

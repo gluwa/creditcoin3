@@ -173,7 +173,7 @@ impl<'a> Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(&self) -> Result<(U256, H256), Error> {
+    pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
         let (randomness, block_hash) = self.fetch_babe_randomness().await.map_err(|e| {
             error!("Error getting babe vrf output: {:?}", e);
             Error::FailedToGetBabeVrf
@@ -200,7 +200,11 @@ impl<'a> Client {
             signature_output_as_u256 > randomness_as_u256
         );
 
-        Ok((signature_output_as_u256, block_hash))
+        Ok(VrfOutput {
+            signature: sp_core::sr25519::Signature::from_raw(signature.0),
+            vrf_number: sp_core::U256::from_little_endian(&s_component_array),
+            block_hash,
+        })
     }
 
     #[must_use]
@@ -249,7 +253,7 @@ impl Message<AttestationSubmit> for Client {
         msg: AttestationSubmit,
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
-        let (vrf_output, block_hash) = self.sign_babe_vrf().await.map_err(|e| {
+        let vrf_output = self.sign_babe_vrf().await.map_err(|e| {
             error!("Error signing babe vrf: {:?}", e);
             Error::FailedToSignBabeVrf
         })?;
@@ -276,10 +280,7 @@ impl Message<AttestationSubmit> for Client {
             tx_root: msg.attestation.tx_root,
             rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
-            vrf_output: VrfOutput {
-                vrf_number: sp_core::U256::from_little_endian(vrf_output.as_le_slice()),
-                block_hash,
-            },
+            vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
         };
 
