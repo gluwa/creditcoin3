@@ -58,17 +58,21 @@ describe('Precompile: transfer_substrate()', (): void => {
         expect(destinationBalanceAfter).toBe(destinationBalanceBefore + BigInt(amount));
     }, 25000);
 
-    test('should fail when caller has insufficient funds', async () => {
+    test('should fail when sending more than total issuance', async () => {
+        // a local development chain starts with total issuance of 14 M CTC
+        // trying to send 1 bil
         amount = parseEther('1000000000.0');
         await expect(
             contract.transfer_substrate(destination.addressRaw, amount, {
                 gasPrice,
             }),
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
+        // ^^^ appears to come from can_withdraw()
+        // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/impl_fungible.rs#L110
     }, 25000);
 
-    // We have different errors for insufficient funds and insufficient gas. Testcase below is for insufficient gas.
-    test('transfer_substrate sufficient funds + insufficient gas path', async () => {
+    test('should fail when sending more than available funds', async () => {
+        // Alice starts with 1M CTC, try sending 1.9 mil
         amount = parseEther('1999989.9');
 
         await expect(
@@ -76,5 +80,7 @@ describe('Precompile: transfer_substrate()', (): void => {
                 gasPrice,
             }),
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Token\(FundsUnavailable\)/);
-    }, 25000);
+        // ^^^ appears to come from do_transfer_reserved()
+        // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/lib.rs#L1098
+    });
 });
