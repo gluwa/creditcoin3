@@ -46,16 +46,17 @@ describe('Precompile: transfer_substrate()', (): void => {
             gasPrice,
         });
         const receipt = await result.wait();
+        expect(receipt).toBeDefined();
+
         const txHash = result?.hash;
+        expect(txHash).toBeDefined();
 
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
+        expect(alithBalanceBefore).toBe(alithBalanceAfter + amount + BigInt(receipt.cumulativeGasUsed * gasPrice));
+
         const destinationBalanceAfter = (
             await api.derive.balances.all(destination.address)
         ).availableBalance.toBigInt();
-
-        expect(txHash).toBeDefined();
-        expect(receipt).toBeDefined();
-        expect(alithBalanceBefore).toBe(alithBalanceAfter + amount + BigInt(receipt.cumulativeGasUsed * gasPrice));
         expect(destinationBalanceAfter).toBe(destinationBalanceBefore + BigInt(amount));
     });
 
