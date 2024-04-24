@@ -4,7 +4,7 @@ use crate::mock::{
 };
 
 use precompile_utils::testing::*;
-use sp_core::{H160, H256};
+use sp_core::{H160, H256, U256};
 use std::str::from_utf8;
 
 // No test of invalid selectors since we have a fallback behavior (deposit).
@@ -71,6 +71,46 @@ fn transfer_substrate_when_sender_has_insufficient_funds_should_error() {
                         .unwrap()
                         .contains("Dispatched call failed with error: ")
                         && from_utf8(output).unwrap().contains("Arithmetic(Underflow)")
+                });
+
+            // Alice - no change
+            let alice: Account = alice.into();
+            let alice_balance = Balances::free_balance(alice);
+            assert_eq!(alice_balance, 300);
+
+            // Bob - no change
+            let bob: Account = bob_account.0.into();
+            let bob_balance = Balances::free_balance(bob);
+            assert_eq!(bob_balance, 10);
+        });
+}
+
+#[test]
+fn transfer_substrate_when_amount_gt_max_balance_should_error() {
+    let alice: H160 = Alice.into();
+
+    let bob_account: H256 = Bob.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300), (Bob, 10)])
+        .build()
+        .execute_with(|| {
+            // lock
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::transfer_substrate {
+                        destination: bob_account,
+                        // note: Substrate Balance is U128 but the argument here is U256!
+                        amount: U256::MAX,
+                    },
+                )
+                .execute_reverts(|output| {
+                    // note: the Substrate call never gets dispatched in this case
+                    from_utf8(output)
+                        .unwrap()
+                        .contains("Value is too large for balance type")
                 });
 
             // Alice - no change
