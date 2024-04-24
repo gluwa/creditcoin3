@@ -52,7 +52,6 @@ describe('Substrate seamless transfer precompile', (): void => {
 
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
         destinationBalanceAfter = (await api.derive.balances.all(destination.address)).availableBalance.toBigInt();
-
         expect(txHash).toBeDefined();
         expect(receipt).toBeDefined();
         expect(alithBalanceBefore).toBe(alithBalanceAfter + amount + BigInt(receipt.cumulativeGasUsed * gasPrice));
@@ -61,11 +60,21 @@ describe('Substrate seamless transfer precompile', (): void => {
 
     test('transfer_substrate insufficient funds path', async () => {
         amount = parseEther('1000000000.0');
-
         await expect(
             contract.transfer_substrate(destination.addressRaw, amount, {
                 gasPrice,
             }),
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
+    }, 25000);
+
+    // We have different errors for insufficient funds and insufficient gas. Testcase below is for insufficient gas.
+    test('transfer_substrate sufficient funds + insufficient gas path', async () => {
+        amount = parseEther('1999989.9');
+
+        await expect(
+            contract.transfer_substrate(destination.addressRaw, amount, {
+                gasPrice,
+            }),
+        ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Token\(FundsUnavailable\)/);
     }, 25000);
 });
