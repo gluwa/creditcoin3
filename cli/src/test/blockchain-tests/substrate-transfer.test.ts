@@ -4,7 +4,7 @@ import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
 import { newApi, ApiPromise } from '../../lib';
 
-describe('Substrate seamless transfer precompile', (): void => {
+describe('Precompile: transfer_substrate()', (): void => {
     let contract: any;
     let amount: bigint;
     let destination: any;
@@ -42,7 +42,7 @@ describe('Substrate seamless transfer precompile', (): void => {
         gasPrice = (await provider.getFeeData()).gasPrice;
     }, 25000);
 
-    test('transfer_substrate happy path', async () => {
+    test('should work when caller has enough funds', async () => {
         amount = parseEther('10.0');
         const result = await contract.transfer_substrate(destination.addressRaw, amount, {
             gasPrice,
@@ -58,7 +58,7 @@ describe('Substrate seamless transfer precompile', (): void => {
         expect(destinationBalanceAfter).toBe(destinationBalanceBefore + BigInt(amount));
     }, 25000);
 
-    test('transfer_substrate insufficient funds path', async () => {
+    test('should fail when caller has insufficient funds', async () => {
         amount = parseEther('1000000000.0');
         await expect(
             contract.transfer_substrate(destination.addressRaw, amount, {
