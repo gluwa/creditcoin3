@@ -45,16 +45,37 @@ jobs:
             ${{ steps.srtool_build.outputs.wasm_compressed }}
             creditcoin-srtool-digest.json
 
+  # try installing subwasm b/c we use this version in multiple places
+  # and need to know whether it builds with current rustc
+  dry-run-install-subwasm:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          profile: minimal
+          override: true
+
+      - name: Install Subwasm
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --locked --git https://github.com/chevdor/subwasm --tag v0.17.1
+
   upgrade-devnet:
     runs-on: ubuntu-22.04
     needs: build
     if: github.ref == 'refs/heads/dev'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: creditcoin-runtime-${{ github.sha }}
-          path: wasm
 
       - name: Install Subwasm
         uses: actions-rs/cargo@v1
