@@ -374,7 +374,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.17.1
+          args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
 
       - name: Download WASM runtime from current PR
         id: download-wasm
@@ -498,7 +498,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.17.1
+          args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
 
       - name: Download WASM runtime
         id: download-wasm
