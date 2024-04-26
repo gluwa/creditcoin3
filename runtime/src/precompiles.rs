@@ -53,12 +53,6 @@ where
     }
 
     fn is_precompile(&self, address: H160, _gas: u64) -> IsPrecompileResult {
-        let answer = Self::used_addresses().contains(&address);
-        log::debug!(
-            "Checking is address is precompile: {:?}, answer: {:?}",
-            address,
-            answer
-        );
         IsPrecompileResult::Answer {
             is_precompile: Self::used_addresses().contains(&address),
             extra_cost: 0,
