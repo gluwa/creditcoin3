@@ -25,10 +25,6 @@ export function readAmount(amount: string): BN {
     return new BN(amount);
 }
 
-export function readAmountFromHex(amount: string): BN {
-    return new BN(amount.slice(2), 16);
-}
-
 export interface AccountBalance {
     address: string;
     transferable: BN;

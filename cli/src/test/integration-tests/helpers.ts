@@ -84,7 +84,7 @@ export function CLIBuilder(env: any) {
     if (env.CC_PROXY_SECRET) {
         // WARNING: proxy setup must be done outside of this function
         const delegate = initKeyringPair(env.CC_SECRET);
-        extraArgs = `--use-proxy ${delegate.address} --url ${BOB_NODE_URL}`;
+        extraArgs = `--proxy-for ${delegate.address} --url ${BOB_NODE_URL}`;
     }
 
     function CLICmd(cmd: string) {
