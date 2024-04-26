@@ -1,9 +1,14 @@
 [workspace]
-members = ["node", "runtime", "runtime/generate-bags"]
+members = [
+	"node",
+	"runtime",
+	"runtime/generate-bags",
+	"precompiles/substrate-transfer",
+]
 resolver = "2"
 
 [workspace.package]
-version = "3.24.1"
+version = "3.25.1"
 authors = ["Gluwa Inc. Developer Support <support.dev@gluwa.com>"]
 edition = "2021"
 license = "Unlicense"
@@ -34,6 +39,9 @@ num_enum = { version = "0.7.2", default-features = false }
 parity-db = "0.4.13"
 parking_lot = "0.12.1"
 rlp = { version = "0.5.2", default-features = false }
+paste = "1.0.6"
+slices = "0.2.0"
+affix = "0.1.2"
 parity-scale-codec = { version = "3.6.9", default-features = false, features = [
 	"derive",
 ] }
@@ -110,6 +118,7 @@ sp-storage = { version = "13.0.0", git = "https://github.com/gluwa/polkadot-sdk"
 sp-timestamp = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-transaction-pool = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-version = { version = "22.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+sp-weights = { version = "20.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 # Substrate FRAME
 frame-benchmarking = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 frame-election-provider-support = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
@@ -146,6 +155,7 @@ substrate-frame-rpc-system = { version = "4.0.0-dev", git = "https://github.com/
 substrate-test-runtime-client = { version = "2.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 substrate-wasm-builder = { version = "5.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 generate-bags = { git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
+xcm = { package = "staging-xcm", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 
 # Frontier Client
 fc-api = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch" }
@@ -181,6 +191,9 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
+
+# Precompiles
+pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [

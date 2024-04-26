@@ -1,6 +1,7 @@
 use pallet_evm::{
     IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
 };
+use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 use sp_core::H160;
 use sp_std::marker::PhantomData;
 
@@ -17,7 +18,7 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 7] {
+    pub fn used_addresses() -> [H160; 8] {
         [
             hash(1),
             hash(2),
@@ -26,11 +27,13 @@ where
             hash(5),
             hash(1024),
             hash(1025),
+            hash(4049),
         ]
     }
 }
 impl<R> PrecompileSet for FrontierPrecompiles<R>
 where
+    SubstrateTransferPrecompile<R>: Precompile,
     R: pallet_evm::Config,
 {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
@@ -44,6 +47,7 @@ where
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
+            a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
             _ => None,
         }
     }
