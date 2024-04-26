@@ -17,6 +17,16 @@ where
     _phantom: PhantomData<Block>,
 }
 
+impl<B> Default for AttestorGossipValidator<B>
+where
+    B: BlockT,
+    H256: From<<B as BlockT>::Hash>,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B> AttestorGossipValidator<B>
 where
     B: BlockT,
@@ -46,14 +56,14 @@ where
     // Check it the signature is valid given the header number and header hash from the attestation for now.
     // Will need extending once we start submitting actual attestations
     fn verify_signature(&self, attestation: &Attestation<HashFor<B>>) -> bool {
-        let h = H256::from(attestation.header_hash);
+        let h = H256::from(attestation.attestation_data.header_hash);
 
         let msg = AttestationData {
-            chain_id: attestation.chain_id,
-            header_number: attestation.header_number,
+            chain_id: attestation.attestation_data.chain_id,
+            header_number: attestation.attestation_data.header_number,
             header_hash: h,
-            tx_root: attestation.tx_root,
-            rx_root: attestation.rx_root,
+            tx_root: attestation.attestation_data.tx_root,
+            rx_root: attestation.attestation_data.rx_root,
         };
 
         let public_key = sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());

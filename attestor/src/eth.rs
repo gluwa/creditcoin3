@@ -7,6 +7,7 @@ use alloy::{
 use anyhow::Result;
 use futures_util::StreamExt;
 use kameo::actor::ActorRef;
+use sp_core::H256;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
@@ -27,7 +28,7 @@ pub enum Error {
     #[error("Actor send error {0}")]
     AttestationError(#[from] kameo::error::SendError<NewBlock, attestation::Error>),
     #[error("Actor send error {0}")]
-    Cc3Error(#[from] kameo::error::SendError<AttestationSubmit, cc3::Error>),
+    Cc3Error(#[from] kameo::error::SendError<AttestationSubmit<H256>, cc3::Error>),
 }
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor

@@ -1,11 +1,15 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use frame_support::inherent::{InherentIdentifier, IsFatalError};
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use scale_info::TypeInfo;
+use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use sp_std::vec::Vec;
 
 pub type Felt = [u8; 32];
+
+pub type ChainId = u8;
 
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
@@ -27,42 +31,63 @@ impl IsFatalError for InherentError {
 
 pub type BlsSignature = [u8; 42];
 
-#[derive(Debug, Clone, Decode, Encode)]
-pub struct AttestationInherentData {
-    pub chain_id: u8,
-    pub block_number: u64,
-    pub signature: BlsSignature,
-    pub tx_root: H256,
-    pub rx_root: H256,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, MaxEncodedLen, TypeInfo)]
+pub struct SignedAttestation<H> {
+    pub attestation_data: AttestationData<H>,
     pub digest: Digest,
+    pub signature: BlsSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AttestationData {
-    pub chain_id: u8,
+impl<H> SignedAttestation<H> {
+    pub fn chain_id(&self) -> ChainId {
+        self.attestation_data.chain_id
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub struct AttestationData<H> {
+    pub chain_id: ChainId,
     pub header_number: u64,
-    pub header_hash: H256,
+    pub header_hash: H,
     pub tx_root: Felt,
     pub rx_root: Felt,
 }
 
 pub type Digest = H256;
 
-impl AttestationData {
+impl<H> AttestationData<H>
+where
+    H: AsRef<[u8]>,
+{
     #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
+        // Serialize chain_id as little-endian bytes
+        bytes.extend_from_slice(self.chain_id.to_le_bytes().as_ref());
+
         // Serialize header_number as little-endian bytes
-        bytes.extend_from_slice(self.header_number.to_be_bytes().as_ref());
+        bytes.extend_from_slice(self.header_number.to_le_bytes().as_ref());
 
-        // Serialize header_hash as little-endian bytes
-        bytes.extend_from_slice(self.header_hash.0.as_ref());
+        // Serialize header_hash
+        bytes.extend_from_slice(self.header_hash.as_ref());
 
-        // Serialize tx_root as little-endian bytes
+        // Serialize tx_root
         bytes.extend_from_slice(&self.tx_root);
 
-        // Serialize rx_root as little-endian bytes
+        // Serialize rx_root
         bytes.extend_from_slice(&self.rx_root);
 
         bytes

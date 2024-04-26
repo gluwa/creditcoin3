@@ -1273,6 +1273,8 @@ version = "3.31.0"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
+ "scale-info",
+ "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",

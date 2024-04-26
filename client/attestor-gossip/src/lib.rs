@@ -1,4 +1,4 @@
-use attestor_primitives::{AttestationData, Felt};
+use attestor_primitives::AttestationData;
 use parity_scale_codec::{Decode, Encode};
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
@@ -86,32 +86,12 @@ impl Topic {
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attestation<B> {
-    pub chain_id: u8,
-    pub header_hash: B,
-    pub header_number: u64,
-    pub tx_root: Felt,
-    pub rx_root: Felt,
+    pub attestation_data: AttestationData<B>,
     pub attestor: AttestorId,
     pub topic: Topic,
     pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,
 }
-
-impl<B> Into<AttestationData> for Attestation<B>
-where
-    B: Into<H256>,
-{
-    fn into(self) -> AttestationData {
-        AttestationData {
-            chain_id: self.chain_id,
-            header_number: self.header_number,
-            header_hash: self.header_hash.into(),
-            tx_root: self.tx_root,
-            rx_root: self.rx_root,
-        }
-    }
-}
-
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VrfOutput {
     pub signature: sp_core::sr25519::Signature,
@@ -168,7 +148,7 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP> {
     pub prometheus_registry: Option<Registry>,
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
 }
 
 pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(

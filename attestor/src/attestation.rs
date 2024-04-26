@@ -83,11 +83,11 @@ impl NewBlock {
 
 impl Message<NewBlock> for Attestor {
     /// Reply is the attestation data or error
-    type Reply = Result<AttestationData, Error>;
+    type Reply = Result<AttestationData<H256>, Error>;
 
     async fn handle(&mut self, msg: NewBlock, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         // handle the new block
-        let attestation = match create(&msg) {
+        let attestation: AttestationData<H256> = match create::<H256>(&msg) {
             Ok(attestation) => attestation,
             Err(e) => {
                 error!("Error creating attestation: {:?}", e);
@@ -101,7 +101,7 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create(new_block: &NewBlock) -> Result<AttestationData, Error> {
+pub fn create<H>(new_block: &NewBlock) -> Result<AttestationData<H256>, Error> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
 
     let attestation = AttestationData {

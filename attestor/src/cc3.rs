@@ -95,7 +95,7 @@ impl<'a> Client {
         // Calculate a block number that falls into the range of 2 epoch ago
         // current block - (epoch duration in block * 2)
         let block_to_query = current_block_number
-            .checked_sub((epoch_duration * 2) as u32)
+            .checked_sub(u32::try_from(epoch_duration * 2)?)
             .unwrap_or(1);
 
         let block_hash_to_query = api
@@ -217,8 +217,8 @@ impl Actor for Client {}
 
 // AttestationSubmit is a message that can be sent to submit an attestation over rpc to the cc3 node
 // It holds the attestation data to be signed by the attestor before submitting
-pub struct AttestationSubmit {
-    pub attestation: AttestationData,
+pub struct AttestationSubmit<H> {
+    pub attestation: AttestationData<H>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Error)]
@@ -243,14 +243,17 @@ pub enum Error {
     FailedToGetComitteSetSize,
 }
 
-impl Message<AttestationSubmit> for Client {
+impl<H> Message<AttestationSubmit<H>> for Client
+where
+    H: Serialize + AsRef<[u8]> + Send + Sync,
+{
     type Reply = Result<(), Error>;
 
     /// Main attestation handler
     /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
     async fn handle(
         &mut self,
-        msg: AttestationSubmit,
+        msg: AttestationSubmit<H>,
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
         let vrf_output = self.sign_babe_vrf().await.map_err(|e| {
@@ -273,12 +276,14 @@ impl Message<AttestationSubmit> for Client {
 
         // Create final attestation object
         let attestation = Attestation {
+            attestation_data: AttestationData {
+                chain_id: msg.attestation.chain_id,
+                header_hash: hex::encode(msg.attestation.header_hash),
+                header_number: msg.attestation.header_number,
+                tx_root: msg.attestation.tx_root,
+                rx_root: msg.attestation.rx_root,
+            },
             attestor: self.get_attestor_id(),
-            chain_id: msg.attestation.chain_id,
-            header_hash: hex::encode(msg.attestation.header_hash),
-            header_number: msg.attestation.header_number,
-            tx_root: msg.attestation.tx_root,
-            rx_root: msg.attestation.rx_root,
             topic: Topic::new(1),
             vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),

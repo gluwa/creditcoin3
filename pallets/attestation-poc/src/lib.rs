@@ -16,8 +16,8 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{Attestation, AttestationInput, BlockNumber, ChainId, Digest};
-    use attestor_primitives::{AttestationInherentData, InherentError, INHERENT_IDENTIFIER};
+    use crate::types::{Attestation, BlockNumber, Digest};
+    use attestor_primitives::{ChainId, InherentError, SignedAttestation, INHERENT_IDENTIFIER};
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
@@ -50,12 +50,6 @@ pub mod pallet {
             + MaxEncodedLen
             + From<[u8; 42]>;
     }
-
-    // Attestation insert type
-    pub type AttestationInsert<T> = Attestation<<T as Config>::BlsSignature>;
-
-    // Attestation creation type
-    pub type AttestationCreate<T> = AttestationInput<<T as Config>::BlsSignature>;
 
     pub trait WeightInfo {
         fn register_attestor() -> Weight;
@@ -121,7 +115,7 @@ pub mod pallet {
         ChainId,
         Blake2_128Concat,
         BlockNumber,
-        AttestationInsert<T>,
+        Attestation<T::Hash>,
         OptionQuery,
     >;
 
@@ -183,11 +177,11 @@ pub mod pallet {
 
         InvulnerableUnregistered(T::AccountId),
 
-        ChainBootstrapped(ChainId, AttestationInsert<T>),
+        ChainBootstrapped(ChainId, Attestation<T::Hash>),
 
-        BlockAttested(ChainId, AttestationInsert<T>),
+        BlockAttested(ChainId, Attestation<T::Hash>),
 
-        CheckpointReached(ChainId, AttestationInsert<T>),
+        CheckpointReached(ChainId, Attestation<T::Hash>),
 
         ComitteeSetSizeChanged(u32),
     }
@@ -365,14 +359,15 @@ pub mod pallet {
             origin: OriginFor<T>,
             chain_id: ChainId,
             block_number: BlockNumber,
-            attestation: AttestationCreate<T>,
+            attestation: SignedAttestation<T::Hash>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             let digest = attestation.digest;
             LastDigest::<T>::set(chain_id, Some(digest));
 
-            let attestation_insert = AttestationInsert::<T>::new(attestation, digest);
+            let attestation_insert: Attestation<T::Hash> =
+                Attestation::new(attestation.clone(), digest);
             Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
 
             Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation_insert));
@@ -383,26 +378,28 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::commit_attestation())]
         pub fn commit_attestation(
             origin: OriginFor<T>,
-            chain_id: ChainId,
-            attestation: AttestationCreate<T>,
+            attestation: SignedAttestation<T::Hash>,
         ) -> DispatchResult {
             ensure_none(origin)?;
 
-            let digest = if let Some(digest) = LastDigest::<T>::get(chain_id) {
+            let digest = if let Some(digest) = LastDigest::<T>::get(attestation.chain_id()) {
                 digest
             } else {
                 debug!("First attestation for chain, otherwise something is wrong");
                 attestation.digest
             };
 
-            let block_number = attestation.block_number;
-            let attestation_insert = AttestationInsert::<T>::new(attestation.clone(), digest);
-            Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
+            let block_number = attestation.attestation_data.header_number;
+            let attestation_insert = Attestation::new(attestation.clone(), digest);
+            Attestations::<T>::insert(attestation.chain_id(), block_number, &attestation_insert);
 
             // Update last digest
-            LastDigest::<T>::set(chain_id, Some(attestation.digest));
+            LastDigest::<T>::set(attestation.chain_id(), Some(attestation.digest));
 
-            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation_insert));
+            Self::deposit_event(Event::<T>::BlockAttested(
+                attestation.chain_id(),
+                attestation_insert,
+            ));
 
             Ok(())
         }
@@ -416,28 +413,19 @@ pub mod pallet {
 
         fn create_inherent(data: &InherentData) -> Option<Self::Call> {
             let inherent_data = data
-                .get_data::<AttestationInherentData>(&INHERENT_IDENTIFIER)
+                .get_data::<SignedAttestation<T::Hash>>(&INHERENT_IDENTIFIER)
                 .expect("Attestation inherent data not correctly encoded");
 
             // Check if atleast the attestation was not already submitted
-            if let Some(attestation_data) = inherent_data {
-                if let Some(digest) = LastDigest::<T>::get(attestation_data.chain_id) {
-                    if digest == attestation_data.digest {
+            if let Some(attestation) = inherent_data {
+                if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
+                    if digest == attestation.digest {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
                         return None;
                     }
                 };
 
-                Some(Call::commit_attestation {
-                    attestation: AttestationInput {
-                        block_number: attestation_data.block_number,
-                        bls: attestation_data.signature.into(),
-                        digest: attestation_data.digest,
-                        rx_root: attestation_data.rx_root,
-                        tx_root: attestation_data.tx_root,
-                    },
-                    chain_id: attestation_data.chain_id,
-                })
+                Some(Call::commit_attestation { attestation })
             } else {
                 log::info!("No attestation data provided");
                 None
@@ -449,13 +437,13 @@ pub mod pallet {
             data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
             let inherent_data = data
-                .get_data::<AttestationInherentData>(&INHERENT_IDENTIFIER)
+                .get_data::<SignedAttestation<T::Hash>>(&INHERENT_IDENTIFIER)
                 .expect("Timestamp inherent data not correctly encoded");
 
             // Check if atleast the attestation was not already submitted
-            if let Some(attestation_data) = inherent_data {
-                if let Some(digest) = LastDigest::<T>::get(attestation_data.chain_id) {
-                    if digest == attestation_data.digest {
+            if let Some(attestation) = inherent_data {
+                if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
+                    if digest == attestation.attestation_data.digest() {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
                         return Err(InherentError::Duplicate);
                     }

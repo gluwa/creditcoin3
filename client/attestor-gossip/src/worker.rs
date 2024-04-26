@@ -1,4 +1,4 @@
-use attestor_primitives::{AttestationData, AttestationInherentData, Digest};
+use attestor_primitives::{Digest, SignedAttestation};
 use futures::StreamExt;
 use log::{error, info};
 use parity_scale_codec::{Decode, Encode};
@@ -52,7 +52,7 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
 
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
 }
 
 pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
@@ -70,7 +70,7 @@ pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, 
     /// Client Backend
     pub backend: Arc<BE>,
 
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider>>,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
 }
 
 impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, CIDP> Worker<B, RA, BE, C, CIDP>
@@ -105,11 +105,9 @@ where
                 .gossip_engine
                 .messages_for(votes_topic::<B>())
                 .filter_map(|notification| async move {
-                    let message = Message::<B>::decode(&mut &notification.message[..])
+                    Message::<B>::decode(&mut &notification.message[..])
                         .ok()
-                        .map(|m| m);
-
-                    message
+                        .map(|m| m)
                 })
                 .fuse(),
         );
@@ -264,10 +262,12 @@ where
     /// Add attestation to round, returns if we need to conclude the round or not
     fn add_to_round(&mut self, attestation: &Attestation<HashFor<B>>) -> bool {
         // Hash the attestation data
-        let attestation_data: AttestationData = attestation.clone().into();
-        let digest = attestation_data.digest();
+        let digest = attestation.attestation_data.digest();
 
-        let k = (attestation.chain_id, attestation.header_number);
+        let k = (
+            attestation.attestation_data.chain_id,
+            attestation.attestation_data.header_number,
+        );
 
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
             attestations.push((attestation.attestor.clone(), digest));
@@ -289,19 +289,19 @@ where
     fn submit_attestation(
         &mut self,
         attestation: Attestation<HashFor<B>>,
-    ) -> Option<AttestationInherentData> {
-        let k = (attestation.chain_id, attestation.header_number);
+    ) -> Option<SignedAttestation<HashFor<B>>> {
+        let k = (
+            attestation.attestation_data.chain_id,
+            attestation.attestation_data.header_number,
+        );
 
         let attestations = self.block_attestations.get(&k).unwrap();
         let (major_digest, major_count) = find_major_digest(attestations);
 
         if major_count >= THRESHOLD {
             let bls: [u8; 42] = [0; 42]; // Placeholder for BLS signature computation
-            let res = Some(AttestationInherentData {
-                chain_id: attestation.chain_id,
-                block_number: attestation.header_number,
-                tx_root: H256(attestation.tx_root.clone()),
-                rx_root: H256(attestation.rx_root.clone()),
+            let res = Some(SignedAttestation {
+                attestation_data: attestation.clone().attestation_data,
                 signature: bls,
                 digest: major_digest,
             });
@@ -326,7 +326,7 @@ where
 fn find_major_digest(attestations: &Vec<(AttestorId, Digest)>) -> (Digest, usize) {
     let mut digest_count: HashMap<Digest, usize> = HashMap::new();
     for (_, digest) in attestations {
-        *digest_count.entry(digest.clone()).or_insert(0) += 1;
+        *digest_count.entry(*digest).or_insert(0) += 1;
     }
 
     digest_count
