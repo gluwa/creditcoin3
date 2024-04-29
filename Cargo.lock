@@ -1275,6 +1275,7 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "serde",
+ "sp-api",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -2532,6 +2533,7 @@ dependencies = [
 name = "creditcoin3-runtime"
 version = "3.31.0"
 dependencies = [
+ "attestor-primitives",
  "creditcoin3-evm-tracer",
  "creditcoin3-rpc-primitives-debug",
  "fp-evm",

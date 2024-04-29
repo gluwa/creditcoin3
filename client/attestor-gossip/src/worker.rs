@@ -1,7 +1,7 @@
-use attestor_primitives::{Digest, SignedAttestation};
+use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use futures::StreamExt;
 use log::{error, info};
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
@@ -9,6 +9,8 @@ use sp_core::{Pair, H256, U256};
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
 use std::collections::HashMap;
+use std::fmt::{Debug, Display};
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use crate::{Client, HashFor, LOG_TARGET};
@@ -30,13 +32,13 @@ type ChainId = u8;
 
 type BlockNumber = u64;
 
-pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
+pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId> {
     /// Best attestation we have in the cache (latest)
     #[allow(dead_code)]
-    pub best_attestation: Option<Attestation<HashFor<B>>>,
+    pub best_attestation: Option<Attestation<HashFor<B>, AccountId>>,
 
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
-    pub comms: AttestorComms<B>,
+    pub comms: AttestorComms<B, AccountId>,
 
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
@@ -53,11 +55,14 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     pub create_inherent_data_providers: CIDP,
 
     pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
+
+    pub _phantom: PhantomData<AccountId>,
 }
 
-pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP> {
+pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId>
+{
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
-    pub comms: AttestorComms<B>,
+    pub comms: AttestorComms<B, AccountId>,
 
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
@@ -71,22 +76,26 @@ pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, 
     pub backend: Arc<BE>,
 
     pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
+
+    pub _phantom: PhantomData<AccountId>,
 }
 
-impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, CIDP> Worker<B, RA, BE, C, CIDP>
+impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId>
+    Worker<B, RA, BE, C, CIDP, AccountId>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: BabeApi<B>,
+    RA::Api: AttestorApi<B, AccountId>,
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
-    // H: std::hash::Hash + Serialize + Debug,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
-    pub fn new(params: WorkerParams<B, RA, BE, C, CIDP>) -> Self {
+    pub fn new(params: WorkerParams<B, RA, BE, C, CIDP, AccountId>) -> Self {
         Worker {
             best_attestation: None,
             comms: params.comms,
@@ -96,6 +105,7 @@ where
             block_attestations: HashMap::new(),
             backend: params.backend,
             inherent_provider: params.inherent_provider,
+            _phantom: PhantomData,
         }
     }
 
@@ -105,7 +115,7 @@ where
                 .gossip_engine
                 .messages_for(votes_topic::<B>())
                 .filter_map(|notification| async move {
-                    Message::<B>::decode(&mut &notification.message[..])
+                    Message::<B, AccountId>::decode(&mut &notification.message[..])
                         .ok()
                         .map(|m| m)
                 })
@@ -170,7 +180,7 @@ where
         }
     }
 
-    async fn triage_message(&mut self, message: Message<B>) -> Result<(), Error> {
+    async fn triage_message(&mut self, message: Message<B, AccountId>) -> Result<(), Error> {
         match message {
             Message::Attestation(attestation) => {
                 self.verify_vrf(&attestation)?;
@@ -205,13 +215,17 @@ where
     /// This checks if the attestor that submitted this attestations vrf output is correct
     /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
     /// TODO: check if the eligibility check is good enough
-    fn verify_vrf(&self, attestation: &Attestation<HashFor<B>>) -> Result<(), Error> {
+    fn verify_vrf(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> Result<(), Error> {
         // check if the attestation vrf output is submitted correctly and is eligible for attesting
         let runtime = self.runtime.runtime_api();
+
         let client = self.client.clone();
 
         // Get the blockchain info (current info)
         let blockchain_info = self.backend.blockchain().info();
+
+        let is_attestor =
+            runtime.is_attestor(blockchain_info.best_hash, &attestation.attestor.clone());
 
         // Get the vrf at 2 epochs ago
         let config = runtime.configuration(blockchain_info.best_hash)?;
@@ -243,7 +257,7 @@ where
             // now check if the number that the attestor generated actually is correct ?
             // otherwise, slash the attestor
             let public_key =
-                sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());
+                sp_core::sr25519::Public::from_raw(attestation.attestor.clone().into());
 
             let is_valid = sp_core::sr25519::Pair::verify(
                 &attestation.vrf_output.signature,
@@ -260,7 +274,7 @@ where
     }
 
     /// Add attestation to round, returns if we need to conclude the round or not
-    fn add_to_round(&mut self, attestation: &Attestation<HashFor<B>>) -> bool {
+    fn add_to_round(&mut self, attestation: &Attestation<HashFor<B>, AccountId>) -> bool {
         // Hash the attestation data
         let digest = attestation.attestation_data.digest();
 
@@ -270,11 +284,11 @@ where
         );
 
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
-            attestations.push((attestation.attestor.clone(), digest));
+            // attestations.push((attestation.attestor.clone(), digest));
             attestations.len() >= THRESHOLD
         } else {
-            self.block_attestations
-                .insert(k, vec![(attestation.attestor.clone(), digest)]);
+            // self.block_attestations
+            // .insert(k, vec![(attestation.attestor.clone(), digest)]);
             false // Newly inserted, so it cannot exceed the threshold yet
         };
 
@@ -288,7 +302,7 @@ where
     /// 3. Flush memory
     fn submit_attestation(
         &mut self,
-        attestation: Attestation<HashFor<B>>,
+        attestation: Attestation<HashFor<B>, AccountId>,
     ) -> Option<SignedAttestation<HashFor<B>>> {
         let k = (
             attestation.attestation_data.chain_id,

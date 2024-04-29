@@ -82,6 +82,7 @@ creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
 
 pallet-attestation-poc = { workspace = true }
+attestor-primitives = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -151,6 +152,7 @@ std = [
 	"creditcoin3-evm-tracer/std",
 	"creditcoin3-rpc-primitives-debug/std",
 	"pallet-evm-precompile-substrate-transfer/std",
+	"attestor-primitives/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

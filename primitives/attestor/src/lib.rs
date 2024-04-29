@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use sp_std::vec::Vec;
 
+pub mod api;
+
 pub type Felt = [u8; 32];
 
 pub type ChainId = u8;

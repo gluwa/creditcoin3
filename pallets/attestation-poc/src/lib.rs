@@ -284,10 +284,7 @@ pub mod pallet {
         pub fn unregister_attestor(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
 
-            ensure!(
-                Self::address_is_attestor(&who),
-                Error::<T>::AddressNotAttestor
-            );
+            ensure!(Self::is_attestor(&who), Error::<T>::AddressNotAttestor);
 
             Self::remove_attestor_and_emit_event(&who);
 
@@ -459,12 +456,16 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn address_is_attestor(address: &T::AccountId) -> bool {
+        pub fn is_attestor(address: &T::AccountId) -> bool {
             Attestors::<T>::contains_key(address)
         }
 
         pub fn address_is_not_attestor(address: &T::AccountId) -> bool {
-            !Self::address_is_attestor(address)
+            !Self::is_attestor(address)
+        }
+
+        pub fn last_digest(chain_id: u8) -> Option<Digest> {
+            LastDigest::<T>::get(chain_id)
         }
 
         pub fn attestor_list_has_space() -> bool {

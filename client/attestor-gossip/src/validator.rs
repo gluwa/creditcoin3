@@ -1,46 +1,53 @@
 use attestor_primitives::AttestationData;
+use parity_scale_codec::Codec;
 use parity_scale_codec::Decode;
 use sc_network::PeerId;
 use sc_network_gossip::{ValidationResult, Validator, ValidatorContext};
 use sp_core::{Pair, H256};
 use sp_runtime::traits::Block as BlockT;
+use std::fmt::Debug;
+use std::fmt::Display;
 use std::marker::PhantomData;
 
 use crate::{worker::votes_topic, HashFor, LOG_TARGET};
 
 use super::{Action, Attestation, Error, Message};
 
-pub struct AttestorGossipValidator<Block>
+pub struct AttestorGossipValidator<Block, AccountId>
 where
     Block: BlockT,
 {
     _phantom: PhantomData<Block>,
+    _phantom2: PhantomData<AccountId>,
 }
 
-impl<B> Default for AttestorGossipValidator<B>
+impl<B, AccountId> Default for AttestorGossipValidator<B, AccountId>
 where
     B: BlockT,
     H256: From<<B as BlockT>::Hash>,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<B> AttestorGossipValidator<B>
+impl<B, AccountId> AttestorGossipValidator<B, AccountId>
 where
     B: BlockT,
     H256: From<<B as BlockT>::Hash>,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
     pub fn new() -> Self {
         Self {
             _phantom: Default::default(),
+            _phantom2: Default::default(),
         }
     }
 
     pub fn validate_attestation(
         &self,
-        attestation: &Attestation<HashFor<B>>,
+        attestation: &Attestation<HashFor<B>, AccountId>,
         _sender: &PeerId,
     ) -> Result<Action<B::Hash>, Error> {
         let valid_sig = self.verify_signature(attestation);
@@ -55,7 +62,7 @@ where
 
     // Check it the signature is valid given the header number and header hash from the attestation for now.
     // Will need extending once we start submitting actual attestations
-    fn verify_signature(&self, attestation: &Attestation<HashFor<B>>) -> bool {
+    fn verify_signature(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> bool {
         let h = H256::from(attestation.attestation_data.header_hash);
 
         let msg = AttestationData {
@@ -66,16 +73,17 @@ where
             rx_root: attestation.attestation_data.rx_root,
         };
 
-        let public_key = sp_core::sr25519::Public::from_raw(attestation.attestor.0.clone().into());
+        let public_key = sp_core::sr25519::Public::from_raw(attestation.attestor.clone().into());
 
         sp_core::sr25519::Pair::verify(&attestation.signature, msg.serialize(), &public_key)
     }
 }
 
-impl<Block> Validator<Block> for AttestorGossipValidator<Block>
+impl<Block, AccountId> Validator<Block> for AttestorGossipValidator<Block, AccountId>
 where
     Block: BlockT,
     H256: From<<Block as BlockT>::Hash>,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
     fn validate(
         &self,
@@ -83,7 +91,7 @@ where
         sender: &PeerId,
         data: &[u8],
     ) -> ValidationResult<Block::Hash> {
-        let action = match Message::<Block>::decode(&mut &data[..]) {
+        let action = match Message::<Block, AccountId>::decode(&mut &data[..]) {
             Ok(Message::Attestation(att)) => {
                 log::info!(target: LOG_TARGET, "📝 Received attestation by: {:?}", att.attestor);
                 match self.validate_attestation(&att, sender) {

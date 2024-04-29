@@ -9,20 +9,20 @@ use sp_runtime::traits::Block as BlockT;
 use creditcoin3_attestor_gossip::{Attestation, Message, MessageSink};
 
 #[rpc(client, server)]
-pub trait AttestorGossipApi<H>
+pub trait AttestorGossipApi<H, AccountId>
 where
     H: Serialize,
 {
     #[method(name = "attestor_submitAttestation")]
-    async fn submit_attestation(&self, attestation: Attestation<H>) -> RpcResult<()>;
+    async fn submit_attestation(&self, attestation: Attestation<H, AccountId>) -> RpcResult<()>;
 }
 
-pub struct AttestorGossip<B: BlockT> {
-    sender: MessageSink<B>,
+pub struct AttestorGossip<B: BlockT, AccountId> {
+    sender: MessageSink<B, AccountId>,
 }
 
-impl<B: BlockT> AttestorGossip<B> {
-    pub fn new(sender: MessageSink<B>) -> Self {
+impl<B: BlockT, AccountId> AttestorGossip<B, AccountId> {
+    pub fn new(sender: MessageSink<B, AccountId>) -> Self {
         Self { sender }
     }
 }
@@ -57,14 +57,16 @@ macro_rules! impl_from_bytes_hash {
 impl_from_bytes_hash!(for H256(32), H160(20));
 
 #[async_trait]
-impl<B> AttestorGossipApiServer<<B as BlockT>::Hash> for AttestorGossip<B>
+impl<B, AccountId> AttestorGossipApiServer<<B as BlockT>::Hash, AccountId>
+    for AttestorGossip<B, AccountId>
 where
     B: BlockT,
     <B as BlockT>::Hash: FromBytes,
+    AccountId: Clone + Send + 'static + Sync,
 {
     async fn submit_attestation(
         &self,
-        attestation: Attestation<<B as BlockT>::Hash>,
+        attestation: Attestation<<B as BlockT>::Hash, AccountId>,
     ) -> RpcResult<()> {
         self.sender
             .unbounded_send(Message::Attestation(attestation))

@@ -52,6 +52,7 @@ use pallet_grandpa::{
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
+use attestor_primitives::api::Digest;
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -1331,6 +1332,20 @@ impl_runtime_apis! {
             UncheckedExtrinsic::new_unsigned(
                 pallet_ethereum::Call::<Runtime>::transact { transaction }.into(),
             )
+        }
+    }
+
+    impl attestor_primitives::api::AttestorApi<Block, AccountId> for Runtime {
+        fn is_attestor(attestor: &AccountId) -> bool {
+            Attestation::is_attestor(attestor)
+        }
+
+        fn comittee_set_size() -> u32 {
+            Attestation::comittee_set_size()
+        }
+
+        fn last_digest(chain_id: u8) -> Option<Digest> {
+            Attestation::last_digest(chain_id)
         }
     }
 

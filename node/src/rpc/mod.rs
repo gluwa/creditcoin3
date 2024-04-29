@@ -69,7 +69,7 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     pub select_chain: SC,
 
     /// Attestation message sink
-    pub message_sink: MessageSink<Block>,
+    pub message_sink: MessageSink<Block, AccountId>,
 }
 
 /// Dependencies for GRANDPA
@@ -177,7 +177,7 @@ where
     io.merge(System::new(Arc::clone(&client), Arc::clone(&pool), deny_unsafe).into_rpc())?;
     io.merge(TransactionPayment::new(Arc::clone(&client)).into_rpc())?;
 
-    io.merge(AttestorGossip::<Block>::new(message_sink).into_rpc())?;
+    io.merge(AttestorGossip::<Block, AccountId>::new(message_sink).into_rpc())?;
 
     if let Some(command_sink) = command_sink {
         io.merge(

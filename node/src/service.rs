@@ -476,29 +476,31 @@ where
     let (attestor_gossip_msg_sink, msg_stream) =
         tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
 
-    let attestor = creditcoin3_attestor_gossip::start_attestor_gossip_gadget::<_, _, _, _, _, _, _>(
-        AttestorGossipParams {
-            client: client.clone(),
-            backend: backend.clone(),
-            runtime: client.clone(),
-            network_params: creditcoin3_attestor_gossip::AttestorNetworkParams {
-                network: network.clone(),
-                sync: sync_service.clone(),
-                gossip_protocol_name: ATTESTOR_GOSSIP_NAME,
-                msg_stream,
-                phantom: PhantomData,
-            },
-            min_block_delta: 2,
-            prometheus_registry: prometheus_registry.clone(),
-            create_inherent_data_providers: move |_, attestation| async move {
-                log::info!("CREATING INHERENT DATA PROVIDER IN ATTESTOR PACKAGE");
-                // let data = InherentDataProvider::new(attestation, signatures);
+    let attestor =
+        creditcoin3_attestor_gossip::start_attestor_gossip_gadget::<_, _, _, _, _, _, _, _>(
+            AttestorGossipParams {
+                client: client.clone(),
+                backend: backend.clone(),
+                runtime: client.clone(),
+                network_params: creditcoin3_attestor_gossip::AttestorNetworkParams {
+                    network: network.clone(),
+                    sync: sync_service.clone(),
+                    gossip_protocol_name: ATTESTOR_GOSSIP_NAME,
+                    msg_stream,
+                    phantom: PhantomData,
+                },
+                min_block_delta: 2,
+                prometheus_registry: prometheus_registry.clone(),
+                create_inherent_data_providers: move |_, attestation| async move {
+                    log::info!("CREATING INHERENT DATA PROVIDER IN ATTESTOR PACKAGE");
+                    // let data = InherentDataProvider::new(attestation, signatures);
 
-                Ok(attestation)
+                    Ok(attestation)
+                },
+                inherent_provider: attestation_provider.clone(),
+                _phantom: PhantomData,
             },
-            inherent_provider: attestation_provider.clone(),
-        },
-    );
+        );
     task_manager
         .spawn_essential_handle()
         .spawn_blocking("attestor-gossip", None, attestor);

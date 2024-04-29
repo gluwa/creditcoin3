@@ -1,5 +1,5 @@
-use attestor_primitives::AttestationData;
-use parity_scale_codec::{Decode, Encode};
+use attestor_primitives::{api::AttestorApi, AttestationData};
+use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
@@ -13,7 +13,7 @@ use sp_runtime::{
     traits::{Block as BlockT, Header as HeaderT},
     AccountId32,
 };
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use substrate_prometheus_endpoint::Registry;
@@ -28,15 +28,15 @@ use validator::AttestorGossipValidator;
 
 pub type HashFor<B> = <B as BlockT>::Hash;
 
-pub type MessageSink<B> = TracingUnboundedSender<Message<B>>;
+pub type MessageSink<B, A> = TracingUnboundedSender<Message<B, A>>;
 
 const LOG_TARGET: &str = "attestor-gossip";
 
-pub(crate) struct AttestorComms<B: BlockT> {
+pub(crate) struct AttestorComms<B: BlockT, AccountId> {
     pub gossip_engine: GossipEngine<B>,
     #[allow(dead_code)]
-    pub gossip_validator: Arc<AttestorGossipValidator<B>>,
-    pub gossip_report_stream: TracingUnboundedReceiver<Message<B>>,
+    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId>>,
+    pub gossip_report_stream: TracingUnboundedReceiver<Message<B, AccountId>>,
     // pub on_demand_justifications: OnDemandJustificationsEngine<B>,
 }
 
@@ -85,9 +85,9 @@ impl Topic {
 }
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Attestation<B> {
+pub struct Attestation<B, AccountId> {
     pub attestation_data: AttestationData<B>,
-    pub attestor: AttestorId,
+    pub attestor: AccountId,
     pub topic: Topic,
     pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,
@@ -100,8 +100,8 @@ pub struct VrfOutput {
 }
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Message<B: BlockT> {
-    Attestation(Attestation<HashFor<B>>),
+pub enum Message<B: BlockT, AccountId> {
+    Attestation(Attestation<HashFor<B>, AccountId>),
     // Could be more messages to drop / slash or ignore certain attestors
     // ...
 }
@@ -118,7 +118,7 @@ pub struct State<H> {
 }
 
 /// Attestor gadget network parameters.
-pub struct AttestorNetworkParams<B: BlockT, N, S> {
+pub struct AttestorNetworkParams<B: BlockT, N, S, AccountId> {
     /// Network implementing gossip, requests and sync-oracle.
     pub network: Arc<N>,
     /// Syncing service implementing a sync oracle and an event stream for peers.
@@ -129,11 +129,11 @@ pub struct AttestorNetworkParams<B: BlockT, N, S> {
     /// [`communication::attestor_protocol_name::gossip_protocol_name`].
     pub gossip_protocol_name: ProtocolName,
     /// External rpc message stream
-    pub msg_stream: TracingUnboundedReceiver<Message<B>>,
+    pub msg_stream: TracingUnboundedReceiver<Message<B, AccountId>>,
     pub phantom: PhantomData<B>,
 }
 
-pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP> {
+pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP, AccountId> {
     /// Attestor client
     pub client: Arc<C>,
     /// Client Backend
@@ -141,7 +141,7 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP> {
     /// Runtime Api Provider
     pub runtime: Arc<R>,
     /// Attestor voter network params
-    pub network_params: AttestorNetworkParams<B, N, S>,
+    pub network_params: AttestorNetworkParams<B, N, S, AccountId>,
     /// Minimal delta between blocks, BEEFY should vote for
     pub min_block_delta: u32,
     /// Prometheus metric registry
@@ -149,22 +149,25 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP> {
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
     pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
+    pub _phantom: PhantomData<AccountId>,
 }
 
-pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
-    attestor_params: AttestorGossipParams<B, BE, C, N, R, S, CIDP>,
+pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
+    attestor_params: AttestorGossipParams<B, BE, C, N, R, S, CIDP, AccountId>,
 ) where
     B: BlockT,
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
     R: ProvideRuntimeApi<B> + Send + Sync + 'static,
     R::Api: BabeApi<B>,
+    R::Api: AttestorApi<B, AccountId>,
     N: GossipNetwork<B> + Send + Sync + 'static,
     S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
     let AttestorGossipParams {
         client,
@@ -186,8 +189,8 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
         ..
     } = network_params;
 
-    let gossip_validator = AttestorGossipValidator::<B>::new();
-    let validator: Arc<AttestorGossipValidator<B>> = Arc::new(gossip_validator);
+    let gossip_validator = AttestorGossipValidator::<B, AccountId>::new();
+    let validator: Arc<AttestorGossipValidator<B, AccountId>> = Arc::new(gossip_validator);
     let gossip_engine = GossipEngine::new(
         network.clone(),
         sync.clone(),
@@ -209,9 +212,10 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP>(
         create_inherent_data_providers,
         backend: backend.clone(),
         inherent_provider,
+        _phantom: PhantomData,
     };
 
-    let worker: Worker<B, R, BE, C, CIDP> = Worker::new(worker_params);
+    let worker: Worker<B, R, BE, C, CIDP, AccountId> = Worker::new(worker_params);
 
     worker.start().await;
 }
