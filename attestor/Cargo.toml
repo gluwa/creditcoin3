@@ -57,7 +57,7 @@ hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 starknet-crypto = "0.6.2"
 
 # Creditcoin deps
-creditcoin3-attestor-rpc = { path = "../client/attestor-rpc", default-features = false }
-creditcoin3-attestor-gossip = { path = "../client/attestor-gossip", default-features = false }
-merkletree = "0.23.0"
+creditcoin3-attestor-rpc = { path = "../client/attestor-rpc" }
+creditcoin3-attestor-gossip = { path = "../client/attestor-gossip" }
 attestor-primitives = { path = "../primitives/attestor" }
+merkletree = "0.23.0"
