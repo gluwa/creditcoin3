@@ -1,3 +1,4 @@
+import { SpVersionRuntimeVersion } from '@polkadot/types/lookup';
 import { creditcoinApi, expectNoDispatchError, expectNoEventError } from '../lib/api';
 import { BN } from '../lib/index';
 import { initKeyringPair } from '../lib/account/keyring';
@@ -6,7 +7,7 @@ import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { promisify } from 'util';
 
-// From https://github.com/chevdor/subwasm/blob/c2e5b62384537875bfd0497c2b2d706265699798/lib/src/runtime_info.rs#L8-L20
+// From https://github.com/chevdor/subwasm/blob/v0.19.0/lib/src/runtime_info.rs#L9-L21
 /* eslint-disable @typescript-eslint/naming-convention */
 type WasmRuntimeInfo = {
     size: number;
@@ -18,7 +19,7 @@ type WasmRuntimeInfo = {
     reserved_meta: number[];
     reserved_meta_valid: boolean;
     metadata_version: number;
-    core_version: string;
+    core_version: SpVersionRuntimeVersion;
     proposal_hash: string;
     parachain_authorize_upgrade_hash: string;
     ipfs_hash: string;
@@ -57,7 +58,7 @@ async function doRuntimeUpgrade(
         let needsUpgrade = true;
 
         if (hasSubwasm) {
-            // subwasm needs to be installed with `cargo install --locked --git https://github.com/chevdor/subwasm --tag v0.17.1`
+            // subwasm needs to be installed with `cargo install --locked --git https://github.com/chevdor/subwasm --tag v0.19.0`
             const output = await exec(`subwasm info -j ${wasmBlobPath}`);
             if (output.stderr.length > 0) {
                 throw new Error(`subwasm info failed: ${output.stderr}`);
@@ -65,12 +66,7 @@ async function doRuntimeUpgrade(
             const info = JSON.parse(output.stdout) as WasmRuntimeInfo;
             // should probably do some checks here to see that the runtime is right
             // e.g. the core version is reasonable, it's compressed, etc.
-            const [version] = info.core_version.split(' ');
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            const [, versionNumString] = version.match(/(?:\w+\-)+(\d+)/)!;
-            const versionNum = Number(versionNumString);
-
-            if (versionNum <= specVersion.toNumber()) {
+            if (info.core_version.specVersion.toNumber() <= specVersion.toNumber()) {
                 needsUpgrade = false;
             }
         }
