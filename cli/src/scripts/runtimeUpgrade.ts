@@ -66,7 +66,7 @@ async function doRuntimeUpgrade(
             const info = JSON.parse(output.stdout) as WasmRuntimeInfo;
             // should probably do some checks here to see that the runtime is right
             // e.g. the core version is reasonable, it's compressed, etc.
-            if (info.core_version.specVersion.toNumber() <= specVersion.toNumber()) {
+            if (Number(info.core_version.specVersion) <= specVersion.toNumber()) {
                 needsUpgrade = false;
             }
         }
