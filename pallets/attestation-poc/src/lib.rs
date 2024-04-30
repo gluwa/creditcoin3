@@ -6,8 +6,6 @@ pub use pallet::*;
 #[allow(clippy::unnecessary_cast)]
 pub mod weights;
 
-mod benchmarking;
-
 #[cfg(test)]
 mod mock;
 
