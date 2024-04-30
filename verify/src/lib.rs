@@ -127,9 +127,9 @@ pub fn verify_proof_of_inclusion(
         proof_of_inclusion
             .pre_output
             .make_bytes(VRF_CONTEXT, vrf_input.as_ref(), &vrf_public)
-        else {
-            return false;
-        };
+    else {
+        return false;
+    };
 
     let random_pub = u128::from_le_bytes(random_pub);
 

@@ -1,10 +1,10 @@
+use parity_scale_codec::Encode;
+use sp_core::{sr25519, Pair};
 use verify::{
     crypto::{Bls, Sr25519},
     make_aggregated_attestation, make_attestation, make_proof_of_inclusion, make_vote, random,
     Context, VoteData,
 };
-use parity_scale_codec::Encode;
-use sp_core::{sr25519, Pair};
 
 fn main() {
     let data = random::random::<VoteData>();

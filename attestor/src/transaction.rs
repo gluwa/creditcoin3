@@ -86,12 +86,12 @@ impl BlockItem for Receipt {
         0
     }
 
-    fn index(&self) -> u64 {
-        self.0.transaction_index
-    }
-
     fn block_number(&self) -> U256 {
         U256::saturating_from(self.0.block_number.unwrap_or_default())
+    }
+
+    fn index(&self) -> u64 {
+        self.0.transaction_index.unwrap()
     }
 
     fn from(&self) -> Address {

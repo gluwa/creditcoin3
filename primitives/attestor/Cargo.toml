@@ -18,6 +18,7 @@ sp-runtime = { workspace = true }
 sp-io = { workspace = true }
 serde = { workspace = true }
 scale-info = { workspace = true }
+bls-signatures = { workspace = true }
 sp-api = { workspace = true }
 
 [features]

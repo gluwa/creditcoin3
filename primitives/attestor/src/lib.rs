@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod bls;
+
+pub use crate::bls::{Bls, CryptoScheme};
 use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
@@ -31,13 +34,11 @@ impl IsFatalError for InherentError {
     }
 }
 
-pub type BlsSignature = [u8; 42];
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, MaxEncodedLen, TypeInfo)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
 pub struct SignedAttestation<H> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
-    pub signature: BlsSignature,
+    pub signature: <Bls as CryptoScheme>::Signature,
 }
 
 impl<H> SignedAttestation<H> {

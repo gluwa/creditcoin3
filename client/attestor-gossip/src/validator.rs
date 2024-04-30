@@ -96,13 +96,10 @@ where
         let action = match Message::<Block, AccountId>::decode(&mut &data[..]) {
             Ok(Message::Attestation(att)) => {
                 log::info!(target: LOG_TARGET, "📝 Received attestation by: {:?}", att.attestor);
-                match self.validate_attestation(&att, sender) {
-                    Ok(a) => a,
-                    Err(err) => {
-                        log::error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);
-                        Action::Discard
-                    }
-                }
+                self.validate_attestation(&att, sender).unwrap_or_else(|err| {
+                    log::error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);
+                    Action::Discard
+                })
             }
             Err(err) => {
                 log::error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);

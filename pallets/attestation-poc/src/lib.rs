@@ -132,6 +132,7 @@ pub mod pallet {
     pub type SupportedChains<T: Config> = StorageValue<_, SupportedChainsVec, ValueQuery>;
 
     #[pallet::pallet]
+    #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
     #[pallet::genesis_config]

@@ -16,7 +16,7 @@ parity-scale-codec = { version = "3.6.9", features = ["derive"] }
 rand = "0.8.5"
 rayon = "1.8.0"
 sp-core = "27.0.0"
-attestor = { path = "../attestor" }
+#attestor = { path = "../attestor" }
 
 [dev-dependencies]
 criterion = "0.5.1"

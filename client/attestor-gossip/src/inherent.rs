@@ -1,5 +1,6 @@
 use anyhow::Result;
-use attestor_primitives::{InherentError, SignedAttestation, INHERENT_IDENTIFIER};
+use attestor_primitives::SignedAttestation;
+use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
 use parity_scale_codec::Encode;
 use sp_core::Decode;
 use sp_inherents::{Error, InherentData, InherentIdentifier};

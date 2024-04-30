@@ -1,3 +1,6 @@
+use attestor_primitives::bls::{Bls, WrapEncode};
+use attestor_primitives::{Digest, SignedAttestation};
+use bls_signatures::aggregate;
 use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use futures::StreamExt;
 use log::{error, info};
@@ -53,6 +56,8 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     /// Block attestations. Maps a blocknumber to a list of valid attestations
     pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
 
+    pub block_attestations_raw:
+        HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Attestation<HashFor<B>>)>>,
     /// Inherent data providers
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
@@ -106,6 +111,7 @@ where
             client: params.client,
             create_inherent_data_providers: params.create_inherent_data_providers,
             block_attestations: HashMap::new(),
+            block_attestations_raw: HashMap::new(),
             backend: params.backend,
             inherent_provider: params.inherent_provider,
             _phantom: PhantomData,
@@ -300,6 +306,13 @@ where
             attestation.attestation_data.header_number,
         );
 
+        if let Some(raw_attestations) = self.block_attestations_raw.get_mut(&k) {
+            raw_attestations.push((attestation.attestor.clone(), attestation.clone()));
+        } else {
+            self.block_attestations_raw
+                .insert(k, vec![(attestation.attestor.clone(), attestation.clone())]);
+        };
+
         let attestor_id = AttestorId(AccountId32::from(attestation.attestor.clone().into()));
 
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
@@ -331,11 +344,38 @@ where
         let attestations = self.block_attestations.get(&k).unwrap();
         let (major_digest, major_count) = find_major_digest(attestations);
 
+        // here goes bls
+        // contains attestorid, and attestation itself.
+        let raw_attestations = self.block_attestations_raw.get(&k).unwrap();
+
+        // will be needed for later verification
+        // let messages = raw_attestations
+        //     .iter()
+        //     .map(|(_, attestation)| attestation.attestation_data.serialize())
+        //     .collect::<Vec<Vec<u8>>>();
+
+        // retrieve wrapped bls signatures
+        let signatures = raw_attestations
+            .iter()
+            .map(|(_, attestations)| attestations.signature_bls.clone())
+            .collect::<Vec<<Bls as attestor_primitives::CryptoScheme>::Signature>>();
+
+        // will be needed for later verification
+        // let public_keys = raw_attestations.iter().map(|(attestor, _)| attestor.0.clone()).collect::<Vec<[u8; 32]>>();
+
+        // retrieve inner bls signature
+        let sigs = signatures
+            .iter()
+            .map(|WrapEncode(sig)| sig.clone())
+            .collect::<Vec<_>>();
+
+        let aggregated_signature = aggregate(&sigs[..]).expect("Failed to aggregate signatures");
+
         if major_count >= THRESHOLD {
-            let bls: [u8; 42] = [0; 42]; // Placeholder for BLS signature computation
+            let bls = aggregated_signature; // Placeholder for BLS signature computation
             let res = Some(SignedAttestation {
                 attestation_data: attestation.clone().attestation_data,
-                signature: bls,
+                signature: WrapEncode(bls),
                 digest: major_digest,
             });
 
@@ -344,6 +384,7 @@ where
 
             // Flush memory
             self.block_attestations.remove(&k);
+            self.block_attestations_raw.remove(&k);
 
             res
         } else {

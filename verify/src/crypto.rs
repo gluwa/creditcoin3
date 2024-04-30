@@ -168,7 +168,7 @@ impl CryptoScheme for BlsArkworks {
             &data.to_vec(),
             &bls_on_arkworks::DST_ETHEREUM.as_bytes().to_vec(),
         )
-            .unwrap()
+        .unwrap()
     }
 
     fn verify(public: &PublicFor<Self>, signature: &Self::Signature, data: &[u8]) -> bool {

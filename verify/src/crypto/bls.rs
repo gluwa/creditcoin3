@@ -29,8 +29,8 @@ pub fn bls_aggregate_verify(
     // zero key & single hash should fail
     if n_hashes == 1
         && G1Projective::from(public_keys[0].clone())
-        .is_identity()
-        .into()
+            .is_identity()
+            .into()
     {
         return false;
     }

@@ -116,6 +116,7 @@ std = [
 	"frame-system/std",
 	"frame-system-rpc-runtime-api/std",
 	"frame-system-benchmarking?/std",
+	#"pallet-attestation-poc/std",
 	"pallet-authorship/std",
 	"pallet-babe/std",
 	"pallet-bags-list/std",
