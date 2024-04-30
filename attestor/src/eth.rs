@@ -13,7 +13,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     attestation::{self, Attestor, NewBlock},
-    cc3::{self, AttestationSubmit, Client},
+    cc3::{self, AttestationSubmit, Client, GetLastDigest},
     transaction,
 };
 
@@ -27,8 +27,10 @@ pub enum Error {
     EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
     #[error("Actor send error {0}")]
     AttestationError(#[from] kameo::error::SendError<NewBlock, attestation::Error>),
-    #[error("Actor send error {0}")]
-    Cc3Error(#[from] kameo::error::SendError<AttestationSubmit<H256>, cc3::Error>),
+    #[error("Attestation submit error {0}")]
+    AttestationSubmitError(#[from] kameo::error::SendError<AttestationSubmit<H256>, cc3::Error>),
+    #[error("Get last digest error {0}")]
+    FetchDigestError(#[from] kameo::error::SendError<GetLastDigest, cc3::Error>),
 }
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
@@ -83,12 +85,15 @@ pub async fn subscribe_to_new_heads(
                 vec![]
             };
 
+            let last_digest = cc3_client.send(GetLastDigest { chain_id: 42 }).await?;
+
             // Notify the attestor with a new block
             let attestation = attestor
                 .send(NewBlock {
                     chain_id: 42,
                     header_number: block.header.number.unwrap(),
                     header_hash: sp_core::H256(block.header.hash.unwrap().0),
+                    last_digest,
                     transactions,
                     receipts,
                 })

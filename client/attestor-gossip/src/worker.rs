@@ -7,7 +7,10 @@ use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::{Pair, H256, U256};
 use sp_inherents::CreateInherentDataProviders;
-use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
+use sp_runtime::{
+    traits::{Block as BlockT, Hash as HashT, Header as HeaderT},
+    AccountId32,
+};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
@@ -115,9 +118,7 @@ where
                 .gossip_engine
                 .messages_for(votes_topic::<B>())
                 .filter_map(|notification| async move {
-                    Message::<B, AccountId>::decode(&mut &notification.message[..])
-                        .ok()
-                        .map(|m| m)
+                    Message::<B, AccountId>::decode(&mut &notification.message[..]).ok()
                 })
                 .fuse(),
         );
@@ -216,24 +217,40 @@ where
     /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
     /// TODO: check if the eligibility check is good enough
     fn verify_vrf(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> Result<(), Error> {
-        // check if the attestation vrf output is submitted correctly and is eligible for attesting
-        let runtime = self.runtime.runtime_api();
-
-        let client = self.client.clone();
-
         // Get the blockchain info (current info)
         let blockchain_info = self.backend.blockchain().info();
 
+        let runtime = self.runtime.runtime_api();
         let is_attestor =
-            runtime.is_attestor(blockchain_info.best_hash, &attestation.attestor.clone());
+            runtime.is_attestor(blockchain_info.best_hash, &attestation.attestor.clone())?;
+        info!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
+
+        if !is_attestor {
+            return Err(Error::NotAnAttestor);
+        }
+
+        let last_digest = runtime
+            .last_digest(
+                blockchain_info.best_hash,
+                attestation.attestation_data.chain_id,
+            )?
+            .unwrap_or(H256::zero());
+
+        if last_digest != attestation.attestation_data.prev_digest.into() {
+            info!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, attestation.attestation_data.prev_digest);
+
+            return Err(Error::DigestMissMatch);
+        }
 
         // Get the vrf at 2 epochs ago
+        let runtime = self.runtime.runtime_api();
         let config = runtime.configuration(blockchain_info.best_hash)?;
         let target_epoch_block: u64 =
             blockchain_info.best_number.into() - (config.epoch_length * 2);
         info!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", target_epoch_block);
 
-        let target_epoch_hash = client
+        let target_epoch_hash = self
+            .client
             .block_hash((target_epoch_block as u32).into())
             .ok()
             .flatten()
@@ -283,12 +300,14 @@ where
             attestation.attestation_data.header_number,
         );
 
+        let attestor_id = AttestorId(AccountId32::from(attestation.attestor.clone().into()));
+
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
-            // attestations.push((attestation.attestor.clone(), digest));
+            attestations.push((attestor_id, digest));
             attestations.len() >= THRESHOLD
         } else {
-            // self.block_attestations
-            // .insert(k, vec![(attestation.attestor.clone(), digest)]);
+            self.block_attestations
+                .insert(k, vec![(attestor_id, digest)]);
             false // Newly inserted, so it cannot exceed the threshold yet
         };
 

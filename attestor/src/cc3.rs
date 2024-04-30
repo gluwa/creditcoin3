@@ -17,7 +17,7 @@ use tracing::{debug, error, info};
 
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic, VrfOutput};
 
-use attestor_primitives::AttestationData;
+use attestor_primitives::{AttestationData, ChainId, Digest};
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
 pub mod cc3 {}
@@ -133,6 +133,21 @@ impl<'a> Client {
         Ok(result)
     }
 
+    pub async fn fetch_last_digest(&self, chain_id: ChainId) -> Result<Option<Digest>> {
+        let api = self.get_substrate_client().await?;
+
+        let storage_query = cc3::storage().attestation().last_digest(chain_id);
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
+    }
+
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self) -> Result<bool> {
         let api = self.get_substrate_client().await?;
@@ -235,6 +250,8 @@ pub enum Error {
     FailedToSignBabeVrf,
     #[error("Failed to check eligibility")]
     FailedToCheckEligibility,
+    #[error("Failed to fetch latest digest")]
+    FailedToFetchDigest,
     #[error("Invalid attestor")]
     InvalidAttestor,
     #[error("Failed to get cc3 RPC client")]
@@ -276,13 +293,7 @@ where
 
         // Create final attestation object
         let attestation = Attestation {
-            attestation_data: AttestationData {
-                chain_id: msg.attestation.chain_id,
-                header_hash: hex::encode(msg.attestation.header_hash),
-                header_number: msg.attestation.header_number,
-                tx_root: msg.attestation.tx_root,
-                rx_root: msg.attestation.rx_root,
-            },
+            attestation_data: msg.attestation,
             attestor: self.get_attestor_id(),
             topic: Topic::new(1),
             vrf_output,
@@ -309,6 +320,29 @@ where
     }
 }
 
+pub struct GetLastDigest {
+    pub chain_id: ChainId,
+}
+
+impl Message<GetLastDigest> for Client {
+    type Reply = Result<H256, Error>;
+
+    async fn handle(
+        &mut self,
+        msg: GetLastDigest,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        let last_digest = self.fetch_last_digest(msg.chain_id).await.map_err(|e| {
+            error!("Error checking latest digest: {:?}", e);
+            Error::FailedToFetchDigest
+        })?;
+
+        let last_digest = last_digest.unwrap_or(H256::zero());
+        info!("Last digest: {:?}", last_digest);
+
+        Ok(last_digest)
+    }
+}
 /// Helper function to format a http(s) endpoint to a ws(s) endpoint
 fn replace_http_with_ws(url: &str) -> String {
     // Check if the URL starts with "http://" or "https://"

@@ -65,6 +65,7 @@ pub trait RuntimeApiCollection:
     + sp_consensus_grandpa::GrandpaApi<Block>
     + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
     + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
+    + attestor_primitives::api::AttestorApi<Block, AccountId>
 {
 }
 
@@ -75,5 +76,6 @@ impl<Api> RuntimeApiCollection for Api where
         + sp_consensus_grandpa::GrandpaApi<Block>
         + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
         + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
+        + attestor_primitives::api::AttestorApi<Block, AccountId>
 {
 }

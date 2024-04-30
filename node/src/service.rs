@@ -6,7 +6,6 @@ use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 use creditcoin3_attestor_gossip::{inherent::AttestationInherent, AttestorGossipParams};
 use futures::{channel::mpsc, prelude::*};
 // Substrate
-use log;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};

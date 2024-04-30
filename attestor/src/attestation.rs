@@ -47,6 +47,7 @@ pub struct NewBlock {
     pub chain_id: u8,
     pub header_number: u64,
     pub header_hash: H256,
+    pub last_digest: H256,
     pub transactions: Vec<transaction::Transaction>,
     pub receipts: Vec<transaction::Receipt>,
 }
@@ -110,6 +111,7 @@ pub fn create<H>(new_block: &NewBlock) -> Result<AttestationData<H256>, Error> {
         header_hash: new_block.header_hash,
         tx_root: tx_tree.root().into(),
         rx_root: rx_tree.root().into(),
+        prev_digest: new_block.last_digest,
     };
 
     debug!("tree tx root: {:?}", attestation.tx_root);

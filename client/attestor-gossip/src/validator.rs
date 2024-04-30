@@ -63,14 +63,16 @@ where
     // Check it the signature is valid given the header number and header hash from the attestation for now.
     // Will need extending once we start submitting actual attestations
     fn verify_signature(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> bool {
-        let h = H256::from(attestation.attestation_data.header_hash);
+        let header_hash = H256::from(attestation.attestation_data.header_hash);
+        let prev_digest = H256::from(attestation.attestation_data.prev_digest);
 
         let msg = AttestationData {
             chain_id: attestation.attestation_data.chain_id,
             header_number: attestation.attestation_data.header_number,
-            header_hash: h,
+            header_hash,
             tx_root: attestation.attestation_data.tx_root,
             rx_root: attestation.attestation_data.rx_root,
+            prev_digest,
         };
 
         let public_key = sp_core::sr25519::Public::from_raw(attestation.attestor.clone().into());

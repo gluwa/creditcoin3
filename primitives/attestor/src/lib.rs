@@ -65,6 +65,7 @@ pub struct AttestationData<H> {
     pub header_hash: H,
     pub tx_root: Felt,
     pub rx_root: Felt,
+    pub prev_digest: H,
 }
 
 pub type Digest = H256;

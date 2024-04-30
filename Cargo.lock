@@ -2323,6 +2323,7 @@ name = "creditcoin3-node"
 version = "3.31.0"
 dependencies = [
  "async-trait",
+ "attestor-primitives",
  "clap",
  "creditcoin3-attestor-gossip",
  "creditcoin3-attestor-rpc",

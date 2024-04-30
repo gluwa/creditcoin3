@@ -50,6 +50,12 @@ pub enum Error {
     InvalidAttestationVrfOuput,
     #[error("Error creating inherent data")]
     ErrorCreatingInherent,
+    #[error("Sender is not an attestor")]
+    NotAnAttestor,
+    #[error("Digest missmatch")]
+    DigestMissMatch,
+    #[error("Failed to fetch last digest")]
+    FetchLastDigestError,
     #[error("Sp api error")]
     SpApiError(#[from] sp_api::ApiError),
 }
