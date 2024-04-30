@@ -91,7 +91,7 @@ impl BlockItem for Receipt {
     }
 
     fn index(&self) -> u64 {
-        self.0.transaction_index.unwrap_or_default()
+        self.0.transaction_index.unwrap()
     }
 
     fn from(&self) -> Address {

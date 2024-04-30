@@ -2,8 +2,7 @@ use std::str::FromStr;
 
 use alloy::primitives::U256;
 use anyhow::Result;
-use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
-use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic, VrfOutput};
+use bls_signatures::PrivateKey;
 use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use kameo::{
@@ -33,7 +32,7 @@ pub type Randomness = [u8; 32];
 pub struct Client {
     pub url: String,
     pub keypair: Keypair,
-    pub bls_keypair: PrivateKey,
+    pub bls_private_key: PrivateKey,
 }
 
 impl<'a> Client {
@@ -43,18 +42,15 @@ impl<'a> Client {
     pub fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
-        // private_key: &[u8; 32],
+        private_key: &[u8; 32],
     ) -> Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
-
-        // Derive bls key from secret seed
-        let bls_keypair = PrivateKey::new(key.as_bytes());
-
+        let bls_private_key = PrivateKey::new(private_key);
         Ok(Self {
             url: url.into(),
             keypair,
-            bls_keypair,
+            bls_private_key,
         })
     }
 
@@ -313,7 +309,7 @@ where
         let signature = self.keypair.sign(&msg.attestation.serialize());
 
         // sign attestation data with bls key
-        let signature_bls = self.bls_keypair.sign(msg.attestation.serialize());
+        let signature_bls = self.bls_private_key.sign(&msg.attestation.serialize());
 
         // Create final attestation object
         let attestation = Attestation {

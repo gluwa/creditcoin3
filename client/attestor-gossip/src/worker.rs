@@ -1,4 +1,6 @@
-use attestor_primitives::bls::{Bls, CryptoScheme, WrapEncode};
+use attestor_primitives::bls::{Bls, WrapEncode};
+use attestor_primitives::{Digest, SignedAttestation};
+use bls_signatures::aggregate;
 use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
@@ -56,7 +58,7 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
 
     pub block_attestations_raw:
-        HashMap<(ChainId, BlockNumber), Vec<(AccountId, Attestation<HashFor<B>, AccountId>)>>,
+        HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Attestation<HashFor<B>>)>>,
     /// Inherent data providers
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
@@ -369,18 +371,15 @@ where
         let signatures = raw_attestations
             .iter()
             .map(|(_, attestations)| attestations.signature_bls.clone())
-            .collect::<Vec<<Bls as CryptoScheme>::Signature>>();
+            .collect::<Vec<<Bls as attestor_primitives::CryptoScheme>::Signature>>();
 
         // will be needed for later verification
         // let public_keys = raw_attestations.iter().map(|(attestor, _)| attestor.0.clone()).collect::<Vec<[u8; 32]>>();
 
-        // TODO: query storage for every attestor and get the public key
-        // aggregate public key and verify
-
         // retrieve inner bls signature
         let sigs = signatures
             .iter()
-            .map(|WrapEncode(sig)| *sig)
+            .map(|WrapEncode(sig)| sig.clone())
             .collect::<Vec<_>>();
 
         let aggregated_signature = aggregate(&sigs[..]).expect("Failed to aggregate signatures");
@@ -389,7 +388,7 @@ where
             let bls = aggregated_signature; // Placeholder for BLS signature computation
             let res = Some(SignedAttestation {
                 attestation_data: attestation.clone().attestation_data,
-                signature: bls.as_bytes()[..96].try_into().unwrap(),
+                signature: WrapEncode(bls),
                 digest: major_digest,
             });
 
