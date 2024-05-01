@@ -1,6 +1,6 @@
-use attestor_primitives::bls::{Bls, WrapEncode};
+use attestor_primitives::bls::{Bls, CryptoScheme, WrapEncode};
 use attestor_primitives::{Digest, SignedAttestation};
-use bls_signatures::aggregate;
+use bls_signatures::{aggregate, Serialize};
 use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
@@ -371,7 +371,7 @@ where
         let signatures = raw_attestations
             .iter()
             .map(|(_, attestations)| attestations.signature_bls.clone())
-            .collect::<Vec<<Bls as attestor_primitives::CryptoScheme>::Signature>>();
+            .collect::<Vec<<Bls as CryptoScheme>::Signature>>();
 
         // will be needed for later verification
         // let public_keys = raw_attestations.iter().map(|(attestor, _)| attestor.0.clone()).collect::<Vec<[u8; 32]>>();
@@ -388,7 +388,7 @@ where
             let bls = aggregated_signature; // Placeholder for BLS signature computation
             let res = Some(SignedAttestation {
                 attestation_data: attestation.clone().attestation_data,
-                signature: WrapEncode(bls),
+                signature: bls.as_bytes()[..32].try_into().unwrap(),
                 digest: major_digest,
             });
 

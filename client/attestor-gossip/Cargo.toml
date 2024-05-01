@@ -32,4 +32,3 @@ starknet-crypto = "0.6.2"
 attestor-primitives = { path = "../../primitives/attestor", features = ["bls"] }
 anyhow = "1.0.82"
 bls-signatures = "0.15.0"
-#bls12_381 = "0.8.0"
