@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+
+#
+# WARNING: requires PyGithub>= 2.3.0
+#
+# pip install PyGithub
+#
+# API documentation:
+# https://pygithub.readthedocs.io
+
+import os
+
+from datetime import datetime, timedelta
+from github import Auth, Github
+
+
+OWNER_REPO="gluwa/creditcoin3"
+PERIOD_START=datetime(2023, 10, 1, 0, 0, 0)
+PERIOD_END=datetime(2024, 4, 30, 23, 59, 59)
+
+# Provide the GITHUB_TOKEN ENV variable to work around
+# API request limits for anonymous users
+
+auth = None
+token = os.environ.get("GITHUB_TOKEN")
+if token:
+    auth = Auth.Token(token)
+
+gh = Github(auth=auth, per_page=100)
+repo = gh.get_repo(OWNER_REPO)
+
+# WARNING: this API will return at most 1000 records eventhough there are more
+# during certain time periods. To workaround this limitation we query the data
+# day-by-day iteratively and at the end use the value of total_workflows as a
+# sanity check to make sure we've counted everything. See
+# https://docs.github.com/en/rest/actions/workflow-runs?apiVersion=2022-11-28#list-workflow-runs-for-a-repository
+start_str = PERIOD_START.strftime("%Y-%m-%d")
+end_str = PERIOD_END.strftime("%Y-%m-%d")
+# the numner itself is correct, but pagination results are limited to 1000
+total_workflows = repo.get_workflow_runs(created=f"{start_str}..{end_str}").totalCount
+
+# iterate over all workflow runs
+start = PERIOD_START
+inspected_workflows = 0
+number_of_jobs = 0
+overall_duration = timedelta(seconds=0)
+while start <= PERIOD_END:
+    # only search within the span of a single day, 24 hrs
+    start_str = start.strftime("%Y-%m-%dT00:00:00+00:00")
+    end_str = start.strftime("%Y-%m-%dT23:59:59+00:00")
+
+    # NOTE: iterating over the results takes care of pagination internally
+    for workflow_run in repo.get_workflow_runs(created=f"{start_str}..{end_str}"):
+        inspected_workflows += 1
+
+        # NOTE: GitHub's API doesn't allow filtering by name here!
+        #
+        # IMPORTANT: don't query other workflows b/c we're only interested in the
+        # integration-test-cli job which is in the CI workflow. This will also save
+        # us some API requests
+        if workflow_run.name != "CI":
+            continue
+
+        # GitHub API doesn't support filtering by name so iterate over all jobs in a workflow
+        # https://docs.github.com/en/rest/actions/workflow-jobs?apiVersion=2022-11-28#list-jobs-for-a-workflow-run
+        for job in workflow_run.jobs():
+            # IMPORTANT: manually filter integration-test-cli b/c they take significant time
+            if job.name.find("integration-test-cli") > -1:
+                duration = job.completed_at - job.started_at
+
+                overall_duration += duration
+                number_of_jobs += 1
+                print(
+                    gh.rate_limiting,
+                    f"W: {workflow_run.id} @ {workflow_run.created_at} "
+                    f"J: {job.id} ",
+                    job.started_at,
+                    job.completed_at,
+                    job.name,
+                )
+
+    start += timedelta(days=1)
+
+print(f"From: {PERIOD_START}")
+print(f"To  : {PERIOD_END}")
+print(f"Total workflow runs: {inspected_workflows} / {total_workflows}")
+print(f"Number of integration-test-cli jobs: {number_of_jobs}")
+print(f"Overall duration for integration-test-cli jobs: {overall_duration.total_seconds()} seconds")
+print(f"Overall duration for integration-test-cli jobs: {overall_duration.total_seconds() / 3600} hours")
+
+if inspected_workflows != total_workflows:
+    raise RuntimeError("Failed to inspect all workflows")
+
