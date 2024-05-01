@@ -1,6 +1,7 @@
+use attestor_primitives::bls::{Bls, CryptoScheme};
+use attestor_primitives::AttestationData;
 use attestor_primitives::{api::AttestorApi, AttestationData};
 use parity_scale_codec::{Codec, Decode, Encode};
-use attestor_primitives::{Bls};
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
@@ -98,7 +99,7 @@ pub struct Attestation<B, AccountId> {
     pub topic: Topic,
     pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,
-    pub signature_bls: <Bls as attestor_primitives::CryptoScheme>::Signature,
+    pub signature_bls: <Bls as CryptoScheme>::Signature,
 }
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VrfOutput {
