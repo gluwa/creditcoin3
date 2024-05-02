@@ -3,6 +3,7 @@ use std::str::FromStr;
 use alloy::primitives::U256;
 use anyhow::Result;
 use bls_signatures::PrivateKey;
+use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic, VrfOutput};
 use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use kameo::{
@@ -43,11 +44,12 @@ impl<'a> Client {
     pub fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
-        private_key: &[u8; 32],
+        // private_key: &[u8; 32],
     ) -> Result<Self> {
+        let mut rng = rand::thread_rng();
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
-        let bls_private_key = PrivateKey::new(private_key);
+        let bls_private_key = PrivateKey::generate(&mut rng);
         Ok(Self {
             url: url.into(),
             keypair,

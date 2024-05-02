@@ -1257,6 +1257,7 @@ dependencies = [
  "merkletree",
  "nanorand",
  "once_cell",
+ "rand 0.8.5",
  "serde",
  "sp-core",
  "starknet-crypto",

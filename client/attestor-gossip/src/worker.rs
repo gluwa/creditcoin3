@@ -23,7 +23,7 @@ use crate::{Client, HashFor, LOG_TARGET};
 
 use super::{Attestation, AttestorComms, AttestorId, Error, Message};
 
-const THRESHOLD: usize = 3; // You can set this to any appropriate threshold value
+const THRESHOLD: usize = 2; // You can set this to any appropriate threshold value
 
 /// Gossip engine votes messages topic
 pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
@@ -375,7 +375,7 @@ where
             let bls = aggregated_signature; // Placeholder for BLS signature computation
             let res = Some(SignedAttestation {
                 attestation_data: attestation.clone().attestation_data,
-                signature: bls.as_bytes()[..32].try_into().unwrap(),
+                signature: bls.as_bytes()[..96].try_into().unwrap(),
                 digest: major_digest,
             });
 

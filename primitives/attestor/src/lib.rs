@@ -38,7 +38,7 @@ impl IsFatalError for InherentError {
 pub struct SignedAttestation<H> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
-    pub signature: [u8; 32],
+    pub signature: [u8; 96],
 }
 
 impl<H> SignedAttestation<H> {
