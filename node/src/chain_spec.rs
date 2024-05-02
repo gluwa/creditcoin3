@@ -139,6 +139,21 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                         get_account_id_from_seed::<sr25519::Public>("Eve"),
                         get_account_id_from_seed::<sr25519::Public>("Ferdie"),
                         eth_acct(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
+                        // attestor 1
+                        // secret seed: snake adult despair divide embrace this smart fatigue wine latin page parade
+                        // SS58 address: 5GHH87es2pfq53mgpCHmy4y8U8yHkb66Z6zrmsmKddxoT7bg
+                        // account id:
+                        hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068").into(),
+                        // attestor 2
+                        // secret seed: silver mixed elevator layer copper venture taste also peanut evolve grab inquiry
+                        // SS58 address: 5GjZgUtvRdnxHg7LZLvrgqrasiWZExwdvNy3H8mG4uj9egLZ
+                        // account id:
+                        hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723").into(),
+                        // attestor 3
+                        // secret seed: put badge smooth surround hawk today fortune like rigid exist village sphere
+                        // SS58 address: 5DeWPubCtYdawKfD75PYNELRPwP6qGiK5pqiUN3h5wrUCjy9
+                        // account id:
+                        hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c").into(),
                     ],
                     vec![
                         hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
@@ -153,7 +168,12 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     // Ethereum chain ID
                     SS58Prefix::get() as u64,
                     250,
-                    vec![get_account_id_from_seed::<sr25519::Public>("Ferdie")],
+                    vec![
+                        get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                        hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068").into(),
+                        hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723").into(),
+                        hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c").into(),
+                    ],
                     vec![1],
                 ),
                 enable_manual_seal,
@@ -197,6 +217,21 @@ pub fn local_testnet_config() -> ChainSpec {
                     get_account_id_from_seed::<sr25519::Public>("Dave"),
                     get_account_id_from_seed::<sr25519::Public>("Eve"),
                     get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                    // attestor 1
+                    // secret seed: snake adult despair divide embrace this smart fatigue wine latin page parade
+                    // SS58 address: 5GHH87es2pfq53mgpCHmy4y8U8yHkb66Z6zrmsmKddxoT7bg
+                    // account id:
+                    hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068").into(),
+                    // attestor 2
+                    // secret seed: silver mixed elevator layer copper venture taste also peanut evolve grab inquiry
+                    // SS58 address: 5GjZgUtvRdnxHg7LZLvrgqrasiWZExwdvNy3H8mG4uj9egLZ
+                    // account id:
+                    hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723").into(),
+                    // attestor 3
+                    // secret seed: put badge smooth surround hawk today fortune like rigid exist village sphere
+                    // SS58 address: 5DeWPubCtYdawKfD75PYNELRPwP6qGiK5pqiUN3h5wrUCjy9
+                    // account id:
+                    hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c").into(),
                 ],
                 vec![
                     hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
@@ -212,7 +247,12 @@ pub fn local_testnet_config() -> ChainSpec {
                 ],
                 SS58Prefix::get() as u64,
                 250,
-                vec![get_account_id_from_seed::<sr25519::Public>("Ferdie")],
+                vec![
+                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                    hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068").into(),
+                    hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723").into(),
+                    hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c").into(),
+                ],
                 vec![1],
             )
         },

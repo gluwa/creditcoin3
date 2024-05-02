@@ -107,7 +107,26 @@ Run `anvil`
 
 ### Run Attestors
 
-Before you can run an attestor you should generate a key and transfer some balance to that address in order to register.
+We have a couple of prefunded attestors to start with. To start them you can the run the following commands from the attestor directory. Depending on the `THRESHOLD` variable in `client/atestor-gossip/src/worker.rs` file, you need to start 
+atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, you need to start 3 attestors minimum to be able to attest a block. 
+
+#### Start the first prefunded attestor
+```sh
+cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade" --dev
+```
+
+#### (Optionally) Start the second prefunded attestor
+```sh
+cargo run -- -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry" --dev
+
+```
+
+#### (Optionally) Start the third prefunded attestor
+```sh
+cargo run -- -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere" --dev
+```
+
+Alternatively, you can generate your own keys, transfer some balance to that address in order to register an attestor and then start the attestors.
 
 ```sh
 subkey generate
