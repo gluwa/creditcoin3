@@ -307,7 +307,7 @@ where
         let signature = self.keypair.sign(&msg.attestation.serialize());
 
         // sign attestation data with bls key
-        let signature_bls = self.bls_private_key.sign(&msg.attestation.serialize());
+        let signature_bls = self.bls_private_key.sign(msg.attestation.serialize());
 
         // Create final attestation object
         let attestation = Attestation {

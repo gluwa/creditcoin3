@@ -104,7 +104,7 @@ impl CryptoScheme for Bls {
         WrapEncode(signature): &Self::Signature,
         data: &[u8],
     ) -> bool {
-        public.verify(signature.clone(), data)
+        public.verify(*signature, data)
     }
 
     fn public_key(keypair: &Self::KeyPair) -> Self::Public {
@@ -126,8 +126,8 @@ pub trait AggregatableScheme: CryptoScheme {
 impl AggregatableScheme for Bls {
     fn make_aggregate(signatures: &[Self::Signature]) -> Self::Signature {
         let signatures: Vec<_> = signatures
-            .into_iter()
-            .map(|WrapEncode(sig)| sig.clone())
+            .iter()
+            .map(|WrapEncode(sig)| *sig)
             .collect();
         WrapEncode(bls_signatures::aggregate(&signatures).unwrap())
     }
