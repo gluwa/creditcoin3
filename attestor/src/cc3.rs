@@ -194,15 +194,14 @@ impl<'a> Client {
             Error::FailedToGetBabeVrf
         })?;
 
-        let randomness = match randomness {
-            Some(r) => r,
-            None => {
-                info!(
-                    "Randomness is not initialised at {:?}, making default hash",
-                    block_hash
-                );
-                H256::zero().0
-            }
+        let randomness = if let Some(r) = randomness {
+            r
+        } else {
+            info!(
+                "Randomness is not initialised at {:?}, making default hash",
+                block_hash
+            );
+            H256::zero().0
         };
 
         info!("Babe VRF Randomness: {}", hex::encode(randomness));
