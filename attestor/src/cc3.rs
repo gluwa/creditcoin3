@@ -194,7 +194,16 @@ impl<'a> Client {
             Error::FailedToGetBabeVrf
         })?;
 
-        let randomness = randomness.ok_or(Error::BabeVrfOuputInvalid)?;
+        let randomness = match randomness {
+            Some(r) => r,
+            None => {
+                info!(
+                    "Randomness is not initialised at {:?}, making default hash",
+                    block_hash
+                );
+                H256::zero().0
+            }
+        };
 
         info!("Babe VRF Randomness: {}", hex::encode(randomness));
 
