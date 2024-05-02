@@ -248,10 +248,22 @@ where
         }
 
         // Get the vrf at 2 epochs ago
+        // If not 2 epochs have passed, return an error
         let runtime = self.runtime.runtime_api();
         let config = runtime.configuration(blockchain_info.best_hash)?;
-        let target_epoch_block: u64 =
-            blockchain_info.best_number.into() - (config.epoch_length * 2);
+
+        let target_epoch_block: u64 = match blockchain_info
+            .best_number
+            .into()
+            .checked_sub(config.epoch_length * 2)
+        {
+            Some(result) => result,
+            None => {
+                error!(target: LOG_TARGET, "📝 we need 2 epoch to be passed first");
+                return Err(Error::AttestationToEarly);
+            }
+        };
+
         info!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", target_epoch_block);
 
         let target_epoch_hash = self

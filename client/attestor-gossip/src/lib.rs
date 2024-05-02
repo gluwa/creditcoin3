@@ -49,6 +49,8 @@ pub enum Error {
     InvalidAttestationDataSignature,
     #[error("Invalid attestation vrf output")]
     InvalidAttestationVrfOuput,
+    #[error("Attestation to early")]
+    AttestationToEarly,
     #[error("Error creating inherent data")]
     ErrorCreatingInherent,
     #[error("Sender is not an attestor")]

@@ -111,17 +111,20 @@ We have a couple of prefunded attestors to start with. To start them you can the
 atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, you need to start 3 attestors minimum to be able to attest a block. 
 
 #### Start the first prefunded attestor
+
 ```sh
 cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade" --dev
 ```
 
 #### (Optionally) Start the second prefunded attestor
+
 ```sh
 cargo run -- -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry" --dev
 
 ```
 
 #### (Optionally) Start the third prefunded attestor
+
 ```sh
 cargo run -- -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere" --dev
 ```
