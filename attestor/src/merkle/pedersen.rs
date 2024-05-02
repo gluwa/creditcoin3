@@ -87,7 +87,7 @@ pub fn felt_from_dec_str(s: &str) -> anyhow::Result<FieldElement> {
 
 #[cfg(test)]
 mod tests {
-    use super::{felt_from_dec_str, hash, u64_to_bytes_be, FieldElement};
+    use super::{hash, u64_to_bytes_be, FieldElement};
     use starknet_crypto::pedersen_hash;
 
     #[test]
@@ -148,12 +148,9 @@ mod tests {
         let h = hash(&[a, b, c]);
 
         assert_eq!(
-            h,
-            // from Cairo0
-            felt_from_dec_str(
-                "-1387210446676157949284005763581452460269706036785075546825259478678905521525"
-            )
-            .unwrap()
+            h.to_bytes_be(),
+            &hex::decode("00a4290678df78465a22eda0abe05b66b43096cc49bda2d138ae9b46f468b1be")
+                .unwrap()[..]
         );
     }
 }
