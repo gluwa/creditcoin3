@@ -17,8 +17,6 @@ use subxt_signer::{sr25519::Keypair, SecretUri};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic, VrfOutput};
-
 use attestor_primitives::{AttestationData, ChainId, Digest};
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]

@@ -1,7 +1,6 @@
 use attestor_primitives::bls::{Bls, CryptoScheme, WrapEncode};
-use attestor_primitives::{Digest, SignedAttestation};
-use bls_signatures::{aggregate, Serialize};
 use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
+use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
 use log::{error, info};
 use parity_scale_codec::{Codec, Decode, Encode};
@@ -57,7 +56,7 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
 
     pub block_attestations_raw:
-        HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Attestation<HashFor<B>>)>>,
+        HashMap<(ChainId, BlockNumber), Vec<(AccountId, Attestation<HashFor<B>, AccountId>)>>,
     /// Inherent data providers
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
