@@ -172,7 +172,6 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     SS58Prefix::get() as u64,
                     250,
                     vec![
-                        get_account_id_from_seed::<sr25519::Public>("Ferdie"),
                         hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068")
                             .into(),
                         hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723")
@@ -254,7 +253,6 @@ pub fn local_testnet_config() -> ChainSpec {
                 SS58Prefix::get() as u64,
                 250,
                 vec![
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
                     hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068").into(),
                     hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723").into(),
                     hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c").into(),
