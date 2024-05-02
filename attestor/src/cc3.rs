@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use alloy::primitives::U256;
 use anyhow::Result;
-use bls_signatures::PrivateKey;
+use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic, VrfOutput};
 use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
@@ -29,10 +29,11 @@ pub type Randomness = [u8; 32];
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
+/// - `bls_keypair`: BLS keypair
 pub struct Client {
     pub url: String,
     pub keypair: Keypair,
-    pub bls_private_key: PrivateKey,
+    pub bls_keypair: PrivateKey,
 }
 
 impl<'a> Client {
@@ -44,14 +45,16 @@ impl<'a> Client {
         key: &'a str,
         // private_key: &[u8; 32],
     ) -> Result<Self> {
-        let mut rng = rand::thread_rng();
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
-        let bls_private_key = PrivateKey::generate(&mut rng);
+
+        // Derive bls key from secret seed
+        let bls_keypair = PrivateKey::new(key.as_bytes());
+
         Ok(Self {
             url: url.into(),
             keypair,
-            bls_private_key,
+            bls_keypair,
         })
     }
 
@@ -177,6 +180,9 @@ impl<'a> Client {
     /// Register to the attestation pallet
     pub async fn register(&self) -> Result<()> {
         let api = self.get_substrate_client().await?;
+
+        // TODO: register bls public key
+        let _public_key = self.bls_keypair.public_key().as_bytes();
 
         let tx = cc3::tx().attestation().register_attestor();
 
@@ -307,7 +313,7 @@ where
         let signature = self.keypair.sign(&msg.attestation.serialize());
 
         // sign attestation data with bls key
-        let signature_bls = self.bls_private_key.sign(msg.attestation.serialize());
+        let signature_bls = self.bls_keypair.sign(msg.attestation.serialize());
 
         // Create final attestation object
         let attestation = Attestation {

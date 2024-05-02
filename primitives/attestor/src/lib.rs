@@ -16,6 +16,9 @@ pub type Felt = [u8; 32];
 
 pub type ChainId = u8;
 
+/// BLS public keys as bytes
+pub type BlsPublicKey = [u8; 42];
+
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
 #[derive(Encode, Decode, sp_runtime::RuntimeDebug)]
@@ -39,6 +42,8 @@ pub struct SignedAttestation<H> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
     pub signature: [u8; 96],
+    // TODO: a list of attestor account ids to verify the signature against
+    // pub attestors: Vec<AccountId>
 }
 
 impl<H> SignedAttestation<H> {

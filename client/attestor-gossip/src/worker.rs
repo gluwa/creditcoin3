@@ -362,6 +362,9 @@ where
         // will be needed for later verification
         // let public_keys = raw_attestations.iter().map(|(attestor, _)| attestor.0.clone()).collect::<Vec<[u8; 32]>>();
 
+        // TODO: query storage for every attestor and get the public key
+        // aggregate public key and verify
+
         // retrieve inner bls signature
         let sigs = signatures
             .iter()

@@ -15,7 +15,9 @@ mod tests;
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{Attestation, BlockNumber, Digest};
-    use attestor_primitives::{ChainId, InherentError, SignedAttestation, INHERENT_IDENTIFIER};
+    use attestor_primitives::{
+        BlsPublicKey, ChainId, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+    };
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
@@ -69,9 +71,8 @@ pub mod pallet {
     pub type Attestors<T: Config> = CountedStorageMap<
         Hasher = Blake2_128Concat,
         Key = T::AccountId,
-        // Value can be ignored
-        Value = bool,
-        QueryKind = ValueQuery,
+        Value = BlsPublicKey,
+        QueryKind = OptionQuery,
     >;
 
     #[pallet::storage]
@@ -152,7 +153,13 @@ pub mod pallet {
             let invulnerables = &self.invulnerables;
             for invulnerable in invulnerables.iter() {
                 Invlunerables::<T>::insert(invulnerable, true);
-                Attestors::<T>::insert(invulnerable, true);
+                Attestors::<T>::insert(
+                    invulnerable,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    ],
+                );
             }
 
             let mut chains: SupportedChainsVec = BoundedVec::new();
@@ -267,7 +274,10 @@ pub mod pallet {
 
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::register_attestor())]
-        pub fn register_attestor(origin: OriginFor<T>) -> DispatchResult {
+        pub fn register_attestor(
+            origin: OriginFor<T>,
+            bls_public_key: BlsPublicKey,
+        ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
 
             ensure!(
@@ -275,7 +285,7 @@ pub mod pallet {
                 Error::<T>::AlreadyAttestor
             );
 
-            Self::try_insert_attestor_and_emit_event(&who)
+            Self::try_insert_attestor_and_emit_event(&who, bls_public_key)
         }
 
         #[pallet::call_index(3)]
@@ -313,10 +323,11 @@ pub mod pallet {
         pub fn register_invulnerable(
             origin: OriginFor<T>,
             attestor: T::AccountId,
+            bls_public_key: BlsPublicKey,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            Self::try_insert_invulnerable_and_emit_event(&attestor)
+            Self::try_insert_invulnerable_and_emit_event(&attestor, bls_public_key)
         }
 
         #[pallet::call_index(6)]
@@ -471,12 +482,15 @@ pub mod pallet {
             Attestors::<T>::count() < MaxAttestors::<T>::get()
         }
 
-        fn try_insert_attestor_and_emit_event(address: &T::AccountId) -> DispatchResult {
+        fn try_insert_attestor_and_emit_event(
+            address: &T::AccountId,
+            bls_public_key: BlsPublicKey,
+        ) -> DispatchResult {
             ensure!(
                 Self::attestor_list_has_space(),
                 Error::<T>::AttestorListFull
             );
-            Attestors::<T>::insert(address, true);
+            Attestors::<T>::insert(address, bls_public_key);
             Self::deposit_event(Event::<T>::AttestorRegistered(address.clone()));
             Ok(())
         }
@@ -486,8 +500,11 @@ pub mod pallet {
         }
 
         /// Insert address as attestor & invulnerable
-        fn try_insert_invulnerable_and_emit_event(address: &T::AccountId) -> DispatchResult {
-            Self::try_insert_attestor_and_emit_event(address)?;
+        fn try_insert_invulnerable_and_emit_event(
+            address: &T::AccountId,
+            bls_public_key: BlsPublicKey,
+        ) -> DispatchResult {
+            Self::try_insert_attestor_and_emit_event(address, bls_public_key)?;
 
             ensure!(
                 Self::vulnerable_list_has_space(),

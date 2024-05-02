@@ -14,24 +14,31 @@ fn attestor_2() -> RuntimeOrigin {
     RuntimeOrigin::signed(ATTESTOR_2)
 }
 
+pub const ZERO_BLS_PUBLIC_KEY: [u8; 42] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
 #[test]
 fn register_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
-        assert_ok!(Attestation::register_attestor(RuntimeOrigin::signed(
-            ATTESTOR_1
-        )));
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            ZERO_BLS_PUBLIC_KEY
+        ));
     })
 }
 
 #[test]
 fn register_attestor_should_fail_when_address_is_already_registered() {
     ExtBuilder.build_and_execute(|| {
-        assert_ok!(Attestation::register_attestor(RuntimeOrigin::signed(
-            ATTESTOR_1
-        )));
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(ATTESTOR_1,),
+            ZERO_BLS_PUBLIC_KEY
+        ));
 
         assert_err!(
-            Attestation::register_attestor(RuntimeOrigin::signed(ATTESTOR_1)),
+            Attestation::register_attestor(RuntimeOrigin::signed(ATTESTOR_1), ZERO_BLS_PUBLIC_KEY),
             Error::<Test>::AlreadyAttestor
         );
     })
@@ -45,9 +52,12 @@ fn register_attestor_should_fail_when_list_is_full() {
         let attestor_2 = attestor_2();
 
         assert_ok!(Attestation::set_max_attestors(root, 2));
-        assert_ok!(Attestation::register_attestor(attestor_1));
+        assert_ok!(Attestation::register_attestor(
+            attestor_1,
+            ZERO_BLS_PUBLIC_KEY
+        ));
         assert_err!(
-            Attestation::register_attestor(attestor_2),
+            Attestation::register_attestor(attestor_2, ZERO_BLS_PUBLIC_KEY),
             Error::<Test>::AttestorListFull
         );
     })
@@ -88,8 +98,14 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
     ExtBuilder.build_and_execute(|| {
         let attestor_1 = attestor_1();
         let attestor_2 = attestor_2();
-        assert_ok!(Attestation::register_attestor(attestor_1));
-        assert_ok!(Attestation::register_attestor(attestor_2));
+        assert_ok!(Attestation::register_attestor(
+            attestor_1,
+            ZERO_BLS_PUBLIC_KEY
+        ));
+        assert_ok!(Attestation::register_attestor(
+            attestor_2,
+            ZERO_BLS_PUBLIC_KEY
+        ));
         assert_err!(
             Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
             Error::<Test>::MaxAttestorsCannotBeChanged
@@ -101,7 +117,10 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
 fn unregister_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
         let attestor = attestor_1();
-        assert_ok!(Attestation::register_attestor(attestor.clone()));
+        assert_ok!(Attestation::register_attestor(
+            attestor.clone(),
+            ZERO_BLS_PUBLIC_KEY
+        ));
         assert_ok!(Attestation::unregister_attestor(attestor));
     })
 }
@@ -121,11 +140,15 @@ fn unregister_attestor_should_fail_when_address_is_not_registered() {
 fn unregister_invulnerable_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
         let attestor = attestor_1();
-        assert_ok!(Attestation::register_attestor(attestor.clone()));
+        assert_ok!(Attestation::register_attestor(
+            attestor.clone(),
+            ZERO_BLS_PUBLIC_KEY
+        ));
 
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
-            ATTESTOR_1
+            ATTESTOR_1,
+            ZERO_BLS_PUBLIC_KEY
         ));
         assert_ok!(Attestation::unregister_invulnerable(
             RuntimeOrigin::root(),
@@ -147,7 +170,10 @@ fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
 fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
     ExtBuilder.build_and_execute(|| {
         let attestor = attestor_1();
-        assert_ok!(Attestation::register_attestor(attestor.clone()));
+        assert_ok!(Attestation::register_attestor(
+            attestor.clone(),
+            ZERO_BLS_PUBLIC_KEY
+        ));
         assert_err!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
             Error::<Test>::AddressIsNotInvulnerable
@@ -186,10 +212,11 @@ fn add_invulnerable_also_adds_as_attestor_works() {
     ExtBuilder.build_and_execute(|| {
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
-            ATTESTOR_1
+            ATTESTOR_1,
+            ZERO_BLS_PUBLIC_KEY
         ));
 
-        assert!(Attestation::attestors(ATTESTOR_1));
+        assert!(Attestation::attestors(ATTESTOR_1).is_some());
         assert!(Attestation::invulnerables(ATTESTOR_1))
     })
 }
@@ -200,7 +227,8 @@ fn remove_invulnerable_that_is_not_attestor_works() {
     ExtBuilder.build_and_execute(|| {
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
-            ATTESTOR_1
+            ATTESTOR_1,
+            ZERO_BLS_PUBLIC_KEY
         ));
 
         // Unregister
@@ -208,7 +236,7 @@ fn remove_invulnerable_that_is_not_attestor_works() {
         assert_ok!(Attestation::unregister_attestor(attestor));
 
         // Not an attestor anymore
-        assert!(!Attestation::attestors(ATTESTOR_1));
+        assert!(Attestation::attestors(ATTESTOR_1).is_none());
 
         // Still invulnerable
         assert!(Attestation::invulnerables(ATTESTOR_1));
