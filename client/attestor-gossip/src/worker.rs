@@ -377,7 +377,7 @@ where
         // retrieve inner bls signature
         let sigs = signatures
             .iter()
-            .map(|WrapEncode(sig)| sig.clone())
+            .map(|WrapEncode(sig)| *sig)
             .collect::<Vec<_>>();
 
         let aggregated_signature = aggregate(&sigs[..]).expect("Failed to aggregate signatures");
