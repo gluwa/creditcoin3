@@ -388,7 +388,7 @@ where
             let bls = aggregated_signature; // Placeholder for BLS signature computation
             let res = Some(SignedAttestation {
                 attestation_data: attestation.clone().attestation_data,
-                signature: bls.as_bytes()[..32].try_into().unwrap(),
+                signature: bls.as_bytes()[..96].try_into().unwrap(),
                 digest: major_digest,
             });
 

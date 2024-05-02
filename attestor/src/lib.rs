@@ -22,7 +22,7 @@ pub struct Config {
     pub eth_rpc_url: String,
     pub cc3_rpc_url: String,
     pub cc3_key: String,
-    pub bls_key: [u8; 32],
+    //pub bls_key: [u8; 32],
 }
 
 impl Server {
@@ -37,7 +37,7 @@ impl Server {
         let cc3_client = cc3::Client::new(
             &self.config.cc3_rpc_url,
             &self.config.cc3_key,
-            &self.config.bls_key,
+            //&self.config.bls_key,
         )?;
         cc3_client.init().await?;
 
