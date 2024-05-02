@@ -1,5 +1,4 @@
 use attestor_primitives::bls::{Bls, CryptoScheme};
-use attestor_primitives::AttestationData;
 use attestor_primitives::{api::AttestorApi, AttestationData};
 use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{client::BlockBackend, Backend};
