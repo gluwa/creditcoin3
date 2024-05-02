@@ -90,4 +90,3 @@ print(f"Overall duration for integration-test-cli jobs: {overall_duration.total_
 
 if inspected_workflows != total_workflows:
     raise RuntimeError("Failed to inspect all workflows")
-
