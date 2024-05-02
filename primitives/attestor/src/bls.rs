@@ -125,10 +125,7 @@ pub trait AggregatableScheme: CryptoScheme {
 
 impl AggregatableScheme for Bls {
     fn make_aggregate(signatures: &[Self::Signature]) -> Self::Signature {
-        let signatures: Vec<_> = signatures
-            .iter()
-            .map(|WrapEncode(sig)| *sig)
-            .collect();
+        let signatures: Vec<_> = signatures.iter().map(|WrapEncode(sig)| *sig).collect();
         WrapEncode(bls_signatures::aggregate(&signatures).unwrap())
     }
 
