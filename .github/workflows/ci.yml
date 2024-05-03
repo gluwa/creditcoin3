@@ -530,6 +530,22 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Hash matrix.txt
+        id: eval-hash
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          echo "hash=$HASH_VALUE" >> "$GITHUB_OUTPUT"
+          rm matrix.txt
+
+      - name: Print matrix hash
+        run: |
+          echo "${{ steps.eval-hash.outputs.hash }}"
+
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
