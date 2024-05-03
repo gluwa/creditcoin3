@@ -5,48 +5,49 @@ use parity_scale_codec::Encode;
 use sp_core::Decode;
 use sp_inherents::{Error, InherentData, InherentIdentifier};
 
-pub struct Provider<H> {
-    pub attestation_queue: Vec<SignedAttestation<H>>,
+pub struct Provider<H, A> {
+    pub attestation_queue: Vec<SignedAttestation<H, A>>,
 }
 
-impl<H> Default for Provider<H> {
+impl<H, A> Default for Provider<H, A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> Provider<H> {
+impl<H, A> Provider<H, A> {
     pub fn new() -> Self {
         Self {
             attestation_queue: vec![],
         }
     }
 
-    pub fn create(&mut self, attestation: SignedAttestation<H>) -> Result<()> {
+    pub fn create(&mut self, attestation: SignedAttestation<H, A>) -> Result<()> {
         self.attestation_queue.push(attestation);
 
         Ok(())
     }
 
-    pub fn get(&mut self) -> Option<SignedAttestation<H>> {
+    pub fn get(&mut self) -> Option<SignedAttestation<H, A>> {
         self.attestation_queue.pop()
     }
 }
 
-pub struct AttestationInherent<H> {
-    pub attestation: Option<SignedAttestation<H>>,
+pub struct AttestationInherent<H, A> {
+    pub attestation: Option<SignedAttestation<H, A>>,
 }
 
-impl<H> AttestationInherent<H> {
-    pub fn new(attestation: Option<SignedAttestation<H>>) -> Self {
+impl<H, A> AttestationInherent<H, A> {
+    pub fn new(attestation: Option<SignedAttestation<H, A>>) -> Self {
         Self { attestation }
     }
 }
 
 #[async_trait::async_trait]
-impl<H> sp_inherents::InherentDataProvider for AttestationInherent<H>
+impl<H, A> sp_inherents::InherentDataProvider for AttestationInherent<H, A>
 where
     H: Send + Sync + Encode,
+    A: Send + Sync + Encode,
 {
     async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), Error> {
         log::info!("CALLING GOSSIP INHERENT PROVIDER");

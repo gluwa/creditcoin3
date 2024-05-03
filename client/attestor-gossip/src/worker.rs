@@ -37,13 +37,20 @@ type ChainId = u8;
 
 type BlockNumber = u64;
 
-pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId> {
+pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId>
+where
+    RuntimeApi: ProvideRuntimeApi<B> + Send + Sync + 'static,
+    RuntimeApi::Api: BabeApi<B>,
+    RuntimeApi::Api: AttestorApi<B, AccountId>,
+    BE: Backend<B> + 'static,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
+{
     /// Best attestation we have in the cache (latest)
     #[allow(dead_code)]
     pub best_attestation: Option<Attestation<HashFor<B>, AccountId>>,
 
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
-    pub comms: AttestorComms<B, AccountId>,
+    pub comms: AttestorComms<B, AccountId, RuntimeApi, BE>,
 
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
@@ -61,15 +68,21 @@ pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CID
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
 
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>, AccountId>>>,
 
     pub _phantom: PhantomData<AccountId>,
 }
 
 pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId>
+where
+    RuntimeApi: ProvideRuntimeApi<B> + Send + Sync + 'static,
+    RuntimeApi::Api: BabeApi<B>,
+    RuntimeApi::Api: AttestorApi<B, AccountId>,
+    BE: Backend<B> + 'static,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
-    pub comms: AttestorComms<B, AccountId>,
+    pub comms: AttestorComms<B, AccountId, RuntimeApi, BE>,
 
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
@@ -82,7 +95,7 @@ pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, 
     /// Client Backend
     pub backend: Arc<BE>,
 
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>, AccountId>>>,
 
     pub _phantom: PhantomData<AccountId>,
 }
@@ -346,7 +359,7 @@ where
     fn submit_attestation(
         &mut self,
         attestation: Attestation<HashFor<B>, AccountId>,
-    ) -> Option<SignedAttestation<HashFor<B>>> {
+    ) -> Option<SignedAttestation<HashFor<B>, AccountId>> {
         let k = (
             attestation.attestation_data.chain_id,
             attestation.attestation_data.header_number,
@@ -359,20 +372,18 @@ where
         // contains attestorid, and attestation itself.
         let raw_attestations = self.block_attestations_raw.get(&k).unwrap();
 
-        // will be needed for later verification
-        // let messages = raw_attestations
-        //     .iter()
-        //     .map(|(_, attestation)| attestation.attestation_data.serialize())
-        //     .collect::<Vec<Vec<u8>>>();
+        let mut attestors = Vec::with_capacity(raw_attestations.len());
 
-        // retrieve wrapped bls signatures
-        let signatures = raw_attestations
-            .iter()
-            .map(|(_, attestations)| attestations.signature_bls.clone())
-            .collect::<Vec<<Bls as CryptoScheme>::Signature>>();
+        // Using iter() or into_iter() based on whether raw_attestations is needed later
+        let (attestors_collected, signatures): (Vec<_>, Vec<<Bls as CryptoScheme>::Signature>) =
+            raw_attestations
+                .iter() // or into_iter() if we can consume raw_attestations
+                .map(|(attestor, attestations)| {
+                    (attestor.clone(), attestations.signature_bls.clone()) // Clone if necessary
+                })
+                .unzip();
 
-        // will be needed for later verification
-        // let public_keys = raw_attestations.iter().map(|(attestor, _)| attestor.0.clone()).collect::<Vec<[u8; 32]>>();
+        attestors.extend(attestors_collected);
 
         // retrieve inner bls signature
         let sigs = signatures
@@ -388,6 +399,7 @@ where
                 attestation_data: attestation.clone().attestation_data,
                 signature: bls.as_bytes()[..96].try_into().unwrap(),
                 digest: major_digest,
+                attestors,
             });
 
             // Update best attestation

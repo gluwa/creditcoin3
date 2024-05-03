@@ -22,7 +22,7 @@ use substrate_prometheus_endpoint::Registry;
 
 // Runtime
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
-use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
+use creditcoin3_runtime::{opaque::Block, AccountId, Hash, TransactionConverter};
 
 use crate::rpc;
 use crate::{
@@ -281,7 +281,7 @@ where
         let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
             fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
 
-        let attestation_inherent_provider: AttestationInherent<Hash> =
+        let attestation_inherent_provider: AttestationInherent<Hash, AccountId> =
             AttestationInherent::new(None);
 
         Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
@@ -467,7 +467,7 @@ where
 
     // Can't move this into this closure
     let attestation_provider: Arc<
-        std::sync::Mutex<creditcoin3_attestor_gossip::inherent::Provider<Hash>>,
+        std::sync::Mutex<creditcoin3_attestor_gossip::inherent::Provider<Hash, _>>,
     > = Arc::new(std::sync::Mutex::new(
         creditcoin3_attestor_gossip::inherent::Provider::new(),
     ));
@@ -733,7 +733,7 @@ where
                     fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
 
                 let attestation_to_submit = attestation_provider.lock().unwrap().get();
-                let attestation_inherent_provider: AttestationInherent<Hash> =
+                let attestation_inherent_provider: AttestationInherent<Hash, _> =
                     AttestationInherent::new(attestation_to_submit);
 
                 Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))

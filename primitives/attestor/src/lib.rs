@@ -51,13 +51,14 @@ impl IsFatalError for InherentError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
-pub struct SignedAttestation<H> {
+pub struct SignedAttestation<H, AccountId> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
     pub signature: [u8; 96],
+    pub attestors: Vec<AccountId>,
 }
 
-impl<H> SignedAttestation<H> {
+impl<H, A> SignedAttestation<H, A> {
     pub fn chain_id(&self) -> ChainId {
         self.attestation_data.chain_id
     }

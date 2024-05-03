@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-use bls_signatures::Serialize as BlsSerialize;
+pub use bls_signatures::{PublicKey, Serialize as BlsSerialize};
 
 use parity_scale_codec::{Decode, Encode};
 use scale_info::*;
@@ -130,13 +130,12 @@ impl AggregatableScheme for Bls {
     }
 
     fn aggregate_verify(
-        _publics: &[PublicFor<Self>],
-        _signature: &Self::Signature,
-        _data: &[u8],
+        publics: &[PublicFor<Self>],
+        signature: &Self::Signature,
+        data: &[u8],
     ) -> bool {
-        true
-        // let hash = bls_signatures::hash(&data);
-        // let hashes = vec![hash; publics.len()];
-        // bls::bls_aggregate_verify(signature.as_ref(), &hashes, publics)
+        let hash = bls_signatures::hash(data);
+        let hashes = vec![hash; publics.len()];
+        bls_signatures::verify(signature.as_ref(), &hashes, publics)
     }
 }

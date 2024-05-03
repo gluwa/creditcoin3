@@ -33,10 +33,16 @@ pub type MessageSink<B, A> = TracingUnboundedSender<Message<B, A>>;
 
 const LOG_TARGET: &str = "attestor-gossip";
 
-pub(crate) struct AttestorComms<B: BlockT, AccountId> {
+pub(crate) struct AttestorComms<B: BlockT, AccountId, RA: ProvideRuntimeApi<B>, BE>
+where
+    RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
+    RA::Api: AttestorApi<B, AccountId>,
+    BE: Backend<B> + 'static,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
+{
     pub gossip_engine: GossipEngine<B>,
     #[allow(dead_code)]
-    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId>>,
+    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId, RA, BE>>,
     pub gossip_report_stream: TracingUnboundedReceiver<Message<B, AccountId>>,
     // pub on_demand_justifications: OnDemandJustificationsEngine<B>,
 }
@@ -59,6 +65,10 @@ pub enum Error {
     DigestMissMatch,
     #[error("Failed to fetch last digest")]
     FetchLastDigestError,
+    #[error("Invalid bls signature")]
+    InvalidBlsSignature,
+    #[error("Invalid sr signature")]
+    InvalidSrSignature,
     #[error("Sp api error")]
     SpApiError(#[from] sp_api::ApiError),
 }
@@ -158,7 +168,7 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP, AccountId> {
     pub prometheus_registry: Option<Registry>,
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>>>>,
+    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>, AccountId>>>,
     pub _phantom: PhantomData<AccountId>,
 }
 
@@ -166,7 +176,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     attestor_params: AttestorGossipParams<B, BE, C, N, R, S, CIDP, AccountId>,
 ) where
     B: BlockT,
-    BE: Backend<B>,
+    BE: Backend<B> + 'static,
     C: Client<B, BE> + BlockBackend<B>,
     R: ProvideRuntimeApi<B> + Send + Sync + 'static,
     R::Api: BabeApi<B>,
@@ -199,8 +209,9 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
         ..
     } = network_params;
 
-    let gossip_validator = AttestorGossipValidator::<B, AccountId>::new();
-    let validator: Arc<AttestorGossipValidator<B, AccountId>> = Arc::new(gossip_validator);
+    let gossip_validator =
+        AttestorGossipValidator::<B, AccountId, R, BE>::new(runtime.clone(), backend.clone());
+    let validator: Arc<AttestorGossipValidator<B, AccountId, R, BE>> = Arc::new(gossip_validator);
     let gossip_engine = GossipEngine::new(
         network.clone(),
         sync.clone(),

@@ -52,7 +52,7 @@ use pallet_grandpa::{
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
-use attestor_primitives::api::Digest;
+use attestor_primitives::{api::Digest, BlsPublicKey};
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -1346,6 +1346,10 @@ impl_runtime_apis! {
 
         fn last_digest(chain_id: u8) -> Option<Digest> {
             Attestation::last_digest(chain_id)
+        }
+
+        fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey> {
+            Attestation::attestor_bls_pubkey(attestor)
         }
     }
 

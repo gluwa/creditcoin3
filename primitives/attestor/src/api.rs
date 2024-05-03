@@ -1,6 +1,8 @@
 use parity_scale_codec::Codec;
 use sp_core::H256;
 
+use super::BlsPublicKey;
+
 pub type Digest = H256;
 
 sp_api::decl_runtime_apis! {
@@ -13,6 +15,6 @@ sp_api::decl_runtime_apis! {
 
         fn last_digest(chain_id: u8) -> Option<Digest>;
 
-        // todo add method to get attestor's bls public by account id
+        fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey>;
     }
 }

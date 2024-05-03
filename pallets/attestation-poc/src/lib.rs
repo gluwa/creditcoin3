@@ -115,7 +115,7 @@ pub mod pallet {
         ChainId,
         Blake2_128Concat,
         BlockNumber,
-        Attestation<T::Hash>,
+        Attestation<T::Hash, T::AccountId>,
         OptionQuery,
     >;
 
@@ -178,11 +178,11 @@ pub mod pallet {
 
         InvulnerableUnregistered(T::AccountId),
 
-        ChainBootstrapped(ChainId, Attestation<T::Hash>),
+        ChainBootstrapped(ChainId, Attestation<T::Hash, T::AccountId>),
 
-        BlockAttested(ChainId, Attestation<T::Hash>),
+        BlockAttested(ChainId, Attestation<T::Hash, T::AccountId>),
 
-        CheckpointReached(ChainId, Attestation<T::Hash>),
+        CheckpointReached(ChainId, Attestation<T::Hash, T::AccountId>),
 
         ComitteeSetSizeChanged(u32),
     }
@@ -361,14 +361,14 @@ pub mod pallet {
             origin: OriginFor<T>,
             chain_id: ChainId,
             block_number: BlockNumber,
-            attestation: SignedAttestation<T::Hash>,
+            attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             let digest = attestation.digest;
             LastDigest::<T>::set(chain_id, Some(digest));
 
-            let attestation_insert: Attestation<T::Hash> =
+            let attestation_insert: Attestation<T::Hash, T::AccountId> =
                 Attestation::new(attestation.clone(), digest);
             Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
 
@@ -380,7 +380,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::commit_attestation())]
         pub fn commit_attestation(
             origin: OriginFor<T>,
-            attestation: SignedAttestation<T::Hash>,
+            attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
             ensure_none(origin)?;
 
@@ -415,7 +415,7 @@ pub mod pallet {
 
         fn create_inherent(data: &InherentData) -> Option<Self::Call> {
             let inherent_data = data
-                .get_data::<SignedAttestation<T::Hash>>(&INHERENT_IDENTIFIER)
+                .get_data::<SignedAttestation<T::Hash, T::AccountId>>(&INHERENT_IDENTIFIER)
                 .expect("Attestation inherent data not correctly encoded");
 
             // Check if atleast the attestation was not already submitted
@@ -439,7 +439,7 @@ pub mod pallet {
             data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
             let inherent_data = data
-                .get_data::<SignedAttestation<T::Hash>>(&INHERENT_IDENTIFIER)
+                .get_data::<SignedAttestation<T::Hash, T::AccountId>>(&INHERENT_IDENTIFIER)
                 .expect("Timestamp inherent data not correctly encoded");
 
             // Check if atleast the attestation was not already submitted
@@ -450,6 +450,10 @@ pub mod pallet {
                         return Err(InherentError::Duplicate);
                     }
                 }
+
+                // TODO: verify the BLS aggregated signature against the list of attestors included in the inherent data
+                // Probably can't do this because of the no-std environment here. Maybe we should include this on the node side (service.rs)
+                // requires some more researching
             }
 
             Ok(())
@@ -471,6 +475,10 @@ pub mod pallet {
 
         pub fn last_digest(chain_id: u8) -> Option<Digest> {
             LastDigest::<T>::get(chain_id)
+        }
+
+        pub fn attestor_bls_pubkey(address: &T::AccountId) -> Option<BlsPublicKey> {
+            Attestors::<T>::get(address)
         }
 
         pub fn attestor_list_has_space() -> bool {
