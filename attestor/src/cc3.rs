@@ -17,7 +17,7 @@ use subxt_signer::{sr25519::Keypair, SecretUri};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use attestor_primitives::{AttestationData, ChainId, Digest};
+use attestor_primitives::{AttestationData, BlsPublicKey, ChainId, Digest};
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
 pub mod cc3 {}
@@ -34,6 +34,22 @@ pub struct Client {
     pub url: String,
     pub keypair: Keypair,
     pub bls_private_key: PrivateKey,
+}
+
+impl Client {
+    pub fn get_bls_pubkey(&self) -> Result<BlsPublicKey, Error> {
+        let pubkey_bytes = self.bls_keypair.public_key().as_bytes();
+
+        let mut pubkey = [0; 48];
+
+        if pubkey_bytes.len() != 48 {
+            return Err(Error::InvalidBlsKey);
+        }
+
+        pubkey.copy_from_slice(&pubkey_bytes[0..48]);
+
+        Ok(pubkey)
+    }
 }
 
 impl<'a> Client {
@@ -179,10 +195,8 @@ impl<'a> Client {
     pub async fn register(&self) -> Result<()> {
         let api = self.get_substrate_client().await?;
 
-        // TODO: register bls public key
-        let _public_key = self.bls_keypair.public_key().as_bytes();
-
-        let tx = cc3::tx().attestation().register_attestor();
+        let public_key = self.get_bls_pubkey()?;
+        let tx = cc3::tx().attestation().register_attestor(public_key);
 
         let ext = api
             .tx()
@@ -273,6 +287,8 @@ pub enum Error {
     FailedToFetchDigest,
     #[error("Invalid attestor")]
     InvalidAttestor,
+    #[error("Invalid bls key")]
+    InvalidBlsKey,
     #[error("Failed to get cc3 RPC client")]
     FailedToGetRPcClient,
     #[error("Failed to get comittee set size")]

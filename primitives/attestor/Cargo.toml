@@ -20,10 +20,11 @@ serde = { workspace = true }
 scale-info = { workspace = true }
 bls-signatures = { workspace = true, optional = true }
 sp-api = { workspace = true }
+serde_bytes = { version = "0.11.14", default-features = false }
 
 [features]
 default = ["std", "bls"]
-bls = [ "bls-signatures" ]
+bls = ["bls-signatures"]
 std = [
     "parity-scale-codec/std",
     "frame-support/std",
@@ -32,6 +33,7 @@ std = [
     "sp-runtime/std",
     "sp-io/std",
     "serde/std",
+    "serde_bytes/std",
     "scale-info/std",
     "sp-api/std",
 ]

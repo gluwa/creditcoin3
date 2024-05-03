@@ -14,9 +14,9 @@ fn attestor_2() -> RuntimeOrigin {
     RuntimeOrigin::signed(ATTESTOR_2)
 }
 
-pub const ZERO_BLS_PUBLIC_KEY: [u8; 42] = [
+pub const ZERO_BLS_PUBLIC_KEY: [u8; 48] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
 #[test]

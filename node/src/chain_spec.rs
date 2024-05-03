@@ -3,6 +3,7 @@ use std::{
     str::FromStr,
 };
 
+use attestor_primitives::BlsPublicKeyWrapper;
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
 // Substrate
@@ -172,12 +173,42 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     SS58Prefix::get() as u64,
                     250,
                     vec![
-                        hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068")
+                        (
+                            hex!(
+                                "ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068"
+                            )
                             .into(),
-                        hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723")
+                            BlsPublicKeyWrapper([
+                                170, 58, 137, 206, 248, 203, 230, 122, 86, 91, 224, 157, 175, 64,
+                                32, 188, 138, 74, 235, 23, 175, 30, 251, 224, 58, 113, 135, 123,
+                                20, 237, 220, 195, 1, 3, 69, 88, 3, 23, 227, 4, 240, 208, 170, 249,
+                                160, 113, 43, 9,
+                            ]),
+                        ),
+                        (
+                            hex!(
+                                "ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723"
+                            )
                             .into(),
-                        hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c")
+                            BlsPublicKeyWrapper([
+                                150, 10, 47, 16, 175, 249, 139, 176, 203, 249, 159, 179, 160, 115,
+                                202, 205, 49, 192, 224, 42, 109, 75, 237, 130, 85, 55, 222, 251,
+                                250, 94, 103, 115, 226, 89, 185, 127, 157, 244, 149, 153, 35, 162,
+                                67, 67, 167, 122, 137, 186,
+                            ]),
+                        ),
+                        (
+                            hex!(
+                                "4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c"
+                            )
                             .into(),
+                            BlsPublicKeyWrapper([
+                                178, 33, 42, 135, 147, 33, 99, 224, 230, 140, 102, 45, 214, 144,
+                                205, 74, 82, 169, 249, 154, 166, 149, 24, 78, 59, 168, 43, 195,
+                                127, 200, 58, 32, 211, 32, 143, 149, 231, 31, 120, 82, 65, 100,
+                                211, 183, 222, 4, 138, 197,
+                            ]),
+                        ),
                     ],
                     vec![1],
                 ),
@@ -253,9 +284,36 @@ pub fn local_testnet_config() -> ChainSpec {
                 SS58Prefix::get() as u64,
                 250,
                 vec![
-                    hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068").into(),
-                    hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723").into(),
-                    hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c").into(),
+                    (
+                        hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068")
+                            .into(),
+                        BlsPublicKeyWrapper([
+                            170, 58, 137, 206, 248, 203, 230, 122, 86, 91, 224, 157, 175, 64, 32,
+                            188, 138, 74, 235, 23, 175, 30, 251, 224, 58, 113, 135, 123, 20, 237,
+                            220, 195, 1, 3, 69, 88, 3, 23, 227, 4, 240, 208, 170, 249, 160, 113,
+                            43, 9,
+                        ]),
+                    ),
+                    (
+                        hex!("ce93fba1753c2c9ac4ba7fcaacd89091e60c4e9d3c8af96c530b5e72f8617723")
+                            .into(),
+                        BlsPublicKeyWrapper([
+                            150, 10, 47, 16, 175, 249, 139, 176, 203, 249, 159, 179, 160, 115, 202,
+                            205, 49, 192, 224, 42, 109, 75, 237, 130, 85, 55, 222, 251, 250, 94,
+                            103, 115, 226, 89, 185, 127, 157, 244, 149, 153, 35, 162, 67, 67, 167,
+                            122, 137, 186,
+                        ]),
+                    ),
+                    (
+                        hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c")
+                            .into(),
+                        BlsPublicKeyWrapper([
+                            178, 33, 42, 135, 147, 33, 99, 224, 230, 140, 102, 45, 214, 144, 205,
+                            74, 82, 169, 249, 154, 166, 149, 24, 78, 59, 168, 43, 195, 127, 200,
+                            58, 32, 211, 32, 143, 149, 231, 31, 120, 82, 65, 100, 211, 183, 222, 4,
+                            138, 197,
+                        ]),
+                    ),
                 ],
                 vec![1],
             )
@@ -297,7 +355,7 @@ fn testnet_genesis(
     initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
     comittee_set_size: u32,
-    attestation_invulnerables: Vec<AccountId>,
+    attestation_invulnerables: Vec<(AccountId, BlsPublicKeyWrapper)>,
     supported_chains: Vec<u8>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{

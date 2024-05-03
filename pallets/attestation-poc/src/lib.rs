@@ -16,7 +16,8 @@ mod tests;
 pub mod pallet {
     use crate::types::{Attestation, BlockNumber, Digest};
     use attestor_primitives::{
-        BlsPublicKey, ChainId, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        BlsPublicKey, BlsPublicKeyWrapper, ChainId, InherentError, SignedAttestation,
+        INHERENT_IDENTIFIER,
     };
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
@@ -140,7 +141,7 @@ pub mod pallet {
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T: Config> {
         pub comittee_set_size: u32,
-        pub invulnerables: Vec<T::AccountId>,
+        pub invulnerables: Vec<(T::AccountId, BlsPublicKeyWrapper)>,
         pub supported_chains: Vec<ChainId>,
     }
 
@@ -152,14 +153,8 @@ pub mod pallet {
 
             let invulnerables = &self.invulnerables;
             for invulnerable in invulnerables.iter() {
-                Invlunerables::<T>::insert(invulnerable, true);
-                Attestors::<T>::insert(
-                    invulnerable,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    ],
-                );
+                Invlunerables::<T>::insert(invulnerable.0.clone(), true);
+                Attestors::<T>::insert(invulnerable.0.clone(), invulnerable.1 .0);
             }
 
             let mut chains: SupportedChainsVec = BoundedVec::new();

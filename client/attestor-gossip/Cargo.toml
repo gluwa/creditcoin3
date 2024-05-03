@@ -9,6 +9,12 @@ repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+no_effect_underscore_binding = "allow"
+type_complexity = "allow"
+
 [dependencies]
 async-trait = { workspace = true }
 sc-network = { workspace = true }

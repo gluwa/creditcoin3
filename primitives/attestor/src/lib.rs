@@ -17,7 +17,20 @@ pub type Felt = [u8; 32];
 pub type ChainId = u8;
 
 /// BLS public keys as bytes
-pub type BlsPublicKey = [u8; 42];
+pub type BlsPublicKey = [u8; 48];
+
+#[derive(Serialize, Deserialize, Debug, Encode, Decode, PartialEq, Eq)]
+pub struct BlsPublicKeyWrapper(#[serde(with = "serde_bytes")] pub BlsPublicKey);
+
+impl BlsPublicKeyWrapper {
+    pub fn new(pubkey: BlsPublicKey) -> Self {
+        BlsPublicKeyWrapper(pubkey)
+    }
+
+    pub fn into_inner(self) -> BlsPublicKey {
+        self.0
+    }
+}
 
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
