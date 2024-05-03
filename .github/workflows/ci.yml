@@ -575,7 +575,9 @@ jobs:
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-22.04
+      - debug-matrix-hash
+    runs-on:
+      [self-hosted, "non-existent-vm-${{ matrix.proxy }}${{ matrix.secret }}${{ matrix.proxy_type }}"]
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
