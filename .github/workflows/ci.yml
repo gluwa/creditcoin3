@@ -498,6 +498,55 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
+  debug-matrix-hash:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: debug-matrix-hash / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Hash matrix.txt
+        id: eval-hash
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          echo "hash=$HASH_VALUE" >> "$GITHUB_OUTPUT"
+          rm matrix.txt
+
+      - name: Print matrix hash
+        run: |
+          echo "${{ steps.eval-hash.outputs.hash }}"
+
   integration-test-cli:
     strategy:
       fail-fast: false
