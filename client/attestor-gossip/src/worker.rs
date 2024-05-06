@@ -22,8 +22,6 @@ use crate::{Client, HashFor, LOG_TARGET};
 
 use super::{Attestation, AttestorComms, AttestorId, Error, Message};
 
-const THRESHOLD: usize = 2; // You can set this to any appropriate threshold value
-
 /// Gossip engine votes messages topic
 pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
 where
@@ -204,12 +202,12 @@ where
             Message::Attestation(attestation) => {
                 self.verify_vrf(&attestation)?;
 
-                if self.add_to_round(&attestation) {
+                let block_hash = self.backend.blockchain().info().best_hash;
+                if self.add_to_round(&attestation, block_hash) {
                     // conclude round
                     // create the inherent
-                    let _best_block_hash = self.backend.blockchain().info().best_hash;
 
-                    if let Some(inherent) = self.submit_attestation(attestation) {
+                    if let Some(inherent) = self.submit_attestation(attestation, block_hash) {
                         info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
                         let _ = match self.inherent_provider.lock() {
                             Ok(mut provider) => provider.create(inherent),
@@ -321,7 +319,11 @@ where
     }
 
     /// Add attestation to round, returns if we need to conclude the round or not
-    fn add_to_round(&mut self, attestation: &Attestation<HashFor<B>, AccountId>) -> bool {
+    fn add_to_round(
+        &mut self,
+        attestation: &Attestation<HashFor<B>, AccountId>,
+        hash: HashFor<B>,
+    ) -> bool {
         // Hash the attestation data
         let digest = attestation.attestation_data.digest();
 
@@ -339,9 +341,12 @@ where
 
         let attestor_id = AttestorId(AccountId32::from(attestation.attestor.clone().into()));
 
+        let runtime = self.runtime.runtime_api();
+        let threshold = runtime.comittee_set_size(hash).unwrap_or(0);
+
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
             attestations.push((attestor_id, digest));
-            attestations.len() >= THRESHOLD
+            attestations.len() as u32 >= threshold
         } else {
             self.block_attestations
                 .insert(k, vec![(attestor_id, digest)]);
@@ -359,6 +364,7 @@ where
     fn submit_attestation(
         &mut self,
         attestation: Attestation<HashFor<B>, AccountId>,
+        block_hash: HashFor<B>,
     ) -> Option<SignedAttestation<HashFor<B>, AccountId>> {
         let k = (
             attestation.attestation_data.chain_id,
@@ -393,7 +399,10 @@ where
 
         let aggregated_signature = aggregate(&sigs[..]).expect("Failed to aggregate signatures");
 
-        if major_count >= THRESHOLD {
+        let runtime = self.runtime.runtime_api();
+        let threshold = runtime.comittee_set_size(block_hash).unwrap_or(0);
+
+        if major_count as u32 >= threshold {
             let bls = aggregated_signature; // Placeholder for BLS signature computation
             let res = Some(SignedAttestation {
                 attestation_data: attestation.clone().attestation_data,

@@ -171,7 +171,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     vec![authority_keys_from_seed("Alice")],
                     // Ethereum chain ID
                     SS58Prefix::get() as u64,
-                    250,
+                    3,
                     vec![
                         (
                             hex!(
@@ -282,7 +282,7 @@ pub fn local_testnet_config() -> ChainSpec {
                     authority_keys_from_seed("Bob"),
                 ],
                 SS58Prefix::get() as u64,
-                250,
+                3,
                 vec![
                     (
                         hex!("ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068")
