@@ -577,6 +577,8 @@ jobs:
 
           # create resource group
           echo "INFO: RG=${{ steps.get-env.outputs.resource_group }}"
+          az account list-locations -o table
+          echo "=========="
           az group create -n "${{ steps.get-env.outputs.resource_group }}" --location "${{ env.AZ_LOCATION }}"
 
           # RG Creditcoin-Test is in WestUS and the CPU quota is already full
