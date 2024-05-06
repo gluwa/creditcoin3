@@ -603,7 +603,7 @@ jobs:
 
 
           # create resource group
-          echo "INFO: ${{ steps.get-env.outputs.resource_group }}"
+          echo "INFO: RG=${{ steps.get-env.outputs.resource_group }}"
           az group create -n "${{ steps.get-env.outputs.resource_group }}" --location "${{ env.AZ_LOCATION }}"
 
           # RG Creditcoin-Test is in WestUS and the CPU quota is already full
@@ -618,7 +618,7 @@ jobs:
           SSH_USER_AT_HOSTNAME=$(jq -r '.properties.outputs.sshUserAtHostname.value' < output.json)
           echo "INFO: $SSH_USER_AT_HOSTNAME"
 
-          export LC_RUNNER_VM_NAME="${{ env.RUNNER_VM_NAME }}"
+          export LC_RUNNER_VM_NAME="${{ steps.get-env.outputs.runner_vm_name }}"
           until ssh -i ~/.ssh/id_rsa \
               -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME \
               -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh; do
@@ -653,7 +653,7 @@ jobs:
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
           az version
 
-      - name: Remove VM
+      - name: Remove RG
         run: |
           echo "INFO: RUNNER_VM_NAME=${{ env.RUNNER_VM_NAME }}"
 
