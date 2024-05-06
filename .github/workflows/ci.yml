@@ -612,7 +612,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs:
       - integration-test-cli
-    if: ${{ always() && needs.integration-test-cli.result != 'skipped' }}
+    if: ${{ always() }}
 
     # WARNING: same matrix as integration-test-cli job
     strategy:
