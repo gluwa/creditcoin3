@@ -609,8 +609,8 @@ jobs:
   remove-github-runner:
     runs-on: ubuntu-22.04
     needs:
-      - deploy-github-runner
-    if: ${{ always() && needs.deploy-github-runner.result != 'skipped' }}
+      - integration-test-cli
+    if: ${{ always() && needs.integration-test-cli.result != 'skipped' }}
 
     # WARNING: same matrix as integration-test-cli job
     strategy:
@@ -704,7 +704,9 @@ jobs:
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-22.04
+      - deploy-github-runner
+    runs-on:
+      [self-hosted, "workflow-${{ github.run_id }}", "proxy-${{ matrix.proxy }}", "secret-${{ matrix.secret }}", "type-${{ matrix.proxy_type }}"]
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
