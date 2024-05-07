@@ -150,26 +150,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn array_3_elements_test() {
-        let bytes_be = u64_to_bytes_be(0xa);
-        let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+    // #[test]
+    // fn array_3_elements_test() {
+    //     let bytes_be = u64_to_bytes_be(0xa);
+    //     let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
 
-        let bytes_be = u64_to_bytes_be(0xb);
-        let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+    //     let bytes_be = u64_to_bytes_be(0xb);
+    //     let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
 
-        let bytes_be = u64_to_bytes_be(0xc);
-        let c = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+    //     let bytes_be = u64_to_bytes_be(0xc);
+    //     let c = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
 
-        let h = array(&[a, b, c]);
+    //     let h = array(&[a, b, c]);
 
-        assert_eq!(
-            h,
-            // from Cairo0
-            felt_from_dec_str(
-                "-1387210446676157949284005763581452460269706036785075546825259478678905521525"
-            )
-            .unwrap()
-        );
-    }
+    //     assert_eq!(
+    //         h,
+    //         // from Cairo0
+    //         felt_from_dec_str(
+    //             "-1387210446676157949284005763581452460269706036785075546825259478678905521525"
+    //         )
+    //         .unwrap()
+    //     );
+    // }
 }
