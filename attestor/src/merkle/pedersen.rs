@@ -103,7 +103,7 @@ fn u64_to_bytes_be(x: u64) -> [u8; 8] {
 
 #[cfg(test)]
 mod tests {
-    use super::{array, felt_from_dec_str, u64_to_bytes_be, FieldElement};
+    use super::{u64_to_bytes_be, FieldElement};
     use starknet_crypto::pedersen_hash;
 
     #[test]
