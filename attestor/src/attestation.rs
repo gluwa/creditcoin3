@@ -1,14 +1,16 @@
-use crate::merkle::tree::BinaryMerkle;
-use crate::{merkle, transaction};
 use anyhow::Result;
 use attestor_primitives::AttestationData;
 use kameo::{
     actor::Actor,
     message::{Context, Message},
 };
+use mmr::traits::MerkleTreeTrait;
 use sp_core::H256;
 use thiserror::Error;
 use tracing::{debug, error, info};
+
+use crate::merkle::tree::StarknetPedersenMmr;
+use crate::{merkle, transaction};
 
 /// Attestor is an actor that creates attestation based on a new block
 /// It will pass this attestation to the cc3 client to be submitted on chain
@@ -70,7 +72,7 @@ impl NewBlock {
             .collect::<Vec<Vec<u8>>>()
     }
 
-    fn get_tx_rx_merkle_trees(&self) -> Result<(BinaryMerkle, BinaryMerkle), Error> {
+    fn get_tx_rx_merkle_trees(&self) -> Result<(StarknetPedersenMmr, StarknetPedersenMmr), Error> {
         // Create rlp's for all transactions
         let tx_rlps = self.to_transactions_rlps();
         let rx_rlps = self.to_receipts_rlps();
@@ -121,7 +123,7 @@ pub fn create<H>(new_block: &NewBlock) -> Result<AttestationData<H256>, Error> {
 }
 
 /// Construct a pedersen merkletree from given input
-fn rlps_to_merkletree(mut rlps: Rlps) -> Result<merkle::tree::BinaryMerkle, Error> {
+fn rlps_to_merkletree(mut rlps: Rlps) -> Result<StarknetPedersenMmr, Error> {
     if rlps.is_empty() {
         info!("No transactions in block, not doing anything now...");
         return Err(Error::NoTransactions);

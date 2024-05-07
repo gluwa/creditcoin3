@@ -63,4 +63,4 @@ rand = "0.8.4"
 creditcoin3-attestor-rpc = { path = "../client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "../client/attestor-gossip" }
 attestor-primitives = { path = "../primitives/attestor" }
-merkletree = "0.23.0"
+mmr = { path = "../mmr", features = ["par_mmr"] }

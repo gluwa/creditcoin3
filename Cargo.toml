@@ -7,6 +7,7 @@ members = [
 	"attestor",
 	"primitives/attestor",
 	"precompiles/substrate-transfer",
+	"mmr",
 ]
 resolver = "2"
 
