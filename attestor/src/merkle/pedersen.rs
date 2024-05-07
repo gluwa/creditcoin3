@@ -23,9 +23,9 @@ impl AsRef<FieldElement> for StarknetFeltWrapped {
     }
 }
 
-impl Into<[u8; 32]> for StarknetFeltWrapped {
-    fn into(self) -> [u8; 32] {
-        self.0.to_bytes_be()
+impl From<StarknetFeltWrapped> for [u8; 32] {
+    fn from(val: StarknetFeltWrapped) -> Self {
+        val.0.to_bytes_be()
     }
 }
 
@@ -38,16 +38,17 @@ impl mmr::traits::HashT for StarknetPedersenHash {
     fn hash(data: &[u8]) -> Self::Output {
         let felts = felts_from_bytes(data);
 
-        pedersen_array(&felts[..]).into()
+        array(&felts[..]).into()
     }
 
     fn concat_then_hash(felt_hashes: &[Self::Output]) -> Self::Output {
-        pedersen_array(felt_hashes).into()
+        array(felt_hashes).into()
     }
 }
 
 const U248_BYTE_COUNT: usize = 31;
 
+#[must_use]
 pub fn felts_from_bytes(bytes: &[u8]) -> Vec<FieldElement> {
     let chunks = bytes.chunks(U248_BYTE_COUNT);
 
@@ -71,7 +72,7 @@ pub fn felt_from_dec_str(s: &str) -> anyhow::Result<FieldElement> {
     }
 }
 
-pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
+pub fn array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
     let maybe_zero_prefix = *felts[0].as_ref();
     let mut prev = maybe_zero_prefix;
 
@@ -89,36 +90,36 @@ pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
 fn u64_to_bytes_be(x: u64) -> [u8; 8] {
     let mut buf = [0u8; 8];
 
-    buf[7] = (x & 0x00000000000000ff) as u8;
-    buf[6] = ((x & 0x000000000000ff00) >> 8) as u8;
-    buf[5] = ((x & 0x0000000000ff0000) >> 16) as u8;
-    buf[4] = ((x & 0x00000000ff000000) >> 24) as u8;
-    buf[3] = ((x & 0x000000ff00000000) >> 32) as u8;
-    buf[2] = ((x & 0x0000ff0000000000) >> 40) as u8;
-    buf[1] = ((x & 0x00ff000000000000) >> 48) as u8;
-    buf[0] = ((x & 0xff00000000000000) >> 56) as u8;
+    buf[7] = (x & 0x0000_0000_0000_00ff) as u8;
+    buf[6] = ((x & 0x0000_0000_0000_ff00) >> 8) as u8;
+    buf[5] = ((x & 0x0000_0000_00ff_0000) >> 16) as u8;
+    buf[4] = ((x & 0x0000_0000_ff00_0000) >> 24) as u8;
+    buf[3] = ((x & 0x0000_00ff_0000_0000) >> 32) as u8;
+    buf[2] = ((x & 0x0000_ff00_0000_0000) >> 40) as u8;
+    buf[1] = ((x & 0x00ff_0000_0000_0000) >> 48) as u8;
+    buf[0] = ((x & 0xff00_0000_0000_0000) >> 56) as u8;
     buf
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{felt_from_dec_str, pedersen_array, u64_to_bytes_be, FieldElement};
+    use super::{array, felt_from_dec_str, u64_to_bytes_be, FieldElement};
     use starknet_crypto::pedersen_hash;
 
     #[test]
     fn pedersen2_test() {
-        let bytes_be = u64_to_bytes_be(0x0000000000000001);
-        println!("bytes_be: {:X?}", bytes_be);
+        let bytes_be = u64_to_bytes_be(0x0000_0000_0000_0001);
+        println!("bytes_be: {bytes_be:X?}");
         let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
-        println!("a: {:X?}", a);
+        println!("a: {a:X?}");
 
-        let bytes_be = u64_to_bytes_be(0x0000000000000002);
-        println!("bytes_be: {:X?}", bytes_be);
+        let bytes_be = u64_to_bytes_be(0x0000_0000_0000_0002);
+        println!("bytes_be: {bytes_be:X?}");
         let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
-        println!("b: {:X?}", b);
+        println!("b: {b:X?}");
 
         let h = pedersen_hash(&a, &b);
-        println!("hash: {:X?}", h);
+        println!("hash: {h:X?}");
         assert_eq!(
             h.to_bytes_be(),
             // taken from Golang's pedersen(a, b)
@@ -129,18 +130,18 @@ mod tests {
 
     #[test]
     fn pedersen2_test1() {
-        let bytes_be = u64_to_bytes_be(0x0807060504030201);
-        println!("bytes_be: {:X?}", bytes_be);
+        let bytes_be = u64_to_bytes_be(0x0807_0605_0403_0201);
+        println!("bytes_be: {bytes_be:X?}");
         let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
-        println!("a: {:X?}", a);
+        println!("a: {a:X?}");
 
-        let bytes_be = u64_to_bytes_be(0x8070605040302010);
-        println!("bytes_be: {:X?}", bytes_be);
+        let bytes_be = u64_to_bytes_be(0x8070_6050_4030_2010);
+        println!("bytes_be: {bytes_be:X?}");
         let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
-        println!("b: {:X?}", b);
+        println!("b: {b:X?}");
 
         let h = pedersen_hash(&a, &b);
-        println!("hash: {:X?}", h);
+        println!("hash: {h:X?}");
         assert_eq!(
             h.to_bytes_be(),
             // taken from Golang's pedersen(a, b)
@@ -150,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn pedersen_array_3_elements_test() {
+    fn array_3_elements_test() {
         let bytes_be = u64_to_bytes_be(0xa);
         let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
 
@@ -160,7 +161,7 @@ mod tests {
         let bytes_be = u64_to_bytes_be(0xc);
         let c = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
 
-        let h = pedersen_array(&[a, b, c]);
+        let h = array(&[a, b, c]);
 
         assert_eq!(
             h,

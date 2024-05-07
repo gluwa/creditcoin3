@@ -135,7 +135,7 @@ fn rlps_to_merkletree(mut rlps: Rlps) -> Result<StarknetPedersenMmr, Error> {
         duplicate_elements(&mut rlps);
     }
 
-    let tree = merkle::tree::create(rlps).map_err(|e| {
+    let tree = merkle::tree::create(&rlps).map_err(|e| {
         error!("Error creating tree: {:?}", e);
         Error::NoTransactions
     })?;

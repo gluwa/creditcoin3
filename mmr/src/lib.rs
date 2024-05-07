@@ -560,7 +560,7 @@ mod tests {
         let string = vec![42u8; 1000];
         let input = vec![string.as_slice(); 300];
         for _ in 0..20_000 {
-            let mmr = Mmr::<StdHash>::from(&input[..]);
+            let _mmr = Mmr::<StdHash>::from(&input[..]);
         }
     }
 
@@ -574,7 +574,7 @@ mod tests {
         println!("mmr root: {:?}", mmr.root());
         println!("mmr num of leaves: {}", mmr.num_of_leaves());
 
-        for (i, d) in input.iter().enumerate() {
+        for (i, _d) in input.iter().enumerate() {
             let proof = mmr.generate_proof(i);
             if proof.validate(&vec![][..]) {
                 panic!("malvalidated empty at index: {i}, input: {:?}", input[i])
@@ -625,7 +625,7 @@ mod tests {
         }
         let root1 = mmr.root();
 
-        let input = vec![&[77u8]; 64];
+        let _input = vec![&[77u8]; 64];
         let root2 = mmr.root();
 
         assert_eq!(root1, root2);

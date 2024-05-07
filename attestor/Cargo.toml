@@ -17,6 +17,7 @@ pedantic = "warn"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
+redundant_slicing = "allow"
 
 [package.metadata.release]
 release = false
