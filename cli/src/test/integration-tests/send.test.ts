@@ -60,6 +60,25 @@ describe('Send command', () => {
     );
 
     testIf(
+        process.env.PROXY_ENABLED === undefined ||
+            process.env.PROXY_ENABLED === 'no' ||
+            (process.env.PROXY_ENABLED === 'yes' &&
+                process.env.PROXY_SECRET_VARIANT === 'valid-proxy' &&
+                process.env.PROXY_TYPE === 'All'),
+        'should not be able to send more than existing funds',
+        () => {
+            try {
+                // note: both caller & proxy have 1000 CTC
+                CLI('send --amount 1001 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+            } catch (error: any) {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(`has insufficient funds to send the transaction`);
+            }
+        },
+        60_000,
+    );
+
+    testIf(
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
