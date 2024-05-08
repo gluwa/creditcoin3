@@ -297,7 +297,7 @@ pub enum Error {
 
 impl<H> Message<AttestationSubmit<H>> for Client
 where
-    H: Serialize + AsRef<[u8]> + Send + Sync,
+    H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug,
 {
     type Reply = Result<(), Error>;
 
@@ -329,6 +329,7 @@ where
         // sign attestation data with bls key
         let signature_bls = self.bls_private_key.sign(msg.attestation.serialize());
 
+        info!("attestation to submit: {:?}", msg.attestation);
         // Create final attestation object
         let attestation = Attestation {
             attestation_data: msg.attestation,

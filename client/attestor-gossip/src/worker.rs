@@ -374,6 +374,15 @@ where
         let attestations = self.block_attestations.get(&k).unwrap();
         let (major_digest, major_count) = find_major_digest(attestations);
 
+        let runtime = self.runtime.runtime_api();
+        let threshold = runtime.comittee_set_size(block_hash).unwrap_or(0);
+
+        // If we can't find a majority voting on the same digest, we can't continue
+        if (major_count as u32) < threshold {
+            info!(target: LOG_TARGET, "📝 Majority vote for digest {} not found, got {}, expected {} ❌", major_digest, major_count, threshold);
+            return None;
+        }
+
         // here goes bls
         // contains attestorid, and attestation itself.
         let raw_attestations = self.block_attestations_raw.get(&k).unwrap();
@@ -399,32 +408,21 @@ where
 
         let aggregated_signature = aggregate(&sigs[..]).expect("Failed to aggregate signatures");
 
-        let runtime = self.runtime.runtime_api();
-        let threshold = runtime.comittee_set_size(block_hash).unwrap_or(0);
+        let res = Some(SignedAttestation {
+            attestation_data: attestation.clone().attestation_data,
+            signature: aggregated_signature.as_bytes()[..96].try_into().unwrap(),
+            digest: major_digest,
+            attestors,
+        });
 
-        if major_count as u32 >= threshold {
-            let bls = aggregated_signature; // Placeholder for BLS signature computation
-            let res = Some(SignedAttestation {
-                attestation_data: attestation.clone().attestation_data,
-                signature: bls.as_bytes()[..96].try_into().unwrap(),
-                digest: major_digest,
-                attestors,
-            });
+        // Update best attestation
+        self.best_attestation = Some(attestation);
 
-            // Update best attestation
-            self.best_attestation = Some(attestation);
+        // Flush memory
+        self.block_attestations.remove(&k);
+        self.block_attestations_raw.remove(&k);
 
-            // Flush memory
-            self.block_attestations.remove(&k);
-            self.block_attestations_raw.remove(&k);
-
-            res
-        } else {
-            // Handle case where no single digest is dominant
-            // e.g., log an error, alert, etc.
-            // Optionally return a list of incorrect attestors
-            None
-        }
+        res
     }
 }
 
@@ -432,6 +430,7 @@ where
 fn find_major_digest(attestations: &Vec<(AttestorId, Digest)>) -> (Digest, usize) {
     let mut digest_count: HashMap<Digest, usize> = HashMap::new();
     for (_, digest) in attestations {
+        info!(target: LOG_TARGET, "📝 Attestation digest: {:?}", digest);
         *digest_count.entry(*digest).or_insert(0) += 1;
     }
 

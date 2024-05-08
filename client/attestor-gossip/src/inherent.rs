@@ -1,9 +1,12 @@
 use anyhow::Result;
 use attestor_primitives::SignedAttestation;
 use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
+use log::info;
 use parity_scale_codec::Encode;
 use sp_core::Decode;
 use sp_inherents::{Error, InherentData, InherentIdentifier};
+
+use crate::LOG_TARGET;
 
 pub struct Provider<H, A> {
     pub attestation_queue: Vec<SignedAttestation<H, A>>,
@@ -50,12 +53,12 @@ where
     A: Send + Sync + Encode,
 {
     async fn provide_inherent_data(&self, inherent_data: &mut InherentData) -> Result<(), Error> {
-        log::info!("CALLING GOSSIP INHERENT PROVIDER");
+        info!(target: LOG_TARGET, "📝 Calling attestor inherent provider");
 
-        if let Some(_attestation) = &self.attestation {
-            log::info!("GOT ATTESTATION TO SUBMIT");
+        if let Some(attestation) = &self.attestation {
+            info!(target: LOG_TARGET, "📝 Got an attestation inherent to submit");
 
-            inherent_data.put_data(INHERENT_IDENTIFIER, &_attestation)
+            inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)
         } else {
             Ok(())
         }
