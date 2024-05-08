@@ -447,7 +447,7 @@ pub mod pallet {
                 if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
                     if digest == attestation.attestation_data.digest() {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
-                        return Err(InherentError::Duplicate);
+                        return Err(InherentError::Duplicate(digest));
                     }
                 }
 

@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 
-use creditcoin3_attestor_gossip::{inherent::AttestationInherent, AttestorGossipParams};
+use creditcoin3_attestor_gossip::{inherent::AsyncProvider, AttestorGossipParams};
 use futures::{channel::mpsc, prelude::*};
 // Substrate
 use sc_client_api::{Backend, BlockBackend};
@@ -463,11 +463,7 @@ where
     let client = client.clone();
 
     // Can't move this into this closure
-    let attestation_provider: Arc<
-        std::sync::Mutex<creditcoin3_attestor_gossip::inherent::Provider<Hash, _>>,
-    > = Arc::new(std::sync::Mutex::new(
-        creditcoin3_attestor_gossip::inherent::Provider::new(),
-    ));
+    let attestation_provider: AsyncProvider<Hash, _> = AsyncProvider::new();
 
     let (attestor_gossip_msg_sink, msg_stream) =
         tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);
@@ -729,11 +725,7 @@ where
                 let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
                     fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
 
-                let attestation_to_submit = attestation_provider.lock().unwrap().get();
-                let attestation_inherent_provider: AttestationInherent<Hash, _> =
-                    AttestationInherent::new(attestation_to_submit);
-
-                Ok((slot, timestamp, dynamic_fee, attestation_inherent_provider))
+                Ok((slot, timestamp, dynamic_fee, attestation_provider))
             }
         };
 

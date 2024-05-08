@@ -16,7 +16,7 @@ use sp_runtime::{
 };
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
@@ -168,7 +168,7 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP, AccountId> {
     pub prometheus_registry: Option<Registry>,
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>, AccountId>>>,
+    pub inherent_provider: inherent::AsyncProvider<HashFor<B>, AccountId>,
     pub _phantom: PhantomData<AccountId>,
 }
 

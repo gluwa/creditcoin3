@@ -38,14 +38,14 @@ pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 // #[cfg_attr(feature = "std", derive(Decode))]
 pub enum InherentError {
     NotValid,
-    Duplicate,
+    Duplicate(Digest),
 }
 
 impl IsFatalError for InherentError {
     fn is_fatal_error(&self) -> bool {
         match self {
             InherentError::NotValid => true,
-            InherentError::Duplicate => true,
+            InherentError::Duplicate(_) => true,
         }
     }
 }

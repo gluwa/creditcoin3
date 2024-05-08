@@ -16,11 +16,11 @@ use sp_runtime::{
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::{Client, HashFor, LOG_TARGET};
 
-use super::{Attestation, AttestorComms, AttestorId, Error, Message};
+use super::{inherent, Attestation, AttestorComms, AttestorId, Error, Message};
 
 /// Gossip engine votes messages topic
 pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
@@ -66,7 +66,7 @@ where
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
 
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>, AccountId>>>,
+    pub inherent_provider: inherent::AsyncProvider<HashFor<B>, AccountId>,
 
     pub _phantom: PhantomData<AccountId>,
 }
@@ -93,7 +93,7 @@ where
     /// Client Backend
     pub backend: Arc<BE>,
 
-    pub inherent_provider: Arc<Mutex<crate::inherent::Provider<HashFor<B>, AccountId>>>,
+    pub inherent_provider: inherent::AsyncProvider<HashFor<B>, AccountId>,
 
     pub _phantom: PhantomData<AccountId>,
 }
@@ -209,7 +209,7 @@ where
 
                     if let Some(inherent) = self.submit_attestation(attestation, block_hash) {
                         info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
-                        let _ = match self.inherent_provider.lock() {
+                        let _ = match self.inherent_provider.0.lock() {
                             Ok(mut provider) => provider.create(inherent),
                             Err(e) => {
                                 error!("error acquiring lock, {:?}", e);
