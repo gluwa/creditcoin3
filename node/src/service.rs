@@ -463,7 +463,8 @@ where
     let client = client.clone();
 
     // Can't move this into this closure
-    let attestation_provider: AsyncProvider<Hash, _> = AsyncProvider::new();
+    let attestation_provider: AsyncProvider<_, _, _, _> =
+        AsyncProvider::new(backend.clone(), client.clone());
 
     let (attestor_gossip_msg_sink, msg_stream) =
         tracing_unbounded("mpsc_attestor_gossip_validator", 100_000);

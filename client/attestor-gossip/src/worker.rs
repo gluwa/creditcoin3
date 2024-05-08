@@ -66,7 +66,7 @@ where
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
 
-    pub inherent_provider: inherent::AsyncProvider<HashFor<B>, AccountId>,
+    pub inherent_provider: inherent::AsyncProvider<AccountId, B, RuntimeApi, BE>,
 
     pub _phantom: PhantomData<AccountId>,
 }
@@ -93,7 +93,7 @@ where
     /// Client Backend
     pub backend: Arc<BE>,
 
-    pub inherent_provider: inherent::AsyncProvider<HashFor<B>, AccountId>,
+    pub inherent_provider: inherent::AsyncProvider<AccountId, B, RuntimeApi, BE>,
 
     pub _phantom: PhantomData<AccountId>,
 }

@@ -168,7 +168,7 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP, AccountId> {
     pub prometheus_registry: Option<Registry>,
     /// Inherent data providers
     pub create_inherent_data_providers: CIDP,
-    pub inherent_provider: inherent::AsyncProvider<HashFor<B>, AccountId>,
+    pub inherent_provider: inherent::AsyncProvider<AccountId, B, R, BE>,
     pub _phantom: PhantomData<AccountId>,
 }
 
