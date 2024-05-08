@@ -36,6 +36,7 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             const result = CLI(`evm fund --evm-address ${evmAccount.address} --amount 10`);
 
             // Check that the transaction was included
+            expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included');
 
             // Check that the EVM account has a balance
@@ -74,7 +75,11 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
 
                 // Withdraw 100 CTC to the Substrate account
                 // requires the CC_SECRET set above
-                CLI(`evm withdraw ${nodeUrl}`);
+                const result = CLI(`evm withdraw ${nodeUrl}`);
+
+                // Check that the transaction was included
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Transaction included');
 
                 // Check that the caller's Substrate account balance is greater than initial
                 const afterBalance = await getBalance(caller.address, api);

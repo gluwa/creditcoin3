@@ -34,5 +34,5 @@ async function evmWithdrawAction(options: OptionValues) {
     await requireKeyringHasSufficientFunds(tx, caller, api);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }

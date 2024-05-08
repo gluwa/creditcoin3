@@ -30,7 +30,7 @@ async function evmFundAction(options: OptionValues) {
     await requireKeyringHasSufficientFunds(tx, caller, api, amount);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
-    process.exit(0);
+    process.exit(result.status);
 }
 
 function parseOptions(options: OptionValues) {
