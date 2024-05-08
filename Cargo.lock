@@ -7391,6 +7391,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-prover"
+version = "3.24.1"
+dependencies = [
+ "assert_matches",
+ "attestor-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-proxy"
 version = "4.0.0-dev"
 source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
