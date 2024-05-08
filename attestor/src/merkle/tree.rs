@@ -31,7 +31,6 @@ pub enum Error {
 }
 
 /// Create a merkletree given input of byte slices
-/// We need atleast a vector of length 2 otherwise we cannot construct a merkle tree
 pub fn create(rlps: &[Vec<u8>]) -> Result {
     if rlps.is_empty() {
         return Err(Error::ErrorCreatingTree);

@@ -77,8 +77,8 @@ impl NewBlock {
         let tx_rlps = self.to_transactions_rlps();
         let rx_rlps = self.to_receipts_rlps();
 
-        let tx_tree = rlps_to_merkletree(tx_rlps)?;
-        let rx_tree = rlps_to_merkletree(rx_rlps)?;
+        let tx_tree = rlps_to_merkletree(&tx_rlps)?;
+        let rx_tree = rlps_to_merkletree(&rx_rlps)?;
 
         Ok((tx_tree, rx_tree))
     }
@@ -123,30 +123,16 @@ pub fn create<H>(new_block: &NewBlock) -> Result<AttestationData<H256>, Error> {
 }
 
 /// Construct a pedersen merkletree from given input
-fn rlps_to_merkletree(mut rlps: Rlps) -> Result<StarknetPedersenMmr, Error> {
+fn rlps_to_merkletree(rlps: &Rlps) -> Result<StarknetPedersenMmr, Error> {
     if rlps.is_empty() {
         info!("No transactions in block, not doing anything now...");
         return Err(Error::NoTransactions);
     }
 
-    // TODO: see if we can create a tree with 1 element
-    // Currently a tree with 1 element gives errors
-    if rlps.len() == 1 {
-        duplicate_elements(&mut rlps);
-    }
-
-    let tree = merkle::tree::create(&rlps).map_err(|e| {
+    let tree = merkle::tree::create(rlps).map_err(|e| {
         error!("Error creating tree: {:?}", e);
         Error::NoTransactions
     })?;
 
     Ok(tree)
-}
-
-fn duplicate_elements<T: Clone>(vec: &mut Vec<T>) {
-    let len = vec.len();
-    for i in 0..len {
-        // Insert a copy of the element at index i immediately after it
-        vec.insert(i + 1, vec[i].clone());
-    }
 }
