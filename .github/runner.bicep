@@ -712,6 +712,7 @@ param location string = resourceGroup().location
 ])
 // $0.252/hr in West US 3; 4 vCPU, 32 GiB RAM, Memory optimized
 param vmSize string = 'Standard_E4as_v4'
+param osDiskType string = 'Premium_LRS'
 
 @description('Name of the VNET')
 param virtualNetworkName string = '${vmName}-vNet'
@@ -724,7 +725,6 @@ param networkSecurityGroupName string = '${vmName}-SecGroupNet'
 
 var publicIPAddressName = '${vmName}-PublicIP'
 var networkInterfaceName = '${vmName}-NetInt'
-var osDiskType = 'Premium_LRS'
 var subnetAddressPrefix = '10.1.0.0/24'
 var addressPrefix = '10.1.0.0/16'
 var linuxConfiguration = {
