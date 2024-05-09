@@ -585,6 +585,7 @@ jobs:
           # that's why specify a different region here
           az deployment group create -g "${{ steps.get-env.outputs.resource_group }}" -f .github/runner.bicep \
               --parameters location="${{ env.AZ_LOCATION }}" \
+              --parameters vmSize="Standard_E4s_v5" \
               --parameters vmName="${{ steps.get-env.outputs.runner_vm_name }}" \
               --parameters adminPasswordOrKey="$(cat .github/authorized_keys)" > output.json
 
