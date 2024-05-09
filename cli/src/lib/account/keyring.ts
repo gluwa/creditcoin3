@@ -3,7 +3,7 @@ import { Keyring, KeyringPair } from '..';
 import prompts from 'prompts';
 import { getErrorMessage } from '../error';
 import { OptionValues } from 'commander';
-import { parseBoolean } from '../parsing';
+import { setInteractivity } from '../interactive';
 
 // return the underlying address from a keyring, if this is a non proxied keyring it is just the address of the keypair
 // If it is a proxy then the proxied address is the one that we want to check for available funds and validator status etc
@@ -34,7 +34,7 @@ export async function initKeyringFromEnvOrPrompt(
     options: OptionValues,
 ): Promise<KeyringPair> {
     // General configs
-    const interactive = parseBoolean(options.input);
+    const interactive = setInteractivity(options);
     const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
     const validateInput = options.useEcdsa ? () => true : mnemonicValidate;
     const generateKeyring = options.useEcdsa ? initECDSAKeyringPairFromPK : initKeyringPair;
