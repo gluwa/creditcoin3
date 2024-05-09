@@ -17,7 +17,7 @@ import { makeWizardCommand } from './commands/staking/wizard';
 import { makeEvmCommand } from './commands/evm';
 import { makeConvertAddressCommand } from './commands/convertAddress';
 import { makeProxyCommands } from './commands/proxy/commands';
-import { urlOption } from './commands/options';
+import { noInputOption, urlOption } from './commands/options';
 
 const program = new Command();
 
@@ -40,7 +40,7 @@ program
     .addCommand(makeWizardCommand());
 
 program.commands.forEach((cmd) => {
-    cmd.option('--no-input', 'Disable interactive prompts');
+    cmd.addOption(noInputOption);
     cmd.addOption(urlOption);
 });
 

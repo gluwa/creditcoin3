@@ -90,7 +90,7 @@ export const eraOption = new Option('--era [era]', 'Specify era to distribute re
 
 // I/O
 export const jsonOption = new Option('--json', 'Output as JSON');
-export const noInputOption = new Option('--no-input', 'Do not prompt for input');
+export const noInputOption = new Option('--no-input', 'Disable interactive prompts');
 
 // Crypto
 export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
