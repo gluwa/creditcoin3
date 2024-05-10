@@ -15,8 +15,9 @@ permissions: read-all
 
 env:
   RUNNER_VM_NAME: "gh-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  RESOURCE_GROUP: "rg-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  AZ_LOCATION: "westus3"
+  LINODE_REGION: "nl-ams"
+  # Shared CPU, Linode 16 GB, 6 vCPU, 96 $/mo
+  LINODE_VM_SIZE: "g6-standard-6"
 
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
@@ -535,12 +536,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install azure-cli
+      - name: Install linode-cli
         run: |
-          sudo apt remove azure-cli -y && sudo apt autoremove -y
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          sudo apt install -y jq
-          az version
+          python3 --version
+          pip3 --version
+          sudo pip3 install linode-cli --upgrade
+          linode-cli --version
 
       - name: Authorize hosted-runner
         run: |
@@ -562,7 +563,6 @@ jobs:
           # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
           # doesn't evaluate the $GITHUB_RUN_ID reference
           echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
-          echo "resource_group=${{ env.RESOURCE_GROUP }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
       - name: Provision VM
         if: env.LC_GITHUB_REPO_ADMIN_TOKEN
@@ -570,28 +570,26 @@ jobs:
           echo "INFO: From ENVs: RUNNER_VM_NAME=${{ env.RUNNER_VM_NAME }}"
           echo "INFO: From Step: RUNNER_VM_NAME=${{ steps.get-env.outputs.runner_vm_name }}"
 
-          az login --service-principal --username "${{ secrets.AZURE_APP_ID }}" --password "${{ secrets.AZURE_APP_PASSWORD }}" --tenant "${{ secrets.AZURE_TENANT_ID }}"
-          az account set --subscription "Playground Subscription"
-          ## az account set -s "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          # inject authorized keys into cloud-init for the `ubuntu@` user
+          while read -r LINE; do
+            echo "      - $LINE" >> .github/linode-cloud-init.template
+          done < .github/authorized_keys
 
-
-          # create resource group
-          echo "INFO: RG=${{ steps.get-env.outputs.resource_group }}"
-          az account list-locations -o table
-          echo "=========="
-          az group create -n "${{ steps.get-env.outputs.resource_group }}" --location "${{ env.AZ_LOCATION }}"
-
-          # RG Creditcoin-Test is in WestUS and the CPU quota is already full
-          # that's why specify a different region here
-          az deployment group create -g "${{ steps.get-env.outputs.resource_group }}" -f .github/runner.bicep \
-              --parameters location="${{ env.AZ_LOCATION }}" \
-              --parameters vmSize="Standard_E4s_v5" \
-              --parameters vmName="${{ steps.get-env.outputs.runner_vm_name }}" \
-              --parameters adminPasswordOrKey="$(cat .github/authorized_keys)" > output.json
+          # WARNING: we do not specify --authorized_keys for root b/c
+          # linode-cli expects each key as a separate argument and iteratively constructing
+          # the argument list hits issues with quoting the jey values b/c of white-space.
+          # All SSH logins should be via the `ubuntu@` user. For more info see:
+          # https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
+          linode-cli linodes create --json \
+                --image 'linode/ubuntu22.04' --region ${{ env.LINODE_REGION }} \
+                --type ${{ env.LINODE_VM_SIZE }} --label "${{ steps.get-env.outputs.runner_vm_name }}" \
+                --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
+                --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
 
           # provision the GitHub Runner binary on the VM
           # passing additional ENV values
-          SSH_USER_AT_HOSTNAME=$(jq -r '.properties.outputs.sshUserAtHostname.value' < output.json)
+          IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
+          SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
           echo "INFO: $SSH_USER_AT_HOSTNAME"
 
           export LC_RUNNER_VM_NAME="${{ steps.get-env.outputs.runner_vm_name }}"
@@ -608,6 +606,7 @@ jobs:
           LC_PROXY_ENABLED: ${{ matrix.proxy }}
           LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           LC_PROXY_TYPE: ${{ matrix.proxy_type }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
   remove-github-runner:
     runs-on: ubuntu-22.04
@@ -656,28 +655,22 @@ jobs:
           HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
           rm matrix.txt
 
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "resource_group=${{ env.RESOURCE_GROUP }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
-      - name: Install azure-cli
+      - name: Install linode-cli
         run: |
-          sudo apt remove azure-cli -y && sudo apt autoremove -y
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          az version
+          python3 --version
+          pip3 --version
+          sudo pip3 install linode-cli --upgrade
+          linode-cli --version
 
-      - name: Remove RG
+      - name: Remove VM
         run: |
-          az login --service-principal --username "${{ secrets.AZURE_APP_ID }}" --password "${{ secrets.AZURE_APP_PASSWORD }}" --tenant "${{ secrets.AZURE_TENANT_ID }}"
-          az account set --subscription "Playground Subscription"
-          az group delete --yes -n "${{ steps.get-env.outputs.resource_group }}"
+          VM_ID=$(linode-cli linodes list --json --label "${{ steps.get-env.outputs.runner_vm_name }}" | jq -r '.[0].id')
+          linode-cli linodes delete "$VM_ID"
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
-      - name: Upload logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Azure resources"
-          path: azure_resource_list.json
 
   integration-test-cli:
     strategy:
