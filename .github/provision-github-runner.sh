@@ -23,5 +23,6 @@ REGISTRATION_TOKEN=$(curl --silent -X POST \
 # Important: ephemeral runners are removed after a single job is executed on them
 # which is inline with the VM lifecycle
 ./config.sh --unattended --ephemeral "$EPHEMERAL" --url "$REPOSITORY_URL" --token "$REGISTRATION_TOKEN" \
+    --name "$LC_RUNNER_VM_NAME" \
     --labels "$LC_RUNNER_VM_NAME,workflow-$LC_WORKFLOW_ID,proxy-$LC_PROXY_ENABLED,secret-$LC_PROXY_SECRET_VARIANT,type-$LC_PROXY_TYPE"
 nohup ./run.sh >/dev/null 2>&1 </dev/null &
