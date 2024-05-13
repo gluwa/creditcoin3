@@ -98,40 +98,40 @@ where
         info!(target: LOG_TARGET, "📝 Calling attestor inherent provider");
 
         // Retrieve the latest attestation if available
-        let mut provider = self.0.lock().unwrap();
+        let mut provider = self.0.lock().map_err(|e| {
+            error!("error acquiring attestation inherent provider lock {:?}", e);
+            sp_inherents::Error::FatalErrorReported
+        })?;
+
         let block_hash = provider.backend.blockchain().info().best_hash;
 
         // Get the latest attestation
-        let attestation = match provider.get_latest() {
-            Some(attestation) => {
-                // Get the runtime and fetch te last digest
-                let runtime = provider.runtime_api.runtime_api();
-                let last_digest = runtime
-                    .last_digest(block_hash, attestation.attestation_data.chain_id)
-                    .map_err(|_e| sp_inherents::Error::FatalErrorReported)?
-                    .unwrap_or(H256::zero());
+        if let Some(attestation) = provider.get_latest() {
+            let digest = attestation.digest;
+            // Get the runtime and fetch the last digest
+            let runtime = provider.runtime_api.runtime_api();
+            let last_digest = runtime
+                .last_digest(block_hash, attestation.attestation_data.chain_id)
+                .map_err(|_e| sp_inherents::Error::FatalErrorReported)?
+                .unwrap_or(H256::zero());
 
-                // If the last digest matches the one we want to submit in the inherent
-                // we can safely remove this pending attestation. It means this was already submitted to the network
-                if last_digest == attestation.digest {
-                    info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping", last_digest);
-
-                    // Attestation with digest already included on chain
-                    provider.remove_by_digest(last_digest);
-
-                    return Ok(());
-                }
-
-                attestation
+            // If the last digest matches the one we want to submit in the inherent
+            // we can safely remove this pending attestation. It means this was already submitted to the network
+            // Check if the attestation is already included on the chain
+            if last_digest == digest {
+                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping", last_digest);
+                provider.remove_by_digest(last_digest);
+            } else {
+                // Update inherent data and then remove the attestation from queue
+                inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)?;
+                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} submitted", digest);
+                provider.remove_by_digest(digest);
             }
-            None => return Ok(()), // No attestation available, skip adding data
-        };
-
-        // Put data into inherent data
-        inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)?;
+        }
 
         Ok(())
     }
+
     async fn try_handle_error(
         &self,
         identifier: &InherentIdentifier,
