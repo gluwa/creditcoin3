@@ -1,4 +1,5 @@
 use crate::{self as prover_pallet};
+use fp_account::AccountId20;
 use frame_support::{parameter_types, traits::ConstU32};
 use frame_system as system;
 use sp_core::H256;
@@ -78,12 +79,18 @@ impl pallet_balances::Config for Test {
 impl prover_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = prover_pallet::weights::WeightInfo<Test>;
+    type Address = AccountId20;
+    type Currency = Balances;
+    type ClaimLockCurrency = Balances;
+    type Hashing = BlakeTwo256;
 }
 
 // add more accounts when you need them
 // and update balances genesis below
 pub(crate) const PROVER_1: AccountId = 1;
 pub(crate) const PROVER_2: AccountId = 2;
+pub(crate) const CLAIMER_1: AccountId = 3;
+pub(crate) const CLAIMER_2: AccountId = 4;
 
 #[derive(Default)]
 pub struct ExtBuilder;
@@ -98,6 +105,8 @@ impl ExtBuilder {
             balances: vec![
                 (PROVER_1, 9_000_000_000_000_000_000),
                 (PROVER_2, 50_000_000_000_000_000_000),
+                (CLAIMER_1, 50_000_000_000_000_000_000),
+                (CLAIMER_2, 50_000_000_000_000_000_000),
             ],
         };
         b.assimilate_storage(&mut t).unwrap();

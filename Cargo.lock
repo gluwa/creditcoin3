@@ -7396,12 +7396,15 @@ version = "3.24.1"
 dependencies = [
  "assert_matches",
  "attestor-primitives",
+ "fp-account",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "hex",
  "log",
  "pallet-balances",
  "parity-scale-codec",
+ "prover-primitives",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -8224,6 +8227,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213622a1460818959ac1181aaeb2dc9c7f63df720db7d788b3e24eacd1983e13"
 dependencies = [
  "prost",
+]
+
+[[package]]
+name = "prover-primitives"
+version = "3.24.1"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]

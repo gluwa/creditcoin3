@@ -10,6 +10,7 @@ members = [
 	"mmr",
 	"primitives/supported-chains",
 	"bls-signatures",
+	"primitives/prover",
 ]
 resolver = "2"
 
@@ -158,6 +159,7 @@ fp-account = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier",
 fp-dynamic-fee = { version = "1.0.0", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 fp-evm = { version = "3.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 fp-rpc = { version = "3.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
+fp-account = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 fp-self-contained = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 # Frontier FRAME
 pallet-base-fee = { version = "1.0.0", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
@@ -201,6 +203,9 @@ creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
+
+# Prover
+prover-primitives = { path = "primitives/prover", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.
