@@ -9,6 +9,7 @@ use sp_core::Decode;
 use sp_core::H256;
 use sp_inherents::{Error, InherentData, InherentIdentifier};
 use sp_runtime::traits::Block as BlockT;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use crate::{HashFor, LOG_TARGET};
@@ -16,7 +17,7 @@ use crate::{HashFor, LOG_TARGET};
 #[derive(Clone)]
 pub struct Provider<A, B: BlockT, RA, BE> {
     /// attestation queue
-    pub attestation_queue: Vec<SignedAttestation<HashFor<B>, A>>,
+    pub attestation_queue: VecDeque<SignedAttestation<HashFor<B>, A>>,
     /// runtime api access
     pub runtime_api: Arc<RA>,
     /// Client Backend
@@ -33,7 +34,7 @@ where
 {
     pub fn new(backend: Arc<BE>, runtime_api: Arc<RA>) -> Self {
         Self {
-            attestation_queue: vec![],
+            attestation_queue: VecDeque::new(),
             runtime_api,
             backend,
         }
@@ -41,14 +42,14 @@ where
 
     // Create an attestation adds it to the queue
     pub fn create(&mut self, attestation: SignedAttestation<HashFor<B>, A>) -> Result<()> {
-        self.attestation_queue.push(attestation);
+        self.attestation_queue.push_back(attestation);
 
         Ok(())
     }
 
     // Provide a reference to the most recent attestation
-    pub fn get_latest(&self) -> Option<&SignedAttestation<HashFor<B>, A>> {
-        self.attestation_queue.last()
+    pub fn get_latest(&mut self) -> Option<SignedAttestation<HashFor<B>, A>> {
+        self.attestation_queue.pop_front()
     }
 
     // Removes an attestation from the queue by digest
@@ -120,7 +121,7 @@ where
                 provider.remove_by_digest(last_digest);
             } else {
                 // Update inherent data and then remove the attestation from queue
-                inherent_data.put_data(INHERENT_IDENTIFIER, attestation)?;
+                inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)?;
                 info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} submitted", digest);
                 provider.remove_by_digest(digest);
             }
