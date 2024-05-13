@@ -15,8 +15,8 @@ use crate::{HashFor, LOG_TARGET};
 
 #[derive(Clone)]
 pub struct Provider<A, B: BlockT, RA, BE> {
+    /// attestation queue
     pub attestation_queue: Vec<SignedAttestation<HashFor<B>, A>>,
-
     /// runtime api access
     pub runtime_api: Arc<RA>,
     /// Client Backend
@@ -39,22 +39,19 @@ where
         }
     }
 
-    // Create multiple copies of this attestation to ensure inclusion
+    // Create an attestation adds it to the queue
     pub fn create(&mut self, attestation: SignedAttestation<HashFor<B>, A>) -> Result<()> {
         self.attestation_queue.push(attestation);
 
         Ok(())
     }
 
-    pub fn get(&mut self) -> Option<SignedAttestation<HashFor<B>, A>> {
-        self.attestation_queue.pop()
-    }
-
-    // Provide a reference to the most recent attestation or return an error
+    // Provide a reference to the most recent attestation
     pub fn get_latest(&self) -> Option<&SignedAttestation<HashFor<B>, A>> {
         self.attestation_queue.last()
     }
 
+    // Removes an attestation from the queue by digest
     pub fn remove_by_digest(&mut self, digest: Digest) {
         self.attestation_queue
             .retain(|attestation| attestation.digest != digest);
@@ -123,7 +120,7 @@ where
                 provider.remove_by_digest(last_digest);
             } else {
                 // Update inherent data and then remove the attestation from queue
-                inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)?;
+                inherent_data.put_data(INHERENT_IDENTIFIER, attestation)?;
                 info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} submitted", digest);
                 provider.remove_by_digest(digest);
             }
