@@ -469,5 +469,6 @@ fn testnet_genesis(
             invulnerables: attestation_invulnerables,
             supported_chains,
         },
+        supported_chains: Default::default(),
     }
 }

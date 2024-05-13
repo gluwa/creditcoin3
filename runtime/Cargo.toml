@@ -82,7 +82,9 @@ creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
 
 pallet-attestation-poc = { workspace = true }
+pallet-supported-chains = { workspace = true }
 attestor-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -132,6 +134,7 @@ std = [
 	"pallet-session/std",
 	"pallet-staking/std",
 	"pallet-sudo/std",
+	"pallet-supported-chains/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
@@ -154,6 +157,7 @@ std = [
 	"creditcoin3-rpc-primitives-debug/std",
 	"pallet-evm-precompile-substrate-transfer/std",
 	"attestor-primitives/std",
+	"supported-chains-primitives/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

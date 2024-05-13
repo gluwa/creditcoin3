@@ -848,6 +848,11 @@ impl pallet_attestation_poc::Config for Runtime {
     type BlsSignature = [u8; 42];
 }
 
+impl pallet_supported_chains::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -883,6 +888,7 @@ construct_runtime!(
         HotfixSufficients: pallet_hotfix_sufficients,
 
         Attestation: pallet_attestation_poc,
+        SupportedChains: pallet_supported_chains,
     }
 );
 
@@ -1350,6 +1356,16 @@ impl_runtime_apis! {
 
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey> {
             Attestation::attestor_bls_pubkey(attestor)
+        }
+    }
+
+    impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {
+        fn is_chain_supported(chain_id: u8) -> bool {
+            SupportedChains::is_chain_supported(chain_id)
+        }
+
+        fn supported_chains() -> Option<Vec<u8>> {
+            SupportedChains::supported_chains()
         }
     }
 

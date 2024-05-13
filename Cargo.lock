@@ -2611,6 +2611,7 @@ dependencies = [
  "pallet-session",
  "pallet-staking",
  "pallet-sudo",
+ "pallet-supported-chains",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -2631,6 +2632,7 @@ dependencies = [
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
+ "supported-chains-primitives",
 ]
 
 [[package]]
@@ -7419,6 +7421,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-supported-chains"
+version = "3.24.1"
+dependencies = [
+ "attestor-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-timestamp"
 version = "4.0.0-dev"
 source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
@@ -11912,6 +11930,14 @@ dependencies = [
  "sp-crypto-hashing",
  "subxt",
  "zeroize",
+]
+
+[[package]]
+name = "supported-chains-primitives"
+version = "3.24.1"
+dependencies = [
+ "sp-api",
+ "sp-std",
 ]
 
 [[package]]

@@ -3,11 +3,12 @@ members = [
 	"node",
 	"runtime",
 	"runtime/generate-bags",
-	"pallets/attestation-poc",
+	"pallets/*",
 	"attestor",
 	"primitives/attestor",
 	"precompiles/substrate-transfer",
 	"mmr",
+	"primitives/supported-chains",
 ]
 resolver = "2"
 
@@ -174,6 +175,7 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
+pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Precompiles
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
@@ -198,6 +200,7 @@ creditcoin3-rpc-trace = { path = "client/rpc/trace" }
 creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
+supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

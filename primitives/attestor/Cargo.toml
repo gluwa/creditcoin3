@@ -19,7 +19,7 @@ sp-io = { workspace = true }
 serde = { workspace = true }
 scale-info = { workspace = true }
 bls-signatures = { workspace = true, optional = true }
-sp-api = { workspace = true }
+sp-api = { workspace = true, default-features = false }
 serde_bytes = { version = "0.11.14", default-features = false }
 
 [features]
