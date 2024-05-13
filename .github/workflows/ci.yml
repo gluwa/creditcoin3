@@ -16,8 +16,8 @@ permissions: read-all
 env:
   RUNNER_VM_NAME: "gh-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
   LINODE_REGION: "nl-ams"
-  # Shared CPU, Linode 16 GB, 6 vCPU, 96 $/mo
-  LINODE_VM_SIZE: "g6-standard-6"
+  # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
+  LINODE_VM_SIZE: "g6-standard-4"
 
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
