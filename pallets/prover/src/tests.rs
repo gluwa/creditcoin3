@@ -51,7 +51,7 @@ fn add_chain_price_works() {
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
             1,
-            ChainPriceConfiguration { price: 100 }
+            Some(ChainPriceConfiguration { price: 100 })
         ));
     })
 }
@@ -67,33 +67,10 @@ fn remove_chain_price_works() {
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
             1,
-            ChainPriceConfiguration { price: 100 }
+            Some(ChainPriceConfiguration { price: 100 })
         ));
 
-        assert_ok!(ProverModule::unset_chain_price_config(
-            prover_1(),
-            1,
-            ChainPriceConfiguration { price: 100 }
-        ));
-    })
-}
-
-#[test]
-fn remove_non_existing_chain_price_fails() {
-    ExtBuilder.build_and_execute(|| {
-        assert_ok!(ProverModule::register_prover(
-            prover_1(),
-            Prover { nickname: vec![] }
-        ));
-
-        assert_err!(
-            ProverModule::unset_chain_price_config(
-                prover_1(),
-                1,
-                ChainPriceConfiguration { price: 100 }
-            ),
-            Error::<Test>::ChainPriceConfigurationNotFound
-        );
+        assert_ok!(ProverModule::set_chain_price_config(prover_1(), 1, None));
     })
 }
 
@@ -108,7 +85,7 @@ fn create_claim_works() {
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
             1,
-            ChainPriceConfiguration { price: 100 }
+            Some(ChainPriceConfiguration { price: 100 })
         ));
 
         let claim = Claim {
@@ -135,7 +112,7 @@ fn create_claim_twice_fails() {
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
             1,
-            ChainPriceConfiguration { price: 100 }
+            Some(ChainPriceConfiguration { price: 100 })
         ));
 
         let claim = Claim {
@@ -171,7 +148,7 @@ fn create_claim_twice_after_proof_submission_works() {
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
             1,
-            ChainPriceConfiguration { price: 100 }
+            Some(ChainPriceConfiguration { price: 100 })
         ));
 
         let claim = Claim {

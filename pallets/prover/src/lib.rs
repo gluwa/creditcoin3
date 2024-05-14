@@ -17,7 +17,7 @@ pub mod pallet {
     use crate::types::{ChainPriceConfiguration, Prover};
     use attestor_primitives::ChainId;
     use frame_support::{
-        pallet_prelude::*,
+        pallet_prelude::{ValueQuery, *},
         traits::{
             Currency, ExistenceRequirement, LockIdentifier, LockableCurrency, WithdrawReasons,
         },
@@ -70,8 +70,8 @@ pub mod pallet {
         Key1 = T::AccountId,
         Hasher2 = Blake2_128Concat,
         Key2 = ChainId,
-        Value = ChainPriceConfiguration,
-        QueryKind = OptionQuery,
+        Value = Option<ChainPriceConfiguration>,
+        QueryKind = ValueQuery,
     >;
 
     #[pallet::storage]
@@ -103,8 +103,7 @@ pub mod pallet {
         ProverRegistered(T::AccountId),
 
         ///
-        ProverChainPriceConfigurationSet(T::AccountId, ChainId, ChainPriceConfiguration),
-        ProverChainPriceConfigurationUnset(T::AccountId, ChainId, ChainPriceConfiguration),
+        ProverChainPriceConfigurationSet(T::AccountId, ChainId, Option<ChainPriceConfiguration>),
 
         ///
         ProverClaimSubmitted(
@@ -160,7 +159,7 @@ pub mod pallet {
         pub fn set_chain_price_config(
             origin: OriginFor<T>,
             chain_id: ChainId,
-            chain_price_config: ChainPriceConfiguration,
+            chain_price_config: Option<ChainPriceConfiguration>,
         ) -> DispatchResult {
             let address = ensure_signed(origin)?;
 
@@ -172,36 +171,6 @@ pub mod pallet {
             ProversChainPriceConfigurations::<T>::insert(&address, chain_id, &chain_price_config);
 
             Self::deposit_event(Event::<T>::ProverChainPriceConfigurationSet(
-                address,
-                chain_id,
-                chain_price_config,
-            ));
-
-            Ok(())
-        }
-
-        #[pallet::call_index(2)]
-        #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
-        pub fn unset_chain_price_config(
-            origin: OriginFor<T>,
-            chain_id: ChainId,
-            chain_price_config: ChainPriceConfiguration,
-        ) -> DispatchResult {
-            let address = ensure_signed(origin)?;
-
-            ensure!(
-                Provers::<T>::contains_key(&address),
-                Error::<T>::ProverNotExists
-            );
-
-            ensure!(
-                ProversChainPriceConfigurations::<T>::contains_key(&address, chain_id),
-                Error::<T>::ChainPriceConfigurationNotFound
-            );
-
-            ProversChainPriceConfigurations::<T>::remove(&address, chain_id);
-
-            Self::deposit_event(Event::<T>::ProverChainPriceConfigurationUnset(
                 address,
                 chain_id,
                 chain_price_config,
