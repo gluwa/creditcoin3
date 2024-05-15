@@ -22,6 +22,7 @@ const evmPrivateKey = (who: 'alice' | 'bob'): string => {
     // https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
     switch (who) {
         case 'alice': // Alith
+            // 5Fghzk1AJt88PeFEzuRfXzbPchiBbsVGTTXcdx599VdZzkTA 0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
             return '0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133';
         case 'bob': // Balthathar
             return '0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b';

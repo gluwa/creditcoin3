@@ -2,7 +2,8 @@ import { WebSocketProvider, ethers, parseEther } from 'ethers';
 import contractABI = require('./artifacts/SubstrateTransfer.json');
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
-import { newApi, ApiPromise } from '../../lib';
+import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../lib';
+import { fundFromSudo } from '../integration-tests/helpers';
 
 describe('Precompile: transfer_substrate()', (): void => {
     let contract: any;
@@ -23,6 +24,12 @@ describe('Precompile: transfer_substrate()', (): void => {
 
         const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
         alith = new ethers.Wallet(privateKey, provider);
+        // will only work when connected to a chain locally and //Alice is root
+        // either during local development or during runtime-upgrade against a fork
+        // note: Alith starts with 2mil CTC during local development
+        const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
+        // note: balances.Transfer is happy to accept Address20 directly too
+        expect(result.status).toBe(0);
         alithBalanceBefore = await provider.getBalance(alith.address);
 
         contract = new ethers.Contract(precompileContractAddress, contractABI, alith);
@@ -30,7 +37,9 @@ describe('Precompile: transfer_substrate()', (): void => {
         destination = target.addFromMnemonic(mnemonicGenerate());
 
         destinationBalanceBefore = (await api.derive.balances.all(destination.address)).availableBalance.toBigInt();
-    }, 25000);
+
+        // note: larger timeout b/c this also executes against Testnet forks where block time is 15s
+    }, 90_000);
 
     afterAll(async () => {
         await api.disconnect();
