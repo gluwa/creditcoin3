@@ -1354,6 +1354,10 @@ impl_runtime_apis! {
             Attestation::last_digest(chain_id)
         }
 
+        fn contains_digest(chain_id: u8, digest: Digest) -> bool {
+            Attestation::contains_digest(chain_id, digest)
+        }
+
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey> {
             Attestation::attestor_bls_pubkey(attestor)
         }

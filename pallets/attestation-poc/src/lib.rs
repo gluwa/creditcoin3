@@ -14,7 +14,7 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{Attestation, BlockNumber, Digest};
+    use crate::types::{Attestation, Digest};
     use attestor_primitives::{
         BlsPublicKey, BlsPublicKeyWrapper, ChainId, InherentError, SignedAttestation,
         INHERENT_IDENTIFIER,
@@ -114,7 +114,7 @@ pub mod pallet {
         Blake2_128Concat,
         ChainId,
         Blake2_128Concat,
-        BlockNumber,
+        Digest,
         Attestation<T::Hash, T::AccountId>,
         OptionQuery,
     >;
@@ -360,7 +360,6 @@ pub mod pallet {
         pub fn bootstrap_chain(
             origin: OriginFor<T>,
             chain_id: ChainId,
-            block_number: BlockNumber,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
             ensure_root(origin)?;
@@ -370,7 +369,7 @@ pub mod pallet {
 
             let attestation_insert: Attestation<T::Hash, T::AccountId> =
                 Attestation::new(attestation.clone(), digest);
-            Attestations::<T>::insert(chain_id, block_number, &attestation_insert);
+            Attestations::<T>::insert(chain_id, digest, &attestation_insert);
 
             Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation_insert));
             Ok(())
@@ -391,9 +390,8 @@ pub mod pallet {
                 attestation.digest
             };
 
-            let block_number = attestation.attestation_data.header_number;
             let attestation_insert = Attestation::new(attestation.clone(), digest);
-            Attestations::<T>::insert(attestation.chain_id(), block_number, &attestation_insert);
+            Attestations::<T>::insert(attestation.chain_id(), digest, &attestation_insert);
 
             // Update last digest
             LastDigest::<T>::set(attestation.chain_id(), Some(attestation.digest));
@@ -475,6 +473,10 @@ pub mod pallet {
 
         pub fn last_digest(chain_id: u8) -> Option<Digest> {
             LastDigest::<T>::get(chain_id)
+        }
+
+        pub fn contains_digest(chain_id: u8, digest: Digest) -> bool {
+            Attestations::<T>::contains_key(chain_id, digest)
         }
 
         pub fn attestor_bls_pubkey(address: &T::AccountId) -> Option<BlsPublicKey> {

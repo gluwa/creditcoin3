@@ -4,7 +4,6 @@ use scale_info::TypeInfo;
 use sp_core::hash::H256;
 use sp_core::RuntimeDebug;
 
-pub type BlockNumber = u64;
 pub type Digest = H256;
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]

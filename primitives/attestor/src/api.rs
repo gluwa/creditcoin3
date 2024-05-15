@@ -15,6 +15,8 @@ sp_api::decl_runtime_apis! {
 
         fn last_digest(chain_id: u8) -> Option<Digest>;
 
+        fn contains_digest(chain_id: u8, digest: Digest) -> bool;
+
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey>;
     }
 }
