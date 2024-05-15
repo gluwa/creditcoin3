@@ -1,5 +1,5 @@
 use attestor_primitives::bls::{Bls, CryptoScheme, WrapEncode};
-use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
+use attestor_primitives::{api::AttestorApi, ChainId, Digest, SignedAttestation};
 use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
 use log::{error, info};
@@ -29,9 +29,6 @@ where
 {
     <<B::Header as HeaderT>::Hashing as HashT>::hash(b"attestor-votes")
 }
-
-// Should be ChainID
-type ChainId = u8;
 
 type BlockNumber = u64;
 

@@ -85,12 +85,14 @@ pub async fn subscribe_to_new_heads(
                 vec![]
             };
 
-            let last_digest = cc3_client.send(GetLastDigest { chain_id: 42 }).await?;
+            let chain_id = provider.get_chain_id().await?;
+
+            let last_digest = cc3_client.send(GetLastDigest { chain_id }).await?;
 
             // Notify the attestor with a new block
             let attestation = attestor
                 .send(NewBlock {
-                    chain_id: 42,
+                    chain_id,
                     header_number: block.header.number.unwrap(),
                     header_hash: sp_core::H256(block.header.hash.unwrap().0),
                     last_digest,

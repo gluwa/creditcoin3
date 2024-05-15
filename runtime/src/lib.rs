@@ -1350,11 +1350,11 @@ impl_runtime_apis! {
             Attestation::comittee_set_size()
         }
 
-        fn last_digest(chain_id: u8) -> Option<Digest> {
+        fn last_digest(chain_id: u64) -> Option<Digest> {
             Attestation::last_digest(chain_id)
         }
 
-        fn contains_digest(chain_id: u8, digest: Digest) -> bool {
+        fn contains_digest(chain_id: u64, digest: Digest) -> bool {
             Attestation::contains_digest(chain_id, digest)
         }
 
@@ -1364,11 +1364,11 @@ impl_runtime_apis! {
     }
 
     impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {
-        fn is_chain_supported(chain_id: u8) -> bool {
+        fn is_chain_supported(chain_id: u64) -> bool {
             SupportedChains::is_chain_supported(chain_id)
         }
 
-        fn supported_chains() -> Option<Vec<u8>> {
+        fn supported_chains() -> Option<Vec<u64>> {
             SupportedChains::supported_chains()
         }
     }

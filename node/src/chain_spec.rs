@@ -356,7 +356,7 @@ fn testnet_genesis(
     chain_id: u64,
     comittee_set_size: u32,
     attestation_invulnerables: Vec<(AccountId, BlsPublicKeyWrapper)>,
-    supported_chains: Vec<u8>,
+    supported_chains: Vec<u64>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,

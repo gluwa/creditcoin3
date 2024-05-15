@@ -13,9 +13,9 @@ sp_api::decl_runtime_apis! {
 
         fn comittee_set_size() -> u32;
 
-        fn last_digest(chain_id: u8) -> Option<Digest>;
+        fn last_digest(chain_id: u64) -> Option<Digest>;
 
-        fn contains_digest(chain_id: u8, digest: Digest) -> bool;
+        fn contains_digest(chain_id: u64, digest: Digest) -> bool;
 
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey>;
     }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::AttestationData;
+use attestor_primitives::{AttestationData, ChainId};
 use kameo::{
     actor::Actor,
     message::{Context, Message},
@@ -46,7 +46,7 @@ pub enum Error {
 
 // Define NewBlock message
 pub struct NewBlock {
-    pub chain_id: u8,
+    pub chain_id: ChainId,
     pub header_number: u64,
     pub header_hash: H256,
     pub last_digest: H256,

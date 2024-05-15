@@ -131,8 +131,8 @@ pub mod pallet {
             SupportedChains::<T>::contains_key(chain_id)
         }
 
-        pub fn supported_chains() -> Option<Vec<u8>> {
-            let chains: Vec<u8> = SupportedChains::<T>::iter()
+        pub fn supported_chains() -> Option<Vec<u64>> {
+            let chains: Vec<u64> = SupportedChains::<T>::iter()
                 .map(|(chain_id, _)| chain_id)
                 .collect();
             match chains.is_empty() {

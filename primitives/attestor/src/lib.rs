@@ -14,7 +14,7 @@ pub mod api;
 
 pub type Felt = [u8; 32];
 
-pub type ChainId = u8;
+pub type ChainId = u64;
 
 /// BLS public keys as bytes
 pub type BlsPublicKey = [u8; 48];
