@@ -11936,6 +11936,7 @@ dependencies = [
 name = "supported-chains-primitives"
 version = "3.24.1"
 dependencies = [
+ "attestor-primitives",
  "sp-api",
  "sp-std",
 ]

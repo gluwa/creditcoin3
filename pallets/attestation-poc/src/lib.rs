@@ -471,11 +471,11 @@ pub mod pallet {
             !Self::is_attestor(address)
         }
 
-        pub fn last_digest(chain_id: u64) -> Option<Digest> {
+        pub fn last_digest(chain_id: ChainId) -> Option<Digest> {
             LastDigest::<T>::get(chain_id)
         }
 
-        pub fn contains_digest(chain_id: u64, digest: Digest) -> bool {
+        pub fn contains_digest(chain_id: ChainId, digest: Digest) -> bool {
             Attestations::<T>::contains_key(chain_id, digest)
         }
 

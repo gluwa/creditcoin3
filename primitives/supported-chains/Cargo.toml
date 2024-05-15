@@ -12,10 +12,8 @@ repository.workspace = true
 [dependencies]
 sp-std = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
+attestor-primitives = { workspace = true }
 
 [features]
 default = ["std"]
-std = [
-    "sp-std/std",
-    "sp-api/std",
-]
+std = ["sp-std/std", "sp-api/std", "attestor-primitives/std"]

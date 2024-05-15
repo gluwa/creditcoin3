@@ -1,10 +1,12 @@
 use sp_std::prelude::*;
 
+use attestor_primitives::ChainId;
+
 sp_api::decl_runtime_apis! {
     pub trait SupportedChainsApi
     {
-        fn is_chain_supported(chain_id: u64) -> bool;
+        fn is_chain_supported(chain_id: ChainId) -> bool;
 
-        fn supported_chains() -> Option<Vec<u64>>;
+        fn supported_chains() -> Option<Vec<ChainId>>;
     }
 }
