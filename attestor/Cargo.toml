@@ -57,7 +57,7 @@ thiserror = "1.0"
 sp-core = { version = "21.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 starknet-crypto = "0.6.2"
-bls-signatures = { workspace = true }
+bls-signatures = { path = "../bls-signatures" }
 rand = "0.8.4"
 
 # Creditcoin deps

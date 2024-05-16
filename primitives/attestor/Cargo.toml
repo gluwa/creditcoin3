@@ -18,21 +18,13 @@ sp-runtime = { workspace = true }
 sp-io = { workspace = true }
 serde = { workspace = true }
 scale-info = { workspace = true }
-bls-signatures = { workspace = true, optional = true }
-sp-api = { workspace = true, default-features = false }
+bls-signatures = { path = "../../bls-signatures", optional = true }
+sp-api = { workspace = true }
 serde_bytes = { version = "0.11.14", default-features = false }
 
-ark-ff = { version = "0.4.0-alpha", default-features = false }
-ark-ec = { version = "0.4.0-alpha", default-features = false }
-ark-serialize = { version = "0.4.0-alpha", default-features = false, features = ["derive"] }
-ark-bls12-377 = { version = "0.4.0-alpha.2", default-features = false, features = ["curve"] }
 rand = { version = "0.8", default-features = false }
 
-# just in case for now
-w3f-bls = { workspace = true }
-
 [dev-dependencies]
-ark-std = { version = "0.4.0-alpha", default-features = false }
 
 [features]
 default = ["std", "bls"]

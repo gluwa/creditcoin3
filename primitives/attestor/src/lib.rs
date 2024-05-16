@@ -3,7 +3,6 @@
 #[cfg(feature = "bls")]
 pub mod bls;
 
-pub mod bls_no_std;
 
 use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
