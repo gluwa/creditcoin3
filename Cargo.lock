@@ -7193,6 +7193,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-evm-precompile-claim"
+version = "0.1.0"
+dependencies = [
+ "attestor-primitives",
+ "derive_more",
+ "fp-account",
+ "fp-evm",
+ "frame-support",
+ "frame-system",
+ "hex-literal",
+ "libsecp256k1",
+ "log",
+ "num_enum",
+ "pallet-balances",
+ "pallet-evm",
+ "pallet-prover",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "paste",
+ "precompile-utils",
+ "prover-primitives",
+ "scale-info",
+ "serde",
+ "sha3",
+ "slices",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-evm-precompile-modexp"
 version = "2.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
@@ -7392,7 +7424,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-prover"
-version = "3.24.1"
+version = "3.31.0"
 dependencies = [
  "assert_matches",
  "attestor-primitives",
@@ -7406,6 +7438,7 @@ dependencies = [
  "parity-scale-codec",
  "prover-primitives",
  "scale-info",
+ "serde",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -7489,7 +7522,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-supported-chains"
-version = "3.24.1"
+version = "3.31.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -8231,7 +8264,7 @@ dependencies = [
 
 [[package]]
 name = "prover-primitives"
-version = "3.24.1"
+version = "3.31.0"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
@@ -12015,7 +12048,7 @@ dependencies = [
 
 [[package]]
 name = "supported-chains-primitives"
-version = "3.24.1"
+version = "3.31.0"
 dependencies = [
  "attestor-primitives",
  "sp-api",

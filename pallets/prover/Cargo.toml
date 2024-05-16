@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 log = { workspace = true }
 hex = { workspace = true }
+serde = { workspace = true }
 
 frame-support = { workspace = true }
 frame-system = { workspace = true }
@@ -40,6 +41,7 @@ std = [
     "frame-system/std",
     "log/std",
     "hex/std",
+    "serde/std",
     "sp-runtime/std",
     "sp-std/std",
     "sp-core/std",

@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod types;
+pub mod types;
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
@@ -96,6 +96,30 @@ pub mod pallet {
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        pub provers: Vec<(T::AccountId, Vec<(ChainId, ChainPriceConfiguration)>)>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            let provers = &self.provers;
+            for (prover, chain_prices) in provers.iter() {
+                Provers::<T>::insert(prover, Prover { nickname: vec![] });
+
+                for price_config in chain_prices.iter() {
+                    ProversChainPriceConfigurations::<T>::insert(
+                        prover,
+                        price_config.0,
+                        Some(price_config.clone().1),
+                    );
+                }
+            }
+        }
+    }
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -133,6 +157,8 @@ pub mod pallet {
         ClaimInProgress,
 
         InvalidProofSubmitted,
+
+        BalanceToLow,
     }
 
     #[pallet::call]
@@ -202,6 +228,11 @@ pub mod pallet {
             let prover_chain_price =
                 ProversChainPriceConfigurations::<T>::get(&prover, claim.chain_id)
                     .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+
+            let balance = T::Currency::free_balance(&source);
+            if balance < BalanceOf::<T>::saturated_from(prover_chain_price.price) {
+                return Err(Error::<T>::BalanceToLow.into());
+            };
 
             // Lock an amount equal to the price
             let price = LockedBalanceOf::<T>::saturated_from(prover_chain_price.price);

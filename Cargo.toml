@@ -5,12 +5,13 @@ members = [
 	"runtime/generate-bags",
 	"pallets/*",
 	"attestor",
+	"bls-signatures",
 	"primitives/attestor",
-	"precompiles/substrate-transfer",
+	"primitives/prover",
 	"mmr",
 	"primitives/supported-chains",
-	"bls-signatures",
-	"primitives/prover",
+	"precompiles/claim",
+	"precompiles/substrate-transfer",
 ]
 resolver = "2"
 
@@ -61,6 +62,7 @@ bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 primitive-types = "0.12.2"
 tiny-bip39 = { version = "1.0", default-features = false }
 url = "2.2.2"
+bls-signatures = "0.15.0"
 
 # Substrate Client
 sc-basic-authorship = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
@@ -159,7 +161,6 @@ fp-account = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier",
 fp-dynamic-fee = { version = "1.0.0", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 fp-evm = { version = "3.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 fp-rpc = { version = "3.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
-fp-account = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 fp-self-contained = { version = "1.0.0-dev", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
 # Frontier FRAME
 pallet-base-fee = { version = "1.0.0", git = "https://github.com/gluwa/frontier", branch = "polkadot-v1.1.0-patch", default-features = false }
@@ -178,6 +179,7 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
+pallet-prover = { path = "pallets/prover", default_features = false }
 
 # Precompiles
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
