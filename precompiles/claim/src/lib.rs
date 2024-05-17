@@ -28,6 +28,7 @@ impl<Runtime> ClaimPrecompile<Runtime>
 where
     Runtime: pallet_prover::Config + pallet_evm::Config,
     Runtime::Hash: Into<H256>,
+    H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
     Runtime::RuntimeCall: From<pallet_prover::Call<Runtime>>,
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
@@ -44,7 +45,7 @@ where
         to: Address,
         is_tx: bool,
         is_rx: bool,
-    ) -> EvmResult<bool> {
+    ) -> EvmResult<H256> {
         handle.record_log_costs_manual(3, 32)?;
 
         let kind = if is_tx {
@@ -59,8 +60,8 @@ where
             chain_id,
             block_number,
             tx_index,
-            from: from.into(),
-            to: to.into(),
+            from: <Runtime as pallet_prover::Config>::Address::from(from),
+            to: <Runtime as pallet_prover::Config>::Address::from(to),
             kind,
         };
 
@@ -85,6 +86,43 @@ where
             handle.context().caller,
             claim_hash,
             solidity::encode_event_data((chain_id, block_number, tx_index, from, to, is_tx, is_rx)),
+        )
+        .record(handle)?;
+
+        println!("hash: {:?}", claim_hash);
+
+        Ok(claim_hash)
+    }
+
+    #[precompile::public("submit_proof(bytes32,uint8[])")]
+    fn submit_proof(
+        handle: &mut impl PrecompileHandle,
+        claim_hash: H256,
+        proof: Vec<u8>,
+    ) -> EvmResult<bool> {
+        handle.record_log_costs_manual(3, 32)?;
+
+        // Build call with origin.
+        {
+            let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
+
+            log::debug!("submitting claim with hash: {:?}", claim_hash);
+            RuntimeHelper::<Runtime>::try_dispatch(
+                handle,
+                Some(origin).into(),
+                pallet_prover::Call::<Runtime>::submit_proof {
+                    claim_hash: claim_hash.into(),
+                    proof,
+                },
+            )?;
+        }
+
+        log3(
+            handle.context().address,
+            SELECTOR_LOG_TRANSFER,
+            handle.context().caller,
+            claim_hash,
+            solidity::encode_event_data(claim_hash),
         )
         .record(handle)?;
 

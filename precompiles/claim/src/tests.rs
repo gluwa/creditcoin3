@@ -5,7 +5,9 @@ use crate::mock::{
 
 use precompile_utils::prelude::Address;
 use precompile_utils::testing::*;
+use prover_primitives::claim::{Claim, ClaimKind};
 use sp_core::{H160, H256};
+use sp_runtime::traits::Hash;
 use std::str::from_utf8;
 
 // No test of invalid selectors since we have a fallback behavior (deposit).
@@ -78,5 +80,71 @@ fn submit_claim_fails_without_enough_balance() {
                         .contains("Dispatched call failed with error: ")
                         && from_utf8(output).unwrap().contains("BalanceToLow")
                 });
+        });
+}
+
+#[test]
+fn submit_claim_and_proof_works() {
+    let bob: H160 = Bob.into();
+    // let bob_account: H256 = Bob.into();
+
+    let alice: H160 = Alice.into();
+    // let alice_account: H256 = Alice.into();
+
+    let claim = Claim {
+        block_number: 1,
+        chain_id: 42,
+        tx_index: 123,
+        to: alice,
+        from: bob,
+        kind: ClaimKind::Rx,
+    };
+
+    let claim_hash = <Runtime as pallet_prover::Config>::Hashing::hash_of(&claim);
+
+    println!("c hash: {:?}", claim_hash);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300), (bob.into(), 100)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    bob,
+                    Precompile,
+                    PCall::submit_claim {
+                        block_number: 1,
+                        chain_id: 42,
+                        tx_index: 123,
+                        to: Address(alice),
+                        from: Address(bob),
+                        is_tx: false,
+                        is_rx: true,
+                    },
+                )
+                .execute_returns(claim_hash);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::submit_proof {
+                        claim_hash,
+                        proof: b"some_proof".to_vec(),
+                    },
+                )
+                .execute_returns(true);
+
+            // let alice: Account = alice_account.0.into();
+            // let alice_balance = Balances::usable_balance(alice);
+
+            // // 100 CTC was locked as a commitment to allow the prover to process the claim
+            // assert_eq!(alice_balance, 400);
+
+            // let bob: Account = bob_account.0.into();
+            // let bob_balance = Balances::usable_balance(bob);
+
+            // // 100 CTC was locked as a commitment to allow the prover to process the claim
+            // assert_eq!(bob_balance, 0);
         });
 }
