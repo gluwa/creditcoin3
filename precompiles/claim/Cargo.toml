@@ -5,6 +5,13 @@ description = "A Precompile to expose allow claim submission"
 edition = "2021"
 version = "0.1.0"
 
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+no_effect_underscore_binding = "allow"
+type_complexity = "allow"
+too_many_arguments = "allow"
+
 [dependencies]
 log = { workspace = true }
 num_enum = { workspace = true }

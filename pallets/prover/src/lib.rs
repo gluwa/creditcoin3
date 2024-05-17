@@ -27,7 +27,7 @@ pub mod pallet {
     use parity_scale_codec::Codec;
     use prover_primitives::claim::Claim;
     use sp_runtime::traits::{Hash, SaturatedConversion};
-    use sp_std::fmt::Debug;
+    use sp_std::{collections::btree_map::BTreeMap, fmt::Debug};
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -79,8 +79,8 @@ pub mod pallet {
     pub type ProverClaims<T: Config> = StorageMap<
         Hasher = Blake2_128Concat,
         Key = T::AccountId,
-        Value = Claim<<T as Config>::Address>,
-        QueryKind = OptionQuery,
+        Value = BTreeMap<T::Hash, Claim<<T as Config>::Address>>,
+        QueryKind = ValueQuery,
     >;
 
     #[pallet::storage]
@@ -154,8 +154,6 @@ pub mod pallet {
 
         WrongClaimHash,
 
-        ClaimInProgress,
-
         InvalidProofSubmitted,
 
         BalanceToLow,
@@ -210,23 +208,17 @@ pub mod pallet {
         pub fn submit_claim(
             origin: OriginFor<T>,
             claim: Claim<<T as Config>::Address>,
-            prover: T::AccountId,
         ) -> DispatchResult {
             let source = ensure_signed(origin)?;
 
-            ensure!(
-                Provers::<T>::contains_key(&prover),
-                Error::<T>::ProverNotExists
-            );
-
-            ensure!(
-                !ProverClaims::<T>::contains_key(&prover),
-                Error::<T>::ClaimInProgress
-            );
+            // Take a prover from the list of provers
+            let prover = Provers::<T>::iter()
+                .next()
+                .ok_or(Error::<T>::ProverNotExists)?;
 
             // Get the prover price for a claim on that chain
             let prover_chain_price =
-                ProversChainPriceConfigurations::<T>::get(&prover, claim.chain_id)
+                ProversChainPriceConfigurations::<T>::get(&prover.0, claim.chain_id)
                     .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
 
             let balance = T::Currency::free_balance(&source);
@@ -238,15 +230,18 @@ pub mod pallet {
             let price = LockedBalanceOf::<T>::saturated_from(prover_chain_price.price);
             T::ClaimLockCurrency::set_lock(LOCK_ID, &source, price, WithdrawReasons::all());
 
-            // Insert the claim
-            ProverClaims::<T>::insert(&prover, &claim);
-
             let claim_hash = <T as Config>::Hashing::hash_of(&claim);
 
+            // Insert the claim
+            let mut prover_claims = ProverClaims::<T>::get(&prover.0);
+            prover_claims.insert(claim_hash, claim.clone());
+            ProverClaims::<T>::insert(&prover.0, prover_claims);
+
+            // Insert claim source by hash
             ClaimSourceByHash::<T>::insert(claim_hash, &source);
 
             Self::deposit_event(Event::<T>::ProverClaimSubmitted(
-                source, prover, claim_hash, claim,
+                source, prover.0, claim_hash, claim,
             ));
 
             Ok(())
@@ -269,7 +264,10 @@ pub mod pallet {
             // TODO: How to even validate if this proof is good?
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
 
-            let claim = ProverClaims::<T>::get(&prover).ok_or(Error::<T>::ClaimNotExists)?;
+            let prover_claims = ProverClaims::<T>::get(&prover);
+            let claim = prover_claims
+                .get(&claim_hash)
+                .ok_or(Error::<T>::ClaimNotExists)?;
 
             // Check hash
             let claim_h = <T as Config>::Hashing::hash_of(&claim);

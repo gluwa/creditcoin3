@@ -8,6 +8,8 @@ use sp_runtime::{
     BuildStorage,
 };
 
+use crate::types::ChainPriceConfiguration;
+
 type AccountId = u64;
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -91,6 +93,7 @@ pub(crate) const PROVER_1: AccountId = 1;
 pub(crate) const PROVER_2: AccountId = 2;
 pub(crate) const CLAIMER_1: AccountId = 3;
 pub(crate) const CLAIMER_2: AccountId = 4;
+pub(crate) const PROVER_3: AccountId = 5;
 
 #[derive(Default)]
 pub struct ExtBuilder;
@@ -107,13 +110,16 @@ impl ExtBuilder {
                 (PROVER_2, 50_000_000_000_000_000_000),
                 (CLAIMER_1, 50_000_000_000_000_000_000),
                 (CLAIMER_2, 50_000_000_000_000_000_000),
+                (PROVER_3, 50_000_000_000_000_000_000),
             ],
         };
         b.assimilate_storage(&mut t).unwrap();
 
-        // let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
-        // };
-        // pallet_genesis.assimilate_storage(&mut t).unwrap();
+        prover_pallet::GenesisConfig::<Test> {
+            provers: vec![(PROVER_3, vec![(42, ChainPriceConfiguration { price: 100 })])],
+        }
+        .assimilate_storage(&mut t)
+        .expect("Pallet prover storage can be assimilated");
 
         t.into()
     }

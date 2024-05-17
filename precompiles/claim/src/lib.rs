@@ -10,17 +10,14 @@ use precompile_utils::prelude::*;
 use prover_primitives::claim::{Claim, ClaimKind};
 use sp_std::marker::PhantomData;
 
-use types::EvmClaim;
-
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod tests;
 
-pub mod types;
-
 /// Solidity selector of the Transfer log, which is the Keccak of the Log signature.
-pub const SELECTOR_LOG_TRANSFER: [u8; 32] = keccak256!("TokensTransfered(bytes32,uint256)");
+/// ClaimSubmitted(claimID) TODO
+pub const SELECTOR_LOG_TRANSFER: [u8; 32] = keccak256!("ClaimSubmitted(uint64)");
 
 /// Precompile exposing a pallet_balance as an ERC20.
 /// The precompile uses an additional storage to store approvals.
@@ -36,31 +33,45 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_prover::Config>::Address: From<precompile_utils::prelude::Address>,
 {
-    #[precompile::public("submit_claim((uint64,uint64,uint8,address,address,bool,bool))")]
+    #[precompile::public("submit_claim(uint64,uint64,uint8,address,address,bool,bool)")]
     fn submit_claim(
         handle: &mut impl PrecompileHandle,
-        claim: EvmClaim<Address>,
+        chain_id: u64,
+        block_number: u64,
+        tx_index: u8,
+        from: Address,
+        to: Address,
+        is_tx: bool,
+        is_rx: bool,
     ) -> EvmResult<bool> {
         handle.record_log_costs_manual(3, 32)?;
 
         // Build call with origin.
         {
-            log::debug!("claim: {:?}", claim);
+            log::debug!("claim: {:?}", chain_id);
             let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
 
-            let prover = pallet_prover::pallet::Provers::<Runtime>::iter()
-                .next()
-                .unwrap();
+            let kind = if is_tx {
+                ClaimKind::Tx
+            } else if is_rx {
+                ClaimKind::Rx
+            } else {
+                ClaimKind::Tx
+            };
 
-            let claim: Claim<Runtime::Address> = Self::get_claim(claim);
+            let claim = Claim {
+                chain_id,
+                block_number,
+                tx_index,
+                from: from.into(),
+                to: to.into(),
+                kind,
+            };
 
             RuntimeHelper::<Runtime>::try_dispatch(
                 handle,
                 Some(origin).into(),
-                pallet_prover::Call::<Runtime>::submit_claim {
-                    claim,
-                    prover: prover.0,
-                },
+                pallet_prover::Call::<Runtime>::submit_claim { claim },
             )?;
         }
 
@@ -74,19 +85,5 @@ where
         // .record(handle)?;
 
         Ok(true)
-    }
-
-    fn get_claim(claim: EvmClaim<Address>) -> Claim<Runtime::Address>
-    where
-        <Runtime as pallet_prover::Config>::Address: From<precompile_utils::prelude::Address>,
-    {
-        Claim {
-            chain_id: claim.chain_id,
-            block_number: claim.block_number,
-            tx_index: claim.tx_index,
-            from: claim.from.into(),
-            to: claim.to.into(),
-            kind: ClaimKind::Rx,
-        }
     }
 }

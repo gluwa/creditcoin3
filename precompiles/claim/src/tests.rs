@@ -1,9 +1,6 @@
-use crate::{
-    mock::{
-        Account::{Alice, Precompile},
-        *,
-    },
-    types::EvmClaim,
+use crate::mock::{
+    Account::{Alice, Precompile},
+    *,
 };
 
 use precompile_utils::prelude::Address;
@@ -32,15 +29,13 @@ fn submit_claim_works() {
                     alice,
                     Precompile,
                     PCall::submit_claim {
-                        claim: EvmClaim {
-                            block_number: 1,
-                            chain_id: 42,
-                            tx_index: 123,
-                            to: Address(alice),
-                            from: Address(bob),
-                            is_tx: false,
-                            is_rx: true,
-                        },
+                        block_number: 1,
+                        chain_id: 42,
+                        tx_index: 123,
+                        to: Address(alice),
+                        from: Address(bob),
+                        is_tx: false,
+                        is_rx: true,
                     },
                 )
                 .execute_returns(true);
@@ -68,15 +63,13 @@ fn submit_claim_fails_without_enough_balance() {
                     alice,
                     Precompile,
                     PCall::submit_claim {
-                        claim: EvmClaim {
-                            block_number: 1,
-                            chain_id: 42,
-                            tx_index: 123,
-                            to: Address(alice),
-                            from: Address(bob),
-                            is_tx: false,
-                            is_rx: true,
-                        },
+                        block_number: 1,
+                        chain_id: 42,
+                        tx_index: 123,
+                        to: Address(alice),
+                        from: Address(bob),
+                        is_tx: false,
+                        is_rx: true,
                     },
                 )
                 .execute_reverts(|output| {

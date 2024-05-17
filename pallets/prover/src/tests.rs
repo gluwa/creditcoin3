@@ -1,3 +1,5 @@
+use self::mock::PROVER_3;
+
 use super::*;
 use fp_account::AccountId20;
 use frame_support::{assert_err, assert_ok};
@@ -6,6 +8,10 @@ use sp_runtime::traits::Hash;
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, Test, CLAIMER_1, PROVER_1};
 use crate::types::{ChainPriceConfiguration, Prover};
+
+fn prover_configured_in_genesis() -> RuntimeOrigin {
+    RuntimeOrigin::signed(PROVER_3)
+}
 
 fn prover_1() -> RuntimeOrigin {
     RuntimeOrigin::signed(PROVER_1)
@@ -77,107 +83,42 @@ fn remove_chain_price_works() {
 #[test]
 fn create_claim_works() {
     ExtBuilder.build_and_execute(|| {
-        // Setup prover and price
-        assert_ok!(ProverModule::register_prover(
-            prover_1(),
-            Prover { nickname: vec![] }
-        ));
-        assert_ok!(ProverModule::set_chain_price_config(
-            prover_1(),
-            1,
-            Some(ChainPriceConfiguration { price: 100 })
-        ));
-
         let claim = Claim {
             block_number: 1,
-            chain_id: 1,
+            chain_id: 42,
             tx_index: 154,
             from: test_account_id20(),
             to: test_account_id20(),
             kind: ClaimKind::Tx,
         };
 
-        assert_ok!(ProverModule::submit_claim(claimer_1(), claim, PROVER_1));
-    })
-}
-
-#[test]
-fn create_claim_twice_fails() {
-    ExtBuilder.build_and_execute(|| {
-        // Setup prover and price
-        assert_ok!(ProverModule::register_prover(
-            prover_1(),
-            Prover { nickname: vec![] }
-        ));
-        assert_ok!(ProverModule::set_chain_price_config(
-            prover_1(),
-            1,
-            Some(ChainPriceConfiguration { price: 100 })
-        ));
-
-        let claim = Claim {
-            block_number: 1,
-            chain_id: 1,
-            tx_index: 154,
-            from: test_account_id20(),
-            to: test_account_id20(),
-            kind: ClaimKind::Tx,
-        };
-
-        assert_ok!(ProverModule::submit_claim(
-            claimer_1(),
-            claim.clone(),
-            PROVER_1
-        ));
-
-        assert_err!(
-            ProverModule::submit_claim(claimer_1(), claim, PROVER_1),
-            Error::<Test>::ClaimInProgress
-        );
+        assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
     })
 }
 
 #[test]
 fn create_claim_twice_after_proof_submission_works() {
     ExtBuilder.build_and_execute(|| {
-        // Setup prover and price
-        assert_ok!(ProverModule::register_prover(
-            prover_1(),
-            Prover { nickname: vec![] }
-        ));
-        assert_ok!(ProverModule::set_chain_price_config(
-            prover_1(),
-            1,
-            Some(ChainPriceConfiguration { price: 100 })
-        ));
-
         let claim = Claim {
             block_number: 1,
-            chain_id: 1,
+            chain_id: 42,
             tx_index: 154,
             from: test_account_id20(),
             to: test_account_id20(),
             kind: ClaimKind::Tx,
         };
 
-        assert_ok!(ProverModule::submit_claim(
-            claimer_1(),
-            claim.clone(),
-            PROVER_1
-        ));
+        assert_ok!(ProverModule::submit_claim(claimer_1(), claim.clone(),));
 
         let claim_hash = <Test as Config>::Hashing::hash_of(&claim);
 
         assert_ok!(ProverModule::submit_proof(
-            prover_1(),
+            prover_configured_in_genesis(),
             claim_hash,
             b"some_proof".to_vec()
         ));
 
-        assert_err!(
-            ProverModule::submit_claim(claimer_1(), claim, PROVER_1),
-            Error::<Test>::ClaimInProgress
-        );
+        assert_ok!(ProverModule::submit_claim(claimer_1(), claim.clone(),));
     })
 }
 
