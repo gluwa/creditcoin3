@@ -1,9 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "bls")]
-pub mod bls;
-
-
 use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
@@ -12,6 +8,9 @@ use sp_core::H256;
 use sp_std::vec::Vec;
 
 pub mod api;
+pub mod bls;
+
+use bls::WrapEncode;
 
 pub type Felt = [u8; 32];
 
@@ -55,7 +54,8 @@ impl IsFatalError for InherentError {
 pub struct SignedAttestation<H, AccountId> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
-    pub signature: [u8; 96],
+    pub signature: WrapEncode<bls_signatures::Signature>,
+    // TODO: a list of attestor account ids to verify the signature against
     pub attestors: Vec<AccountId>,
 }
 

@@ -18,7 +18,7 @@ sp-runtime = { workspace = true }
 sp-io = { workspace = true }
 serde = { workspace = true }
 scale-info = { workspace = true }
-bls-signatures = { path = "../../bls-signatures", optional = true }
+bls-signatures = { path = "../../bls-signatures" }
 sp-api = { workspace = true }
 serde_bytes = { version = "0.11.14", default-features = false }
 
@@ -27,8 +27,7 @@ rand = { version = "0.8", default-features = false }
 [dev-dependencies]
 
 [features]
-default = ["std", "bls"]
-bls = [ "bls-signatures" ]
+default = ["std"]
 std = [
     "parity-scale-codec/std",
     "frame-support/std",
@@ -41,4 +40,5 @@ std = [
     "scale-info/std",
     "sp-api/std",
     "rand/std",
+    "bls-signatures/std",
 ]

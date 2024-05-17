@@ -1,5 +1,7 @@
-#![cfg_attr(not(feature = "std"), no_std)]
 pub use bls_signatures::{PublicKey, Serialize as BlsSerialize};
+
+use sp_std::vec;
+use sp_std::vec::Vec;
 
 use parity_scale_codec::{Decode, Encode};
 use scale_info::*;
@@ -87,6 +89,54 @@ impl TypeInfo for WrapEncode<bls_signatures::Signature> {
         //     .build()
     }
 }
+//
+// impl Encode for WrapEncode<PublicKey> {
+//     fn encode_to<T: parity_scale_codec::Output + ?Sized>(&self, dest: &mut T) {
+//         self.0.as_bytes().encode_to(dest)
+//     }
+// }
+//
+// impl Decode for WrapEncode<PublicKey> {
+//     fn decode<I: parity_scale_codec::Input>(
+//         input: &mut I,
+//     ) -> Result<Self, parity_scale_codec::Error> {
+//         let bytes = Vec::<u8>::decode(input)?;
+//         let public_key = PublicKey::from_bytes(&bytes)
+//             .map_err(|_| parity_scale_codec::Error::from("Invalid BLS public key"))?;
+//         Ok(WrapEncode(public_key))
+//     }
+// }
+//
+// impl Serialize for WrapEncode<PublicKey> {
+//     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+//         self.0.as_bytes().serialize(serializer)
+//     }
+// }
+//
+// impl<'a> Deserialize<'a> for WrapEncode<PublicKey> {
+//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//     where
+//         D: Deserializer<'a>,
+//     {
+//         let bytes = Vec::<u8>::deserialize(deserializer)?;
+//         let public_key = PublicKey::from_bytes(&bytes)
+//             .map_err(|_| serde::de::Error::custom("Invalid BLS public key"))?;
+//         Ok(Self(public_key))
+//     }
+// }
+//
+// impl TypeInfo for WrapEncode<PublicKey> {
+//     type Identity = Self;
+//
+//     fn type_info() -> Type {
+//        todo!("Implement TypeInfo for WrapEncode<bls_signatures::PublicKey>")
+// //         Type::builder()
+// //             .path("WrapEncode")
+// //             .type_params(vec![Type::builder().path("bls_signatures::PublicKey").build()])
+// //             .variant(Type::builder().path("WrapEncode").build())
+// //             .build()
+//     }
+// }
 
 impl CryptoScheme for Bls {
     type Signature = WrapEncode<bls_signatures::Signature>;

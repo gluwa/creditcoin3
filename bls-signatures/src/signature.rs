@@ -1,7 +1,9 @@
 use acid_io::Write;
 use core::borrow::BorrowMut;
 use core::sync::atomic::{AtomicBool, Ordering};
-use sp_std::vec::Vec;
+
+extern crate alloc;
+use alloc::vec::Vec;
 
 #[cfg(feature = "pairing")]
 use bls12_381::{
@@ -155,7 +157,11 @@ pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[Pub
     ml.final_exponentiation() == Gt::identity()
 }
 
-pub fn verify_aggregated_signatures_on_same_message(signature: &Signature, message: &[u8], public_key: PublicKey) -> bool {
+pub fn verify_aggregated_signatures_on_same_message(
+    signature: &Signature,
+    message: &[u8],
+    public_key: PublicKey,
+) -> bool {
     let hash = hash(message);
     //let aggregated_public_key = aggregate_public_keys(public_keys).unwrap();
     verify(signature, &[hash], &[public_key])

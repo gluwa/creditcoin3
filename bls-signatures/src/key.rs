@@ -1,9 +1,12 @@
 use acid_io::Write;
 use core::borrow::BorrowMut;
+use core::fmt::Debug;
 use ff::{PrimeField, PrimeFieldBits};
 use group::Curve;
 use rand_core::{CryptoRng, RngCore};
-use sp_std::{fmt::Debug, vec::Vec};
+
+extern crate alloc;
+use alloc::vec::Vec;
 
 #[cfg(feature = "pairing")]
 use bls12_381::{hash_to_curve::HashToField, G1Affine, G1Projective, Scalar};
@@ -284,7 +287,6 @@ fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
 }
 
 pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Error> {
-
     if public_keys.is_empty() {
         return Err(Error::ZeroSizedInput);
     }
@@ -294,7 +296,7 @@ pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Err
         .fold(G1Projective::identity(), |acc, public_key| {
             acc + &public_key.0
         });
-        //.reduce(G1Projective::identity, |acc, val| acc + val);
+    //.reduce(G1Projective::identity, |acc, val| acc + val);
 
     Ok(PublicKey(res.into()))
 }

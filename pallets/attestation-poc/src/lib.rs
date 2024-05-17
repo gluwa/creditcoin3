@@ -19,6 +19,7 @@ pub mod pallet {
         BlsPublicKey, BlsPublicKeyWrapper, ChainId, InherentError, SignedAttestation,
         INHERENT_IDENTIFIER,
     };
+    use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize};
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
@@ -27,7 +28,6 @@ pub mod pallet {
     use log::debug;
     use parity_scale_codec::FullCodec;
     use sp_std::{fmt::Debug, vec::Vec};
-    use bls_signatures::{Serialize, Signature, PublicKey, key::aggregate_public_keys};
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -450,20 +450,25 @@ pub mod pallet {
                     }
                 }
 
-                let agg_signature = Signature::from_bytes(&attestation.signature[..]).unwrap();
-                let attestor_public_keys = attestation.attestors.iter().map(|pk| PublicKey::from_bytes(pk.into_bytes()).unwrap()).collect::<Vec<PublicKey>>();
-                let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..]).unwrap();
+                let agg_signature = &attestation.signature.0;
+                let attestor_public_keys = attestation
+                    .attestors
+                    .iter()
+                    .map(|pk| PublicKey::from_bytes(&pk.encode()[..]).unwrap())
+                    .collect::<Vec<PublicKey>>();
+                let aggregated_public_key =
+                    aggregate_public_keys(&attestor_public_keys[..]).unwrap();
                 let message = &attestation.attestation_data.serialize()[..];
 
                 // Verify the aggregated signature
-                if !bls_signatures::verify_aggregated_signatures_on_same_message(&agg_signature, &message, aggregated_public_key) {
+                if !bls_signatures::verify_aggregated_signatures_on_same_message(
+                    agg_signature,
+                    &message,
+                    aggregated_public_key,
+                ) {
                     log::error!("Aggregated signature is invalid");
                     return Err(InherentError::NotValid);
                 }
-
-                // TODO: verify the BLS aggregated signature against the list of attestors included in the inherent data
-                // Probably can't do this because of the no-std environment here. Maybe we should include this on the node side (service.rs)
-                // requires some more researching
             }
 
             Ok(())
