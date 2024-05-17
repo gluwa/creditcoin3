@@ -18,6 +18,8 @@ sp-runtime = { workspace = true }
 sp-io = { workspace = true }
 serde = { workspace = true }
 scale-info = { workspace = true }
+attestor-primitives = { workspace = true }
+sp-runtime-interface = { workspace = true }
 
 [features]
 default = ["std"]
@@ -30,4 +32,6 @@ std = [
     "sp-io/std",
     "serde/std",
     "scale-info/std",
+    "attestor-primitives/std",
+    "sp-runtime-interface/std",
 ]

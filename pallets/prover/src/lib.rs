@@ -29,6 +29,8 @@ pub mod pallet {
     use sp_runtime::traits::{Hash, SaturatedConversion};
     use sp_std::{collections::btree_map::BTreeMap, fmt::Debug};
 
+    use prover_primitives::host_api::verify_proof;
+
     #[pallet::config]
     pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -263,6 +265,12 @@ pub mod pallet {
 
             // TODO: How to even validate if this proof is good?
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
+
+            let proof_is_valid = verify_proof(proof.clone());
+            log::info!(
+                "Verified the proof using runtime interface, is valid {:?}",
+                proof_is_valid
+            );
 
             let prover_claims = ProverClaims::<T>::get(&prover);
             let claim = prover_claims

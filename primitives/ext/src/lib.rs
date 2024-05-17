@@ -79,4 +79,11 @@ pub trait Creditcoin3Ext {
     fn call_list_new(&mut self) {
         Event::CallListNew().emit();
     }
+
+    fn verify_proof(proof: Vec<u8>) -> Vec<u8> {
+        let s = String::from_utf8(proof.clone()).unwrap();
+        println!("proof: {:?}", s);
+
+        proof
+    }
 }
