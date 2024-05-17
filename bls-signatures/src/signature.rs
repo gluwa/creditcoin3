@@ -155,6 +155,12 @@ pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[Pub
     ml.final_exponentiation() == Gt::identity()
 }
 
+pub fn verify_aggregated_signatures_on_same_message(signature: &Signature, message: &[u8], public_key: PublicKey) -> bool {
+    let hash = hash(message);
+    //let aggregated_public_key = aggregate_public_keys(public_keys).unwrap();
+    verify(signature, &[hash], &[public_key])
+}
+
 /// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
 /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
 #[cfg(feature = "pairing")]

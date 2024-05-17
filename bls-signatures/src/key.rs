@@ -283,6 +283,22 @@ fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
     out.try_into().expect("invalid key generated")
 }
 
+pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Error> {
+
+    if public_keys.is_empty() {
+        return Err(Error::ZeroSizedInput);
+    }
+
+    let res = public_keys
+        .into_iter()
+        .fold(G1Projective::identity(), |acc, public_key| {
+            acc + &public_key.0
+        });
+        //.reduce(G1Projective::identity, |acc, val| acc + val);
+
+    Ok(PublicKey(res.into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
