@@ -846,11 +846,22 @@ impl pallet_attestation_poc::Config for Runtime {
     type MaxAttestationNodes = MaxAttestors;
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
+    type SupportedChains = SupportedChains;
 }
 
 impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
+}
+
+impl pallet_prover::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
+    type Address = fp_account::AccountId20;
+    type Currency = Balances;
+    type ClaimLockCurrency = Balances;
+    type Hashing = BlakeTwo256;
+    type SupportedChains = SupportedChains;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -889,6 +900,7 @@ construct_runtime!(
 
         Attestation: pallet_attestation_poc,
         SupportedChains: pallet_supported_chains,
+        Prover: pallet_prover,
     }
 );
 

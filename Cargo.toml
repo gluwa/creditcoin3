@@ -179,7 +179,7 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
-pallet-prover = { path = "pallets/prover", default_features = false }
+pallet-prover = { path = "pallets/prover", default-features = false }
 
 # Precompiles
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }

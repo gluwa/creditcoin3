@@ -64,6 +64,8 @@ log = { workspace = true }
 fp-evm = { workspace = true, features = ["serde"] }
 fp-rpc = { workspace = true }
 fp-self-contained = { workspace = true, features = ["serde"] }
+fp-account = { workspace = true }
+
 # Frontier FRAME
 pallet-base-fee = { workspace = true }
 pallet-dynamic-fee = { workspace = true }
@@ -83,6 +85,8 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 
 pallet-attestation-poc = { workspace = true }
 pallet-supported-chains = { workspace = true }
+pallet-prover = { workspace = true }
+
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
@@ -130,6 +134,7 @@ std = [
 	"pallet-nomination-pools/std",
 	"pallet-nomination-pools-runtime-api/std",
 	"pallet-offences/std",
+	"pallet-prover/std",
 	"pallet-proxy/std",
 	"pallet-session/std",
 	"pallet-staking/std",
@@ -143,6 +148,7 @@ std = [
 	"fp-evm/std",
 	"fp-rpc/std",
 	"fp-self-contained/std",
+	"fp-account/std",
 	# Frontier FRAME
 	"pallet-base-fee/std",
 	"pallet-dynamic-fee/std",

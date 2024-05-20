@@ -24,10 +24,11 @@ pub mod pallet {
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
+    use pallet_supported_chains::SupportedChainsProvider;
     use parity_scale_codec::Codec;
     use prover_primitives::claim::Claim;
     use sp_runtime::traits::{Hash, SaturatedConversion};
-    use sp_std::{collections::btree_map::BTreeMap, fmt::Debug};
+    use sp_std::{fmt::Debug, vec::Vec};
 
     use prover_primitives::host_api::verify_proof;
 
@@ -39,6 +40,7 @@ pub mod pallet {
         type Currency: Currency<Self::AccountId>;
         type ClaimLockCurrency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>;
         type Hashing: Hash<Output = Self::Hash>;
+        type SupportedChains: SupportedChainsProvider;
     }
 
     const LOCK_ID: LockIdentifier = *b"claimlck";

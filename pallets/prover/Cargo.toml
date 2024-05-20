@@ -29,6 +29,7 @@ sp-io = { workspace = true }
 
 pallet-balances = { workspace = true, optional = true }
 frame-benchmarking = { workspace = true, optional = true }
+pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
 prover-primitives = { workspace = true }
@@ -52,6 +53,7 @@ std = [
     "sp-core/std",
     "sp-io/std",
     "pallet-balances?/std",
+    "pallet-supported-chains/std",
     "parity-scale-codec/std",
     "scale-info/std",
     "frame-benchmarking?/std",

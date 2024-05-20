@@ -36,6 +36,11 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
     }
 
+    pub trait SupportedChainsProvider {
+        fn is_chain_supported(chain_id: ChainId) -> bool;
+        fn supported_chains() -> Option<Vec<ChainId>>;
+    }
+
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
@@ -139,6 +144,16 @@ pub mod pallet {
                 true => None,
                 false => Some(chains),
             }
+        }
+    }
+
+    impl<T: Config> SupportedChainsProvider for Pallet<T> {
+        fn is_chain_supported(chain_id: ChainId) -> bool {
+            Self::is_chain_supported(chain_id)
+        }
+
+        fn supported_chains() -> Option<Vec<ChainId>> {
+            Self::supported_chains()
         }
     }
 }

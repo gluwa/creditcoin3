@@ -1,6 +1,7 @@
 use parity_scale_codec::{Decode, Encode};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
+use sp_std::vec::Vec;
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prover {

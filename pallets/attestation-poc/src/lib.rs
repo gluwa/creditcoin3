@@ -26,6 +26,7 @@ pub mod pallet {
     use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use log::debug;
+    use pallet_supported_chains::SupportedChainsProvider;
     use parity_scale_codec::FullCodec;
     use sp_std::{fmt::Debug, vec::Vec};
 
@@ -53,6 +54,8 @@ pub mod pallet {
             + TypeInfo
             + MaxEncodedLen
             + From<[u8; 42]>;
+
+        type SupportedChains: SupportedChainsProvider;
     }
 
     pub trait WeightInfo {
