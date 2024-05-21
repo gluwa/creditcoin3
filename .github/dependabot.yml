@@ -109,6 +109,7 @@ updates:
     schedule:
       interval: "monthly"
 
+  # Maintain dependencies for Node.js
   - package-ecosystem: "npm"
     directory: "/testing"
     schedule:
@@ -117,9 +118,16 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
 
-  # Maintain dependencies for Node.js
   - package-ecosystem: "npm"
     directory: "/cli"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/docs/smart-contract-development/with-hardhat"
     schedule:
       interval: "monthly"
     ignore:
