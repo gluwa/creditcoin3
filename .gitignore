@@ -32,3 +32,4 @@ polkadot.*
 **/artifacts/
 **/cache/
 **/typechain-types/
+**/ignition/deployments/
