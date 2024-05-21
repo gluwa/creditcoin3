@@ -24,11 +24,11 @@ pub mod pallet {
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
-    use pallet_supported_chains::SupportedChainsProvider;
     use parity_scale_codec::Codec;
     use prover_primitives::claim::Claim;
     use sp_runtime::traits::{Hash, SaturatedConversion};
     use sp_std::{fmt::Debug, vec::Vec};
+    use supported_chains_primitives::provider::SupportedChainsProvider;
 
     use prover_primitives::host_api::verify_proof;
 

@@ -16,6 +16,7 @@ frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 attestor-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
 sp-std = { workspace = true }
 sp-runtime = { workspace = true }
 
@@ -35,6 +36,7 @@ std = [
     "sp-io/std",
     "sp-runtime/std",
     "attestor-primitives/std",
+    "supported-chains-primitives/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",

@@ -23,6 +23,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
+    use supported_chains_primitives::provider::SupportedChainsProvider;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -34,11 +35,6 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// A type representing the weights required by the dispatchables of this pallet.
         type WeightInfo: WeightInfo;
-    }
-
-    pub trait SupportedChainsProvider {
-        fn is_chain_supported(chain_id: ChainId) -> bool;
-        fn supported_chains() -> Option<Vec<ChainId>>;
     }
 
     pub trait WeightInfo {

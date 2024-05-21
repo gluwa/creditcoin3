@@ -7026,6 +7026,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "supported-chains-primitives",
 ]
 
 [[package]]
@@ -7447,6 +7448,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "supported-chains-primitives",
 ]
 
 [[package]]
@@ -7538,6 +7540,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "supported-chains-primitives",
 ]
 
 [[package]]
