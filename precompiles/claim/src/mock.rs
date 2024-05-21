@@ -220,6 +220,12 @@ impl pallet_prover::Config for Runtime {
     type Currency = Balances;
     type ClaimLockCurrency = Balances;
     type Hashing = BlakeTwo256;
+    type SupportedChains = SupportedChains;
+}
+
+impl pallet_supported_chains::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
 }
 
 // Configure a mock runtime to test the pallet.
@@ -229,7 +235,8 @@ construct_runtime!(
         Balances: pallet_balances,
         Evm: pallet_evm,
         Timestamp: pallet_timestamp,
-        ProverModule: pallet_prover
+        ProverModule: pallet_prover,
+        SupportedChains: pallet_supported_chains,
     }
 );
 
