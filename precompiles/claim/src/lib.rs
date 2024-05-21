@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use core::marker::PhantomData;
 use fp_evm::PrecompileHandle;
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
@@ -8,8 +9,8 @@ use frame_support::{
 use pallet_evm::AddressMapping;
 use precompile_utils::prelude::*;
 use prover_primitives::claim::{Claim, ClaimKind};
-use sp_core::H256;
-use sp_std::marker::PhantomData;
+use sp_core::{H160, H256};
+use sp_std::vec::Vec;
 
 #[cfg(test)]
 mod mock;
@@ -33,7 +34,7 @@ where
     Runtime::RuntimeCall: From<pallet_prover::Call<Runtime>>,
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     Runtime::AccountId: From<[u8; 32]>,
-    <Runtime as pallet_prover::Config>::Address: From<precompile_utils::prelude::Address>,
+    <Runtime as pallet_prover::Config>::Address: From<H160>,
 {
     #[precompile::public("submit_claim(uint64,uint64,uint8,address,address,bool,bool)")]
     fn submit_claim(
@@ -60,8 +61,8 @@ where
             chain_id,
             block_number,
             tx_index,
-            from: <Runtime as pallet_prover::Config>::Address::from(from),
-            to: <Runtime as pallet_prover::Config>::Address::from(to),
+            from: <Runtime as pallet_prover::Config>::Address::from(from.into()),
+            to: <Runtime as pallet_prover::Config>::Address::from(to.into()),
             kind,
         };
 
@@ -88,8 +89,6 @@ where
             solidity::encode_event_data((chain_id, block_number, tx_index, from, to, is_tx, is_rx)),
         )
         .record(handle)?;
-
-        println!("hash: {:?}", claim_hash);
 
         Ok(claim_hash)
     }

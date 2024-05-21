@@ -14,16 +14,12 @@ too_many_arguments = "allow"
 
 [dependencies]
 log = { workspace = true }
-num_enum = { workspace = true }
-paste = { workspace = true }
-slices = { workspace = true }
 
 # Moonbeam
 precompile-utils = { workspace = true }
 
 # Primitives
 prover-primitives = { workspace = true }
-attestor-primitives = { workspace = true }
 
 # Prover
 pallet-prover = { workspace = true }
@@ -38,6 +34,7 @@ sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
+scale-info = { workspace = true, features = ["derive"] }
 
 # Frontier
 fp-evm = { workspace = true }
@@ -54,24 +51,24 @@ sha3 = { workspace = true }
 # Moonbeam
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 
-pallet-timestamp = { workspace = true, features = ["std"] }
-scale-info = { workspace = true, features = ["derive"] }
-sp-runtime = { workspace = true, features = ["std"] }
-
 [features]
 default = ["std"]
 std = [
+	"log/std",
+	"precompile-utils/std",
+	"prover-primitives/std",
+	"fp-account/std",
 	"fp-evm/std",
 	"frame-support/std",
 	"frame-system/std",
 	"pallet-balances/std",
+	"pallet-timestamp/std",
 	"pallet-evm/std",
+	"pallet-prover/std",
 	"parity-scale-codec/std",
-	"precompile-utils/std",
+	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
+	"sp-runtime/std",
 	"sp-std/std",
-	"prover-primitives/std",
-	"attestor-primitives/std",
-	"pallet-prover/std",
 ]

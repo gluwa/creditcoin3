@@ -1,3 +1,5 @@
+use crate::*;
+
 use pallet_evm::{
     IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
 };
@@ -9,9 +11,12 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 
-pub struct FrontierPrecompiles<R>(PhantomData<R>);
+use pallet_evm_precompile_claim::ClaimPrecompile;
+use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 
-impl<R> FrontierPrecompiles<R>
+pub struct GluwaPrecompiles<R>(PhantomData<R>);
+
+impl<R> GluwaPrecompiles<R>
 where
     R: pallet_evm::Config,
 {
@@ -27,12 +32,13 @@ where
             hash(5),    // 0x0000000000000000000000000000000000000005
             hash(1024), // 0x0000000000000000000000000000000000000400
             hash(1025), // 0x0000000000000000000000000000000000000401
+            hash(3049),
             hash(4049), // 0x0000000000000000000000000000000000000Fd1
         ]
         // see fn execute() below for an address-->precompile map
     }
 }
-impl<R> PrecompileSet for FrontierPrecompiles<R>
+impl<R> PrecompileSet for GluwaPrecompiles<R>
 where
     SubstrateTransferPrecompile<R>: Precompile,
     R: pallet_evm::Config,
@@ -48,6 +54,8 @@ where
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
+            // Gluwa specific
+            a if a == hash(3049) => Some(ClaimPrecompile::<Runtime>::execute(handle)),
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
             _ => None,
         }

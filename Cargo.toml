@@ -179,7 +179,10 @@ precompile-utils = { git = "https://github.com/gluwa/frontier", branch = "polkad
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
-pallet-prover = { path = "pallets/prover", default-features = false }
+
+# Precompiles
+pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
+pallet-evm-precompile-claim = { path = "precompiles/claim", default-features = false }
 
 # Precompiles
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
@@ -200,6 +203,7 @@ creditcoin3-rpc-core-trace = { path = "client/rpc-core/trace" }
 creditcoin3-rpc-core-types = { path = "client/rpc-core/types" }
 creditcoin3-rpc-debug = { path = "client/rpc/debug" }
 creditcoin3-rpc-trace = { path = "client/rpc/trace" }
+
 # Attestation
 creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
@@ -207,6 +211,7 @@ attestor-primitives = { path = "primitives/attestor", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 # Prover
+pallet-prover = { path = "pallets/prover", default_features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
 
 [profile.release]

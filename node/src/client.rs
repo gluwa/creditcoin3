@@ -21,7 +21,10 @@ pub type HostFunctions = (
 );
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
-pub type HostFunctions = (creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,);
+pub type HostFunctions = (
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+    // prover_primitives::prover_api::HostFunctions,
+);
 
 pub struct TemplateRuntimeExecutor;
 impl NativeExecutionDispatch for TemplateRuntimeExecutor {

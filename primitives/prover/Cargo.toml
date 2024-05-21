@@ -18,7 +18,7 @@ sp-runtime = { workspace = true }
 sp-io = { workspace = true }
 serde = { workspace = true }
 scale-info = { workspace = true }
-attestor-primitives = { workspace = true }
+attestor-primitives = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true }
 
 [features]
