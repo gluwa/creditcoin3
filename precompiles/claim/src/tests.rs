@@ -22,6 +22,16 @@ fn submit_claim_works() {
 
     let bob: H160 = Bob.into();
 
+    let claim = Claim {
+        block_number: 1,
+        chain_id: 42,
+        tx_index: 123,
+        to: alice,
+        from: bob,
+        kind: ClaimKind::Rx,
+    };
+    let claim_hash = <Runtime as pallet_prover::Config>::Hashing::hash_of(&claim);
+
     ExtBuilder::default()
         .with_balances(vec![(alice.into(), 300)])
         .build()
@@ -31,16 +41,16 @@ fn submit_claim_works() {
                     alice,
                     Precompile,
                     PCall::submit_claim {
-                        block_number: 1,
-                        chain_id: 42,
-                        tx_index: 123,
-                        to: Address(alice),
-                        from: Address(bob),
-                        is_tx: false,
-                        is_rx: true,
+                        block_number: claim.block_number,
+                        chain_id: claim.chain_id,
+                        tx_index: claim.tx_index,
+                        to: Address(claim.to),
+                        from: Address(claim.from),
+                        is_tx: claim.kind == ClaimKind::Tx,
+                        is_rx: claim.kind == ClaimKind::Rx,
                     },
                 )
-                .execute_returns(true);
+                .execute_returns(claim_hash);
 
             let alice: Account = alice_account.0.into();
             let alice_balance = Balances::usable_balance(alice);
@@ -86,10 +96,10 @@ fn submit_claim_fails_without_enough_balance() {
 #[test]
 fn submit_claim_and_proof_works() {
     let bob: H160 = Bob.into();
-    // let bob_account: H256 = Bob.into();
+    let bob_account: H256 = Bob.into();
 
     let alice: H160 = Alice.into();
-    // let alice_account: H256 = Alice.into();
+    let alice_account: H256 = Alice.into();
 
     let claim = Claim {
         block_number: 1,
@@ -102,10 +112,8 @@ fn submit_claim_and_proof_works() {
 
     let claim_hash = <Runtime as pallet_prover::Config>::Hashing::hash_of(&claim);
 
-    println!("c hash: {:?}", claim_hash);
-
     ExtBuilder::default()
-        .with_balances(vec![(alice.into(), 300), (bob.into(), 100)])
+        .with_balances(vec![(alice.into(), 300), (bob.into(), 101)])
         .build()
         .execute_with(|| {
             precompiles()
@@ -113,16 +121,23 @@ fn submit_claim_and_proof_works() {
                     bob,
                     Precompile,
                     PCall::submit_claim {
-                        block_number: 1,
-                        chain_id: 42,
-                        tx_index: 123,
-                        to: Address(alice),
-                        from: Address(bob),
-                        is_tx: false,
-                        is_rx: true,
+                        block_number: claim.block_number,
+                        chain_id: claim.chain_id,
+                        tx_index: claim.tx_index,
+                        to: Address(claim.to),
+                        from: Address(claim.from),
+                        is_tx: claim.kind == ClaimKind::Tx,
+                        is_rx: claim.kind == ClaimKind::Rx,
                     },
                 )
                 .execute_returns(claim_hash);
+
+            let bob: Account = bob_account.0.into();
+            let bob_balance = Balances::usable_balance(bob);
+
+            // 100 CTC was locked as a commitment to allow the prover to process the claim
+            // Initial balance was 101
+            assert_eq!(bob_balance, 1);
 
             precompiles()
                 .prepare_test(
@@ -135,16 +150,10 @@ fn submit_claim_and_proof_works() {
                 )
                 .execute_returns(true);
 
-            // let alice: Account = alice_account.0.into();
-            // let alice_balance = Balances::usable_balance(alice);
+            let alice: Account = alice_account.0.into();
+            let alice_balance = Balances::usable_balance(alice);
 
-            // // 100 CTC was locked as a commitment to allow the prover to process the claim
-            // assert_eq!(alice_balance, 400);
-
-            // let bob: Account = bob_account.0.into();
-            // let bob_balance = Balances::usable_balance(bob);
-
-            // // 100 CTC was locked as a commitment to allow the prover to process the claim
-            // assert_eq!(bob_balance, 0);
+            // 100 CTC was locked as a commitment to allow the prover to process the claim
+            assert_eq!(alice_balance, 400);
         });
 }

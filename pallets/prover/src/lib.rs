@@ -282,6 +282,7 @@ pub mod pallet {
             ensure!(claim_hash == claim_h, Error::<T>::WrongClaimHash);
 
             // Remove lock
+            // TODO: remove only partially since source can have many claims at the same time
             let claim_source =
                 ClaimSourceByHash::<T>::get(claim_hash).ok_or(Error::<T>::ClaimNotExists)?;
             T::ClaimLockCurrency::remove_lock(LOCK_ID, &claim_source);
@@ -294,8 +295,8 @@ pub mod pallet {
             // Transfer this amount to the prover from the source
             let price = BalanceOf::<T>::saturated_from(prover_chain_price.price);
             T::Currency::transfer(
-                &prover,
                 &claim_source,
+                &prover,
                 price,
                 ExistenceRequirement::KeepAlive,
             )?;
