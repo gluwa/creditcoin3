@@ -1024,3 +1024,74 @@ jobs:
         run: |
           yarn install
           yarn ${{ matrix.command }}
+
+  docs-smart-contract-development-with-hardhat:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+
+      - name: Compile contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat compile
+
+      - name: Test contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat test
+
+      - name: Deploy contract(s) to Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy "$module"
+          done
+
+      - name: Start Creditcoin Node 1 - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s) to start
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Deploy contract(s) to Creditcoin Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              echo y | npx hardhat ignition deploy "$module" --network creditcoin_local
+          done
+
+      - name: Deploy contract(s) to Creditcoin Testnet
+        if: env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              echo y | npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy "$module" --network creditcoin_testnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.TESTNET_BOB_EVM_PK }}"
