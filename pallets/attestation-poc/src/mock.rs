@@ -19,6 +19,7 @@ frame_support::construct_runtime!(
         System: frame_system,
         Balances: pallet_balances,
         Attestation: attestation_poc,
+        SupportedChains: pallet_supported_chains,
     }
 );
 
@@ -82,6 +83,12 @@ impl attestation_poc::Config for Test {
     type MaxAttestationNodes = MaxAttestorsDefault;
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
+    type SupportedChains = SupportedChains;
+}
+
+impl pallet_supported_chains::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
 }
 
 // add more accounts when you need them

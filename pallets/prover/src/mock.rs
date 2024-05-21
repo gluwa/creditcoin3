@@ -21,6 +21,7 @@ frame_support::construct_runtime!(
         System: frame_system,
         Balances: pallet_balances,
         ProverModule: prover_pallet,
+        SupportedChains: pallet_supported_chains,
     }
 );
 
@@ -85,6 +86,12 @@ impl prover_pallet::Config for Test {
     type Currency = Balances;
     type ClaimLockCurrency = Balances;
     type Hashing = BlakeTwo256;
+    type SupportedChains = SupportedChains;
+}
+
+impl pallet_supported_chains::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
 }
 
 // add more accounts when you need them
