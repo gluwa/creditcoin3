@@ -462,7 +462,7 @@ pub mod pallet {
                 // Verify the aggregated signature
                 if !bls_signatures::verify_aggregated_signatures_on_same_message(
                     agg_signature,
-                    &message,
+                    message,
                     aggregated_public_key,
                 ) {
                     log::error!("Aggregated signature is invalid");
@@ -475,7 +475,7 @@ pub mod pallet {
                 return Err(InherentError::NotValid);
             }
 
-            let inherent_data = data
+            let _inherent_data = data
                 .get_data::<SignedAttestation<T::Hash, T::AccountId>>(&INHERENT_IDENTIFIER)
                 .expect("Timestamp inherent data not correctly encoded");
 

@@ -1,4 +1,4 @@
-#![feature(test)]
+#[cfg(test)]
 extern crate test;
 
 use test::{black_box, Bencher};

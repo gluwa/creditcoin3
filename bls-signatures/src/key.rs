@@ -292,13 +292,13 @@ pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Err
     }
 
     let res = public_keys
-        .into_iter()
+        .iter()
         .fold(G1Projective::identity(), |acc, public_key| {
-            acc + &public_key.0
+            acc + public_key.0
         });
     //.reduce(G1Projective::identity, |acc, val| acc + val);
 
-    Ok(PublicKey(res.into()))
+    Ok(PublicKey(res))
 }
 
 #[cfg(test)]

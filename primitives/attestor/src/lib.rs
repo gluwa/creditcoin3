@@ -10,8 +10,6 @@ use sp_std::vec::Vec;
 pub mod api;
 pub mod bls;
 
-use bls::WrapEncode;
-
 pub type Felt = [u8; 32];
 
 pub type ChainId = u64;

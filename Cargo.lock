@@ -1657,6 +1657,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.9.9",
+ "sp-std",
  "subtle",
  "thiserror-no-std",
 ]

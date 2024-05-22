@@ -94,9 +94,9 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
     }
 
     let res = signatures
-        .into_iter()
+        .iter()
         .fold(G2Projective::identity(), |acc, signature| {
-            acc + &signature.0
+            acc + signature.0
         });
 
     Ok(Signature(res.into()))
@@ -182,7 +182,7 @@ pub fn verify_messages(
 
 /// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
 /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
-#[cfg(all(feature = "blst"))]
+#[cfg(feature = "blst")]
 pub fn verify_messages(
     signature: &Signature,
     messages: &[&[u8]],
@@ -390,9 +390,9 @@ mod tests {
         ));
 
         // single message is rejected
-        let signature = zero_key.sign(&messages[0]);
+        let signature = zero_key.sign(messages[0]);
 
-        assert!(!zero_key.public_key().verify(signature, &messages[0]));
+        assert!(!zero_key.public_key().verify(signature, messages[0]));
 
         let aggregated_signature = aggregate(&[signature][..]).expect("failed to aggregate");
         assert!(!verify_messages(
@@ -408,7 +408,7 @@ mod tests {
         let sk = PrivateKey::generate(&mut rng);
 
         let msg = (0..64).map(|_| rng.gen()).collect::<Vec<u8>>();
-        let signature = sk.sign(&msg);
+        let signature = sk.sign(msg);
 
         let signature_bytes = signature.as_bytes();
         assert_eq!(signature_bytes.len(), 96);
