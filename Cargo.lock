@@ -8212,6 +8212,7 @@ version = "3.24.1"
 dependencies = [
  "nix 0.28.0",
  "sp-runtime-interface",
+ "sp-std",
 ]
 
 [[package]]
