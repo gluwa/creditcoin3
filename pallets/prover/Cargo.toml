@@ -34,6 +34,8 @@ attestor-primitives = { workspace = true }
 prover-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
+proof-verifier = { workspace = true }
+
 fp-account = { workspace = true }
 
 [dev-dependencies]
@@ -62,5 +64,6 @@ std = [
     "prover-primitives/std",
     "fp-account/std",
     "supported-chains-primitives/std",
+    "proof-verifier/std",
 ]
 runtime-benchmarks = ["frame-benchmarking", "pallet-balances"]

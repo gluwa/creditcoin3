@@ -12,6 +12,7 @@ members = [
 	"primitives/supported-chains",
 	"precompiles/claim",
 	"precompiles/substrate-transfer",
+	"host",
 ]
 resolver = "2"
 
@@ -213,6 +214,11 @@ supported-chains-primitives = { path = "primitives/supported-chains", default-fe
 # Prover
 pallet-prover = { path = "pallets/prover", default_features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
+proof-verifier = { path = "host", default-features = false }
+nix = { version = "0.28.0", features = [
+	"process",
+	"fs",
+], default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

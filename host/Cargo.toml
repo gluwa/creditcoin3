@@ -1,0 +1,18 @@
+[package]
+name = "proof-verifier"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nix = { workspace = true }
+sp-runtime-interface = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = ["sp-runtime-interface/std"]

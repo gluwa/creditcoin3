@@ -26,6 +26,8 @@ pub mod pallet {
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
     use prover_primitives::claim::Claim;
+    // use prover_primitives::host_api::verify_proof;
+    use proof_verifier::host_api::verify_proof;
     use sp_runtime::traits::{Hash, SaturatedConversion};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;

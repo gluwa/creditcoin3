@@ -6737,6 +6737,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
+dependencies = [
+ "bitflags 2.5.0",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "no-std-net"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7439,6 +7451,7 @@ dependencies = [
  "pallet-balances",
  "pallet-supported-chains",
  "parity-scale-codec",
+ "proof-verifier",
  "prover-primitives",
  "scale-info",
  "serde",
@@ -8194,6 +8207,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-verifier"
+version = "3.24.1"
+dependencies = [
+ "nix 0.28.0",
+ "sp-runtime-interface",
+]
+
+[[package]]
 name = "proptest"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8770,7 +8791,7 @@ dependencies = [
  "log",
  "netlink-packet-route",
  "netlink-proto",
- "nix",
+ "nix 0.24.3",
  "thiserror",
  "tokio",
 ]
