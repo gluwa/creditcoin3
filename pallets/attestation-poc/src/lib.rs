@@ -19,7 +19,7 @@ pub mod pallet {
         BlsPublicKey, BlsPublicKeyWrapper, ChainId, InherentError, SignedAttestation,
         INHERENT_IDENTIFIER,
     };
-    use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize};
+    use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
@@ -450,7 +450,7 @@ pub mod pallet {
                     }
                 }
 
-                let agg_signature = &attestation.signature.0;
+                let agg_signature = &Signature::from_bytes(&attestation.signature).unwrap();
                 let attestor_public_keys = attestation
                     .attestors
                     .iter()

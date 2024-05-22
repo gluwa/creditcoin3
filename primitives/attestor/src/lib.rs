@@ -54,7 +54,7 @@ impl IsFatalError for InherentError {
 pub struct SignedAttestation<H, AccountId> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
-    pub signature: WrapEncode<bls_signatures::Signature>,
+    pub signature: Vec<u8>,
     // TODO: a list of attestor account ids to verify the signature against
     pub attestors: Vec<AccountId>,
 }

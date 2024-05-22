@@ -407,7 +407,7 @@ where
 
         let res = Some(SignedAttestation {
             attestation_data: attestation.clone().attestation_data,
-            signature: aggregated_signature.as_bytes()[..96].try_into().unwrap(),
+            signature: bls.as_bytes(),
             digest: major_digest,
             attestors,
         });
