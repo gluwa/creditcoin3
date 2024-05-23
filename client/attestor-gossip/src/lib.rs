@@ -107,6 +107,7 @@ impl Topic {
 pub struct Attestation<B, AccountId> {
     pub attestation_data: AttestationData<B>,
     pub attestor: AccountId,
+    pub attestor_bls_pubkey: Vec<u8>,
     pub topic: Topic,
     pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,

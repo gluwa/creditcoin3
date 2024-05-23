@@ -5,6 +5,7 @@ use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
+use sp_std::marker::PhantomData;
 use sp_std::vec::Vec;
 
 pub mod api;
@@ -54,7 +55,8 @@ pub struct SignedAttestation<H, AccountId> {
     pub digest: Digest,
     pub signature: Vec<u8>,
     // TODO: a list of attestor account ids to verify the signature against
-    pub attestors: Vec<AccountId>,
+    pub attestors: Vec<Vec<u8>>,
+    pub _phantom: PhantomData<AccountId>,
 }
 
 impl<H, A> SignedAttestation<H, A> {

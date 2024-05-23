@@ -453,8 +453,9 @@ pub mod pallet {
                 let attestor_public_keys = attestation
                     .attestors
                     .iter()
-                    .map(|pk| PublicKey::from_bytes(&pk.encode()[..]).unwrap())
+                    .map(|pk| PublicKey::from_bytes(pk).unwrap())
                     .collect::<Vec<PublicKey>>();
+
                 let aggregated_public_key =
                     aggregate_public_keys(&attestor_public_keys[..]).unwrap();
                 let message = &attestation.attestation_data.serialize()[..];
@@ -475,48 +476,11 @@ pub mod pallet {
                 return Err(InherentError::NotValid);
             }
 
+            // Not sure if this is doing anything
             let _inherent_data = data
                 .get_data::<SignedAttestation<T::Hash, T::AccountId>>(&INHERENT_IDENTIFIER)
                 .expect("Timestamp inherent data not correctly encoded");
 
-            // if inherent_data.is_none() {
-            //     log::error!("💥💥💥 inherent data is none 💥💥💥");
-            //     //return Err(InherentError::NotValid);
-            // }
-            // // Check if atleast the attestation was not already submitted
-            // if let Some(attestation) = inherent_data {
-            //     if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
-            //         if digest == attestation.attestation_data.digest() {
-            //             log::error!("Attestation with digest: {:?} is duplicate", digest);
-            //             return Err(InherentError::Duplicate(digest));
-            //         }
-            //     }
-            //
-            //     let agg_signature = &Signature::from_bytes(&attestation.signature).unwrap();
-            //     let attestor_public_keys = attestation
-            //         .attestors
-            //         .iter()
-            //         .map(|pk| PublicKey::from_bytes(&pk.encode()[..]).unwrap())
-            //         .collect::<Vec<PublicKey>>();
-            //     let aggregated_public_key =
-            //         aggregate_public_keys(&attestor_public_keys[..]).unwrap();
-            //     let message = &attestation.attestation_data.serialize()[..];
-            //
-            //     // Verify the aggregated signature
-            //     if !bls_signatures::verify_aggregated_signatures_on_same_message(
-            //         agg_signature,
-            //         &message,
-            //         aggregated_public_key,
-            //     ) {
-            //         log::error!("Aggregated signature is invalid");
-            //         return Err(InherentError::NotValid);
-            //     }
-            //
-            //     log::info!("Attestation signature is valid");
-            // } else {
-            //     log::error!("💥💥💥attestation data is somehow empty/none💥💥💥");
-            //     //return Err(InherentError::NotValid);
-            // }
             log::info!("💥💥💥 Exit inherent data check 💥💥💥");
             Ok(())
         }
