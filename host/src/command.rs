@@ -47,3 +47,14 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
         Err(stderr)
     }
 }
+
+pub mod tests {
+    #[test]
+    fn verify_works() {
+        let proof_example = std::fs::read("proof_example.json").expect("Proof example to be there");
+
+        let result = super::run_verifier(proof_example);
+
+        assert!(result.is_ok())
+    }
+}
