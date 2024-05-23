@@ -12,12 +12,12 @@ use bls12_381::{
 };
 use pairing_lib::MultiMillerLoop;
 
-#[cfg(feature = "blst")]
-use blstrs::{Bls12, G1Affine, G2Affine, G2Projective, Gt, MillerLoopResult};
-#[cfg(feature = "blst")]
-use group::{prime::PrimeCurveAffine, Group};
-#[cfg(feature = "blst")]
-use pairing_lib::MillerLoopResult as _;
+// #[cfg(feature = "blst")]
+// use blstrs::{Bls12, G1Affine, G2Affine, G2Projective, Gt, MillerLoopResult};
+// #[cfg(feature = "blst")]
+// use group::{prime::PrimeCurveAffine, Group};
+// #[cfg(feature = "blst")]
+// use pairing_lib::MillerLoopResult as _;
 
 use crate::error::Error;
 use crate::key::*;
@@ -81,10 +81,10 @@ pub fn hash(msg: &[u8]) -> G2Projective {
     <G2Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(msg, CSUITE)
 }
 
-#[cfg(feature = "blst")]
-pub fn hash(msg: &[u8]) -> G2Projective {
-    G2Projective::hash_to_curve(msg, CSUITE, &[])
-}
+// #[cfg(feature = "blst")]
+// pub fn hash(msg: &[u8]) -> G2Projective {
+//     G2Projective::hash_to_curve(msg, CSUITE, &[])
+// }
 
 /// Aggregate signatures by multiplying them together.
 /// Calculated by `signature = \sum_{i = 0}^n signature_i`.
@@ -95,9 +95,7 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
 
     let res = signatures
         .iter()
-        .fold(G2Projective::identity(), |acc, signature| {
-            acc + signature.0
-        });
+        .fold(G2Projective::identity(), |acc, signature| acc + signature.0);
 
     Ok(Signature(res.into()))
 }
@@ -163,7 +161,7 @@ pub fn verify_aggregated_signatures_on_same_message(
     public_key: PublicKey,
 ) -> bool {
     let hash = hash(message);
-    //let aggregated_public_key = aggregate_public_keys(public_keys).unwrap();
+
     verify(signature, &[hash], &[public_key])
 }
 
@@ -180,55 +178,55 @@ pub fn verify_messages(
     verify(signature, &hashes, public_keys)
 }
 
-/// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
-/// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
-#[cfg(feature = "blst")]
-pub fn verify_messages(
-    signature: &Signature,
-    messages: &[&[u8]],
-    public_keys: &[PublicKey],
-) -> bool {
-    if messages.is_empty() || public_keys.is_empty() {
-        return false;
-    }
-
-    let n_messages = messages.len();
-
-    if n_messages != public_keys.len() {
-        return false;
-    }
-
-    // zero key & single message should fail
-    if n_messages == 1 && public_keys[0].0.is_identity().into() {
-        return false;
-    }
-
-    // Enforce that messages are distinct as a countermeasure against BLS's rogue-key attack.
-    // See Section 3.1. of the IRTF's BLS signatures spec:
-    // https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-3.1
-    if !blstrs::unique_messages(messages) {
-        return false;
-    }
-
-    let mut valid = true;
-    let mut pairing = blstrs::PairingG1G2::new(true, CSUITE);
-    for (message, public_key) in messages.iter().zip(public_keys.iter()) {
-        let res = pairing.aggregate(&public_key.0.into(), None, message, &[]);
-        if res.is_err() {
-            valid = false;
-            break;
-        }
-
-        pairing.commit();
-    }
-
-    let mut gtsig = Gt::default();
-    if valid {
-        blstrs::PairingG1G2::aggregated(&mut gtsig, &signature.0);
-    }
-
-    valid && pairing.finalverify(Some(&gtsig))
-}
+// /// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
+// /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
+// #[cfg(feature = "blst")]
+// pub fn verify_messages(
+//     signature: &Signature,
+//     messages: &[&[u8]],
+//     public_keys: &[PublicKey],
+// ) -> bool {
+//     if messages.is_empty() || public_keys.is_empty() {
+//         return false;
+//     }
+//
+//     let n_messages = messages.len();
+//
+//     if n_messages != public_keys.len() {
+//         return false;
+//     }
+//
+//     // zero key & single message should fail
+//     if n_messages == 1 && public_keys[0].0.is_identity().into() {
+//         return false;
+//     }
+//
+//     // Enforce that messages are distinct as a countermeasure against BLS's rogue-key attack.
+//     // See Section 3.1. of the IRTF's BLS signatures spec:
+//     // https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-3.1
+//     if !blstrs::unique_messages(messages) {
+//         return false;
+//     }
+//
+//     let mut valid = true;
+//     let mut pairing = blstrs::PairingG1G2::new(true, CSUITE);
+//     for (message, public_key) in messages.iter().zip(public_keys.iter()) {
+//         let res = pairing.aggregate(&public_key.0.into(), None, message, &[]);
+//         if res.is_err() {
+//             valid = false;
+//             break;
+//         }
+//
+//         pairing.commit();
+//     }
+//
+//     let mut gtsig = Gt::default();
+//     if valid {
+//         blstrs::PairingG1G2::aggregated(&mut gtsig, &signature.0);
+//     }
+//
+//     valid && pairing.finalverify(Some(&gtsig))
+// }
 
 #[cfg(test)]
 mod tests {
@@ -241,8 +239,8 @@ mod tests {
 
     #[cfg(feature = "pairing")]
     use bls12_381::Scalar;
-    #[cfg(feature = "blst")]
-    use blstrs::Scalar;
+    // #[cfg(feature = "blst")]
+    // use blstrs::Scalar;
 
     #[test]
     fn basic_aggregation() {

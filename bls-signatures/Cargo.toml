@@ -17,7 +17,6 @@ name = "verify"
 
 [dependencies]
 acid_io = { version = "0.1.0", git = "https://github.com/dataphract/acid_io" }
-#sp-std = { version = "8.0.0", default-features = false }
 
 rand_core = { version = "0.6.0", default-features = false }
 thiserror-no-std = { version = "2.0.2", default-features = false }
@@ -47,5 +46,6 @@ sp-std = { workspace = true }
 default = ["pairing", "std"]
 std = []
 pairing = ["bls12_381", "sha2", "hkdf"]
-blst = ["blst_lib", "blstrs"]
-blst-portable = ["blst_lib", "blst_lib/portable", "blstrs/portable"]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

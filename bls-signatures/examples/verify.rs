@@ -2,8 +2,6 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "pairing")]
 use bls12_381::G2Projective;
-#[cfg(feature = "blst")]
-use blstrs::G2Projective;
 
 use bls_signatures::*;
 use rand::{Rng, SeedableRng};

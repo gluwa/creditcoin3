@@ -15,10 +15,10 @@ use hkdf::Hkdf;
 #[cfg(feature = "pairing")]
 use sha2::{digest::generic_array::typenum::U48, digest::generic_array::GenericArray, Sha256};
 
-#[cfg(feature = "blst")]
-use blstrs::{G1Affine, G1Projective, G2Affine, Scalar};
-#[cfg(feature = "blst")]
-use group::prime::PrimeCurveAffine;
+// #[cfg(feature = "blst")]
+// use blstrs::{G1Affine, G1Projective, G2Affine, Scalar};
+// #[cfg(feature = "blst")]
+// use group::prime::PrimeCurveAffine;
 
 pub(crate) struct ScalarRepr(<Scalar as PrimeFieldBits>::ReprBits);
 
@@ -125,24 +125,24 @@ impl PrivateKey {
         p.into()
     }
 
-    /// Sign the given message.
-    /// Calculated by `signature = hash_into_g2(message) * sk`
-    #[cfg(feature = "blst")]
-    pub fn sign<T: AsRef<[u8]>>(&self, message: T) -> Signature {
-        let p = hash(message.as_ref());
-        let mut sig = G2Affine::identity();
-
-        unsafe {
-            blst_lib::blst_sign_pk2_in_g1(
-                std::ptr::null_mut(),
-                sig.as_mut(),
-                p.as_ref(),
-                &self.0.into(),
-            );
-        }
-
-        sig.into()
-    }
+    // /// Sign the given message.
+    // /// Calculated by `signature = hash_into_g2(message) * sk`
+    // #[cfg(feature = "blst")]
+    // pub fn sign<T: AsRef<[u8]>>(&self, message: T) -> Signature {
+    //     let p = hash(message.as_ref());
+    //     let mut sig = G2Affine::identity();
+    //
+    //     unsafe {
+    //         blst_lib::blst_sign_pk2_in_g1(
+    //             std::ptr::null_mut(),
+    //             sig.as_mut(),
+    //             p.as_ref(),
+    //             &self.0.into(),
+    //         );
+    //     }
+    //
+    //     sig.into()
+    // }
 
     /// Get the public key for this private key.
     /// Calculated by `pk = g1 * sk`.
@@ -154,18 +154,18 @@ impl PrivateKey {
         PublicKey(pk)
     }
 
-    /// Get the public key for this private key.
-    /// Calculated by `pk = g1 * sk`.
-    #[cfg(feature = "blst")]
-    pub fn public_key(&self) -> PublicKey {
-        let mut pk = G1Affine::identity();
-
-        unsafe {
-            blst_lib::blst_sk_to_pk2_in_g1(std::ptr::null_mut(), pk.as_mut(), &self.0.into());
-        }
-
-        PublicKey(pk.into())
-    }
+    // /// Get the public key for this private key.
+    // /// Calculated by `pk = g1 * sk`.
+    // #[cfg(feature = "blst")]
+    // pub fn public_key(&self) -> PublicKey {
+    //     let mut pk = G1Affine::identity();
+    //
+    //     unsafe {
+    //         blst_lib::blst_sk_to_pk2_in_g1(std::ptr::null_mut(), pk.as_mut(), &self.0.into());
+    //     }
+    //
+    //     PublicKey(pk.into())
+    // }
 
     /// Deserializes a private key from the field element as a decimal number.
     pub fn from_string<T: AsRef<str>>(s: T) -> Result<Self, Error> {
@@ -262,29 +262,29 @@ fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
     Scalar::from_okm(&result)
 }
 
-/// Generates a secret key as defined in
-/// https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-2.3
-#[cfg(feature = "blst")]
-fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
-    use std::convert::TryInto;
-
-    let data = data.as_ref();
-    assert!(data.len() >= 32, "IKM must be at least 32 bytes");
-
-    let key_info = &[];
-    let mut out = blst_lib::blst_scalar::default();
-    unsafe {
-        blst_lib::blst_keygen(
-            &mut out,
-            data.as_ptr(),
-            data.len(),
-            key_info.as_ptr(),
-            key_info.len(),
-        )
-    };
-
-    out.try_into().expect("invalid key generated")
-}
+// /// Generates a secret key as defined in
+// /// https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-2.3
+// #[cfg(feature = "blst")]
+// fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
+//     use std::convert::TryInto;
+//
+//     let data = data.as_ref();
+//     assert!(data.len() >= 32, "IKM must be at least 32 bytes");
+//
+//     let key_info = &[];
+//     let mut out = blst_lib::blst_scalar::default();
+//     unsafe {
+//         blst_lib::blst_keygen(
+//             &mut out,
+//             data.as_ptr(),
+//             data.len(),
+//             key_info.as_ptr(),
+//             key_info.len(),
+//         )
+//     };
+//
+//     out.try_into().expect("invalid key generated")
+// }
 
 pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Error> {
     if public_keys.is_empty() {
@@ -328,14 +328,14 @@ mod tests {
     fn test_key_gen() {
         let key_material = "hello world (it's a secret!) very secret stuff";
         let fr_val = key_gen(key_material);
-        #[cfg(feature = "blst")]
-        let expect = Scalar::from_u64s_le(&[
-            0x8a223b0f9e257f7d,
-            0x2d80f7b7f5ea6cc4,
-            0xcc9e063a0ea0009c,
-            0x4a73baed5cb75109,
-        ])
-        .unwrap();
+        // #[cfg(feature = "blst")]
+        // let expect = Scalar::from_u64s_le(&[
+        //     0x8a223b0f9e257f7d,
+        //     0x2d80f7b7f5ea6cc4,
+        //     0xcc9e063a0ea0009c,
+        //     0x4a73baed5cb75109,
+        // ])
+        // .unwrap();
 
         #[cfg(feature = "pairing")]
         let expect = Scalar::from_raw([
