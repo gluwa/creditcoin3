@@ -64,6 +64,7 @@ primitive-types = "0.12.2"
 tiny-bip39 = { version = "1.0", default-features = false }
 url = "2.2.2"
 bls-signatures = "0.15.0"
+env_logger = "0.11"
 
 # Substrate Client
 sc-basic-authorship = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }

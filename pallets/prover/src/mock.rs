@@ -107,6 +107,9 @@ pub struct ExtBuilder;
 
 impl ExtBuilder {
     pub fn build(self) -> sp_io::TestExternalities {
+        // Init env logger to see logs in debug mode
+        let _ = env_logger::try_init();
+
         let mut t = system::GenesisConfig::<Test>::default()
             .build_storage()
             .unwrap();
