@@ -1,0 +1,10 @@
+[
+    {
+      "address": "0x0000000000000000000000000000000000000Fd1",
+      "name": "SubstrateTransfer",
+      "bytecode": "0xfe",
+      "compiler": "Not Installed",
+      "source": "// SPDX-License-Identifier: GPL-3.0-only\npragma solidity >=0.8.3;\n\n/// @dev The Deposit precompile address\naddress constant SUBSTRATE_TRANSFER_ADDRESS = 0x0000000000000000000000000000000000000Fd1;\n\nSubstrateTransfer constant SUBSTRATE_TRANSFER_ADRRESS = SubstrateTransfer(SUBSTRATE_TRANSFER_ADDRESS);\n\n/// @title SubstrateTransfer interface\ninterface SubstrateTransfer {\n    /// @dev Event emitted when a transfer has been performed.\n    /// @param destination The Substrate address receiving the tokens.\n    /// @param amount The amount of tokens transferred.\n    event Transfer(bytes32 destination, uint256 amount);\n\n    /// @dev Function to transfer tokens to a Substrate address.\n    /// @param destination The Substrate address receiving the tokens.\n    /// @param amount The amount of tokens to transfer.\n    function transfer_substrate(bytes32 destination, uint256 amount) external;\n}",
+      "abi": "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"destination\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"Transfer\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"destination\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"transfer_substrate\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+    }
+  ]
