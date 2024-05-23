@@ -18,7 +18,7 @@ use sha2::{digest::generic_array::typenum::U48, digest::generic_array::GenericAr
 pub(crate) struct ScalarRepr(<Scalar as PrimeFieldBits>::ReprBits);
 
 use crate::error::Error;
-use crate::signature::{Signature, hash, verify_messages};
+use crate::signature::{hash, verify_messages, Signature};
 
 pub(crate) const G1_COMPRESSED_SIZE: usize = 48;
 
@@ -141,7 +141,8 @@ impl PrivateKey {
     /// Get the public key for this private key.
     /// Calculated by `pk = g1 * sk`.
     #[cfg(feature = "pairing")]
-    #[must_use] pub fn public_key(&self) -> PublicKey {
+    #[must_use]
+    pub fn public_key(&self) -> PublicKey {
         let mut pk = G1Projective::generator();
         pk *= self.0;
 
@@ -191,7 +192,8 @@ impl Serialize for PrivateKey {
 }
 
 impl PublicKey {
-    #[must_use] pub fn as_affine(&self) -> G1Affine {
+    #[must_use]
+    pub fn as_affine(&self) -> G1Affine {
         self.0.to_affine()
     }
 

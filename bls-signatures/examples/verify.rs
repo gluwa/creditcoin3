@@ -3,10 +3,11 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "pairing")]
 use bls12_381::G2Projective;
 
-use bls_signatures::{PrivateKey, PublicKey, Serialize, Signature, aggregate, hash, verify, verify_messages};
+use bls_signatures::{
+    aggregate, hash, verify, verify_messages, PrivateKey, PublicKey, Serialize, Signature,
+};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-
 
 macro_rules! measure {
     ($name:expr, $code:block) => {

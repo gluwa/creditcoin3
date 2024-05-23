@@ -70,7 +70,8 @@ fn g2_from_slice(raw: &[u8]) -> Result<G2Affine, Error> {
 
 /// Hash the given message, as used in the signature.
 #[cfg(feature = "pairing")]
-#[must_use] pub fn hash(msg: &[u8]) -> G2Projective {
+#[must_use]
+pub fn hash(msg: &[u8]) -> G2Projective {
     <G2Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(msg, CSUITE)
 }
 
@@ -94,7 +95,8 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
 
 /// Verifies that the signature is the actual aggregated signature of hashes - pubkeys.
 /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
-#[must_use] pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[PublicKey]) -> bool {
+#[must_use]
+pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[PublicKey]) -> bool {
     if hashes.is_empty() || public_keys.is_empty() {
         return false;
     }
@@ -147,7 +149,8 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
     ml.final_exponentiation() == Gt::identity()
 }
 
-#[must_use] pub fn verify_aggregated_signatures_on_same_message(
+#[must_use]
+pub fn verify_aggregated_signatures_on_same_message(
     signature: &Signature,
     message: &[u8],
     public_key: PublicKey,
@@ -160,7 +163,8 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
 /// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
 /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
 #[cfg(feature = "pairing")]
-#[must_use] pub fn verify_messages(
+#[must_use]
+pub fn verify_messages(
     signature: &Signature,
     messages: &[&[u8]],
     public_keys: &[PublicKey],
@@ -174,13 +178,13 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
 mod tests {
     use super::*;
 
+    use crate::PrivateKey;
+    #[cfg(feature = "pairing")]
+    use bls12_381::Scalar;
     use ff::Field;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
     use sp_std::vec;
-    use crate::PrivateKey;
-    #[cfg(feature = "pairing")]
-    use bls12_381::Scalar;
 
     #[test]
     fn basic_aggregation() {
