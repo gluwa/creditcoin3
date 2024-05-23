@@ -3,10 +3,10 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "pairing")]
 use bls12_381::G2Projective;
 
-use bls_signatures::*;
+use bls_signatures::{PrivateKey, PublicKey, Serialize, Signature, aggregate, hash, verify, verify_messages};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-//use rayon::prelude::*;
+
 
 macro_rules! measure {
     ($name:expr, $code:block) => {
@@ -43,7 +43,7 @@ macro_rules! measure {
 }
 
 fn run(num_messages: usize) {
-    println!("dancing with {} messages", num_messages);
+    println!("dancing with {num_messages} messages");
 
     let mut rng = ChaCha8Rng::seed_from_u64(12);
 
@@ -88,7 +88,7 @@ fn run(num_messages: usize) {
     measure!("extracting public keys", num_messages, {
         public_keys = private_keys
             .iter()
-            .map(|pk| pk.public_key())
+            .map(bls_signatures::PrivateKey::public_key)
             .collect::<Vec<_>>();
     });
 

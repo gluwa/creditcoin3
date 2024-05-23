@@ -12,15 +12,8 @@ use bls12_381::{
 };
 use pairing_lib::MultiMillerLoop;
 
-// #[cfg(feature = "blst")]
-// use blstrs::{Bls12, G1Affine, G2Affine, G2Projective, Gt, MillerLoopResult};
-// #[cfg(feature = "blst")]
-// use group::{prime::PrimeCurveAffine, Group};
-// #[cfg(feature = "blst")]
-// use pairing_lib::MillerLoopResult as _;
-
 use crate::error::Error;
-use crate::key::*;
+use crate::key::{PublicKey, Serialize};
 
 const CSUITE: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 const G2_COMPRESSED_SIZE: usize = 96;
@@ -77,17 +70,16 @@ fn g2_from_slice(raw: &[u8]) -> Result<G2Affine, Error> {
 
 /// Hash the given message, as used in the signature.
 #[cfg(feature = "pairing")]
-pub fn hash(msg: &[u8]) -> G2Projective {
+#[must_use] pub fn hash(msg: &[u8]) -> G2Projective {
     <G2Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(msg, CSUITE)
 }
 
-// #[cfg(feature = "blst")]
-// pub fn hash(msg: &[u8]) -> G2Projective {
-//     G2Projective::hash_to_curve(msg, CSUITE, &[])
-// }
-
 /// Aggregate signatures by multiplying them together.
 /// Calculated by `signature = \sum_{i = 0}^n signature_i`.
+///
+/// # Errors
+///
+/// Returns an error if the input is empty.
 pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
     if signatures.is_empty() {
         return Err(Error::ZeroSizedInput);
@@ -102,7 +94,7 @@ pub fn aggregate(signatures: &[Signature]) -> Result<Signature, Error> {
 
 /// Verifies that the signature is the actual aggregated signature of hashes - pubkeys.
 /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
-pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[PublicKey]) -> bool {
+#[must_use] pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[PublicKey]) -> bool {
     if hashes.is_empty() || public_keys.is_empty() {
         return false;
     }
@@ -155,7 +147,7 @@ pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[Pub
     ml.final_exponentiation() == Gt::identity()
 }
 
-pub fn verify_aggregated_signatures_on_same_message(
+#[must_use] pub fn verify_aggregated_signatures_on_same_message(
     signature: &Signature,
     message: &[u8],
     public_key: PublicKey,
@@ -168,7 +160,7 @@ pub fn verify_aggregated_signatures_on_same_message(
 /// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
 /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
 #[cfg(feature = "pairing")]
-pub fn verify_messages(
+#[must_use] pub fn verify_messages(
     signature: &Signature,
     messages: &[&[u8]],
     public_keys: &[PublicKey],
@@ -178,56 +170,6 @@ pub fn verify_messages(
     verify(signature, &hashes, public_keys)
 }
 
-// /// Verifies that the signature is the actual aggregated signature of messages - pubkeys.
-// /// Calculated by `e(g1, signature) == \prod_{i = 0}^n e(pk_i, hash_i)`.
-// #[cfg(feature = "blst")]
-// pub fn verify_messages(
-//     signature: &Signature,
-//     messages: &[&[u8]],
-//     public_keys: &[PublicKey],
-// ) -> bool {
-//     if messages.is_empty() || public_keys.is_empty() {
-//         return false;
-//     }
-//
-//     let n_messages = messages.len();
-//
-//     if n_messages != public_keys.len() {
-//         return false;
-//     }
-//
-//     // zero key & single message should fail
-//     if n_messages == 1 && public_keys[0].0.is_identity().into() {
-//         return false;
-//     }
-//
-//     // Enforce that messages are distinct as a countermeasure against BLS's rogue-key attack.
-//     // See Section 3.1. of the IRTF's BLS signatures spec:
-//     // https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-3.1
-//     if !blstrs::unique_messages(messages) {
-//         return false;
-//     }
-//
-//     let mut valid = true;
-//     let mut pairing = blstrs::PairingG1G2::new(true, CSUITE);
-//     for (message, public_key) in messages.iter().zip(public_keys.iter()) {
-//         let res = pairing.aggregate(&public_key.0.into(), None, message, &[]);
-//         if res.is_err() {
-//             valid = false;
-//             break;
-//         }
-//
-//         pairing.commit();
-//     }
-//
-//     let mut gtsig = Gt::default();
-//     if valid {
-//         blstrs::PairingG1G2::aggregated(&mut gtsig, &signature.0);
-//     }
-//
-//     valid && pairing.finalverify(Some(&gtsig))
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,11 +178,9 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
     use sp_std::vec;
-
+    use crate::PrivateKey;
     #[cfg(feature = "pairing")]
     use bls12_381::Scalar;
-    // #[cfg(feature = "blst")]
-    // use blstrs::Scalar;
 
     #[test]
     fn basic_aggregation() {
@@ -273,7 +213,7 @@ mod tests {
             .collect::<Vec<_>>();
         let public_keys = private_keys
             .iter()
-            .map(|pk| pk.public_key())
+            .map(PrivateKey::public_key)
             .collect::<Vec<_>>();
 
         assert!(
@@ -315,7 +255,7 @@ mod tests {
         let hashes: Vec<_> = (0..num_messages).map(|_| hash(&message)).collect();
         let public_keys = private_keys
             .iter()
-            .map(|pk| pk.public_key())
+            .map(PrivateKey::public_key)
             .collect::<Vec<_>>();
         assert!(
             !verify(&aggregated_signature, &hashes, &public_keys),
@@ -338,11 +278,6 @@ mod tests {
         let zero_key: PrivateKey = Scalar::ZERO.into();
         assert!(bool::from(zero_key.public_key().0.is_identity()));
 
-        // println!(
-        //     "{:?}\n{:?}",
-        //     zero_key.public_key().as_bytes(),
-        //     zero_key.as_bytes()
-        // );
         let num_messages = 10;
 
         // generate private keys
@@ -372,7 +307,7 @@ mod tests {
             .collect::<Vec<_>>();
         let public_keys = private_keys
             .iter()
-            .map(|pk| pk.public_key())
+            .map(PrivateKey::public_key)
             .collect::<Vec<_>>();
 
         assert!(

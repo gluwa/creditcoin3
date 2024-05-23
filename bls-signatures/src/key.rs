@@ -15,21 +15,18 @@ use hkdf::Hkdf;
 #[cfg(feature = "pairing")]
 use sha2::{digest::generic_array::typenum::U48, digest::generic_array::GenericArray, Sha256};
 
-// #[cfg(feature = "blst")]
-// use blstrs::{G1Affine, G1Projective, G2Affine, Scalar};
-// #[cfg(feature = "blst")]
-// use group::prime::PrimeCurveAffine;
-
 pub(crate) struct ScalarRepr(<Scalar as PrimeFieldBits>::ReprBits);
 
 use crate::error::Error;
-use crate::signature::*;
+use crate::signature::{Signature, hash, verify_messages};
 
 pub(crate) const G1_COMPRESSED_SIZE: usize = 48;
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PublicKey(pub(crate) G1Projective);
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PrivateKey(pub(crate) Scalar);
 
@@ -70,9 +67,17 @@ impl<'a> From<&'a PrivateKey> for ScalarRepr {
 
 pub trait Serialize: Debug + Sized {
     /// Writes the key to the given writer.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if the write fails.
     fn write_bytes(&self, dest: &mut impl Write) -> Result<(), Error>;
 
     /// Recreate the key from bytes in the same form as `write_bytes` produced.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if the read fails.
     fn from_bytes(raw: &[u8]) -> Result<Self, Error>;
 
     fn as_bytes(&self) -> Vec<u8> {
@@ -100,11 +105,19 @@ impl PrivateKey {
     /// Generate a deterministic private key from the given bytes.
     ///
     /// They must be at least 32 bytes long to be secure, will panic otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the input is less than 32 bytes long.
     pub fn new<T: AsRef<[u8]>>(msg: T) -> Self {
         PrivateKey(key_gen(msg))
     }
 
     /// Generate a new private key.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the RNG fails to generate secure randomness.
     pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         // IKM must be at least 32 bytes long:
         // https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-00#section-2.3
@@ -125,49 +138,21 @@ impl PrivateKey {
         p.into()
     }
 
-    // /// Sign the given message.
-    // /// Calculated by `signature = hash_into_g2(message) * sk`
-    // #[cfg(feature = "blst")]
-    // pub fn sign<T: AsRef<[u8]>>(&self, message: T) -> Signature {
-    //     let p = hash(message.as_ref());
-    //     let mut sig = G2Affine::identity();
-    //
-    //     unsafe {
-    //         blst_lib::blst_sign_pk2_in_g1(
-    //             std::ptr::null_mut(),
-    //             sig.as_mut(),
-    //             p.as_ref(),
-    //             &self.0.into(),
-    //         );
-    //     }
-    //
-    //     sig.into()
-    // }
-
     /// Get the public key for this private key.
     /// Calculated by `pk = g1 * sk`.
     #[cfg(feature = "pairing")]
-    pub fn public_key(&self) -> PublicKey {
+    #[must_use] pub fn public_key(&self) -> PublicKey {
         let mut pk = G1Projective::generator();
         pk *= self.0;
 
         PublicKey(pk)
     }
 
-    // /// Get the public key for this private key.
-    // /// Calculated by `pk = g1 * sk`.
-    // #[cfg(feature = "blst")]
-    // pub fn public_key(&self) -> PublicKey {
-    //     let mut pk = G1Affine::identity();
-    //
-    //     unsafe {
-    //         blst_lib::blst_sk_to_pk2_in_g1(std::ptr::null_mut(), pk.as_mut(), &self.0.into());
-    //     }
-    //
-    //     PublicKey(pk.into())
-    // }
-
     /// Deserializes a private key from the field element as a decimal number.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error::InvalidPrivateKey` if the input is not a valid private key.
     pub fn from_string<T: AsRef<str>>(s: T) -> Result<Self, Error> {
         match Scalar::from_str_vartime(s.as_ref()) {
             Some(f) => Ok(f.into()),
@@ -206,7 +191,7 @@ impl Serialize for PrivateKey {
 }
 
 impl PublicKey {
-    pub fn as_affine(&self) -> G1Affine {
+    #[must_use] pub fn as_affine(&self) -> G1Affine {
         self.0.to_affine()
     }
 
@@ -239,7 +224,7 @@ impl Serialize for PublicKey {
 }
 
 /// Generates a secret key as defined in
-/// https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-2.3
+/// <https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-2.3>
 #[cfg(feature = "pairing")]
 fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
     // "BLS-SIG-KEYGEN-SALT-"
@@ -262,30 +247,11 @@ fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
     Scalar::from_okm(&result)
 }
 
-// /// Generates a secret key as defined in
-// /// https://tools.ietf.org/html/draft-irtf-cfrg-bls-signature-02#section-2.3
-// #[cfg(feature = "blst")]
-// fn key_gen<T: AsRef<[u8]>>(data: T) -> Scalar {
-//     use std::convert::TryInto;
-//
-//     let data = data.as_ref();
-//     assert!(data.len() >= 32, "IKM must be at least 32 bytes");
-//
-//     let key_info = &[];
-//     let mut out = blst_lib::blst_scalar::default();
-//     unsafe {
-//         blst_lib::blst_keygen(
-//             &mut out,
-//             data.as_ptr(),
-//             data.len(),
-//             key_info.as_ptr(),
-//             key_info.len(),
-//         )
-//     };
-//
-//     out.try_into().expect("invalid key generated")
-// }
-
+/// Aggregate a list of public keys into a single public key.
+///
+/// # Errors
+///
+/// Will return `Error::ZeroSizedInput` if the input is empty.
 pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Error> {
     if public_keys.is_empty() {
         return Err(Error::ZeroSizedInput);
@@ -296,7 +262,6 @@ pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Result<PublicKey, Err
         .fold(G1Projective::identity(), |acc, public_key| {
             acc + public_key.0
         });
-    //.reduce(G1Projective::identity, |acc, val| acc + val);
 
     Ok(PublicKey(res))
 }
@@ -312,10 +277,11 @@ mod tests {
     fn test_bytes_roundtrip() {
         let rng = &mut ChaCha8Rng::seed_from_u64(12);
         let sk = PrivateKey::generate(rng);
-        let sk_bytes = sk.as_bytes();
 
-        assert_eq!(sk_bytes.len(), 32);
-        assert_eq!(PrivateKey::from_bytes(&sk_bytes).unwrap(), sk);
+        let secret_key_bytes = sk.as_bytes();
+
+        assert_eq!(secret_key_bytes.len(), 32);
+        assert_eq!(PrivateKey::from_bytes(&secret_key_bytes).unwrap(), sk);
 
         let pk = sk.public_key();
         let pk_bytes = pk.as_bytes();
@@ -328,21 +294,13 @@ mod tests {
     fn test_key_gen() {
         let key_material = "hello world (it's a secret!) very secret stuff";
         let fr_val = key_gen(key_material);
-        // #[cfg(feature = "blst")]
-        // let expect = Scalar::from_u64s_le(&[
-        //     0x8a223b0f9e257f7d,
-        //     0x2d80f7b7f5ea6cc4,
-        //     0xcc9e063a0ea0009c,
-        //     0x4a73baed5cb75109,
-        // ])
-        // .unwrap();
 
         #[cfg(feature = "pairing")]
         let expect = Scalar::from_raw([
-            0xa9f8187b89e6d49a,
-            0xf870f34063ce4b16,
-            0xc2aa3c1fff1bbaa3,
-            0x60417787ee46e23f,
+            0xa9f8_187b_89e6_d49a,
+            0xf870_f340_63ce_4b16,
+            0xc2aa_3c1f_ff1b_baa3,
+            0x6041_7787_ee46_e23f,
         ]);
 
         assert_eq!(fr_val, expect);

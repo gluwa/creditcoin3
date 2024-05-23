@@ -437,10 +437,6 @@ pub mod pallet {
             call: &Self::Call,
             data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
-            log::info!("💥💥💥 Enter inherent data check 💥💥💥");
-
-            // data is empty here, so we need to fetch the inherent information from `call`
-
             if let Call::commit_attestation { attestation } = call {
                 if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
                     if digest == attestation.attestation_data.digest() {
@@ -472,7 +468,6 @@ pub mod pallet {
 
                 log::info!("Attestation signature is valid");
             } else {
-                log::error!("💥💥💥attestation data is somehow empty/none💥💥💥");
                 return Err(InherentError::NotValid);
             }
 
