@@ -25,7 +25,6 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
-    #[cfg(not(test))]
     use proof_verifier::host_api::verify_proof;
     use prover_primitives::claim::Claim;
     use sp_runtime::traits::{Hash, SaturatedConversion};
@@ -273,7 +272,6 @@ pub mod pallet {
             // Verify proof
             // Need to find a way to generate a proof in test mode and verify it
             // Currently not really implemented
-            #[cfg(not(test))]
             ensure!(
                 verify_proof(proof.clone()),
                 Error::<T>::InvalidProofSubmitted

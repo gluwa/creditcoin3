@@ -73,4 +73,5 @@ std = [
 	"sp-io/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"pallet-supported-chains/std",
 ]
