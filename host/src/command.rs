@@ -16,7 +16,7 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
 
     // this code can be called from any directory within this project.
     // Here we find $PROJECT_ROOT/host/stone_verifier/cpu_air_verifier (where the stone verifier binary is located)
-    // TODO: make building creditcoin3 also build the cpu_air_verifier and it to the path so we can drop this locator
+    // TODO: make building creditcoin3 also build the cpu_air_verifier and add it to the path so we can drop this locator
     let project_root = find_project_root().ok_or("Could not find project root")?;
     let verifier_path = project_root.join(VERIFIER_COMMAND);
     log::debug!("verifier bin path: {:?}", verifier_path);
