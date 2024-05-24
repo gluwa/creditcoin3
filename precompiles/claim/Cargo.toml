@@ -52,6 +52,7 @@ sha3 = { workspace = true }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 
 pallet-supported-chains = { workspace = true }
+env_logger = { workspace = true }
 
 [features]
 default = ["std"]

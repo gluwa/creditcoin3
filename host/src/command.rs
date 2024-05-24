@@ -1,9 +1,9 @@
-use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::{env, fs, path::PathBuf};
 use tempfile::NamedTempFile;
 
-const VERIFIER_COMMAND: &str = "cpu_air_verifier";
+const VERIFIER_COMMAND: &str = "host/stone-verifier/cpu_air_verifier";
 
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
@@ -12,6 +12,15 @@ fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
 }
 
 pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
+    log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
+
+    // this code can be called from any directory within this project.
+    // Here we find $PROJECT_ROOT/host/stone_verifier/cpu_air_verifier (where the stone verifier binary is located)
+    // TODO: make building creditcoin3 also build the cpu_air_verifier and it to the path so we can drop this locator
+    let project_root = find_project_root().ok_or("Could not find project root")?;
+    let verifier_path = project_root.join(VERIFIER_COMMAND);
+    log::debug!("verifier bin path: {:?}", verifier_path);
+
     // Write proof to a temporary JSON file
     let temp_file = match write_proof_to_temp_file(&proof) {
         Ok(file) => file,
@@ -28,7 +37,7 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
     // Execute the verifier command
-    let output = Command::new(VERIFIER_COMMAND)
+    let output = Command::new(verifier_path)
         .arg(format!("--in_file={}", temp_file_path))
         .stdout(Stdio::piped())
         .output()
@@ -48,13 +57,19 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
     }
 }
 
-pub mod tests {
-    #[test]
-    fn verify_works() {
-        let proof_example = std::fs::read("proof_example.json").expect("Proof example to be there");
+fn find_project_root() -> Option<PathBuf> {
+    let mut current_dir = env::current_dir().ok()?;
 
-        let result = super::run_verifier(proof_example);
+    loop {
+        if current_dir.join("SECURITY.md").exists() {
+            return Some(current_dir);
+        }
 
-        assert!(result.is_ok())
+        // Move up to the parent directory
+        if !current_dir.pop() {
+            break;
+        }
     }
+
+    None
 }

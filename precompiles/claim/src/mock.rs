@@ -253,6 +253,9 @@ impl ExtBuilder {
     }
 
     pub(crate) fn build(self) -> sp_io::TestExternalities {
+        // Init env logger to see logs in debug mode
+        let _ = env_logger::try_init();
+
         let mut t = frame_system::GenesisConfig::<Runtime>::default()
             .build_storage()
             .expect("Frame system builds valid default genesis config");

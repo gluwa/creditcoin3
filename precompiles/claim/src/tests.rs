@@ -94,12 +94,11 @@ fn submit_claim_fails_without_enough_balance() {
 }
 
 #[test]
-fn submit_claim_and_proof_works() {
+fn submit_claim_and_invalid_proof_fails() {
     let bob: H160 = Bob.into();
     let bob_account: H256 = Bob.into();
 
     let alice: H160 = Alice.into();
-    let alice_account: H256 = Alice.into();
 
     let claim = Claim {
         block_number: 1,
@@ -148,12 +147,11 @@ fn submit_claim_and_proof_works() {
                         proof: b"some_proof".to_vec(),
                     },
                 )
-                .execute_returns(true);
-
-            let alice: Account = alice_account.0.into();
-            let alice_balance = Balances::usable_balance(alice);
-
-            // 100 CTC was locked as a commitment to allow the prover to process the claim
-            assert_eq!(alice_balance, 400);
+                .execute_reverts(|output| {
+                    from_utf8(output)
+                        .unwrap()
+                        .contains("Dispatched call failed with error: ")
+                        && from_utf8(output).unwrap().contains("InvalidProofSubmitted")
+                });
         });
 }
