@@ -77,8 +77,6 @@ pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
-pallet-evm-precompile-substrate-transfer = { workspace = true }
-
 # Tracing
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }

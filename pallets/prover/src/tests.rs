@@ -97,7 +97,7 @@ fn create_claim_works() {
 }
 
 #[test]
-fn create_claim_twice_after_proof_submission_works() {
+fn submit_invalid_proof_fails() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
             block_number: 1,
@@ -112,13 +112,14 @@ fn create_claim_twice_after_proof_submission_works() {
 
         let claim_hash = <Test as Config>::Hashing::hash_of(&claim);
 
-        assert_ok!(ProverModule::submit_proof(
-            prover_configured_in_genesis(),
-            claim_hash,
-            b"some_proof".to_vec()
-        ));
-
-        assert_ok!(ProverModule::submit_claim(claimer_1(), claim.clone(),));
+        assert_err!(
+            ProverModule::submit_proof(
+                prover_configured_in_genesis(),
+                claim_hash,
+                b"some_proof".to_vec()
+            ),
+            Error::<Test>::InvalidProofSubmitted
+        );
     })
 }
 

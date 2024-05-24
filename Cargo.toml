@@ -186,9 +186,6 @@ pallet-supported-chains = { path = "pallets/supported-chains", default-features 
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 pallet-evm-precompile-claim = { path = "precompiles/claim", default-features = false }
 
-# Precompiles
-pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
-
 # Tracing
 evm-gasometer = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
 evm-runtime = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
