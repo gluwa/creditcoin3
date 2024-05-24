@@ -25,9 +25,9 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
-    use prover_primitives::claim::Claim;
-    // use prover_primitives::host_api::verify_proof;
+    #[cfg(not(test))]
     use proof_verifier::host_api::verify_proof;
+    use prover_primitives::claim::Claim;
     use sp_runtime::traits::{Hash, SaturatedConversion};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -267,13 +267,16 @@ pub mod pallet {
                 Error::<T>::ProverNotExists
             );
 
-            // TODO: How to even validate if this proof is good?
+            // Pre eliminary check
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
 
-            let proof_is_valid = verify_proof(proof.clone());
-            log::info!(
-                "Verified the proof using runtime interface, is valid {:?}",
-                proof_is_valid
+            // Verify proof
+            // Need to find a way to generate a proof in test mode and verify it
+            // Currently not really implemented
+            #[cfg(not(test))]
+            ensure!(
+                verify_proof(proof.clone()),
+                Error::<T>::InvalidProofSubmitted
             );
 
             let prover_claims = ProverClaims::<T>::get(&prover);
