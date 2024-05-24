@@ -9,8 +9,16 @@ const CC3TEST_PRIVATE_KEY = vars.get("CC3TEST_PRIVATE_KEY");
 const config: HardhatUserConfig = {
   solidity: "0.8.24",
   networks: {
+    creditcoin_devnet: {
+      url: "https://rpc.cc3-devnet.creditcoin.network",
+      accounts: [CC3TEST_PRIVATE_KEY]
+    },
     creditcoin_testnet: {
       url: "https://rpc.cc3-testnet.creditcoin.network",
+      accounts: [CC3TEST_PRIVATE_KEY]
+    },
+    creditcoin_mainnet: {
+      url: "https://rpc.cc3-mainnet.creditcoin.network",
       accounts: [CC3TEST_PRIVATE_KEY]
     }
   }
