@@ -32,7 +32,7 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
         .arg(format!("--in_file={}", temp_file_path))
         .stdout(Stdio::piped())
         .output()
-        .map_err(|e| format!("Error executing verifier: {}", e.to_string()))?;
+        .map_err(|e| format!("Error executing verifier: {e}"))?;
 
     // Remove the temporary file
     if let Err(e) = fs::remove_file(&path) {
