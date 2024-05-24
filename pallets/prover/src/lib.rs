@@ -408,7 +408,7 @@ pub mod pallet {
                 }
             }
 
-            BalanceOf::<T>::saturated_from(locked_balance)
+            locked_balance
         }
     }
 }
