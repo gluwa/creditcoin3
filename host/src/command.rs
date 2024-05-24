@@ -57,7 +57,7 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
     }
 }
 
-fn find_project_root() -> Option<PathBuf> {
+pub fn find_project_root() -> Option<PathBuf> {
     let mut current_dir = env::current_dir().ok()?;
 
     loop {
@@ -72,4 +72,20 @@ fn find_project_root() -> Option<PathBuf> {
     }
 
     None
+}
+
+pub mod tests {
+    #[test]
+    fn verify_works() {
+        let project_root = crate::command::find_project_root()
+            .ok_or("Could not find project root")
+            .expect("project root to be found");
+        let proof_path = project_root.join("host/stone-verifier/proof_example.json");
+
+        let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
+
+        let result = super::run_verifier(proof_example);
+
+        assert!(result.is_ok())
+    }
 }
