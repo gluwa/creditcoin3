@@ -93,6 +93,42 @@ fn create_claim_works() {
         };
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
+
+        let locked_balance = ProverModule::get_locked_balance(&CLAIMER_1);
+        assert_eq!(locked_balance, 100);
+    })
+}
+
+#[test]
+fn create_multiple_claims_works() {
+    ExtBuilder.build_and_execute(|| {
+        let claim = Claim {
+            block_number: 1,
+            chain_id: 42,
+            tx_index: 154,
+            from: test_account_id20(),
+            to: test_account_id20(),
+            kind: ClaimKind::Tx,
+        };
+
+        assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
+
+        let locked_balance = ProverModule::get_locked_balance(&CLAIMER_1);
+        assert_eq!(locked_balance, 100);
+
+        let claim = Claim {
+            block_number: 15,
+            chain_id: 42,
+            tx_index: 123,
+            from: test_account_id20(),
+            to: test_account_id20(),
+            kind: ClaimKind::Rx,
+        };
+
+        assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
+
+        let locked_balance = ProverModule::get_locked_balance(&CLAIMER_1);
+        assert_eq!(locked_balance, 200);
     })
 }
 

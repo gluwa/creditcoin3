@@ -17,6 +17,7 @@ pub mod pallet {
     use crate::types::{ChainPriceConfiguration, Prover};
     use attestor_primitives::ChainId;
     use frame_support::{
+        dispatch::DispatchResult,
         pallet_prelude::{ValueQuery, *},
         traits::{
             Currency, ExistenceRequirement, LockIdentifier, LockableCurrency, WithdrawReasons,
@@ -27,14 +28,14 @@ pub mod pallet {
     use parity_scale_codec::Codec;
     use proof_verifier::host_api::verify_proof;
     use prover_primitives::claim::Claim;
-    use sp_runtime::traits::{Hash, SaturatedConversion};
+    use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
 
     use prover_primitives::host_api::verify_proof;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         type Address: Codec + Encode + Decode + TypeInfo + Clone + Debug + Eq + PartialEq;
@@ -97,6 +98,11 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
+    #[pallet::storage]
+    #[pallet::getter(fn claim_result_by_hash)]
+    pub type ClaimResultByHash<T: Config> =
+        StorageMap<Hasher = Blake2_128Concat, Key = T::Hash, Value = bool, QueryKind = OptionQuery>;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -141,6 +147,9 @@ pub mod pallet {
             T::Hash,
             Claim<<T as Config>::Address>,
         ),
+
+        ///
+        ClaimVerified(T::Hash, T::AccountId),
     }
 
     #[pallet::error]
@@ -221,20 +230,10 @@ pub mod pallet {
                 .next()
                 .ok_or(Error::<T>::ProverNotExists)?;
 
-            // Get the prover price for a claim on that chain
-            let prover_chain_price =
-                ProversChainPriceConfigurations::<T>::get(&prover.0, claim.chain_id)
-                    .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+            // Lock the funds for this claim
+            Self::lock_for_claim(&source, &claim, &prover.0)?;
 
-            let balance = T::Currency::free_balance(&source);
-            if balance < BalanceOf::<T>::saturated_from(prover_chain_price.price) {
-                return Err(Error::<T>::BalanceToLow.into());
-            };
-
-            // Lock an amount equal to the price
-            let price = LockedBalanceOf::<T>::saturated_from(prover_chain_price.price);
-            T::ClaimLockCurrency::set_lock(LOCK_ID, &source, price, WithdrawReasons::all());
-
+            // Hash the claim
             let claim_hash = <T as Config>::Hashing::hash_of(&claim);
 
             // Insert the claim
@@ -277,6 +276,7 @@ pub mod pallet {
                 Error::<T>::InvalidProofSubmitted
             );
 
+            // Check existence
             let prover_claims = ProverClaims::<T>::get(&prover);
             let claim = prover_claims
                 .get(&claim_hash)
@@ -286,29 +286,129 @@ pub mod pallet {
             let claim_h = <T as Config>::Hashing::hash_of(&claim);
             ensure!(claim_hash == claim_h, Error::<T>::WrongClaimHash);
 
-            // Remove lock
-            // TODO: remove only partially since source can have many claims at the same time
-            let claim_source =
-                ClaimSourceByHash::<T>::get(claim_hash).ok_or(Error::<T>::ClaimNotExists)?;
-            T::ClaimLockCurrency::remove_lock(LOCK_ID, &claim_source);
+            // Unlock funds
+            Self::unlock_for_claim(&prover, claim, &claim_hash)?;
 
-            // Get the prover price for a claim on that chain
-            let prover_chain_price =
-                ProversChainPriceConfigurations::<T>::get(&prover, claim.chain_id)
-                    .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+            // Store result
+            ClaimResultByHash::<T>::insert(claim_hash, true);
 
-            // Transfer this amount to the prover from the source
-            let price = BalanceOf::<T>::saturated_from(prover_chain_price.price);
-            T::Currency::transfer(
-                &claim_source,
-                &prover,
-                price,
-                ExistenceRequirement::KeepAlive,
-            )?;
+            // Deposit event
+            Self::deposit_event(Event::<T>::ClaimVerified(claim_hash, prover));
 
             Ok(())
         }
     }
 
-    impl<T: Config> Pallet<T> {}
+    impl<T: Config> Pallet<T> {
+        pub fn lock_for_claim(
+            source: &T::AccountId,
+            claim: &Claim<<T as Config>::Address>,
+            prover: &T::AccountId,
+        ) -> DispatchResult {
+            // Get the prover price for a claim on that chain
+            let prover_chain_price =
+                ProversChainPriceConfigurations::<T>::get(prover, claim.chain_id)
+                    .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+
+            let balance = T::Currency::free_balance(source);
+            if balance < BalanceOf::<T>::saturated_from(prover_chain_price.price) {
+                return Err(Error::<T>::BalanceToLow.into());
+            };
+
+            let price = BalanceOf::<T>::saturated_from(prover_chain_price.price);
+
+            // Get the locked balance
+            let mut locked_balance = Self::get_locked_balance(source);
+
+            // Update the locked balance
+            // Locked balance + the amount to pay for computing this claim
+            locked_balance = locked_balance
+                .checked_add(&price)
+                .unwrap_or(BalanceOf::<T>::zero());
+
+            // Convert BalanceOf into LockedBalanceOf
+            // Why? I don't know..
+            let locked_balance =
+                LockedBalanceOf::<T>::saturated_from(locked_balance.saturated_into::<u128>());
+
+            log::debug!("locked balance: {:?}", locked_balance);
+            // Extend (or set) the lock
+            <T as Config>::ClaimLockCurrency::extend_lock(
+                LOCK_ID,
+                source,
+                locked_balance,
+                WithdrawReasons::RESERVE,
+            );
+
+            Ok(())
+        }
+
+        pub fn unlock_for_claim(
+            prover: &T::AccountId,
+            claim: &Claim<<T as Config>::Address>,
+            claim_hash: &T::Hash,
+        ) -> DispatchResult {
+            let claim_source =
+                ClaimSourceByHash::<T>::get(claim_hash).ok_or(Error::<T>::ClaimNotExists)?;
+
+            // Get the prover price for a claim on that chain
+            let prover_chain_price =
+                ProversChainPriceConfigurations::<T>::get(prover, claim.chain_id)
+                    .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+
+            // Get locked balance
+            let locked_balance = Self::get_locked_balance(&claim_source);
+
+            // Calculate newly locked balance
+            // Locked balance - the price for the claim
+            let price = BalanceOf::<T>::saturated_from(prover_chain_price.price);
+            let new_locked_balance = locked_balance
+                .checked_sub(&price)
+                .unwrap_or(BalanceOf::<T>::zero());
+
+            // Remove the lock entirely
+            T::ClaimLockCurrency::remove_lock(LOCK_ID, &claim_source);
+
+            // Now transfer
+            T::Currency::transfer(
+                &claim_source,
+                prover,
+                price,
+                ExistenceRequirement::KeepAlive,
+            )?;
+
+            // Convert BalanceOf into LockedBalanceOf
+            // Why? I don't know..
+            let locked_balance =
+                LockedBalanceOf::<T>::saturated_from(new_locked_balance.saturated_into::<u128>());
+
+            // Lock again!
+            // If there were only a better way..
+            <T as Config>::ClaimLockCurrency::set_lock(
+                LOCK_ID,
+                &claim_source,
+                locked_balance,
+                WithdrawReasons::RESERVE,
+            );
+
+            Ok(())
+        }
+
+        // Get the usable balance of an account
+        // This is the balance minus the minimum balance
+        pub fn get_locked_balance(account_id: &T::AccountId) -> BalanceOf<T> {
+            let balance_locks = pallet_balances::pallet::Pallet::<T>::locks(account_id);
+
+            let mut locked_balance = BalanceOf::<T>::zero();
+            // loop over balance and check if the identifier matches the one we have, if so, accumulate
+            for lock in balance_locks {
+                if lock.id == LOCK_ID {
+                    locked_balance +=
+                        BalanceOf::<T>::saturated_from(lock.amount.saturated_into::<u128>());
+                }
+            }
+
+            BalanceOf::<T>::saturated_from(locked_balance)
+        }
+    }
 }
