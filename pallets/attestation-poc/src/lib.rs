@@ -459,7 +459,7 @@ pub mod pallet {
                     .attestors
                     .iter()
                     .map(|pk| {
-                        Attestors::<T>::get(pk).ok_or_else({
+                        Attestors::<T>::get(pk).ok_or_else(||{
                             log::error!("Attestor {:?} not found", pk);
                             InherentError::NotValid
                         })
