@@ -23,7 +23,7 @@ pub type HostFunctions = (
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = (
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-    // prover_primitives::prover_api::HostFunctions,
+    proof_verifier::host_api::HostFunctions,
 );
 
 pub struct TemplateRuntimeExecutor;
