@@ -17,6 +17,8 @@ pub type ChainId = u64;
 /// BLS public keys as bytes
 pub type BlsPublicKey = [u8; 48];
 
+pub type BlsSignature = Vec<u8>;
+
 #[derive(Serialize, Deserialize, Debug, Encode, Decode, PartialEq, Eq)]
 pub struct BlsPublicKeyWrapper(#[serde(with = "serde_bytes")] pub BlsPublicKey);
 
@@ -52,7 +54,7 @@ impl IsFatalError for InherentError {
 pub struct SignedAttestation<H, AccountId> {
     pub attestation_data: AttestationData<H>,
     pub digest: Digest,
-    pub signature: Vec<u8>,
+    pub signature: BlsSignature,
     pub attestors: Vec<AccountId>,
 }
 

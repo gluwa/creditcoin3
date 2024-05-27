@@ -448,28 +448,48 @@ pub mod pallet {
                 }
 
                 // extract the aggregated signature
-                let agg_signature =
-                    &Signature::from_bytes(&attestation.signature).unwrap_or(Signature::default());
+                let agg_signature = match Signature::from_bytes(&attestation.signature) {
+                    Ok(agg_signature) => agg_signature,
+                    Err(_) => {
+                        log::error!("Failed to aggregate BLS signature");
+                        return Err(InherentError::NotValid);
+                    }
+                };
 
                 // gather attestor bls keys
                 let attestor_public_keys = attestation
                     .attestors
                     .iter()
-                    .map(|pk| Attestors::<T>::get(pk).unwrap_or([0; 48]))
-                    .map(|pk| PublicKey::from_bytes(&pk[..]).unwrap_or(PublicKey::default()))
-                    .collect::<Vec<_>>();
+                    .map(|pk| {
+                        Attestors::<T>::get(pk).ok_or({
+                            log::error!("Attestor {:?} not found", pk);
+                            InherentError::NotValid
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .iter()
+                    .map(|pk| {
+                        PublicKey::from_bytes(&pk[..]).map_err(|_| {
+                            log::error!("Invalid BLS key");
+                            InherentError::NotValid
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 // aggregate bls keys
                 let aggregated_public_key = match aggregate_public_keys(&attestor_public_keys[..]) {
                     Ok(aggregated_public_key) => aggregated_public_key,
-                    Err(_) => return Err(InherentError::NotValid),
+                    Err(_) => {
+                        log::error!("Failed to aggregate public keys");
+                        return Err(InherentError::NotValid);
+                    }
                 };
 
                 let message = &attestation.attestation_data.serialize()[..];
 
                 // Verify the aggregated signature
-                if !bls_signatures::verify_aggregated_signatures_on_same_message(
-                    agg_signature,
+                if !bls_signatures::verify_agg_message(
+                    &agg_signature,
                     message,
                     aggregated_public_key,
                 ) {

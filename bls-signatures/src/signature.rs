@@ -150,11 +150,7 @@ pub fn verify(signature: &Signature, hashes: &[G2Projective], public_keys: &[Pub
 }
 
 #[must_use]
-pub fn verify_aggregated_signatures_on_same_message(
-    signature: &Signature,
-    message: &[u8],
-    public_key: PublicKey,
-) -> bool {
+pub fn verify_agg_message(signature: &Signature, message: &[u8], public_key: PublicKey) -> bool {
     let hash = hash(message);
 
     verify(signature, &[hash], &[public_key])
