@@ -234,6 +234,8 @@ pub mod pallet {
 
         // If there is a duplicate attestation
         AttestationExists,
+
+        InvalidBlsKey,
     }
 
     #[pallet::call]
@@ -435,7 +437,7 @@ pub mod pallet {
 
         fn check_inherent(
             call: &Self::Call,
-            data: &InherentData,
+            _data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
             if let Call::commit_attestation { attestation } = call {
                 if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
@@ -445,15 +447,24 @@ pub mod pallet {
                     }
                 }
 
-                let agg_signature = &Signature::from_bytes(&attestation.signature).unwrap();
+                // extract the aggregated signature
+                let agg_signature =
+                    &Signature::from_bytes(&attestation.signature).unwrap_or(Signature::default());
+
+                // gather attestor bls keys
                 let attestor_public_keys = attestation
                     .attestors
                     .iter()
-                    .map(|pk| PublicKey::from_bytes(pk).unwrap())
-                    .collect::<Vec<PublicKey>>();
+                    .map(|pk| Attestors::<T>::get(pk).unwrap_or([0; 48]))
+                    .map(|pk| PublicKey::from_bytes(&pk[..]).unwrap_or(PublicKey::default()))
+                    .collect::<Vec<_>>();
 
-                let aggregated_public_key =
-                    aggregate_public_keys(&attestor_public_keys[..]).unwrap();
+                // aggregate bls keys
+                let aggregated_public_key = match aggregate_public_keys(&attestor_public_keys[..]) {
+                    Ok(aggregated_public_key) => aggregated_public_key,
+                    Err(_) => return Err(InherentError::NotValid),
+                };
+
                 let message = &attestation.attestation_data.serialize()[..];
 
                 // Verify the aggregated signature
@@ -471,12 +482,6 @@ pub mod pallet {
                 return Err(InherentError::NotValid);
             }
 
-            // Not sure if this is doing anything
-            let _inherent_data = data
-                .get_data::<SignedAttestation<T::Hash, T::AccountId>>(&INHERENT_IDENTIFIER)
-                .expect("Timestamp inherent data not correctly encoded");
-
-            log::info!("💥💥💥 Exit inherent data check 💥💥💥");
             Ok(())
         }
 

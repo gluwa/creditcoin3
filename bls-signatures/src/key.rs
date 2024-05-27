@@ -23,7 +23,7 @@ use crate::signature::{hash, verify_messages, Signature};
 pub(crate) const G1_COMPRESSED_SIZE: usize = 48;
 
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct PublicKey(pub(crate) G1Projective);
 
 #[allow(clippy::module_name_repetitions)]

@@ -57,8 +57,10 @@ where
     /// Block attestations. Maps a blocknumber to a list of valid attestations
     pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
 
+    /// Raw block attestations. Maps a blocknumber to a list of actual attestations, not digests
     pub block_attestations_raw:
-        HashMap<(ChainId, BlockNumber), Vec<(Vec<u8>, Attestation<HashFor<B>, AccountId>)>>,
+        HashMap<(ChainId, BlockNumber), Vec<(AccountId, Attestation<HashFor<B>, AccountId>)>>,
+
     /// Inherent data providers
     #[allow(dead_code)]
     pub create_inherent_data_providers: CIDP,
@@ -330,12 +332,10 @@ where
         );
 
         if let Some(raw_attestations) = self.block_attestations_raw.get_mut(&k) {
-            raw_attestations.push((attestation.attestor_bls_pubkey.clone(), attestation.clone()));
+            raw_attestations.push((attestation.attestor.clone(), attestation.clone()));
         } else {
-            self.block_attestations_raw.insert(
-                k,
-                vec![(attestation.attestor_bls_pubkey.clone(), attestation.clone())],
-            );
+            self.block_attestations_raw
+                .insert(k, vec![(attestation.attestor.clone(), attestation.clone())]);
         };
 
         let attestor_id = AttestorId(AccountId32::from(attestation.attestor.clone().into()));
@@ -415,7 +415,6 @@ where
             signature: aggregated_signature.as_bytes(),
             digest: major_digest,
             attestors,
-            _phantom: Default::default(),
         });
 
         // Update best attestation

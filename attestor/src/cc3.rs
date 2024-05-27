@@ -334,7 +334,6 @@ where
         let attestation = Attestation {
             attestation_data: msg.attestation,
             attestor: self.get_attestor_id(),
-            attestor_bls_pubkey: self.get_bls_pubkey().unwrap().to_vec(),
             topic: Topic::new(1),
             vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),

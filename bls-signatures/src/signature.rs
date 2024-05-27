@@ -18,7 +18,7 @@ use crate::key::{PublicKey, Serialize};
 const CSUITE: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 const G2_COMPRESSED_SIZE: usize = 96;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub struct Signature(G2Affine);
 
 impl From<G2Projective> for Signature {
