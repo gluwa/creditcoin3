@@ -326,17 +326,11 @@ pub mod pallet {
                 .checked_add(&price)
                 .unwrap_or(BalanceOf::<T>::zero());
 
-            // Convert BalanceOf into LockedBalanceOf
-            // Why? I don't know..
-            let locked_balance =
-                LockedBalanceOf::<T>::saturated_from(locked_balance.saturated_into::<u128>());
-
-            log::debug!("locked balance: {:?}", locked_balance);
             // Extend (or set) the lock
             <T as Config>::ClaimLockCurrency::extend_lock(
                 LOCK_ID,
                 source,
-                locked_balance,
+                LockedBalanceOf::<T>::saturated_from(locked_balance.saturated_into::<u128>()),
                 WithdrawReasons::RESERVE,
             );
 
@@ -366,8 +360,13 @@ pub mod pallet {
                 .checked_sub(&price)
                 .unwrap_or(BalanceOf::<T>::zero());
 
-            // Remove the lock entirely
-            T::ClaimLockCurrency::remove_lock(LOCK_ID, &claim_source);
+            // Set the newly locked balance
+            <T as Config>::ClaimLockCurrency::set_lock(
+                LOCK_ID,
+                &claim_source,
+                LockedBalanceOf::<T>::saturated_from(new_locked_balance.saturated_into::<u128>()),
+                WithdrawReasons::RESERVE,
+            );
 
             // Now transfer
             T::Currency::transfer(
@@ -376,20 +375,6 @@ pub mod pallet {
                 price,
                 ExistenceRequirement::KeepAlive,
             )?;
-
-            // Convert BalanceOf into LockedBalanceOf
-            // Why? I don't know..
-            let locked_balance =
-                LockedBalanceOf::<T>::saturated_from(new_locked_balance.saturated_into::<u128>());
-
-            // Lock again!
-            // If there were only a better way..
-            <T as Config>::ClaimLockCurrency::set_lock(
-                LOCK_ID,
-                &claim_source,
-                locked_balance,
-                WithdrawReasons::RESERVE,
-            );
 
             Ok(())
         }
