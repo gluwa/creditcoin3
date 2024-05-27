@@ -2331,6 +2331,7 @@ dependencies = [
  "sp-runtime",
  "starknet-crypto",
  "substrate-prometheus-endpoint",
+ "supported-chains-primitives",
  "thiserror",
 ]
 
@@ -2476,6 +2477,7 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
+ "supported-chains-primitives",
  "thiserror",
  "tokio",
 ]

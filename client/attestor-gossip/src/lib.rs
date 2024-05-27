@@ -18,6 +18,7 @@ use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
+use supported_chains_primitives::api::SupportedChainsApi;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
 
@@ -71,6 +72,8 @@ pub enum Error {
     InvalidBlsSignature,
     #[error("Invalid sr signature")]
     InvalidSrSignature,
+    #[error("Chain not supported")]
+    ChainNotSupported,
     #[error("Sp api error")]
     SpApiError(#[from] sp_api::ApiError),
 }
@@ -183,6 +186,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     R: ProvideRuntimeApi<B> + Send + Sync + 'static,
     R::Api: BabeApi<B>,
     R::Api: AttestorApi<B, AccountId>,
+    R::Api: SupportedChainsApi<B>,
     N: GossipNetwork<B> + Send + Sync + 'static,
     S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,

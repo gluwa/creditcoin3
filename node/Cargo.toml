@@ -104,6 +104,7 @@ creditcoin3-rpc-trace = { workspace = true }
 creditcoin3-attestor-rpc = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }

@@ -249,6 +249,9 @@ pub mod pallet {
 
         // Bls public key is invalid
         InvalidBlsPublicKey,
+
+        /// The chain is not supported
+        ChainNotSupported,
     }
 
     #[pallet::call]
@@ -391,6 +394,11 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_root(origin)?;
 
+            ensure!(
+                !T::SupportedChains::is_chain_supported(chain_id),
+                Error::<T>::ChainNotSupported
+            );
+
             let digest = attestation.digest;
             LastDigest::<T>::set(chain_id, Some(digest));
 
@@ -416,6 +424,11 @@ pub mod pallet {
                 debug!("First attestation for chain, otherwise something is wrong");
                 attestation.digest
             };
+
+            ensure!(
+                !T::SupportedChains::is_chain_supported(attestation.chain_id()),
+                Error::<T>::ChainNotSupported
+            );
 
             let attestation_insert = Attestation::new(attestation.clone(), digest);
             Attestations::<T>::insert(attestation.chain_id(), digest, &attestation_insert);
@@ -451,6 +464,13 @@ pub mod pallet {
                         return None;
                     }
                 };
+                if !T::SupportedChains::is_chain_supported(attestation.chain_id()) {
+                    log::error!(
+                        "Chain with id: {:?} is not supported",
+                        attestation.chain_id()
+                    );
+                    return None;
+                }
 
                 Some(Call::commit_attestation { attestation })
             } else {

@@ -47,6 +47,30 @@ impl supported_chains::Config for Test {
     type WeightInfo = supported_chains::weights::WeightInfo<Test>;
 }
 
+#[derive(Default)]
+pub struct ExtBuilder;
+
+impl ExtBuilder {
+    pub fn with_supported_chains(self) -> sp_io::TestExternalities {
+        let mut storage = frame_system::GenesisConfig::<Test>::default()
+            .build_storage()
+            .unwrap();
+
+        let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],
+            _phantom: Default::default(),
+        };
+
+        pallet_genesis.assimilate_storage(&mut storage).unwrap();
+
+        storage.into()
+    }
+
+    pub fn build_and_execute(self, test: impl FnOnce()) {
+        self.with_supported_chains().execute_with(test);
+    }
+}
+
 pub fn new_test_ext() -> sp_io::TestExternalities {
     frame_system::GenesisConfig::<Test>::default()
         .build_storage()

@@ -23,13 +23,10 @@ fn register_chain_works() {
 
 #[test]
 fn register_duplicate_chain_returns_error() {
-    new_test_ext().execute_with(|| {
+    ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-
         let chain_id = 1;
         let chain_name = "Ethereum".to_string();
-
-        let _ = SupportedChain::register_chain(RuntimeOrigin::root(), chain_id, chain_name.clone());
 
         assert_noop!(
             SupportedChain::register_chain(RuntimeOrigin::root(), chain_id, chain_name),
@@ -40,21 +37,8 @@ fn register_duplicate_chain_returns_error() {
 
 #[test]
 fn remove_chain_works() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(1);
-
+    ExtBuilder.build_and_execute(|| {
         let chain_id = 1;
-        let chain_name = "Ethereum".to_string();
-
-        assert_ok!(SupportedChain::register_chain(
-            RuntimeOrigin::root(),
-            chain_id,
-            chain_name.clone()
-        ));
-        assert_eq!(
-            SupportedChains::<Test>::get(chain_id),
-            Some(chain_name.clone().as_bytes().to_vec())
-        );
 
         assert_ok!(SupportedChain::remove_chain(
             RuntimeOrigin::root(),
@@ -99,17 +83,10 @@ fn test_method_supported_chains() {
 
 #[test]
 fn test_function_is_chain_supported() {
-    new_test_ext().execute_with(|| {
+    ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
         let chain_id = 1;
-        let chain_name = "Ethereum".to_string();
-
-        assert_ok!(SupportedChain::register_chain(
-            RuntimeOrigin::root(),
-            chain_id,
-            chain_name.clone()
-        ));
 
         let is_supported = SupportedChain::is_chain_supported(chain_id);
         assert!(is_supported);

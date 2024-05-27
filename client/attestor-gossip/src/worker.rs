@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use supported_chains_primitives::api::SupportedChainsApi;
 
 use crate::{Client, HashFor, LOG_TARGET};
 
@@ -37,6 +38,7 @@ where
     RuntimeApi: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RuntimeApi::Api: BabeApi<B>,
     RuntimeApi::Api: AttestorApi<B, AccountId>,
+    RuntimeApi::Api: SupportedChainsApi<B>,
     BE: Backend<B> + 'static,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
@@ -75,6 +77,7 @@ where
     RuntimeApi: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RuntimeApi::Api: BabeApi<B>,
     RuntimeApi::Api: AttestorApi<B, AccountId>,
+    RuntimeApi::Api: SupportedChainsApi<B>,
     BE: Backend<B> + 'static,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
@@ -104,6 +107,7 @@ where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: BabeApi<B>,
     RA::Api: AttestorApi<B, AccountId>,
+    RA::Api: SupportedChainsApi<B>,
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
@@ -389,6 +393,16 @@ where
         attestation: Attestation<HashFor<B>, AccountId>,
         block_hash: HashFor<B>,
     ) -> Option<SignedAttestation<HashFor<B>, AccountId>> {
+        let runtime = self.runtime.runtime_api();
+        let is_chain_supported = runtime
+            .is_chain_supported(block_hash, attestation.attestation_data.chain_id)
+            .ok()?;
+
+        if !is_chain_supported {
+            info!(target: LOG_TARGET, "📝 Chain is not supported, attestation rejected");
+            return None;
+        }
+
         let k = (
             attestation.attestation_data.chain_id,
             attestation.attestation_data.header_number,
@@ -397,7 +411,6 @@ where
         let attestations = self.block_attestations.get(&k).unwrap();
         let (major_digest, major_count) = find_major_digest(attestations);
 
-        let runtime = self.runtime.runtime_api();
         let threshold = runtime.comittee_set_size(block_hash).unwrap_or(0);
 
         // If we can't find a majority voting on the same digest, we can't continue

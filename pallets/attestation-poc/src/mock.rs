@@ -119,6 +119,12 @@ impl ExtBuilder {
         };
         b.assimilate_storage(&mut t).unwrap();
 
+        let chains = pallet_supported_chains::GenesisConfig::<Test> {
+            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],
+            _phantom: Default::default(),
+        };
+        chains.assimilate_storage(&mut t).unwrap();
+
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             comittee_set_size: DEFAULT_COMITTEE_SET_SIZE,
             invulnerables: vec![(ATTESTOR_3, BlsPublicKeyWrapper(VALID_BLS_PUBLIC_KEY))],

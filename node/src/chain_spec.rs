@@ -22,7 +22,7 @@ use sp_state_machine::BasicExternalities;
 use creditcoin3_runtime::{
     opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping,
     AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig,
-    SS58Prefix, SessionConfig, Signature, StakingConfig, WASM_BINARY,
+    SS58Prefix, SessionConfig, Signature, StakingConfig, SupportedChainsConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -467,8 +467,14 @@ fn testnet_genesis(
         attestation: AttestationConfig {
             comittee_set_size,
             invulnerables: attestation_invulnerables,
-            supported_chains,
+            supported_chains: supported_chains.clone(),
         },
-        supported_chains: Default::default(),
+        supported_chains: SupportedChainsConfig {
+            supported_chains: vec![
+                (1, "Ethereum".as_bytes().to_vec()),
+                (31337, "Test_chain_for_attestations".as_bytes().to_vec()),
+            ],
+            _phantom: Default::default(),
+        },
     }
 }

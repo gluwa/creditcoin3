@@ -55,7 +55,7 @@ pub mod pallet {
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T> {
         pub supported_chains: Vec<(ChainId, Vec<u8>)>,
-        _phantom: PhantomData<T>,
+        pub _phantom: PhantomData<T>,
     }
 
     #[pallet::genesis_build]

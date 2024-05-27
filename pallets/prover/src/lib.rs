@@ -171,6 +171,8 @@ pub mod pallet {
         InvalidProofSubmitted,
 
         BalanceToLow,
+
+        ChainNotSupported,
     }
 
     #[pallet::call]
@@ -224,6 +226,11 @@ pub mod pallet {
             claim: Claim<<T as Config>::Address>,
         ) -> DispatchResult {
             let source = ensure_signed(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(claim.chain_id),
+                Error::<T>::ChainNotSupported
+            );
 
             // Take a prover from the list of provers
             let prover = Provers::<T>::iter()

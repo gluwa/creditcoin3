@@ -70,6 +70,7 @@ pub trait RuntimeApiCollection:
     + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
     + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
     + attestor_primitives::api::AttestorApi<Block, AccountId>
+    + supported_chains_primitives::api::SupportedChainsApi<Block>
 {
 }
 
@@ -81,5 +82,6 @@ impl<Api> RuntimeApiCollection for Api where
         + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
         + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
         + attestor_primitives::api::AttestorApi<Block, AccountId>
+        + supported_chains_primitives::api::SupportedChainsApi<Block>
 {
 }

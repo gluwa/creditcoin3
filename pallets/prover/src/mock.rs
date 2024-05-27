@@ -131,6 +131,16 @@ impl ExtBuilder {
         .assimilate_storage(&mut t)
         .expect("Pallet prover storage can be assimilated");
 
+        let chains = pallet_supported_chains::GenesisConfig::<Test> {
+            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],
+            _phantom: Default::default(),
+        };
+        chains.assimilate_storage(&mut t).unwrap();
+
+        // let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+        // };
+        // pallet_genesis.assimilate_storage(&mut t).unwrap();
+
         t.into()
     }
 
