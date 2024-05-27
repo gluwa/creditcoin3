@@ -18,6 +18,7 @@ pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExe
 pub type HostFunctions = (
     frame_benchmarking::benchmarking::HostFunctions,
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+    proof_verifier::host_api::HostFunctions,
 );
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
