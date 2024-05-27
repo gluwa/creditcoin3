@@ -269,11 +269,17 @@ impl ExtBuilder {
         pallet_prover::GenesisConfig::<Runtime> {
             provers: vec![(
                 Account::Alice,
-                vec![(42, ChainPriceConfiguration { price: 100 })],
+                vec![(1, ChainPriceConfiguration { price: 100 })],
             )],
         }
         .assimilate_storage(&mut t)
         .expect("Pallet prover storage can be assimilated");
+
+        let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
+            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],
+            _phantom: Default::default(),
+        };
+        chains.assimilate_storage(&mut t).unwrap();
 
         let mut ext = sp_io::TestExternalities::new(t);
         ext.execute_with(|| System::set_block_number(1));

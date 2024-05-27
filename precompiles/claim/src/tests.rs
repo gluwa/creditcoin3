@@ -24,7 +24,7 @@ fn submit_claim_works() {
 
     let claim = Claim {
         block_number: 1,
-        chain_id: 42,
+        chain_id: 1,
         tx_index: 123,
         to: alice,
         from: bob,
@@ -76,7 +76,7 @@ fn submit_claim_fails_without_enough_balance() {
                     Precompile,
                     PCall::submit_claim {
                         block_number: 1,
-                        chain_id: 42,
+                        chain_id: 1,
                         tx_index: 123,
                         to: Address(alice),
                         from: Address(bob),
@@ -102,7 +102,7 @@ fn submit_claim_and_invalid_proof_fails() {
 
     let claim = Claim {
         block_number: 1,
-        chain_id: 42,
+        chain_id: 1,
         tx_index: 123,
         to: alice,
         from: bob,
