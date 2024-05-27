@@ -448,20 +448,18 @@ pub mod pallet {
                 }
 
                 // extract the aggregated signature
-                let agg_signature = match Signature::from_bytes(&attestation.signature) {
-                    Ok(agg_signature) => agg_signature,
-                    Err(_) => {
+                let agg_signature =
+                    Signature::from_bytes(&attestation.signature).map_err(|_| {
                         log::error!("Failed to aggregate BLS signature");
-                        return Err(InherentError::NotValid);
-                    }
-                };
+                        InherentError::NotValid
+                    })?;
 
                 // gather attestor bls keys
                 let attestor_public_keys = attestation
                     .attestors
                     .iter()
                     .map(|pk| {
-                        Attestors::<T>::get(pk).ok_or({
+                        Attestors::<T>::get(pk).ok_or_else({
                             log::error!("Attestor {:?} not found", pk);
                             InherentError::NotValid
                         })
@@ -477,13 +475,11 @@ pub mod pallet {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 // aggregate bls keys
-                let aggregated_public_key = match aggregate_public_keys(&attestor_public_keys[..]) {
-                    Ok(aggregated_public_key) => aggregated_public_key,
-                    Err(_) => {
+                let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..])
+                    .map_err(|_| {
                         log::error!("Failed to aggregate public keys");
-                        return Err(InherentError::NotValid);
-                    }
-                };
+                        InherentError::NotValid
+                    })?;
 
                 let message = &attestation.attestation_data.serialize()[..];
 

@@ -408,11 +408,13 @@ where
             .map(|WrapEncode(sig)| *sig)
             .collect::<Vec<_>>();
 
-        let aggregated_signature = aggregate(&sigs[..]).expect("Failed to aggregate signatures");
+        let aggregated_signature = aggregate(&sigs[..])
+            .ok()
+            .and_then(|sig| sig.as_bytes().try_into().ok())?;
 
         let res = Some(SignedAttestation {
             attestation_data: attestation.clone().attestation_data,
-            signature: aggregated_signature.as_bytes(),
+            signature: aggregated_signature,
             digest: major_digest,
             attestors,
         });

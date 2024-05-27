@@ -17,7 +17,7 @@ pub type ChainId = u64;
 /// BLS public keys as bytes
 pub type BlsPublicKey = [u8; 48];
 
-pub type BlsSignature = Vec<u8>;
+pub type BlsSignature = [u8; 96];
 
 #[derive(Serialize, Deserialize, Debug, Encode, Decode, PartialEq, Eq)]
 pub struct BlsPublicKeyWrapper(#[serde(with = "serde_bytes")] pub BlsPublicKey);
