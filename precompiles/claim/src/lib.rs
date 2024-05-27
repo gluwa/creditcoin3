@@ -49,12 +49,13 @@ where
     ) -> EvmResult<H256> {
         handle.record_log_costs_manual(3, 32)?;
 
+        // TODO: handle the case where it's both tx & rx
         let kind = if is_tx {
             ClaimKind::Tx
         } else if is_rx {
             ClaimKind::Rx
         } else {
-            ClaimKind::Tx
+            return Err(revert("Must be either Tx or Rx"));
         };
 
         let claim = Claim {

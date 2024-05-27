@@ -155,3 +155,83 @@ fn submit_claim_and_invalid_proof_fails() {
                 });
         });
 }
+
+#[test]
+fn submit_invalid_claim_fails() {
+    let bob: H160 = Bob.into();
+
+    let alice: H160 = Alice.into();
+
+    let claim = Claim {
+        block_number: 1,
+        chain_id: 1,
+        tx_index: 123,
+        to: alice,
+        from: bob,
+        kind: ClaimKind::Rx,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300), (bob.into(), 101)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    bob,
+                    Precompile,
+                    PCall::submit_claim {
+                        block_number: claim.block_number,
+                        chain_id: claim.chain_id,
+                        tx_index: claim.tx_index,
+                        to: Address(claim.to),
+                        from: Address(claim.from),
+                        // Both false
+                        is_tx: false,
+                        is_rx: false,
+                    },
+                )
+                .execute_reverts(|output| output == b"Must be either Tx or Rx");
+        });
+}
+
+#[test]
+fn submit_claim_for_unsupported_chain_fails() {
+    let bob: H160 = Bob.into();
+
+    let alice: H160 = Alice.into();
+
+    let claim = Claim {
+        block_number: 1,
+        chain_id: 11111,
+        tx_index: 123,
+        to: alice,
+        from: bob,
+        kind: ClaimKind::Rx,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300), (bob.into(), 101)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    bob,
+                    Precompile,
+                    PCall::submit_claim {
+                        block_number: claim.block_number,
+                        chain_id: claim.chain_id,
+                        tx_index: claim.tx_index,
+                        to: Address(claim.to),
+                        from: Address(claim.from),
+                        is_tx: claim.kind == ClaimKind::Tx,
+                        is_rx: claim.kind == ClaimKind::Rx,
+                    },
+                )
+                .execute_reverts(|output| {
+                    from_utf8(output)
+                        .unwrap()
+                        .contains("Dispatched call failed with error: ")
+                        && from_utf8(output).unwrap().contains("ChainNotSupported")
+                });
+        });
+}
