@@ -26,6 +26,8 @@ repository = "https://github.com/gluwa/creditcoin3/"
 
 [workspace.dependencies]
 assert_matches = "1.5.0"
+
+# Substrate Client
 async-trait = "0.1"
 clap = { version = "4.5.8", features = ["derive", "deprecated"] }
 derive_more = "0.99"
