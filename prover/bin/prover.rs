@@ -17,8 +17,9 @@ pub struct Attestor {
     #[arg(long, required = true)]
     cc3_key: String,
 
-    // #[arg(long, required = true)]
-    // bls_key: String,
+    #[arg(long, required = true)]
+    nickname: String,
+
     #[arg(short, long)]
     verbose: bool,
 
@@ -44,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eth_rpc_url: args.eth_rpc_url,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
-        //bls_key: args.bls_key[..].try_into().unwrap(),
+        nickname: args.nickname,
     };
 
     let server = Server::new(config);

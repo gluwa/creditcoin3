@@ -1,8 +1,8 @@
 use anyhow::Result;
-// use kameo::{
-// actor::Actor,
-// message::{Context, Message},
-// };
+use kameo::{
+    actor::Actor,
+    // message::{Context, Message},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, error, info};
@@ -72,13 +72,11 @@ impl<'a> Client {
 
     /// Register to the prover pallet
     pub async fn register(&self) -> Result<()> {
-        self.cc_client
-            .register_prover(self.nickname.clone().into())
-            .await
+        self.cc_client.register_prover(self.nickname.clone()).await
     }
 }
 
-// impl Actor for Client {}
+impl Actor for Client {}
 
 // // AttestationSubmit is a message that can be sent to submit an attestation over rpc to the cc3 node
 // // It holds the attestation data to be signed by the attestor before submitting

@@ -1,5 +1,5 @@
 use anyhow::Result;
-// use kameo::spawn;
+use kameo::spawn;
 
 pub mod cc3;
 pub mod eth;
@@ -21,7 +21,7 @@ pub struct Config {
     pub eth_rpc_url: String,
     pub cc3_rpc_url: String,
     pub cc3_key: String,
-    //pub bls_key: [u8; 32],
+    pub nickname: String,
 }
 
 impl Server {
@@ -33,15 +33,15 @@ impl Server {
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&self) -> Result<()> {
-        // let cc3_client = cc3::Client::new(
-        //     &self.config.cc3_rpc_url,
-        //     &self.config.cc3_key,
-        //     //&self.config.bls_key,
-        // )?;
-        // cc3_client.init().await?;
+        let cc3_client = cc3::Client::new(
+            &self.config.cc3_rpc_url,
+            &self.config.cc3_key,
+            &self.config.nickname,
+        )?;
+        cc3_client.init().await?;
 
         // Create an Actor reference for the cc3 client
-        // let cc3_client = spawn(cc3_client);
+        let _cc3_client = spawn(cc3_client);
 
         Ok(())
     }
