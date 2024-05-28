@@ -283,6 +283,10 @@ pub mod pallet {
                 Self::address_is_not_attestor(&who),
                 Error::<T>::AlreadyAttestor
             );
+            ensure!(
+                PublicKey::from_bytes(&bls_public_key[..]).is_ok(),
+                Error::<T>::InvalidBlsPublicKey
+            );
 
             Self::try_insert_attestor_and_emit_event(&who, bls_public_key)
         }
