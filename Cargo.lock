@@ -1891,6 +1891,7 @@ dependencies = [
  "subxt 0.37.0",
  "subxt-signer 0.37.0",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",
 ]

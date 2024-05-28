@@ -19,6 +19,7 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 anyhow = "1.0"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
+tokio = "1.37.0"
 
 # Substrate 
 subxt = "0.37"

@@ -1,10 +1,9 @@
-use std::str::FromStr;
-
 use anyhow::Result;
 use creditcoin3_attestor_gossip::{AttestorId, VrfOutput};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use serde::{Deserialize, Serialize};
 use sp_core::{H256, U256};
+use std::str::FromStr;
 use subxt::utils::AccountId32;
 use subxt::{OnlineClient, SubstrateConfig};
 use subxt_signer::{
@@ -18,6 +17,8 @@ use attestor_primitives::{BlsPublicKey, ChainId, Digest};
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
 pub mod cc3 {}
+
+pub mod claim;
 
 use cc3::runtime_types::pallet_prover::types::Prover;
 
