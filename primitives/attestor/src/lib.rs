@@ -35,7 +35,6 @@ impl BlsPublicKeyWrapper {
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
 #[derive(Encode, Decode, sp_runtime::RuntimeDebug)]
-// #[cfg_attr(feature = "std", derive(Decode))]
 pub enum InherentError {
     NotValid,
     Duplicate(Digest),

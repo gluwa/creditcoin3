@@ -235,7 +235,8 @@ pub mod pallet {
         // If there is a duplicate attestation
         AttestationExists,
 
-        InvalidBlsKey,
+        // Bls public key is invalid
+        InvalidBlsPublicKey,
     }
 
     #[pallet::call]
@@ -439,66 +440,26 @@ pub mod pallet {
             call: &Self::Call,
             _data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
-            if let Call::commit_attestation { attestation } = call {
-                if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
-                    if digest == attestation.attestation_data.digest() {
-                        log::error!("Attestation with digest: {:?} is duplicate", digest);
-                        return Err(InherentError::Duplicate(digest));
-                    }
-                }
-
-                // extract the aggregated signature
-                let agg_signature =
-                    Signature::from_bytes(&attestation.signature).map_err(|_| {
-                        log::error!("Failed to aggregate BLS signature");
-                        InherentError::NotValid
-                    })?;
-
-                // gather attestor bls keys
-                let attestor_public_keys = attestation
-                    .attestors
-                    .iter()
-                    .map(|pk| {
-                        Attestors::<T>::get(pk).ok_or_else(|| {
-                            log::error!("Attestor {:?} not found", pk);
+            match call {
+                Call::commit_attestation { attestation } => {
+                    Pallet::<T>::check_duplicate(attestation)?;
+                    let agg_signature = Pallet::<T>::extract_agg_signature(&attestation.signature)?;
+                    let attestor_public_keys = Pallet::<T>::gather_attestor_public_keys(&attestation.attestors)?;
+                    let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..])
+                        .map_err(|_| {
+                            log::error!("Failed to aggregate public keys");
                             InherentError::NotValid
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .iter()
-                    .map(|pk| {
-                        PublicKey::from_bytes(&pk[..]).map_err(|_| {
-                            log::error!("Invalid BLS key");
-                            InherentError::NotValid
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                        })?;
 
-                // aggregate bls keys
-                let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..])
-                    .map_err(|_| {
-                        log::error!("Failed to aggregate public keys");
-                        InherentError::NotValid
-                    })?;
+                    let message = &attestation.attestation_data.serialize()[..];
 
-                let message = &attestation.attestation_data.serialize()[..];
+                    Pallet::<T>::verify_agg_signature(&agg_signature, message, aggregated_public_key)?;
 
-                // Verify the aggregated signature
-                if !bls_signatures::verify_agg_message(
-                    &agg_signature,
-                    message,
-                    aggregated_public_key,
-                ) {
-                    log::error!("Aggregated signature is invalid");
-                    return Err(InherentError::NotValid);
+                    log::info!("Attestation signature is valid");
+                    Ok(())
                 }
-
-                log::info!("Attestation signature is valid");
-            } else {
-                return Err(InherentError::NotValid);
+                _ => Err(InherentError::NotValid),
             }
-
-            Ok(())
         }
 
         fn is_inherent(call: &Self::Call) -> bool {
@@ -582,6 +543,60 @@ pub mod pallet {
             Invlunerables::<T>::remove(address);
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(address.clone()));
 
+            Ok(())
+        }
+    }
+    // helper functions for checking inherent data
+    impl<T: Config> Pallet<T> {
+        fn check_duplicate(
+            attestation: &SignedAttestation<T::Hash, T::AccountId>,
+        ) -> Result<(), InherentError> {
+            if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
+                if digest == attestation.attestation_data.digest() {
+                    log::error!("Attestation with digest: {:?} is duplicate", digest);
+                    return Err(InherentError::Duplicate(digest));
+                }
+            }
+            Ok(())
+        }
+
+        fn extract_agg_signature(signature: &[u8]) -> Result<Signature, InherentError> {
+            Signature::from_bytes(signature).map_err(|_| {
+                log::error!("Failed to aggregate BLS signature");
+                InherentError::NotValid
+            })
+        }
+
+        fn gather_attestor_public_keys(
+            attestors: &Vec<T::AccountId>,
+        ) -> Result<Vec<PublicKey>, InherentError> {
+            attestors
+                .iter()
+                .map(|attestor| {
+                    Attestors::<T>::get(attestor)
+                        .ok_or_else(|| {
+                            log::error!("Attestor {:?} not found", attestor);
+                            InherentError::NotValid
+                        })
+                        .and_then(|key_bytes| {
+                            PublicKey::from_bytes(&key_bytes[..]).map_err(|_| {
+                                log::error!("Invalid BLS key for attestor {:?}", attestor);
+                                InherentError::NotValid
+                            })
+                        })
+                })
+                .collect()
+        }
+
+        fn verify_agg_signature(
+            agg_signature: &Signature,
+            message: &[u8],
+            agg_public_key: PublicKey,
+        ) -> Result<(), InherentError> {
+            if !bls_signatures::verify_agg_message(agg_signature, message, agg_public_key) {
+                log::error!("Aggregated signature is invalid");
+                return Err(InherentError::NotValid);
+            }
             Ok(())
         }
     }
