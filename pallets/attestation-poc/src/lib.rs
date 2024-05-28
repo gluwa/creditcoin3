@@ -444,7 +444,8 @@ pub mod pallet {
                 Call::commit_attestation { attestation } => {
                     Pallet::<T>::check_duplicate(attestation)?;
                     let agg_signature = Pallet::<T>::extract_agg_signature(&attestation.signature)?;
-                    let attestor_public_keys = Pallet::<T>::gather_attestor_public_keys(&attestation.attestors)?;
+                    let attestor_public_keys =
+                        Pallet::<T>::gather_attestor_public_keys(&attestation.attestors)?;
                     let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..])
                         .map_err(|_| {
                             log::error!("Failed to aggregate public keys");
@@ -453,7 +454,11 @@ pub mod pallet {
 
                     let message = &attestation.attestation_data.serialize()[..];
 
-                    Pallet::<T>::verify_agg_signature(&agg_signature, message, aggregated_public_key)?;
+                    Pallet::<T>::verify_agg_signature(
+                        &agg_signature,
+                        message,
+                        aggregated_public_key,
+                    )?;
 
                     log::info!("Attestation signature is valid");
                     Ok(())
@@ -568,7 +573,7 @@ pub mod pallet {
         }
 
         fn gather_attestor_public_keys(
-            attestors: &Vec<T::AccountId>,
+            attestors: &[T::AccountId],
         ) -> Result<Vec<PublicKey>, InherentError> {
             attestors
                 .iter()
