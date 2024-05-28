@@ -24,8 +24,8 @@ pallet-balances = { workspace = true, optional = true }
 frame-benchmarking = { workspace = true, optional = true }
 
 attestor-primitives = { workspace = true }
-bls-signatures = { path = "../../bls-signatures" }
 supported-chains-primitives = { workspace = true }
+bls-signatures = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
@@ -50,5 +50,6 @@ std = [
     "attestor-primitives/std",
     "pallet-supported-chains/std",
     "supported-chains-primitives/std",
+    "bls-signatures/std",
 ]
 runtime-benchmarks = ["frame-benchmarking", "pallet-balances"]

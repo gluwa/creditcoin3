@@ -5,14 +5,14 @@ members = [
 	"runtime/generate-bags",
 	"pallets/*",
 	"attestor",
-	"bls-signatures",
+	"prover",
 	"primitives/attestor",
 	"primitives/prover",
-	"mmr",
 	"primitives/supported-chains",
 	"precompiles/claim",
 	"precompiles/substrate-transfer",
 	"host",
+	"common/*",
 ]
 resolver = "2"
 
@@ -65,7 +65,6 @@ bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 primitive-types = "0.12.2"
 tiny-bip39 = { version = "1.0", default-features = false }
 url = "2.2.2"
-bls-signatures = "0.15.0"
 env_logger = "0.11"
 
 # Substrate Client
@@ -210,15 +209,14 @@ creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
+bls-signatures = { path = "common/bls-signatures" }
+mmr = { path = "common/mmr" }
+cc-client = { path = "common/cc-client" }
 
 # Prover
 pallet-prover = { path = "pallets/prover", default_features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
 proof-verifier = { path = "host", default-features = false }
-nix = { version = "0.28.0", features = [
-	"process",
-	"fs",
-], default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

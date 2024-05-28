@@ -1,5 +1,5 @@
 [package]
-name = "attestor"
+name = "prover"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -9,8 +9,8 @@ license = "MIT"
 path = "src/lib.rs"
 
 [[bin]]
-path = "bin/attestor.rs"
-name = "attestor"
+path = "bin/prover.rs"
+name = "prover"
 
 [lints.clippy]
 pedantic = "warn"
@@ -57,12 +57,8 @@ thiserror = "1.0"
 sp-core = { version = "21.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 starknet-crypto = "0.6.2"
-bls-signatures = { workspace = true }
 rand = "0.8.4"
 
 # Creditcoin deps
-creditcoin3-attestor-rpc = { workspace = true }
-creditcoin3-attestor-gossip = { workspace = true }
-attestor-primitives = { workspace = true }
-mmr = { workspace = true, features = ["par_mmr"] }
+attestor-primitives = { path = "../primitives/attestor" }
 cc-client = { workspace = true }
