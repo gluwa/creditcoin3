@@ -29,7 +29,7 @@ pub enum Error {
     FailedToGetRPcClient,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
@@ -73,6 +73,41 @@ impl<'a> Client {
     /// Register to the prover pallet
     pub async fn register(&self) -> Result<()> {
         self.cc_client.register_prover(self.nickname.clone()).await
+    }
+
+    pub async fn start_claim_sub(
+        &self,
+        mut cancel: tokio::sync::oneshot::Receiver<()>,
+    ) -> Result<()> {
+        let mut subscription = self.cc_client.subscribe_claim_submission_events().await?;
+
+        // Process claims in a loop
+        loop {
+            tokio::select! {
+                claim = subscription.next() => {
+                    match claim {
+                        Some(claim) => {
+                            // Process the claim
+                            info!("Received a new claim: {:?}", claim);
+
+                            // Handle the claim processing logic here
+                        }
+                        None => break, // Exit loop if the subscription stream ends
+                    }
+                }
+                rec = &mut cancel => {
+                    match rec {
+                        Ok(_) => panic!("This doesn't happen"),
+                        Err(_) => {
+                            info!("Cancellation received, stopping claim processing");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

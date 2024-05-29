@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::error::Error;
-use tracing::debug;
+use tokio::signal;
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
 use prover::{Config, Server};
@@ -22,9 +23,6 @@ pub struct Attestor {
 
     #[arg(short, long)]
     verbose: bool,
-
-    #[arg(short, long)]
-    dev: bool,
 }
 
 #[tokio::main]
@@ -48,9 +46,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         nickname: args.nickname,
     };
 
-    let server = Server::new(config);
-
+    let mut server = Server::new(config);
     server.run().await?;
+
+    // Wait for Ctrl+C signal
+    signal::ctrl_c().await?;
+    info!("Ctrl+C received, shutting down...");
 
     Ok(())
 }

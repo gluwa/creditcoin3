@@ -17,6 +17,7 @@ const BUFFER_SIZE: usize = 100;
 
 /// ClaimSubscription is a struct that references to a receiving end of a channel where claims are pushed upon
 /// It has a handle to cancel the subscription
+#[derive(Debug)]
 pub struct ClaimSubscription {
     receiver: mpsc::Receiver<Claim>,
     handle: JoinHandle<Result<(), Error>>,
@@ -24,8 +25,9 @@ pub struct ClaimSubscription {
 
 impl ClaimSubscription {
     /// Cancel the subscription
-    pub async fn cancel(self) -> Result<()> {
+    pub async fn cancel(&self) -> Result<()> {
         // Cancel the subscription task
+        debug!("Canceling subscription");
         self.handle.abort();
         Ok(())
     }
@@ -38,16 +40,12 @@ impl ClaimSubscription {
 }
 
 // See pallets/prover/lib.rs
-const PROVER_MODULE: &str = "ProverModule";
+const PROVER_MODULE: &str = "Prover";
 const CLAIM_SUBMITTED_EVENT: &str = "ProverClaimSubmitted";
-const CLAIM_SUBMISSION_EXT_INDEX: u8 = 4;
+const CLAIM_SUBMISSION_EXT_INDEX: u8 = 3;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("failed to get block")]
-    FailedToGetBlock,
-    #[error("failed to get extrinsic")]
-    FailedToUnwrapExtrinsic,
     #[error("subxt error {0}")]
     SubxtError(#[from] SubxtError),
     #[error("client error {0}")]
@@ -83,11 +81,11 @@ impl Client {
                 let extrinsics: subxt::blocks::Extrinsics<
                     SubstrateConfig,
                     OnlineClient<SubstrateConfig>,
-                > = block.extrinsics().await.unwrap();
+                > = block.extrinsics().await?;
                 for ext in extrinsics.iter() {
-                    let ext = ext.unwrap();
+                    let ext = ext?;
 
-                    match (ext.pallet_name().unwrap(), ext.variant_index()) {
+                    match (ext.pallet_name()?, ext.variant_index()) {
                         (PROVER_MODULE, CLAIM_SUBMISSION_EXT_INDEX) => {
                             let events = ext.events().await?;
 
