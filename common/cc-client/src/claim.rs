@@ -1,9 +1,10 @@
 use anyhow::Result;
 use subxt::utils::AccountId32;
-use subxt::{OnlineClient, SubstrateConfig};
+use subxt::{error::Error as SubxtError, OnlineClient, SubstrateConfig};
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::cc3::prover::calls::types::submit_claim::Claim;
 use crate::cc3::prover::events::ProverClaimSubmitted;
@@ -18,7 +19,7 @@ const BUFFER_SIZE: usize = 100;
 /// It has a handle to cancel the subscription
 pub struct ClaimSubscription {
     receiver: mpsc::Receiver<Claim>,
-    handle: JoinHandle<()>,
+    handle: JoinHandle<Result<(), Error>>,
 }
 
 impl ClaimSubscription {
@@ -36,8 +37,25 @@ impl ClaimSubscription {
     }
 }
 
+// See pallets/prover/lib.rs
+const PROVER_MODULE: &str = "ProverModule";
+const CLAIM_SUBMITTED_EVENT: &str = "ProverClaimSubmitted";
+const CLAIM_SUBMISSION_EXT_INDEX: u8 = 4;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("failed to get block")]
+    FailedToGetBlock,
+    #[error("failed to get extrinsic")]
+    FailedToUnwrapExtrinsic,
+    #[error("subxt error {0}")]
+    SubxtError(#[from] SubxtError),
+    #[error("client error {0}")]
+    ClientError(#[from] anyhow::Error),
+}
+
 impl Client {
-    pub async fn subscribe_claim_submission_events(&self) -> Result<ClaimSubscription> {
+    pub async fn subscribe_claim_submission_events(&self) -> Result<ClaimSubscription, Error> {
         let api = self.get_substrate_client().await?;
 
         // Create the channel with buffer size
@@ -49,10 +67,11 @@ impl Client {
         let api = api.clone();
 
         let handle = tokio::spawn(async move {
-            let mut blocks_sub = api.blocks().subscribe_finalized().await.unwrap();
+            let mut blocks_sub = api.blocks().subscribe_finalized().await?;
+            info!("Subscription started, streaming finalized blocks...");
 
             while let Some(block) = blocks_sub.next().await {
-                let block = block.unwrap();
+                let block = block?;
 
                 let block_number = block.header().number;
                 debug!("Got block #{block_number}:");
@@ -69,18 +88,18 @@ impl Client {
                     let ext = ext.unwrap();
 
                     match (ext.pallet_name().unwrap(), ext.variant_index()) {
-                        ("ProverModule", 4) => {
-                            let events = ext.events().await.unwrap();
+                        (PROVER_MODULE, CLAIM_SUBMISSION_EXT_INDEX) => {
+                            let events = ext.events().await?;
 
                             for evt in events.iter() {
                                 if evt.is_err() {
                                     continue;
                                 };
 
-                                let evt = evt.unwrap();
+                                let evt = evt?;
 
                                 match (evt.pallet_name(), evt.variant_name()) {
-                                    ("ProverModule", "ProverClaimSubmitted") => {
+                                    (PROVER_MODULE, CLAIM_SUBMITTED_EVENT) => {
                                         if let Ok(Some(evt)) =
                                             evt.as_event::<ProverClaimSubmitted>()
                                         {
@@ -106,6 +125,8 @@ impl Client {
                     };
                 }
             }
+
+            Ok(())
         });
 
         Ok(ClaimSubscription { receiver, handle })
