@@ -42,7 +42,7 @@ rlp = { version = "0.5.2", default-features = false }
 paste = "1.0.6"
 slices = "0.2.0"
 affix = "0.1.2"
-parity-scale-codec = { version = "3.6.9", default-features = false, features = [
+parity-scale-codec = { version = "3.6.12", default-features = false, features = [
 	"derive",
 ] }
 scale-info = { version = "2.11.2", default-features = false, features = [
