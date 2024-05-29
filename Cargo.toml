@@ -39,7 +39,7 @@ num_enum = { version = "0.7.2", default-features = false }
 parity-db = "0.4.13"
 parking_lot = "0.12.2"
 rlp = { version = "0.5.2", default-features = false }
-paste = "1.0.6"
+paste = "1.0.15"
 slices = "0.2.0"
 affix = "0.1.2"
 parity-scale-codec = { version = "3.6.12", default-features = false, features = [
