@@ -23,11 +23,13 @@ pub struct Server {
 /// - `cc3_rpc_url`: Creditcoin RPC url (must have rpc + websocket features)
 /// - `cc3_key`: Mnemonic for a creditcoin3 account
 /// - `nickname`: Nickname for this prover
+/// - `claim_buffer`: The amount of claims we can handle in a certain period
 pub struct Config {
     pub eth_rpc_url: String,
     pub cc3_rpc_url: String,
     pub cc3_key: String,
     pub nickname: String,
+    pub claim_buffer: u8,
 }
 
 impl Server {
@@ -53,7 +55,11 @@ impl Server {
         debug!("Creating cc3 client");
         cc3_client.init().await?;
 
-        let (claim_tx, mut claim_rx) = mpsc::channel(100);
+        let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
+        debug!(
+            "Created claim buffer with size: {}",
+            self.config.claim_buffer
+        );
 
         debug!("Starting claim sub on cc3");
         // Run sub in background and allow server to continue doing other work

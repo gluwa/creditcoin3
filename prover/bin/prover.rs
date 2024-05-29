@@ -23,6 +23,9 @@ pub struct Attestor {
 
     #[arg(short, long)]
     verbose: bool,
+
+    #[arg(short, long, default_value_t = 100)]
+    claim_buffer: u8,
 }
 
 #[tokio::main]
@@ -44,6 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
         nickname: args.nickname,
+        claim_buffer: args.claim_buffer,
     };
 
     let mut server = Server::new(config);
