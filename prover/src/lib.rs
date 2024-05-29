@@ -13,7 +13,7 @@ pub struct Server {
     config: Config,
     // Channel to send cancellation to the claim subscription
     // will exit when this is dropped
-    _cancel_tx: Option<oneshot::Sender<()>>,
+    cancel_tx: Option<oneshot::Sender<()>>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,14 +34,14 @@ impl Server {
     pub fn new(config: Config) -> Self {
         Server {
             config,
-            _cancel_tx: None,
+            cancel_tx: None,
         }
     }
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&mut self) -> Result<()> {
-        let (_cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        self._cancel_tx = Some(_cancel_tx);
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        self.cancel_tx = Some(cancel_tx);
 
         let cc3_client = cc3::Client::new(
             &self.config.cc3_rpc_url,

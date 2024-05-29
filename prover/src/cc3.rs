@@ -96,12 +96,9 @@ impl<'a> Client {
                     }
                 }
                 rec = &mut cancel => {
-                    match rec {
-                        Ok(_) => panic!("This doesn't happen"),
-                        Err(_) => {
-                            info!("Cancellation received, stopping claim processing");
-                            break;
-                        }
+                    if let Ok(()) = rec { panic!("This doesn't happen") } else {
+                        info!("Cancellation received, stopping claim processing");
+                        break;
                     }
                 }
             }
