@@ -5,8 +5,10 @@ use kameo::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
+pub use cc_client::claim::Claim;
 use cc_client::Client as CcClient;
 
 pub type Randomness = [u8; 32];
@@ -42,11 +44,11 @@ impl<'a> Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
+    /// - `nickname`: nickname for this prover
     pub fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
         nickname: impl Into<String> + Clone,
-        // private_key: &[u8; 32],
     ) -> Result<Self> {
         let cc_client = CcClient::new(url, key)?;
 
@@ -56,12 +58,12 @@ impl<'a> Client {
         })
     }
 
-    /// Init the client, this bootstraps registration if not registered already
+    /// Init the client, this bootstraps prover registration if not registered already
     pub async fn init(&self) -> Result<()> {
         let is_member = self.cc_client.check_provers_membership().await?;
 
         if !is_member {
-            debug!("Registration in progress... Please wait...");
+            debug!("prover registration in progress... Please wait...");
             self.register().await?;
         }
 
@@ -74,10 +76,13 @@ impl<'a> Client {
     pub async fn register(&self) -> Result<()> {
         self.cc_client.register_prover(self.nickname.clone()).await
     }
+}
 
+impl Client {
     pub async fn start_claim_sub(
         &self,
         mut cancel: tokio::sync::oneshot::Receiver<()>,
+        claim_chan: mpsc::Sender<Claim>,
     ) -> Result<()> {
         let mut subscription = self.cc_client.subscribe_claim_submission_events().await?;
 
@@ -89,8 +94,8 @@ impl<'a> Client {
                         Some(claim) => {
                             // Process the claim
                             info!("Received a new claim: {:?}", claim);
-
                             // Handle the claim processing logic here
+                            claim_chan.send(claim).await?;
                         }
                         None => break, // Exit loop if the subscription stream ends
                     }

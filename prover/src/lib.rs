@@ -1,6 +1,7 @@
 use anyhow::Result;
-use kameo::spawn;
-use tokio::sync::oneshot;
+// use kameo::spawn;
+use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, info};
 
 pub mod cc3;
 pub mod eth;
@@ -21,6 +22,7 @@ pub struct Server {
 /// - `eth_rpc_url`: Source chain RPC url
 /// - `cc3_rpc_url`: Creditcoin RPC url (must have rpc + websocket features)
 /// - `cc3_key`: Mnemonic for a creditcoin3 account
+/// - `nickname`: Nickname for this prover
 pub struct Config {
     pub eth_rpc_url: String,
     pub cc3_rpc_url: String,
@@ -48,11 +50,26 @@ impl Server {
             &self.config.cc3_key,
             &self.config.nickname,
         )?;
+        debug!("Creating cc3 client");
         cc3_client.init().await?;
 
+        let (claim_tx, mut claim_rx) = mpsc::channel(100);
+
+        debug!("Starting claim sub on cc3");
+        // Run sub in background and allow server to continue doing other work
         tokio::spawn(async move {
-            let _ = cc3_client.start_claim_sub(cancel_rx).await;
-            let _cc3_client = spawn(cc3_client);
+            let _ = cc3_client.start_claim_sub(cancel_rx, claim_tx).await;
+            // let _cc3_client = spawn(cc3_client);
+        });
+
+        debug!("Starting claim processing handler");
+        // Handle claims in the main task or another spawned task
+        tokio::spawn(async move {
+            while let Some(claim) = claim_rx.recv().await {
+                // Process the claim
+                info!("Processing claim: {:?}", claim);
+                // Handle the claim processing logic here
+            }
         });
 
         Ok(())

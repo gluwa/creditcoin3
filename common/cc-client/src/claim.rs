@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
-use crate::cc3::prover::calls::types::submit_claim::Claim;
+pub use crate::cc3::prover::calls::types::submit_claim::Claim;
 use crate::cc3::prover::events::ProverClaimSubmitted;
 
 use crate::Client;
