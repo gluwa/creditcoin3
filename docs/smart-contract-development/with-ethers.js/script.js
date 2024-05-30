@@ -33,10 +33,11 @@ if (window.ethereum == null) {
     provider = ethers.getDefaultProvider()
 
 } else {
-
     // Connect to the MetaMask EIP-1193 object. This is a standard
     // protocol that allows Ethers access to make all read-only
     // requests through MetaMask.
+
+    // WARNING: this works with ethers.js v6 or later
     provider = new ethers.BrowserProvider(window.ethereum)
 
     // It also provides an opportunity to request access to write
@@ -53,26 +54,24 @@ CounterContract = new ethers.Contract(
 );
 
 // Refresh count function
-export const refreshCount = async () => {
+const refreshCount = async () => {
   const count = await CounterContract.getCount();
   document.getElementById("count").innerHTML = count;
 }
 
-// Get the actual count from the chain and update element
-refreshCount();
 
 // Create contract increment function for button
-export const increment = async () => {
+const increment = async () => {
   const tx = await CounterContract.incrementCounter();
   await tx.wait();
-  refreshCount();
+  await refreshCount();
 };
 
 // Create contract decrement function for button
-export const decrement = async () => {
+const decrement = async () => {
   const tx = await CounterContract.decrementCounter();
   await tx.wait();
-  refreshCount();
+  await refreshCount();
 };
 
 // Add increment behavior to Increment button
@@ -80,3 +79,6 @@ document.getElementById("increment").addEventListener("click", increment);
 
 // Add decrement behavior to Decrement button
 document.getElementById("decrement").addEventListener("click", decrement);
+
+// Get the actual count from the chain and update element
+await refreshCount();
