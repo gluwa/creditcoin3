@@ -20,6 +20,21 @@ thiserror = "1.0"
 anyhow = "1.0"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 tokio = "1.37.0"
+alloy = { git = "https://github.com/alloy-rs/alloy", features = [
+    "node-bindings",
+    "providers",
+    "provider-http",
+    "provider-ws",
+    "rpc-client",
+    "rpc-types",
+    "rpc-types-eth",
+    "serde",
+    "consensus",
+    "rlp",
+    "contract",
+    "sol-types",
+    "signers",
+] }
 
 # Substrate 
 subxt = "0.37"

@@ -1,11 +1,12 @@
 use anyhow::Result;
-// use kameo::spawn;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 
 pub mod cc3;
 pub mod eth;
 pub mod transaction;
+
+use cc3::Claim;
 
 #[derive(Debug)]
 /// Attestor server is configured using `Config`
@@ -63,21 +64,40 @@ impl Server {
 
         debug!("Starting claim sub on cc3");
         // Run sub in background and allow server to continue doing other work
+        let client = cc3_client.clone();
         tokio::spawn(async move {
-            let _ = cc3_client.start_claim_sub(cancel_rx, claim_tx).await;
-            // let _cc3_client = spawn(cc3_client);
+            let _ = client.start_claim_sub(cancel_rx, claim_tx).await;
         });
 
         debug!("Starting claim processing handler");
         // Handle claims in the main task or another spawned task
+        let client = cc3_client.clone();
         tokio::spawn(async move {
             while let Some(claim) = claim_rx.recv().await {
-                // Process the claim
-                info!("Processing claim: {:?}", claim);
-                // Handle the claim processing logic here
+                match process_claim(client.clone(), claim).await {
+                    Ok(()) => {
+                        info!("Claim processed");
+                    }
+                    Err(e) => {
+                        panic!("Error processing claim: {e}, unwinding server..")
+                    }
+                }
             }
         });
 
         Ok(())
     }
+}
+
+pub async fn process_claim(client: crate::cc3::Client, claim: Claim) -> Result<()> {
+    info!("Processing claim: {:?}, client: {:?}", claim, client);
+
+    // Create proof (TODO: hook up prover)
+    let proof: Vec<u8> = vec![];
+
+    // Submit result to cc3
+
+    client.submit_proof(claim.hash, proof).await?;
+
+    Ok(())
 }

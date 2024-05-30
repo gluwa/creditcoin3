@@ -4,6 +4,7 @@ use kameo::{
     // message::{Context, Message},
 };
 use serde::{Deserialize, Serialize};
+use sp_core::H256;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
@@ -31,7 +32,7 @@ pub enum Error {
     FailedToGetRPcClient,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
@@ -75,6 +76,12 @@ impl<'a> Client {
     /// Register to the prover pallet
     pub async fn register(&self) -> Result<()> {
         self.cc_client.register_prover(self.nickname.clone()).await
+    }
+
+    pub async fn submit_proof(&self, claim_hash: H256, proof: Vec<u8>) -> Result<()> {
+        info!("Submitting proof len: {}", proof.len());
+
+        self.cc_client.submit_proof(claim_hash, proof).await
     }
 }
 

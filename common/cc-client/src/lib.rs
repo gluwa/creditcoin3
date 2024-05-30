@@ -1,3 +1,4 @@
+use alloy::primitives::Address;
 use anyhow::Result;
 use creditcoin3_attestor_gossip::{AttestorId, VrfOutput};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
@@ -15,10 +16,17 @@ use tracing::{debug, error, info};
 
 use attestor_primitives::{BlsPublicKey, ChainId, Digest};
 
-#[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
+#[subxt::subxt(
+    runtime_metadata_path = "artifacts/metadata.scale",
+    substitute_type(
+        path = "primitive_types::U256",
+        with = "::subxt::utils::Static<crate::U256>"
+    )
+)]
 pub mod cc3 {}
 
 pub mod claim;
+pub mod proof;
 
 use cc3::runtime_types::pallet_prover::types::Prover;
 
@@ -32,6 +40,7 @@ pub type Randomness = [u8; 32];
 pub struct Client {
     pub url: String,
     pub keypair: Keypair,
+    pub evm_address: Address,
 }
 
 impl<'a> Client {
@@ -46,29 +55,21 @@ impl<'a> Client {
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
 
+        let evm_address_slice = &keypair.public_key().0[0..20];
+        // let a = hex::encode(evm_address_slice);
+        let evm_address = Address::from_slice(evm_address_slice);
+        info!("Substrate evm address: {:?}", evm_address);
+
         Ok(Self {
             url: url.into(),
             keypair,
+            evm_address,
         })
     }
 
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.keypair.sign(message)
     }
-
-    // /// Init the client, this bootstraps registration if not registered already
-    // pub async fn init(&self) -> Result<()> {
-    //     let is_attestor_member = self.check_attestors_membership().await?;
-
-    //     if !is_attestor_member {
-    //         debug!("Registration in progress... Please wait...");
-    //         self.register().await?;
-    //     }
-
-    //     info!("Attestator ready to start!");
-
-    //     Ok(())
-    // }
 
     /// Get's a substrate client over websocket to the configured url
     pub async fn get_substrate_client(&self) -> Result<OnlineClient<SubstrateConfig>> {

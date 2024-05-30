@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sp_core::H256;
 use subxt::utils::AccountId32;
 use subxt::{error::Error as SubxtError, OnlineClient, SubstrateConfig};
 use thiserror::Error;
@@ -6,12 +7,18 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
-pub use crate::cc3::prover::calls::types::submit_claim::Claim;
+pub use crate::cc3::prover::calls::types::submit_claim::Claim as Cc3Claim;
 use crate::cc3::prover::events::ProverClaimSubmitted;
 
 use crate::Client;
 
-pub type Proof = Vec<Claim>;
+#[derive(Debug)]
+pub struct Claim {
+    pub source: AccountId32,
+    pub target: AccountId32,
+    pub claim: Cc3Claim,
+    pub hash: H256,
+}
 
 const BUFFER_SIZE: usize = 100;
 
@@ -59,7 +66,7 @@ impl Client {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
-        let prover_account_id = AccountId32(self.keypair.public_key().0);
+        let account_id = AccountId32(self.keypair.public_key().0);
 
         // Clone the api and send it on the tokio task
         let api = api.clone();
@@ -105,11 +112,20 @@ impl Client {
                                             debug!("claim target prover: {:?}", evt.1);
                                             debug!("claim hash: {:?}", evt.2);
 
-                                            if evt.1 != prover_account_id {
+                                            if evt.1 != account_id {
                                                 continue;
                                             };
 
-                                            if sender.send(evt.3).await.is_err() {
+                                            if sender
+                                                .send(Claim {
+                                                    source: evt.0,
+                                                    target: evt.1,
+                                                    hash: evt.2,
+                                                    claim: evt.3,
+                                                })
+                                                .await
+                                                .is_err()
+                                            {
                                                 // The receiver has been dropped
                                                 break;
                                             }

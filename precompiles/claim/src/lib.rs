@@ -17,8 +17,11 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-/// Solidity selector of the Transfer log, which is the Keccak of the Log signature.
-pub const SELECTOR_LOG_TRANSFER: [u8; 32] = keccak256!("ClaimSubmitted(address,bytes)");
+/// Solidity selector of the ClaimSubmitted log, which is the Keccak of the Log signature.
+pub const SELECTOR_LOG_CLAIM_SUBMITTED: [u8; 32] = keccak256!("ClaimSubmitted(bytes32)");
+
+/// Solidity selector of the ProofSubmitted log, which is the Keccak of the Log signature.
+pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(bytes32)");
 
 /// Precompile exposing a pallet_balance as an ERC20.
 /// The precompile uses an additional storage to store approvals.
@@ -84,7 +87,7 @@ where
 
         log3(
             handle.context().address,
-            SELECTOR_LOG_TRANSFER,
+            SELECTOR_LOG_CLAIM_SUBMITTED,
             handle.context().caller,
             claim_hash,
             solidity::encode_event_data((chain_id, block_number, tx_index, from, to, is_tx, is_rx)),
@@ -119,7 +122,7 @@ where
 
         log3(
             handle.context().address,
-            SELECTOR_LOG_TRANSFER,
+            SELECTOR_LOG_PROOF_SUBMITTED,
             handle.context().caller,
             claim_hash,
             solidity::encode_event_data(claim_hash),
