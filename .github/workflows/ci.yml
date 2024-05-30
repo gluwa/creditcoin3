@@ -19,7 +19,6 @@ env:
   # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
   LINODE_VM_SIZE: "g6-standard-4"
 
-
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
@@ -671,7 +670,6 @@ jobs:
         env:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
-
   integration-test-cli:
     strategy:
       fail-fast: false
@@ -702,7 +700,13 @@ jobs:
       - build-creditcoin-node-for-testing
       - deploy-github-runner
     runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-${{ matrix.proxy }}", "secret-${{ matrix.secret }}", "type-${{ matrix.proxy_type }}"]
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "proxy-${{ matrix.proxy }}",
+        "secret-${{ matrix.secret }}",
+        "type-${{ matrix.proxy_type }}",
+      ]
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
