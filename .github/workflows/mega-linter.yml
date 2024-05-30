@@ -43,6 +43,11 @@ jobs:
           VALIDATE_ALL_CODEBASE: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Save auto-updates
+        if: steps.ml.outputs.has_updated_sources == 1
+        run: |
+          git diff > megalinter-auto-updates.patch
+
       # Upload MegaLinter artifacts
       - name: Archive production artifacts
         if: success() || failure()
@@ -52,6 +57,7 @@ jobs:
           path: |
             megalinter-reports
             mega-linter.log
+            megalinter-auto-updates.patch
 
       # Create pull request if applicable (for now works only on PR from same repository, not from forks)
       - name: Create Pull Request with applied fixes
