@@ -15,8 +15,8 @@ window.ethereum.request({
       rpcUrls: ["https://rpc.cc3-testnet.creditcoin.network"],
       chainName: "Creditcoin Testnet",
       nativeCurrency: {
-          name: "CTC",
-          symbol: "CTC",
+          name: "tCTC",
+          symbol: "tCTC",
           decimals: 18
       },
       blockExplorerUrls: ["https://creditcoin-testnet.blockscout.com/"]
