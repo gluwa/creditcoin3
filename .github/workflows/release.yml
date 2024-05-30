@@ -171,7 +171,6 @@ jobs:
           tag: ${{ env.RUSTC_VERSION }}
           workdir: ${{ github.workspace }}
 
-
       - name: DEBUG
         run: |
           echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json

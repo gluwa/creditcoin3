@@ -393,7 +393,7 @@ jobs:
           yarn install
           yarn test:blockchain
         env:
-          BLOCKCHAIN_TESTS_GLOBAL_SETUP: './runtimeUpgradeTestingAgainstFork.ts'
+          BLOCKCHAIN_TESTS_GLOBAL_SETUP: "./runtimeUpgradeTestingAgainstFork.ts"
 
       - name: Configure testing environment
         id: test-env
@@ -531,7 +531,7 @@ jobs:
           BOB_SEED: "${{ secrets.TESTNET_BOB_SEED }}"
           BOB_EVM_PK: "${{ secrets.TESTNET_BOB_EVM_PK }}"
           SUDO_SEED: "${{ secrets.TESTNET_SUDO_SEED }}"
-          BLOCKCHAIN_TESTS_GLOBAL_SETUP: './${{ needs.setup.outputs.target_chain }}IntegrationTesting.ts'
+          BLOCKCHAIN_TESTS_GLOBAL_SETUP: "./${{ needs.setup.outputs.target_chain }}IntegrationTesting.ts"
 
       - name: Configure testing environment
         id: test-env
