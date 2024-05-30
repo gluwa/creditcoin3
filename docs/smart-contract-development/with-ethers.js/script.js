@@ -1,39 +1,12 @@
 import { ethers } from "./node_modules/ethers/dist/ethers.min.js";
+import CounterContractArtifact from "../with-hardhat/artifacts/contracts/Counter.sol/Counter.json";
 
 let provider;
 let signer = null;
 let CounterContract;
 
 const CounterContractAddress = "DEPLOYED_COUNTER_CONTRACT_ADDRESS";
-const CounterContractABI = [
-    {
-        "inputs": [],
-        "name": "decrementCounter",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getCount",
-        "outputs": [
-            {
-                "internalType": "int256",
-                "name": "",
-                "type": "int256"
-            }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "incrementCounter",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
-];
+const CounterContractABI = CounterContractArtifact.abi;
 
 window.ethereum.request({
   method: "wallet_addEthereumChain",
