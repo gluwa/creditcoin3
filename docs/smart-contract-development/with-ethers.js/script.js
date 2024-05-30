@@ -11,7 +11,7 @@ const CounterContractABI = CounterContractArtifact.abi;
 window.ethereum.request({
   method: "wallet_addEthereumChain",
   params: [{
-      chainId: "0x18e90",
+      chainId: "0x18e8f", // see https://chainlist.org/chain/102031
       rpcUrls: ["https://rpc.cc3-testnet.creditcoin.network"],
       chainName: "Creditcoin Testnet",
       nativeCurrency: {
