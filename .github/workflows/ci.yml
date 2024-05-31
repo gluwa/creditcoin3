@@ -1058,11 +1058,24 @@ jobs:
         run: |
           npx hardhat test
 
-      - name: Deploy contract(s) to Hardhat
+      - name: Deploy contract(s) to ephemeral Hardhat
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
               npx hardhat ignition deploy "$module"
+          done
+
+      - name: Start a local Hardhat JSON-RPC instance
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat node &
+          sleep 10
+
+      - name: Deploy contract(s) to Hardhat Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              echo y | npx hardhat ignition deploy "$module" --network hardhat_local
           done
 
       - name: Start Creditcoin Node 1 - Alice
