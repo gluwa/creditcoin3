@@ -2,8 +2,8 @@ use super::*;
 
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_evm::{EnsureAddressNever, EnsureAddressRoot, IdentityAddressMapping};
-use pallet_prover::types::ChainPriceConfiguration;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use prover_primitives::ChainPriceConfiguration;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::{H160, H256, U256};
@@ -269,7 +269,12 @@ impl ExtBuilder {
         pallet_prover::GenesisConfig::<Runtime> {
             provers: vec![(
                 Account::Alice,
-                vec![(1, ChainPriceConfiguration { price: 100 })],
+                vec![
+                    (ChainPriceConfiguration {
+                        chain_id: 1,
+                        price: 100,
+                    }),
+                ],
             )],
         }
         .assimilate_storage(&mut t)

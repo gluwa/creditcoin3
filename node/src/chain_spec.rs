@@ -5,6 +5,7 @@ use std::{
 
 use attestor_primitives::BlsPublicKeyWrapper;
 use hex_literal::hex;
+use prover_primitives::ChainPriceConfiguration;
 use serde::{Deserialize, Serialize};
 // Substrate
 use sc_chain_spec::{ChainType, Properties};
@@ -21,8 +22,9 @@ use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
     opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping,
-    AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig,
-    SS58Prefix, SessionConfig, Signature, StakingConfig, SupportedChainsConfig, WASM_BINARY,
+    AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId, ProverConfig,
+    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig,
+    SupportedChainsConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -158,6 +160,12 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                         // account id:
                         hex!("4603fea3eb3d0dfcb93c6a15cd96976e0e694789d38b83c034c09517b9cd236c")
                             .into(),
+                        // prover 1
+                        // secret seed: involve bridge disagree copy aim auction ready garlic industry flee echo era
+                        // SS58 address: 5H5oQ868qD6JdapSYQirrwZNemJUWQt3Z4kK6b7f5Jhnn2Bi
+                        // account id:
+                        hex!("de0311dc23909abea7fae81ba4a0188cbd85aae345ce3b39081c7c009597ae3e")
+                            .into(),
                     ],
                     vec![
                         hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
@@ -211,6 +219,14 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                         ),
                     ],
                     vec![(31337, 10)],
+                    vec![(
+                        hex!("de0311dc23909abea7fae81ba4a0188cbd85aae345ce3b39081c7c009597ae3e")
+                            .into(),
+                        vec![ChainPriceConfiguration {
+                            price: 100,
+                            chain_id: 1,
+                        }],
+                    )],
                 ),
                 enable_manual_seal,
             }
@@ -316,6 +332,13 @@ pub fn local_testnet_config() -> ChainSpec {
                     ),
                 ],
                 vec![(31337, 10)],
+                vec![(
+                    hex!("de0311dc23909abea7fae81ba4a0188cbd85aae345ce3b39081c7c009597ae3e").into(),
+                    vec![ChainPriceConfiguration {
+                        price: 100,
+                        chain_id: 1,
+                    }],
+                )],
             )
         },
         // Bootnodes
@@ -357,6 +380,7 @@ fn testnet_genesis(
     comittee_set_size: u32,
     attestation_invulnerables: Vec<(AccountId, BlsPublicKeyWrapper)>,
     supported_chains: Vec<(u64, u64)>,
+    provers: Vec<(AccountId, Vec<ChainPriceConfiguration>)>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -476,5 +500,6 @@ fn testnet_genesis(
             ],
             _phantom: Default::default(),
         },
+        prover: ProverConfig { provers },
     }
 }

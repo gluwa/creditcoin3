@@ -14,7 +14,7 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{ChainPriceConfiguration, Prover};
+    use crate::types::Prover;
     use attestor_primitives::ChainId;
     use frame_support::{
         dispatch::DispatchResult,
@@ -27,7 +27,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
     use proof_verifier::host_api::verify_proof;
-    use prover_primitives::claim::Claim;
+    pub use prover_primitives::{claim::Claim, ChainPriceConfiguration};
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -71,12 +71,10 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn provers_chain_price_configs)]
-    pub type ProversChainPriceConfigurations<T: Config> = StorageDoubleMap<
-        Hasher1 = Blake2_128Concat,
-        Key1 = T::AccountId,
-        Hasher2 = Blake2_128Concat,
-        Key2 = ChainId,
-        Value = Option<ChainPriceConfiguration>,
+    pub type ProversChainPriceConfigurations<T: Config> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = T::AccountId,
+        Value = Vec<ChainPriceConfiguration>,
         QueryKind = ValueQuery,
     >;
 
@@ -110,7 +108,7 @@ pub mod pallet {
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T: Config> {
-        pub provers: Vec<(T::AccountId, Vec<(ChainId, ChainPriceConfiguration)>)>,
+        pub provers: Vec<(T::AccountId, Vec<ChainPriceConfiguration>)>,
     }
 
     #[pallet::genesis_build]
@@ -119,14 +117,7 @@ pub mod pallet {
             let provers = &self.provers;
             for (prover, chain_prices) in provers.iter() {
                 Provers::<T>::insert(prover, Prover { nickname: vec![] });
-
-                for price_config in chain_prices.iter() {
-                    ProversChainPriceConfigurations::<T>::insert(
-                        prover,
-                        price_config.0,
-                        Some(price_config.clone().1),
-                    );
-                }
+                ProversChainPriceConfigurations::<T>::insert(prover, chain_prices);
             }
         }
     }
@@ -138,7 +129,7 @@ pub mod pallet {
         ProverRegistered(T::AccountId),
 
         ///
-        ProverChainPriceConfigurationSet(T::AccountId, ChainId, Option<ChainPriceConfiguration>),
+        ProverChainPriceConfigurationSet(T::AccountId, Vec<ChainPriceConfiguration>),
 
         ///
         ProverClaimSubmitted(
@@ -198,8 +189,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_chain_price_config())]
         pub fn set_chain_price_config(
             origin: OriginFor<T>,
-            chain_id: ChainId,
-            chain_price_config: Option<ChainPriceConfiguration>,
+            chain_price_configs: Vec<ChainPriceConfiguration>,
         ) -> DispatchResult {
             let address = ensure_signed(origin)?;
 
@@ -208,12 +198,19 @@ pub mod pallet {
                 Error::<T>::ProverNotExists
             );
 
-            ProversChainPriceConfigurations::<T>::insert(&address, chain_id, &chain_price_config);
+            // Validate the chain ids
+            for chain_price_config in chain_price_configs.iter() {
+                ensure!(
+                    T::SupportedChains::is_chain_supported(chain_price_config.chain_id),
+                    Error::<T>::ChainNotSupported
+                );
+            }
+
+            ProversChainPriceConfigurations::<T>::insert(&address, &chain_price_configs);
 
             Self::deposit_event(Event::<T>::ProverChainPriceConfigurationSet(
                 address,
-                chain_id,
-                chain_price_config,
+                chain_price_configs,
             ));
 
             Ok(())
@@ -313,9 +310,8 @@ pub mod pallet {
             prover: &T::AccountId,
         ) -> DispatchResult {
             // Get the prover price for a claim on that chain
-            let prover_chain_price =
-                ProversChainPriceConfigurations::<T>::get(prover, claim.chain_id)
-                    .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+            let prover_chain_price = Self::prover_chain_price(prover, claim.chain_id)
+                .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
 
             let balance = T::Currency::free_balance(source);
             if balance < BalanceOf::<T>::saturated_from(prover_chain_price.price) {
@@ -353,9 +349,8 @@ pub mod pallet {
                 ClaimSourceByHash::<T>::get(claim_hash).ok_or(Error::<T>::ClaimNotExists)?;
 
             // Get the prover price for a claim on that chain
-            let prover_chain_price =
-                ProversChainPriceConfigurations::<T>::get(prover, claim.chain_id)
-                    .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
+            let prover_chain_price = Self::prover_chain_price(prover, claim.chain_id)
+                .ok_or(Error::<T>::ChainPriceConfigurationNotFound)?;
 
             // Get locked balance
             let locked_balance = Self::get_locked_balance(&claim_source);
@@ -401,6 +396,15 @@ pub mod pallet {
             }
 
             locked_balance
+        }
+
+        pub fn prover_chain_price(
+            prover: &T::AccountId,
+            chain_id: ChainId,
+        ) -> Option<ChainPriceConfiguration> {
+            let chain_prices = ProversChainPriceConfigurations::<T>::get(prover);
+
+            chain_prices.into_iter().find(|c| c.chain_id == chain_id)
         }
     }
 }

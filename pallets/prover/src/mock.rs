@@ -8,7 +8,7 @@ use sp_runtime::{
     BuildStorage,
 };
 
-use crate::types::ChainPriceConfiguration;
+use crate::ChainPriceConfiguration;
 
 type AccountId = u64;
 type Balance = u128;
@@ -126,7 +126,15 @@ impl ExtBuilder {
         b.assimilate_storage(&mut t).unwrap();
 
         prover_pallet::GenesisConfig::<Test> {
-            provers: vec![(PROVER_3, vec![(42, ChainPriceConfiguration { price: 100 })])],
+            provers: vec![(
+                PROVER_3,
+                vec![
+                    (ChainPriceConfiguration {
+                        price: 100,
+                        chain_id: 1,
+                    }),
+                ],
+            )],
         }
         .assimilate_storage(&mut t)
         .expect("Pallet prover storage can be assimilated");

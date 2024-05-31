@@ -1,0 +1,14 @@
+[[chain]]
+rpc_url = "https://example.com"
+chain_id = 1
+price = 1000
+
+# [[chain]]
+# rpc_url = "https://example2.com"
+# chain_id = 2
+# price = 2000
+
+# [[chain]]
+# rpc_url = "https://example3.com"
+# chain_id = 3
+# price = 3000

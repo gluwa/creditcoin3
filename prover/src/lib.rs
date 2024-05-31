@@ -1,4 +1,7 @@
 use anyhow::Result;
+use attestor_primitives::ChainId;
+use cc_client::cc3::runtime_types::prover_primitives::ChainPriceConfiguration as RuntimeChainPriceConfiguration;
+use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 
@@ -25,12 +28,58 @@ pub struct Server {
 /// - `cc3_key`: Mnemonic for a creditcoin3 account
 /// - `nickname`: Nickname for this prover
 /// - `claim_buffer`: The amount of claims we can handle in a certain period
+/// - `chain_price_configurations`: A list of chains with their configured price
 pub struct Config {
-    pub eth_rpc_url: String,
     pub cc3_rpc_url: String,
     pub cc3_key: String,
     pub nickname: String,
     pub claim_buffer: u8,
+    pub chain_price_configurations: ChainPriceConfigurations,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChainPriceConfigurations {
+    pub chain: Vec<Chain>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Chain {
+    pub rpc_url: String,
+    pub chain_id: ChainId,
+    pub price: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainPriceConfiguration {
+    pub chain_id: ChainId,
+    pub price: u64,
+}
+
+impl From<RuntimeChainPriceConfiguration> for ChainPriceConfiguration {
+    fn from(config: RuntimeChainPriceConfiguration) -> Self {
+        ChainPriceConfiguration {
+            chain_id: config.chain_id,
+            price: config.price,
+        }
+    }
+}
+
+impl Into<RuntimeChainPriceConfiguration> for ChainPriceConfiguration {
+    fn into(self) -> RuntimeChainPriceConfiguration {
+        RuntimeChainPriceConfiguration {
+            chain_id: self.chain_id,
+            price: self.price,
+        }
+    }
+}
+
+impl Into<ChainPriceConfiguration> for Chain {
+    fn into(self) -> ChainPriceConfiguration {
+        ChainPriceConfiguration {
+            chain_id: self.chain_id,
+            price: self.price,
+        }
+    }
 }
 
 impl Server {
@@ -55,6 +104,10 @@ impl Server {
         )?;
         debug!("Creating cc3 client");
         cc3_client.init().await?;
+
+        // Sync chain prices configuration
+        self.sync_chain_prices_configuration(cc3_client.clone())
+            .await?;
 
         let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
         debug!(
@@ -84,6 +137,49 @@ impl Server {
                 }
             }
         });
+
+        Ok(())
+    }
+
+    pub async fn sync_chain_prices_configuration(&self, client: crate::cc3::Client) -> Result<()> {
+        let chain_price_configurations: Vec<ChainPriceConfiguration> = client
+            .cc_client
+            .get_chain_price_configurations()
+            .await?
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+
+        info!(
+            "Syncing chain price configurations: {:?}",
+            chain_price_configurations
+        );
+
+        // TODO: compare with current configuration and update if needed
+        let config_chain_prices: Vec<ChainPriceConfiguration> = self
+            .config
+            .chain_price_configurations
+            .clone()
+            .chain
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+
+        // compare with current configuration and update if needed
+        if chain_price_configurations == config_chain_prices {
+            info!("Chain price configurations are up to date");
+        } else {
+            info!("Updating chain price configurations");
+            client
+                .cc_client
+                .update_chain_price_configurations(
+                    config_chain_prices
+                        .into_iter()
+                        .map(std::convert::Into::into)
+                        .collect(),
+                )
+                .await?;
+        };
 
         Ok(())
     }

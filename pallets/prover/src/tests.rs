@@ -9,7 +9,7 @@ use sp_runtime::traits::Hash;
 use crate::mock::{
     ExtBuilder, ProverModule, RuntimeOrigin, SupportedChains, Test, CLAIMER_1, PROVER_1,
 };
-use crate::types::{ChainPriceConfiguration, Prover};
+use crate::{types::Prover, ChainPriceConfiguration};
 
 fn prover_configured_in_genesis() -> RuntimeOrigin {
     RuntimeOrigin::signed(PROVER_3)
@@ -58,8 +58,12 @@ fn add_chain_price_works() {
 
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
-            1,
-            Some(ChainPriceConfiguration { price: 100 })
+            vec![
+                (ChainPriceConfiguration {
+                    chain_id: 1,
+                    price: 100
+                })
+            ]
         ));
     })
 }
@@ -74,11 +78,15 @@ fn remove_chain_price_works() {
 
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
-            1,
-            Some(ChainPriceConfiguration { price: 100 })
+            vec![
+                (ChainPriceConfiguration {
+                    chain_id: 1,
+                    price: 100
+                })
+            ]
         ));
 
-        assert_ok!(ProverModule::set_chain_price_config(prover_1(), 1, None));
+        assert_ok!(ProverModule::set_chain_price_config(prover_1(), vec![]));
     })
 }
 
@@ -200,8 +208,12 @@ fn submit_claim_for_unsupported_chain_fails() {
         ));
         assert_ok!(ProverModule::set_chain_price_config(
             prover_1(),
-            2,
-            Some(ChainPriceConfiguration { price: 100 })
+            vec![
+                (ChainPriceConfiguration {
+                    chain_id: 2,
+                    price: 100
+                })
+            ]
         ));
         // None of the chains are supported
         let claim = Claim {

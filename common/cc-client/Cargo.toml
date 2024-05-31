@@ -53,6 +53,7 @@ sp-core = { workspace = true, default-features = false }
 creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true }
+prover-primitives = { workspace = true }
 
 [features]
 default = ["std"]

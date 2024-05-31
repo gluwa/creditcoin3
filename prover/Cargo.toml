@@ -18,6 +18,7 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
 redundant_slicing = "allow"
+from_over_into = "allow"
 
 [package.metadata.release]
 release = false
@@ -62,3 +63,4 @@ rand = "0.8.4"
 # Creditcoin deps
 attestor-primitives = { path = "../primitives/attestor" }
 cc-client = { workspace = true }
+toml = "0.8.13"

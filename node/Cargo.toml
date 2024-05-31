@@ -106,6 +106,9 @@ creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
+# Prover
+prover-primitives = { workspace = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 

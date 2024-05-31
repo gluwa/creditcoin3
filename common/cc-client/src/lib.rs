@@ -14,6 +14,7 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+use crate::cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 use attestor_primitives::{BlsPublicKey, ChainId, Digest};
 
 #[subxt::subxt(
@@ -285,6 +286,56 @@ impl<'a> Client {
     pub fn get_attestor_id(&self) -> AttestorId {
         AttestorId::from_public(self.keypair.public_key().0)
     }
+
+    pub async fn get_chain_price_configurations(&self) -> Result<Vec<ChainPriceConfiguration>> {
+        let api = self.get_substrate_client().await?;
+        let account_id = AccountId32(self.keypair.public_key().0);
+
+        let storage_query = cc3::storage()
+            .prover()
+            .provers_chain_price_configurations(account_id);
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?
+            .ok_or(Error::FailedToGetChainPriceConfigurations)?;
+
+        Ok(result)
+    }
+
+    pub async fn update_chain_price_configurations(
+        &self,
+        chain_price_configurations: Vec<ChainPriceConfiguration>,
+    ) -> Result<()> {
+        let api = self.get_substrate_client().await?;
+        let tx = cc3::tx()
+            .prover()
+            .set_chain_price_config(chain_price_configurations);
+
+        let ext = api
+            .tx()
+            .sign_and_submit_then_watch_default(&tx, &self.keypair)
+            .await?
+            .wait_for_finalized_success()
+            .await?;
+
+        let hash = ext.extrinsic_hash();
+        debug!(
+            "Chain price configurations extrinsic submitted with hash: {:?}",
+            hash
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainPriceConfig {
+    pub chain_id: ChainId,
+    pub price: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Error)]
@@ -311,6 +362,8 @@ pub enum Error {
     FailedToGetRPcClient,
     #[error("Failed to get comittee set size")]
     FailedToGetComitteSetSize,
+    #[error("Failed to get chain price configurations")]
+    FailedToGetChainPriceConfigurations,
 }
 
 /// Helper function to format a http(s) endpoint to a ws(s) endpoint

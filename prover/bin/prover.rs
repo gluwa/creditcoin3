@@ -1,17 +1,16 @@
 use clap::Parser;
-use std::error::Error;
+use std::{error::Error, fs};
 use tokio::signal;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
-use prover::{Config, Server};
+use prover::{ChainPriceConfigurations, Config, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
 pub struct Attestor {
-    #[arg(long, default_value = "ws://localhost:8545")]
-    eth_rpc_url: String,
-
+    // #[arg(long, default_value = "ws://localhost:8545")]
+    // eth_rpc_url: String,
     #[arg(long, default_value = "http://localhost:9944")]
     cc3_rpc_url: String,
 
@@ -24,8 +23,11 @@ pub struct Attestor {
     #[arg(short, long)]
     verbose: bool,
 
-    #[arg(short, long, default_value_t = 100)]
+    #[arg(long, default_value_t = 100)]
     claim_buffer: u8,
+
+    #[arg(short, long, default_value = "./config.toml", required = true)]
+    config_file: String,
 }
 
 #[tokio::main]
@@ -42,12 +44,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
+    let config_file = fs::read_to_string(args.config_file)?;
+    let chain_price_configurations: ChainPriceConfigurations = toml::from_str(&config_file)?;
+
     let config = Config {
-        eth_rpc_url: args.eth_rpc_url,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
         nickname: args.nickname,
         claim_buffer: args.claim_buffer,
+        chain_price_configurations,
     };
 
     let mut server = Server::new(config);

@@ -7,8 +7,3 @@ use sp_std::vec::Vec;
 pub struct Prover {
     pub nickname: Vec<u8>,
 }
-
-#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChainPriceConfiguration {
-    pub price: u64,
-}
