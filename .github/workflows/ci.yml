@@ -1094,44 +1094,53 @@ jobs:
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              echo y | npx hardhat ignition deploy --reset "$module" --network creditcoin_local
+              npx hardhat ignition deploy --reset "$module" --network creditcoin_local
           done
+        env:
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
 
       - name: Deploy contract(s) to Creditcoin Devnet
         if: github.base_ref == 'dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              echo y | npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_devnet
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_devnet
           done
         env:
           # WARNING: EVM Balthathar != Substrate Bob
           # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
           HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.DEVNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
 
       - name: Deploy contract(s) to Creditcoin Testnet
         if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              echo y | npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_testnet
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_testnet
           done
         env:
           # WARNING: EVM Balthathar != Substrate Bob
           # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
           HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.TESTNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
 
       - name: Deploy contract(s) to Creditcoin Mainnet
         if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              echo y | npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_mainnet
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_mainnet
           done
         env:
           # WARNING: EVM Balthathar != Substrate Bob
           # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
           HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.MAINNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
 
       - name: Fork Creditcoin Testnet with Hardhat
         working-directory: ./docs/smart-contract-development/with-hardhat
