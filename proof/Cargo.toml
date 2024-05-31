@@ -22,3 +22,21 @@ tokio = { version = "1.34.0", features = ["process"] }
 futures = "0.3.30"
 mmr = { workspace = true }
 ethereum = "0.15.0"
+#alloy-core = "0.1.0"
+#alloy-jsonrpc = "0.1.0"
+attestor = { path = "../attestor" }
+tracing = "0.1.40"
+thiserror = "1.0"
+
+alloy = { git = "https://github.com/alloy-rs/alloy", features = [
+    "node-bindings",
+    "providers",
+    "provider-http",
+    "provider-ws",
+    "rpc-client",
+    "rpc-types",
+    "rpc-types-eth",
+    "serde",
+    "consensus",
+    "rlp",
+] }

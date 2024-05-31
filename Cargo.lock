@@ -8610,7 +8610,9 @@ dependencies = [
 name = "proof"
 version = "3.31.0"
 dependencies = [
+ "alloy",
  "anyhow",
+ "attestor",
  "attestor-primitives",
  "ethereum 0.15.0",
  "ethereum-types",
@@ -8621,7 +8623,9 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet-crypto",
+ "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

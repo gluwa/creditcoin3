@@ -1,8 +1,10 @@
-mod claim_verifier;
+mod claim_prover;
+mod eth;
 mod fragment;
+mod types;
 
 use anyhow::anyhow;
-use claim_verifier::build_verifier;
+use claim_prover::build_prover;
 
 use crate::fragment::AttestationFragment;
 use prover_primitives::claim::{Claim, ClaimKind};
@@ -10,7 +12,7 @@ use std::fmt::Debug;
 
 const SOME_FRAGMENT_SIZE: usize = 5;
 
-pub fn cairo_verify_claim<H, Address, A>(
+pub fn cairo_generate_proof<H, Address, A>(
     url: &str,
     claim: Claim<Address>,
     attestation_fragment: &AttestationFragment<H, A>,
@@ -25,7 +27,7 @@ where
             attestation_fragment.tail().map(|att| att.header_number()),
             attestation_fragment.head().map(|att| att.header_number())))?;
 
-    let verifier = build_verifier(url, claim, attestation_chain_slice);
+    let prover = build_prover(url, claim, attestation_chain_slice);
     //verifier.cairo_verify(false)?;
     Ok(())
 }
