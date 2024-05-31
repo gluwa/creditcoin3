@@ -4,7 +4,10 @@ use tokio::signal;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
-use prover::{ChainPriceConfigurations, Config, Server};
+use prover::{
+    config::{ChainPriceConfigurations, Config},
+    Server,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]

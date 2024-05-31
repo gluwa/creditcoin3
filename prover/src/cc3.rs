@@ -1,8 +1,4 @@
 use anyhow::Result;
-use kameo::{
-    actor::Actor,
-    // message::{Context, Message},
-};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use thiserror::Error;
@@ -119,28 +115,3 @@ impl Client {
         Ok(())
     }
 }
-
-impl Actor for Client {}
-
-// // AttestationSubmit is a message that can be sent to submit an attestation over rpc to the cc3 node
-// // It holds the attestation data to be signed by the attestor before submitting
-// pub struct AttestationSubmit<H> {
-//     pub attestation: AttestationData<H>,
-// }
-
-// impl<H> Message<AttestationSubmit<H>> for Client
-// where
-//     H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug,
-// {
-//     type Reply = Result<(), Error>;
-
-//     /// Main attestation handler
-//     /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
-//     async fn handle(
-//         &mut self,
-//         msg: AttestationSubmit<H>,
-//         _ctx: Context<'_, Self, Self::Reply>,
-//     ) -> Self::Reply {
-//         Ok(())
-//     }
-// }
