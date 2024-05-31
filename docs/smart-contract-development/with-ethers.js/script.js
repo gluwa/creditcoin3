@@ -3,10 +3,50 @@ import CounterContractArtifact from "../with-hardhat/artifacts/contracts/Counter
 
 let provider;
 let signer = null;
-let CounterContract;
 
-const CounterContractAddress = "DEPLOYED_COUNTER_CONTRACT_ADDRESS";
-const CounterContractABI = CounterContractArtifact.abi;
+// WARNING: this address depends on which chain the contract was deployed to
+// see blockchainTarget selection further below!
+const CounterContractAddress = "CHANGE_TO_REAL_DEPLOYMENT_ADDRESS";
+
+// define possible deployment targets here
+const blockchainTarget = {
+  creditcoin_local: {
+    chainId: "0x2a",
+    rpcUrls: ["http://127.0.0.1:9944"],
+    // WARNING: when testing against a local creditcoin3-node execute it with
+    // --dev or --rps-cors all, otherwise some browsers prevent the connection
+    // and the eth_chainId method fails => MetaMask fails to add the new chain!
+    chainName: "Creditcoin Local",
+    nativeCurrency: {
+      name: "lCTC",
+      symbol: "lCTC",
+      decimals: 18
+    },
+    blockExplorerUrls: null
+  },
+  hardhat_local: {
+    chainId: "0x7a69", // see https://chainlist.org/chain/102031
+    rpcUrls: ["http://127.0.0.1:8545"],
+    chainName: "Hardhat Local",
+    nativeCurrency: {
+      name: "tETH",
+      symbol: "tETH",
+      decimals: 18
+    },
+    blockExplorerUrls: null
+  },
+  creditcoin_testnet: {
+    chainId: "0x18e8f", // see https://chainlist.org/chain/102031
+    rpcUrls: ["https://rpc.cc3-testnet.creditcoin.network"],
+    chainName: "Creditcoin Testnet",
+    nativeCurrency: {
+      name: "tCTC",
+      symbol: "tCTC",
+      decimals: 18
+    },
+    blockExplorerUrls: ["https://creditcoin-testnet.blockscout.com/"]
+  }
+};
 
 if (window.ethereum === null) {
     // If MetaMask is not installed, we use the default provider,
@@ -22,17 +62,7 @@ if (window.ethereum === null) {
 
     const result = await window.ethereum.request({
       method: "wallet_addEthereumChain",
-      params: [{
-          chainId: "0x18e8f", // see https://chainlist.org/chain/102031
-          rpcUrls: ["https://rpc.cc3-testnet.creditcoin.network"],
-          chainName: "Creditcoin Testnet",
-          nativeCurrency: {
-              name: "tCTC",
-              symbol: "tCTC",
-              decimals: 18
-          },
-          blockExplorerUrls: ["https://creditcoin-testnet.blockscout.com/"]
-      }]
+      params: [blockchainTarget.creditcoin_testnet]
     });
 
     // WARNING: this works with ethers.js v6 or later
@@ -45,9 +75,9 @@ if (window.ethereum === null) {
 }
 
 // Initialize the CounterContract instance
-CounterContract = new ethers.Contract(
+const CounterContract = new ethers.Contract(
   CounterContractAddress,
-  CounterContractABI,
+  CounterContractArtifact.abi,
   signer
 );
 
