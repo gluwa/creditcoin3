@@ -174,6 +174,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                         hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
                         hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
                         hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+                        hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3"), // Prover1 evm pair
                     ],
                     // Initial PoA authorities
                     vec![authority_keys_from_seed("Alice")],
@@ -292,6 +293,7 @@ pub fn local_testnet_config() -> ChainSpec {
                     hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
                     hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
                     hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+                    hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3"), // Prover1 evm pair
                 ],
                 vec![
                     authority_keys_from_seed("Alice"),

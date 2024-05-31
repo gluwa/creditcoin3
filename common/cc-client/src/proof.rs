@@ -48,7 +48,7 @@ sol! {
 }
 
 pub const PRECOMPILE_ADDR: Address = address!("0000000000000000000000000000000000003049");
-pub const GAS_LIMIT: u64 = 5_000_000;
+pub const GAS_LIMIT: u64 = 50_000_000;
 
 impl Client {
     pub async fn submit_proof(&self, claim_hash: H256, proof: Vec<u8>) -> Result<()> {
