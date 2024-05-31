@@ -7,6 +7,14 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 
+[lints.clippy]
+pedantic = "warn"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+no_effect_underscore_binding = "allow"
+redundant_slicing = "allow"
+too_many_arguments = "allow"
+module_name_repetitions = "allow"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

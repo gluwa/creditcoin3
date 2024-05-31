@@ -22,7 +22,7 @@ pub struct Claim {
 
 const BUFFER_SIZE: usize = 100;
 
-/// ClaimSubscription is a struct that references to a receiving end of a channel where claims are pushed upon
+/// `ClaimSubscription` is a struct that references to a receiving end of a channel where claims are pushed upon
 /// It has a handle to cancel the subscription
 #[derive(Debug)]
 pub struct ClaimSubscription {
@@ -32,7 +32,7 @@ pub struct ClaimSubscription {
 
 impl ClaimSubscription {
     /// Cancel the subscription
-    pub async fn cancel(&self) -> Result<()> {
+    pub fn cancel(&self) -> Result<()> {
         // Cancel the subscription task
         debug!("Canceling subscription");
         self.handle.abort();
@@ -89,24 +89,24 @@ impl Client {
                     SubstrateConfig,
                     OnlineClient<SubstrateConfig>,
                 > = block.extrinsics().await?;
-                for ext in extrinsics.iter() {
-                    let ext = ext?;
+                for extrinsic in extrinsics.iter() {
+                    let ext = extrinsic?;
 
                     match (ext.pallet_name()?, ext.variant_index()) {
                         (PROVER_MODULE, CLAIM_SUBMISSION_EXT_INDEX) => {
                             let events = ext.events().await?;
 
-                            for evt in events.iter() {
-                                if evt.is_err() {
+                            for event in events.iter() {
+                                if event.is_err() {
                                     continue;
                                 };
 
-                                let evt = evt?;
+                                let event = event?;
 
-                                match (evt.pallet_name(), evt.variant_name()) {
+                                match (event.pallet_name(), event.variant_name()) {
                                     (PROVER_MODULE, CLAIM_SUBMITTED_EVENT) => {
                                         if let Ok(Some(evt)) =
-                                            evt.as_event::<ProverClaimSubmitted>()
+                                            event.as_event::<ProverClaimSubmitted>()
                                         {
                                             debug!("claim source: {:?}", evt.1);
                                             debug!("claim target prover: {:?}", evt.1);

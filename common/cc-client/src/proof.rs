@@ -48,6 +48,7 @@ sol! {
 }
 
 pub const PRECOMPILE_ADDR: Address = address!("0000000000000000000000000000000000003049");
+pub const GAS_LIMIT: u64 = 5_000_000;
 
 impl Client {
     pub async fn submit_proof(&self, claim_hash: H256, proof: Vec<u8>) -> Result<()> {
@@ -72,17 +73,13 @@ impl Client {
 
         let gas_price = provider.get_gas_price().await?;
         info!("Gas price: {gas_price}");
-        let estimated_gas = call_builder.estimate_gas().await?;
-        info!("Estimated gas price: {estimated_gas}");
-
-        // subxt::utils::Static
 
         let tx = cc3::tx().evm().call(
             sp_core::H160(self.evm_address.into_array()),
             sp_core::H160(PRECOMPILE_ADDR.into_array()),
             call_data.0.to_vec(),
             subxt::utils::Static(sp_core::U256::zero()),
-            estimated_gas,
+            GAS_LIMIT,
             subxt::utils::Static(U256::from(gas_price)),
             None,
             None,
@@ -97,7 +94,7 @@ impl Client {
             .await?;
 
         let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
+        debug!("Proof submission extrinsic submitted with hash: {:?}", hash);
 
         Ok(())
     }

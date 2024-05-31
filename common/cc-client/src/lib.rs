@@ -67,6 +67,7 @@ impl<'a> Client {
         })
     }
 
+    #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.keypair.sign(message)
     }
