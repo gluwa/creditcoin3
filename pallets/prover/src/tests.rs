@@ -206,15 +206,7 @@ fn submit_claim_for_unsupported_chain_fails() {
             prover_1(),
             Prover { nickname: vec![] }
         ));
-        assert_ok!(ProverModule::set_chain_price_config(
-            prover_1(),
-            vec![
-                (ChainPriceConfiguration {
-                    chain_id: 2,
-                    price: 100
-                })
-            ]
-        ));
+
         // None of the chains are supported
         let claim = Claim {
             block_number: 1,
@@ -227,6 +219,31 @@ fn submit_claim_for_unsupported_chain_fails() {
 
         assert_err!(
             ProverModule::submit_claim(claimer_1(), claim.clone(), PROVER_1),
+            Error::<Test>::ChainNotSupported
+        );
+    })
+}
+
+#[test]
+fn add_chain_price_for_unsupported_chain_fails() {
+    ExtBuilder.build_and_execute(|| {
+        // Setup prover and price
+        assert_ok!(ProverModule::register_prover(
+            prover_1(),
+            Prover { nickname: vec![] }
+        ));
+
+        // None of the chains are supported
+        assert_err!(
+            ProverModule::set_chain_price_config(
+                prover_1(),
+                vec![
+                    (ChainPriceConfiguration {
+                        chain_id: 2,
+                        price: 100
+                    })
+                ]
+            ),
             Error::<Test>::ChainNotSupported
         );
     })
