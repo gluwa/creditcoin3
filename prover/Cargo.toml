@@ -51,6 +51,7 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
 
 # Substrate
 sp-core = { version = "21.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+pallet-evm = { workspace = true, default-features = false }
 
 # Creditcoin deps
 attestor-primitives = { path = "../primitives/attestor" }

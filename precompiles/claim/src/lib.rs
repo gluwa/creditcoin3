@@ -7,6 +7,7 @@ use frame_support::{
     sp_runtime::traits::{Dispatchable, Hash},
 };
 use pallet_evm::AddressMapping;
+use pallet_prover::{types::Prover, ChainPriceConfiguration};
 use precompile_utils::prelude::*;
 use prover_primitives::claim::{Claim, ClaimKind};
 use sp_core::{H160, H256};
@@ -26,6 +27,21 @@ pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(by
 /// Precompile exposing a pallet_balance as an ERC20.
 /// The precompile uses an additional storage to store approvals.
 pub struct ClaimPrecompile<Runtime>(PhantomData<Runtime>);
+
+#[derive(Debug, Clone, PartialEq, Eq, precompile_utils::solidity::Codec)]
+pub struct ChainPriceConfig {
+    chain_id: u64,
+    price: u64,
+}
+
+impl Into<ChainPriceConfiguration> for ChainPriceConfig {
+    fn into(self) -> ChainPriceConfiguration {
+        ChainPriceConfiguration {
+            chain_id: self.chain_id,
+            price: self.price,
+        }
+    }
+}
 
 #[precompile_utils::precompile]
 impl<Runtime> ClaimPrecompile<Runtime>
@@ -97,6 +113,60 @@ where
         Ok(claim_hash)
     }
 
+    #[precompile::public("register_prover(uint8[])")]
+    fn register_prover(handle: &mut impl PrecompileHandle, nickname: Vec<u8>) -> EvmResult<bool> {
+        handle.record_log_costs_manual(3, 32)?;
+
+        // Build call with origin.
+        {
+            let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
+
+            log::debug!("registering prover with nickname: {:?}", nickname);
+            RuntimeHelper::<Runtime>::try_dispatch(
+                handle,
+                Some(origin).into(),
+                pallet_prover::Call::<Runtime>::register_prover {
+                    prover: Prover { nickname },
+                },
+            )?;
+        }
+
+        Ok(true)
+    }
+
+    #[precompile::public("set_chain_price_config((uint64,uint64)[])")]
+    fn set_chain_price_config(
+        handle: &mut impl PrecompileHandle,
+        chain_price_configs: Vec<ChainPriceConfig>,
+    ) -> EvmResult<bool> {
+        handle.record_log_costs_manual(3, 32)?;
+
+        // Build call with origin.
+        {
+            let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
+
+            log::debug!(
+                "setting chain price configurations: {:?}",
+                chain_price_configs
+            );
+
+            let parsed_chain_price_configs: Vec<ChainPriceConfiguration> = chain_price_configs
+                .into_iter()
+                .map(|config| config.into())
+                .collect();
+
+            RuntimeHelper::<Runtime>::try_dispatch(
+                handle,
+                Some(origin).into(),
+                pallet_prover::Call::<Runtime>::set_chain_price_config {
+                    chain_price_configs: parsed_chain_price_configs,
+                },
+            )?;
+        }
+
+        Ok(true)
+    }
+
     #[precompile::public("submit_proof(bytes32,uint8[])")]
     fn submit_proof(
         handle: &mut impl PrecompileHandle,
@@ -109,7 +179,11 @@ where
         {
             let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
 
-            log::debug!("submitting claim with hash: {:?}", claim_hash);
+            log::debug!(
+                "submitting claim with hash: {:?}, for origin: {:?}",
+                claim_hash,
+                origin
+            );
             RuntimeHelper::<Runtime>::try_dispatch(
                 handle,
                 Some(origin).into(),

@@ -73,6 +73,10 @@ impl<'a> Client {
         self.keypair.sign(message)
     }
 
+    pub fn get_evm_address(&self) -> Address {
+        self.evm_address
+    }
+
     /// Get's a substrate client over websocket to the configured url
     pub async fn get_substrate_client(&self) -> Result<OnlineClient<SubstrateConfig>> {
         debug!("connecting to {}", replace_http_with_ws(&self.url));
@@ -199,12 +203,16 @@ impl<'a> Client {
     }
 
     /// Check the clients membership in the prover pallet
-    pub async fn check_provers_membership(&self) -> Result<bool> {
+    pub async fn check_provers_membership(&self, account_id: Option<AccountId32>) -> Result<bool> {
         let api = self.get_substrate_client().await?;
 
-        let storage_query = cc3::storage()
-            .prover()
-            .provers(AccountId32(self.keypair.public_key().0));
+        let account_id = if let Some(account_id) = account_id {
+            account_id
+        } else {
+            AccountId32(self.keypair.public_key().0)
+        };
+
+        let storage_query = cc3::storage().prover().provers(account_id);
 
         let result = api
             .storage()
@@ -287,9 +295,17 @@ impl<'a> Client {
         AttestorId::from_public(self.keypair.public_key().0)
     }
 
-    pub async fn get_chain_price_configurations(&self) -> Result<Vec<ChainPriceConfiguration>> {
+    pub async fn get_chain_price_configurations(
+        &self,
+        account_id: Option<AccountId32>,
+    ) -> Result<Vec<ChainPriceConfiguration>> {
         let api = self.get_substrate_client().await?;
-        let account_id = AccountId32(self.keypair.public_key().0);
+
+        let account_id = if let Some(account_id) = account_id {
+            account_id
+        } else {
+            AccountId32(self.keypair.public_key().0)
+        };
 
         let storage_query = cc3::storage()
             .prover()
@@ -332,10 +348,28 @@ impl<'a> Client {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ChainPriceConfig {
     pub chain_id: ChainId,
     pub price: u64,
+}
+
+impl From<ChainPriceConfiguration> for ChainPriceConfig {
+    fn from(config: ChainPriceConfiguration) -> Self {
+        ChainPriceConfig {
+            chain_id: config.chain_id,
+            price: config.price,
+        }
+    }
+}
+
+impl Into<ChainPriceConfiguration> for ChainPriceConfig {
+    fn into(self) -> ChainPriceConfiguration {
+        ChainPriceConfiguration {
+            chain_id: self.chain_id,
+            price: self.price,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Error)]

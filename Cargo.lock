@@ -8493,6 +8493,7 @@ dependencies = [
  "cc-client",
  "clap",
  "hex",
+ "pallet-evm",
  "rand 0.8.5",
  "serde",
  "sp-core",

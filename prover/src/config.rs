@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use attestor_primitives::ChainId;
-use cc_client::cc3::runtime_types::prover_primitives::ChainPriceConfiguration as RuntimeChainPriceConfiguration;
+use cc_client::ChainPriceConfig;
 
 #[derive(Debug, Clone)]
 /// Server configuration
@@ -31,33 +31,9 @@ pub struct Chain {
     pub price: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChainPriceConfiguration {
-    pub chain_id: ChainId,
-    pub price: u64,
-}
-
-impl From<RuntimeChainPriceConfiguration> for ChainPriceConfiguration {
-    fn from(config: RuntimeChainPriceConfiguration) -> Self {
-        ChainPriceConfiguration {
-            chain_id: config.chain_id,
-            price: config.price,
-        }
-    }
-}
-
-impl Into<RuntimeChainPriceConfiguration> for ChainPriceConfiguration {
-    fn into(self) -> RuntimeChainPriceConfiguration {
-        RuntimeChainPriceConfiguration {
-            chain_id: self.chain_id,
-            price: self.price,
-        }
-    }
-}
-
-impl Into<ChainPriceConfiguration> for Chain {
-    fn into(self) -> ChainPriceConfiguration {
-        ChainPriceConfiguration {
+impl Into<ChainPriceConfig> for Chain {
+    fn into(self) -> ChainPriceConfig {
+        ChainPriceConfig {
             chain_id: self.chain_id,
             price: self.price,
         }

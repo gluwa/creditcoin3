@@ -1,7 +1,7 @@
 [[chain]]
 rpc_url = "https://example.com"
 chain_id = 1
-price = 100
+price = 150
 
 # [[chain]]
 # rpc_url = "https://example2.com"

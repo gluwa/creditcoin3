@@ -1,4 +1,5 @@
 use anyhow::Result;
+
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 
@@ -8,7 +9,7 @@ pub mod eth;
 pub mod transaction;
 
 use cc3::Claim;
-use config::{ChainPriceConfiguration, Config};
+use config::Config;
 
 #[derive(Debug)]
 /// Attestor server is configured using `Config`
@@ -44,7 +45,11 @@ impl Server {
         cc3_client.init().await?;
 
         // Sync chain prices configuration
-        self.sync_chain_prices_configuration(cc3_client.clone())
+        cc3_client
+            .sync_chain_prices_configuration(
+                cc3_client.clone(),
+                self.config.chain_price_configurations.chain.clone(),
+            )
             .await?;
 
         let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
@@ -78,53 +83,10 @@ impl Server {
 
         Ok(())
     }
-
-    pub async fn sync_chain_prices_configuration(&self, client: crate::cc3::Client) -> Result<()> {
-        let chain_price_configurations: Vec<ChainPriceConfiguration> = client
-            .cc_client
-            .get_chain_price_configurations()
-            .await?
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
-
-        info!(
-            "Syncing chain price configurations: {:?}",
-            chain_price_configurations
-        );
-
-        // TODO: compare with current configuration and update if needed
-        let config_chain_prices: Vec<ChainPriceConfiguration> = self
-            .config
-            .chain_price_configurations
-            .clone()
-            .chain
-            .into_iter()
-            .map(std::convert::Into::into)
-            .collect();
-
-        // compare with current configuration and update if needed
-        if chain_price_configurations == config_chain_prices {
-            info!("Chain price configurations are up to date");
-        } else {
-            info!("Updating chain price configurations");
-            client
-                .cc_client
-                .update_chain_price_configurations(
-                    config_chain_prices
-                        .into_iter()
-                        .map(std::convert::Into::into)
-                        .collect(),
-                )
-                .await?;
-        };
-
-        Ok(())
-    }
 }
 
 pub async fn process_claim(client: crate::cc3::Client, claim: Claim) -> Result<()> {
-    info!("Processing claim: {:?}, client: {:?}", claim, client);
+    info!("Processing claim with hash: {:?}", claim.hash);
 
     // Create proof (TODO: hook up prover)
     let proof: Vec<u8> = vec![];

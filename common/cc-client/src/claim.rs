@@ -1,11 +1,12 @@
 use anyhow::Result;
 use sp_core::H256;
-use subxt::utils::AccountId32;
 use subxt::{error::Error as SubxtError, OnlineClient, SubstrateConfig};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
+
+pub use subxt::utils::AccountId32;
 
 pub use crate::cc3::prover::calls::types::submit_claim::Claim as Cc3Claim;
 use crate::cc3::prover::events::ProverClaimSubmitted;
@@ -60,13 +61,20 @@ pub enum Error {
 }
 
 impl Client {
-    pub async fn subscribe_claim_submission_events(&self) -> Result<ClaimSubscription, Error> {
+    pub async fn subscribe_claim_submission_events(
+        &self,
+        filter: Option<AccountId32>,
+    ) -> Result<ClaimSubscription, Error> {
         let api = self.get_substrate_client().await?;
 
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
-        let account_id = AccountId32(self.keypair.public_key().0);
+        let account_id = if let Some(account_id) = filter {
+            account_id
+        } else {
+            AccountId32(self.keypair.public_key().0)
+        };
 
         // Clone the api and send it on the tokio task
         let api = api.clone();
@@ -108,8 +116,8 @@ impl Client {
                                         if let Ok(Some(evt)) =
                                             event.as_event::<ProverClaimSubmitted>()
                                         {
-                                            debug!("claim source: {:?}", evt.1);
-                                            debug!("claim target prover: {:?}", evt.1);
+                                            debug!("claim source: {:?}", evt.0.to_string());
+                                            debug!("claim target prover: {:?}", evt.1.to_string());
                                             debug!("claim hash: {:?}", evt.2);
 
                                             if evt.1 != account_id {
