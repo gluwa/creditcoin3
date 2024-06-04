@@ -10,8 +10,8 @@ param adminUsername string = 'ubuntu'
 param adminPasswordOrKey string
 
 @description('The Ubuntu version for the VM. This will pick a fully patched image of this given Ubuntu version.')
-param ubuntuOSVersion string = '22_04-lts'
-param ubuntuOffer string = '0001-com-ubuntu-server-jammy'
+param ubuntuOSVersion string = 'ubuntu-pro-gen1'
+param ubuntuOffer string = 'ubuntu-24_04-lts'
 
 @description('Location for all resources.')
 param location string = resourceGroup().location
