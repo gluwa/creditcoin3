@@ -144,7 +144,7 @@ fn submit_claim_and_invalid_proof_fails() {
                     Precompile,
                     PCall::submit_proof {
                         claim_hash,
-                        proof: b"some_proof".to_vec(),
+                        proof: b"some_proof".to_vec().into(),
                     },
                 )
                 .execute_reverts(|output| {
@@ -254,7 +254,7 @@ fn submit_proof_for_unknown_claim_fails() {
                     Precompile,
                     PCall::submit_proof {
                         claim_hash,
-                        proof: b"some_proof".to_vec(),
+                        proof: b"some_proof".to_vec().into(),
                     },
                 )
                 .execute_reverts(|output| {

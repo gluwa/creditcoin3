@@ -167,11 +167,11 @@ where
         Ok(true)
     }
 
-    #[precompile::public("submit_proof(bytes32,uint8[])")]
+    #[precompile::public("submit_proof(bytes32,bytes)")]
     fn submit_proof(
         handle: &mut impl PrecompileHandle,
         claim_hash: H256,
-        proof: Vec<u8>,
+        proof: UnboundedBytes,
     ) -> EvmResult<bool> {
         handle.record_log_costs_manual(3, 32)?;
 
@@ -189,7 +189,7 @@ where
                 Some(origin).into(),
                 pallet_prover::Call::<Runtime>::submit_proof {
                     claim_hash: claim_hash.into(),
-                    proof,
+                    proof: proof.into(),
                 },
             )?;
         }

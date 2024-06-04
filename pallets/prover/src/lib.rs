@@ -275,10 +275,7 @@ pub mod pallet {
             // Verify proof
             // Need to find a way to generate a proof in test mode and verify it
             // Currently not really implemented
-            ensure!(
-                verify_proof(proof.clone()),
-                Error::<T>::InvalidProofSubmitted
-            );
+            ensure!(verify_proof(proof), Error::<T>::InvalidProofSubmitted);
 
             // Check existence
             let prover_claims = ProverClaims::<T>::get(&prover);

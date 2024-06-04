@@ -42,8 +42,9 @@ pub enum Error {
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
+/// - `nickname`: nickname for this prover
 pub struct Client {
-    pub cc_client: CcClient,
+    cc_client: CcClient,
     pub nickname: String,
 }
 
@@ -89,20 +90,25 @@ impl<'a> Client {
         self.cc_client.register(self.nickname.clone()).await
     }
 
+    /// Submit a proof to the prover pallet for a given hash
+    /// - `claim_hash`: hash of the claim
+    /// - `proof`: proof bytes
     pub async fn submit_proof(&self, claim_hash: H256, proof: Vec<u8>) -> Result<()> {
         info!("Submitting proof len: {}", proof.len());
 
         self.cc_client.submit_proof(claim_hash, proof).await
     }
 
+    /// Sync chain prices configuration
+    /// - `client`: cc3 client
+    /// - `config_chain_prices`: chain price configurations
     pub async fn sync_chain_prices_configuration(
         &self,
-        client: crate::cc3::Client,
         config_chain_prices: Vec<Chain>,
     ) -> Result<()> {
         let account_id: AccountId32 = eth_acct(self.cc_client.get_evm_address().into_array())?;
 
-        let chain_price_configurations: Vec<ChainPriceConfig> = client
+        let chain_price_configurations: Vec<ChainPriceConfig> = self
             .cc_client
             .get_chain_price_configurations(Some(account_id))
             .await?
@@ -126,8 +132,7 @@ impl<'a> Client {
             info!("Chain price configurations are up to date");
         } else {
             info!("Updating chain price configurations");
-            client
-                .cc_client
+            self.cc_client
                 .set_chain_price_config(
                     config_chain_prices
                         .into_iter()

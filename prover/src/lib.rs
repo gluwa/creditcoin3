@@ -1,6 +1,6 @@
 use anyhow::Result;
-
 use tokio::sync::{mpsc, oneshot};
+use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, info};
 
 pub mod cc3;
@@ -33,9 +33,6 @@ impl Server {
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&mut self) -> Result<()> {
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        self.cancel_tx = Some(cancel_tx);
-
         let cc3_client = cc3::Client::new(
             &self.config.cc3_rpc_url,
             &self.config.cc3_key,
@@ -46,10 +43,7 @@ impl Server {
 
         // Sync chain prices configuration
         cc3_client
-            .sync_chain_prices_configuration(
-                cc3_client.clone(),
-                self.config.chain_price_configurations.chain.clone(),
-            )
+            .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
 
         let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
@@ -59,6 +53,10 @@ impl Server {
         );
 
         debug!("Starting claim sub on cc3");
+        // Create a channel to cancel the claim subscription
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        // Store the cancel_tx so we can cancel the subscription later
+        self.cancel_tx = Some(cancel_tx);
         // Run sub in background and allow server to continue doing other work
         let client = cc3_client.clone();
         tokio::spawn(async move {
@@ -89,10 +87,15 @@ pub async fn process_claim(client: crate::cc3::Client, claim: Claim) -> Result<(
     info!("Processing claim with hash: {:?}", claim.hash);
 
     // Create proof (TODO: hook up prover)
-    let proof: Vec<u8> = vec![];
+    let mut proof_example = File::open("proof_example.json").await?;
+
+    // Create a buffer to read the file
+    let mut proof = Vec::new();
+
+    // read the whole proof file into the buffer
+    proof_example.read_to_end(&mut proof).await?;
 
     // Submit result to cc3
-
     client.submit_proof(claim.hash, proof).await?;
 
     Ok(())

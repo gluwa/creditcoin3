@@ -47,7 +47,7 @@ sol! {
 
         // Function to submit proof for a claim
         #[derive(Debug)]
-        function submit_proof(bytes32 claim_hash, uint8[] memory proof) external;
+        function submit_proof(bytes32 claim_hash, bytes memory proof) external;
 
         // Event emitted when a proof is submitted
         #[derive(Default, PartialEq, Debug)]
@@ -148,7 +148,7 @@ impl Client {
         let contract = ClaimContract::new(PRECOMPILE_ADDR, provider.clone());
 
         let call_builder = contract
-            .submit_proof(claim_hash.0.into(), proof)
+            .submit_proof(claim_hash.0.into(), proof.into())
             .from(self.evm_address);
 
         let call_data = call_builder.calldata();
