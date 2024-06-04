@@ -538,8 +538,7 @@ jobs:
       - name: Install linode-cli
         run: |
           python3 --version
-          pip3 --version
-          sudo pip3 install linode-cli --upgrade
+          pipx install linode-cli
           linode-cli --version
 
       - name: Authorize hosted-runner
@@ -659,8 +658,7 @@ jobs:
       - name: Install linode-cli
         run: |
           python3 --version
-          pip3 --version
-          sudo pip3 install linode-cli --upgrade
+          pipx install linode-cli
           linode-cli --version
 
       - name: Remove VM
