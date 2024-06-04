@@ -73,7 +73,8 @@ impl<'a> Client {
         self.keypair.sign(message)
     }
 
-    #[must_use] pub fn get_evm_address(&self) -> Address {
+    #[must_use]
+    pub fn get_evm_address(&self) -> Address {
         self.evm_address
     }
 
