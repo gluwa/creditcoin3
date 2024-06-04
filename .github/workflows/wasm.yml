@@ -12,7 +12,7 @@ permissions: read-all
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +48,7 @@ jobs:
   # try installing subwasm b/c we use this version in multiple places
   # and need to know whether it builds with current rustc
   dry-run-install-subwasm:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +71,7 @@ jobs:
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
 
   upgrade-devnet:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs: build
     if: github.ref == 'refs/heads/dev'
     steps:
