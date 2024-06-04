@@ -88,7 +88,7 @@ impl Client {
     }
 
     /// Set the chain price configurations
-    /// - `chain_price_configs`: chain price configurations (chain_id, price)
+    /// - `chain_price_configs`: chain price configurations (`chain_id`, price)
     pub async fn set_chain_price_config(
         &self,
         chain_price_configs: Vec<ChainPriceConfig>,
@@ -148,7 +148,7 @@ impl Client {
         let contract = ClaimContract::new(PRECOMPILE_ADDR, provider.clone());
 
         let call_builder = contract
-            .submit_proof(claim_hash.0.into(), proof.into())
+            .submit_proof(claim_hash.0.into(), proof)
             .from(self.evm_address);
 
         let call_data = call_builder.calldata();

@@ -34,11 +34,11 @@ pub struct ChainPriceConfig {
     price: u64,
 }
 
-impl Into<ChainPriceConfiguration> for ChainPriceConfig {
-    fn into(self) -> ChainPriceConfiguration {
+impl From<ChainPriceConfig> for ChainPriceConfiguration {
+    fn from(val: ChainPriceConfig) -> Self {
         ChainPriceConfiguration {
-            chain_id: self.chain_id,
-            price: self.price,
+            chain_id: val.chain_id,
+            price: val.price,
         }
     }
 }
