@@ -152,7 +152,7 @@ impl Client {
             .from(self.evm_address);
 
         let call_data = call_builder.calldata();
-        info!("Proof submission call data: {:?}", call_data);
+        // info!("Proof submission call data: {:?}", call_data);
 
         let gas_price = provider.get_gas_price().await?;
         info!("Gas price: {gas_price}");

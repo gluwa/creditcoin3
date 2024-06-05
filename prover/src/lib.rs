@@ -47,9 +47,6 @@ impl Server {
             .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
 
-        // Create eth client
-        let eth_client = Client::new(&self.config.eth_rpc_url).await?;
-
         let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
         debug!(
             "Created claim buffer with size: {}",
@@ -68,11 +65,24 @@ impl Server {
         });
 
         debug!("Starting claim processing handler");
+        let chain_price_configurations = self.config.chain_price_configurations.clone();
         // Handle claims in the main task or another spawned task
         let client = cc3_client.clone();
         tokio::spawn(async move {
             while let Some(claim) = claim_rx.recv().await {
-                match process_claim(client.clone(), eth_client.clone(), claim).await {
+                // Get the rpc url for the chain the claim is from
+                let eth_client_rpc_url = chain_price_configurations
+                    .get_rpc_url(claim.claim.chain_id)
+                    .ok_or(anyhow::anyhow!("Chain not found"))
+                    .unwrap_or_else(|_| panic!("Chain with id {} not found", claim.claim.chain_id));
+
+                // Create an eth client
+                let eth_client = eth::Client::new(eth_client_rpc_url)
+                    .await
+                    .expect("Error creating eth client");
+
+                // Process the claim
+                match process_claim(client.clone(), eth_client, claim).await {
                     Ok(()) => {
                         info!("Claim processed");
                     }
