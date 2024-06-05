@@ -9,8 +9,8 @@ use sp_core::H256;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+use crate::merkle;
 use crate::merkle::tree::StarknetPedersenMmr;
-use crate::{merkle, transaction};
 
 /// Attestor is an actor that creates attestation based on a new block
 /// It will pass this attestation to the cc3 client to be submitted on chain
@@ -50,8 +50,8 @@ pub struct NewBlock {
     pub header_number: u64,
     pub header_hash: H256,
     pub last_digest: H256,
-    pub transactions: Vec<transaction::Transaction>,
-    pub receipts: Vec<transaction::Receipt>,
+    pub transactions: Vec<eth::Transaction>,
+    pub receipts: Vec<eth::Receipt>,
 }
 
 /// Rlps is the `rlp::encoded` version of either a Transaction or Receipt
@@ -61,14 +61,14 @@ impl NewBlock {
     fn to_transactions_rlps(&self) -> Rlps {
         self.transactions
             .iter()
-            .map(transaction::BlockItem::to_bytes)
+            .map(eth::BlockItem::to_bytes)
             .collect::<Vec<Vec<u8>>>()
     }
 
     fn to_receipts_rlps(&self) -> Rlps {
         self.receipts
             .iter()
-            .map(transaction::BlockItem::to_bytes)
+            .map(eth::BlockItem::to_bytes)
             .collect::<Vec<Vec<u8>>>()
     }
 

@@ -1262,6 +1262,7 @@ dependencies = [
  "clap",
  "creditcoin3-attestor-gossip",
  "creditcoin3-attestor-rpc",
+ "eth",
  "futures 0.3.30",
  "futures-util",
  "hex",
@@ -3503,6 +3504,13 @@ checksum = "534c5cf6194dfab3db3242765c03bbe257cf92f22b38f6bc0c58d59108a820ba"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "eth"
+version = "3.24.1"
+dependencies = [
+ "alloy",
 ]
 
 [[package]]
@@ -8492,6 +8500,7 @@ dependencies = [
  "attestor-primitives",
  "cc-client",
  "clap",
+ "eth",
  "hex",
  "pallet-evm",
  "rand 0.8.5",

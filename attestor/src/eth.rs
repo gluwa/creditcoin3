@@ -5,6 +5,7 @@ use alloy::{
     transports::TransportErrorKind,
 };
 use anyhow::Result;
+use eth;
 use futures_util::StreamExt;
 use kameo::actor::ActorRef;
 use sp_core::H256;
@@ -14,7 +15,6 @@ use tracing::{debug, error, info};
 use crate::{
     attestation::{self, Attestor, NewBlock},
     cc3::{self, AttestationSubmit, Client, GetLastDigest},
-    transaction,
 };
 
 #[derive(Debug, Error)]
@@ -70,16 +70,10 @@ pub async fn subscribe_to_new_heads(
                 ))
                 .await?;
 
-            let receipts = receipts
-                .into_iter()
-                .flatten()
-                .map(transaction::Receipt)
-                .collect();
+            let receipts = receipts.into_iter().flatten().map(eth::Receipt).collect();
 
             let transactions = if let BlockTransactions::Full(tx) = block.transactions {
-                tx.into_iter()
-                    .map(super::transaction::Transaction)
-                    .collect()
+                tx.into_iter().map(eth::Transaction).collect()
             } else {
                 info!("No full tx");
                 vec![]

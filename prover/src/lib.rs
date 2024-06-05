@@ -1,7 +1,8 @@
 use anyhow::Result;
+use eth::Client;
 use tokio::sync::{mpsc, oneshot};
 use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 pub mod cc3;
 pub mod config;
@@ -46,6 +47,9 @@ impl Server {
             .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
 
+        // Create eth client
+        let eth_client = Client::new(&self.config.eth_rpc_url).await?;
+
         let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
         debug!(
             "Created claim buffer with size: {}",
@@ -68,7 +72,7 @@ impl Server {
         let client = cc3_client.clone();
         tokio::spawn(async move {
             while let Some(claim) = claim_rx.recv().await {
-                match process_claim(client.clone(), claim).await {
+                match process_claim(client.clone(), eth_client.clone(), claim).await {
                     Ok(()) => {
                         info!("Claim processed");
                     }
@@ -83,8 +87,25 @@ impl Server {
     }
 }
 
-pub async fn process_claim(client: crate::cc3::Client, claim: Claim) -> Result<()> {
+pub async fn process_claim(
+    client: crate::cc3::Client,
+    eth_client: Client,
+    claim: Claim,
+) -> Result<()> {
     info!("Processing claim with hash: {:?}", claim.hash);
+
+    // Check if claim exists on source chain
+    match eth_client.check_claim_inclusion(claim.claim).await {
+        Ok(true) => {
+            info!("Claim included on source chain");
+        }
+        Ok(false) => {
+            warn!("Claim not included on source chain");
+        }
+        Err(e) => {
+            error!("Error checking claim inclusion: {:?}", e);
+        }
+    };
 
     // Create proof (TODO: hook up prover)
     let mut proof_example = File::open("proof_example.json").await?;

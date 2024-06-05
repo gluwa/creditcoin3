@@ -5,7 +5,6 @@ pub mod attestation;
 pub mod cc3;
 pub mod eth;
 pub mod merkle;
-pub mod transaction;
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
