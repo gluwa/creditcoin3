@@ -1,8 +1,8 @@
 use alloy::providers::Provider;
 use alloy::providers::ProviderBuilder;
 use alloy::rpc::client::WsConnect;
+use alloy::rpc::types::eth::BlockNumberOrTag;
 use alloy::rpc::types::eth::BlockTransactions;
-use alloy::rpc::types::eth::{Block, BlockNumberOrTag};
 use attestor::transaction::{Receipt, Transaction};
 use thiserror::Error;
 use tracing::info;

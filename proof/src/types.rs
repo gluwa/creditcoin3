@@ -177,3 +177,55 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>, ClaimKind)> for MerkleProofWith
         }
     }
 }
+
+#[derive(Debug)]
+pub enum ClaimProverError {
+    AttestationFragmentMismatch(u64, Option<u64>, Option<u64>),
+    SerializationFailure(String),
+    BlockFetchFailure(String),
+    ClaimNotIdentified,
+    ClaimNotUnique,
+    InputFileNameNotSet,
+    OutputFileNameNotSet,
+    OutputParseFailure(String),
+    Cairo(ScriptError),
+}
+
+impl From<ScriptError> for ClaimProverError {
+    fn from(err: ScriptError) -> Self {
+        Self::Cairo(err)
+    }
+}
+
+#[derive(Debug)]
+pub enum ScriptError {
+    BadArgs,
+    InputFiles(i32),
+    Compilation(i32),
+    Run(i32),
+    StoneProver(i32),
+    StoneVerifier(i32),
+    AttestationProgramCompilation(i32),
+    Other(i32),
+    ProcessExecutionFailure,
+    Unspecified,
+}
+
+impl From<Option<i32>> for ScriptError {
+    fn from(code: Option<i32>) -> Self {
+        if let Some(code) = code {
+            match code {
+                10..=19 => Self::BadArgs,
+                20..=29 => Self::InputFiles(code),
+                30..=39 => Self::Compilation(code),
+                40..=49 => Self::Run(code),
+                50..=59 => Self::StoneProver(code),
+                60..=69 => Self::StoneVerifier(code),
+                70 => Self::AttestationProgramCompilation(code),
+                _ => Self::Other(code),
+            }
+        } else {
+            Self::Unspecified
+        }
+    }
+}
