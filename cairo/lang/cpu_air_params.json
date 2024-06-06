@@ -1,0 +1,27 @@
+{
+  "field": "PrimeField0",
+  "channel_hash": "blake256",
+  "commitment_hash": "blake256_masked160_lsb",
+  "verifier_friendly_commitment_hash": "pedersen",
+  "n_verifier_friendly_commitment_layers": 22,
+  "statement": {
+    "page_hash": "pedersen"
+  },
+  "stark": {
+    "fri": {
+      "fri_step_list": [
+        0,
+        4,
+        4,
+        4,
+        4,
+        2
+      ],
+      "last_layer_degree_bound": 4,
+      "n_queries": 18,
+      "proof_of_work_bits": 30
+    },
+    "log_n_cosets": 3
+  },
+  "use_extension_field": false
+}
