@@ -1,9 +1,12 @@
-use crate::mock::{
-    Account::{Alice, Bob, Precompile},
-    *,
+use crate::{
+    mock::{
+        Account::{Alice, Bob, Precompile},
+        *,
+    },
+    SELECTOR_LOG_TRANSFER,
 };
 
-use precompile_utils::testing::*;
+use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use sp_core::{H160, H256, U256};
 use std::str::from_utf8;
 
@@ -32,6 +35,14 @@ fn transfer_substrate_when_sender_has_enough_funds_should_work() {
                         amount: 200.into(),
                     },
                 )
+                // .execute_returns(true)
+                .expect_log(log3(
+                    Precompile,
+                    SELECTOR_LOG_TRANSFER,
+                    H256::from(alice),
+                    bob_account,
+                    solidity::encode_event_data(200 as u128),
+                ))
                 .execute_returns(true);
 
             // Alice --
