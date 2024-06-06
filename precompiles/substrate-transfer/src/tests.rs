@@ -41,7 +41,7 @@ fn transfer_substrate_when_sender_has_enough_funds_should_work() {
                     SELECTOR_LOG_TRANSFER,
                     H256::from(alice),
                     bob_account,
-                    solidity::encode_event_data(200 as u128),
+                    solidity::encode_event_data(200_u128),
                 ))
                 .execute_returns(true);
 
