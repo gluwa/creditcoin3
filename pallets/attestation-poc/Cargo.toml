@@ -26,6 +26,7 @@ frame-benchmarking = { workspace = true, optional = true }
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 bls-signatures = { workspace = true }
+serde = { version = "1.0.203", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

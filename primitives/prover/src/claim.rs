@@ -33,6 +33,15 @@ pub enum ClaimKind {
     Rx,
 }
 
+impl ClaimKind {
+    pub fn subdir(&self) -> &str {
+        match self {
+            Self::Tx => "tx_",
+            Self::Rx => "rx_",
+        }
+    }
+}
+
 impl TryFrom<u8> for ClaimKind {
     type Error = ();
 
