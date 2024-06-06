@@ -94,7 +94,7 @@ where
     pub async fn stone_prove(self, stone_proof_mode: bool) -> Result<String, ClaimProverError> {
         match &self.dir {
             Some(dir) => {
-                run_stone_prove(Self::STONE_PROVER_SCRIPT_SOURCE, dir, stone_proof_mode).await
+                run_stone_prover(Self::STONE_PROVER_SCRIPT_SOURCE, dir, stone_proof_mode).await
             }
             None => Err(ClaimProverError::InputFileNameNotSet),
         }
@@ -126,7 +126,7 @@ async fn run_cairo_verify(script: &str, dir: &str, proof_mode: bool) -> Result<(
         })
 }
 
-async fn run_stone_prove(
+async fn run_stone_prover(
     script_source: &str,
     input_dir: &str,
     force_stone_proving: bool,
@@ -161,31 +161,16 @@ pub async fn build_prover<'a, H: Clone, A, Address>(
     url: &str,
     claim: Claim<Address>,
     attestation_chain_slice: FragmentSlice<'a, H, A>,
+    // every tx in a given block in order
+    tx_bytes: Vec<Vec<u8>>,
+    // every rx in a given block in order
+    rx_bytes: Vec<Vec<u8>>,
 ) -> Result<ClaimProver<'a, H, A>, ClaimProverError> {
     let claim_block_number: u64 = claim.block_number;
 
-    let block_tx = fetch_block_transactions(url, claim_block_number)
-        .await
-        .unwrap();
-    let block_rx = fetch_block_receipts(url, claim_block_number).await.unwrap();
-
-    // ToDo: do the actual check and find the claim index in tx and rx
-    // let claim_index = match claim.kind {
-    //     ClaimKind::Tx => block_tx.find_claim(&claim)?.index(),
-    //     ClaimKind::Rx => block_rx.find_claim(&claim)?.index(),
-    // };
 
     // this is good for now
     let claim_index = claim.tx_index;
-
-    let tx_bytes = block_tx
-        .into_iter()
-        .map(|tx| tx.to_bytes())
-        .collect::<Vec<Vec<u8>>>();
-    let rx_bytes = block_rx
-        .into_iter()
-        .map(|rx| rx.to_bytes())
-        .collect::<Vec<Vec<u8>>>();
 
     let (transaction_tree, receipt_tree) =
         futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {
