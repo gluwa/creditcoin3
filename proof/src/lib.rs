@@ -4,7 +4,6 @@ pub mod fragment;
 pub mod types;
 
 use anyhow::anyhow;
-use attestor::cc3::cc3::tx;
 use claim_prover::build_prover;
 
 use crate::fragment::AttestationFragment;
@@ -13,16 +12,12 @@ use prover_primitives::claim::Claim;
 
 const SOME_FRAGMENT_SIZE: usize = 5;
 
-pub async fn cairo_generate_proof<H, Address, A>(
-    url: &str,
+pub async fn cairo_generate_proof<Address>(
     claim: Claim<Address>,
-    attestation_fragment: &AttestationFragment<H, A>,
+    attestation_fragment: &AttestationFragment,
     tx_bytes: Vec<Vec<u8>>,
     rx_bytes: Vec<Vec<u8>>,
-) -> anyhow::Result<()>
-where
-    H: Clone,
-{
+) -> anyhow::Result<()> {
     let claim_block_number: u64 = claim.block_number;
     let attestation_chain_slice = attestation_fragment.attestation_slice_for(claim_block_number, None)
         .ok_or(anyhow!("can't create attestation checkpoint slice for {} on this attestation chain ({:?}, {:?})",
@@ -30,12 +25,12 @@ where
             attestation_fragment.tail().map(|att| att.header_number()),
             attestation_fragment.head().map(|att| att.header_number())))?;
 
-    let prover = build_prover(url, claim, attestation_chain_slice, tx_bytes, rx_bytes)
+    let prover = build_prover(claim, attestation_chain_slice, tx_bytes, rx_bytes)
         .await
-        .and_then(|claim_prover| {
+        .map(|claim_prover| {
             println!("done");
-            println!("cairo0 input file {}", format!("{:?}", claim_prover.file_name()));
-            Ok(claim_prover)
+            println!("cairo0 input file {:?}", claim_prover.file_name());
+            claim_prover
     })
         .map_err(|err| {
             anyhow!("{}",

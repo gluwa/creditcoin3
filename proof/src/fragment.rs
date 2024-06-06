@@ -1,30 +1,18 @@
 use crate::SOME_FRAGMENT_SIZE;
-use pallet_attestation_poc::types::Attestation;
+use pallet_attestation_poc::types::BlockAttestation;
+use serde::Serialize;
 
-pub struct AttestationFragment<H, A>
-where
-    H: Clone,
-{
-    attestations: [Attestation<H, A>; SOME_FRAGMENT_SIZE],
+pub struct AttestationFragment {
+    attestations: [BlockAttestation; SOME_FRAGMENT_SIZE],
     len: usize,
 }
 
-impl<H, A> AttestationFragment<H, A>
-where
-    H: Clone,
-{
-    // fn new() -> Self {
-    //     Self {
-    //         attestations: [, SOME_FRAGMENT_SIZE],
-    //         len: 0,
-    //     }
-    // }
-
-    pub fn blocks(&self) -> &[Attestation<H, A>] {
+impl AttestationFragment {
+    pub fn blocks(&self) -> &[BlockAttestation] {
         &self.attestations[0..self.len]
     }
 
-    pub fn head(&self) -> Option<&Attestation<H, A>> {
+    pub fn head(&self) -> Option<&BlockAttestation> {
         if self.len == 0 {
             None
         } else {
@@ -32,7 +20,7 @@ where
         }
     }
 
-    pub fn tail(&self) -> Option<&Attestation<H, A>> {
+    pub fn tail(&self) -> Option<&BlockAttestation> {
         if self.is_empty() {
             None
         } else {
@@ -56,7 +44,7 @@ where
         &self,
         block_number: u64,
         upper_bound: Option<u64>,
-    ) -> Option<FragmentSlice<H, A>> {
+    ) -> Option<FragmentSlice> {
         let tail = self.tail().map(|att| att.header_number())?;
         let head = self.head().map(|att| att.header_number())?;
         if tail < block_number && head >= block_number {
@@ -70,10 +58,11 @@ where
     }
 }
 
-pub struct FragmentSlice<'a, H: Clone, A>(&'a [Attestation<H, A>]);
+#[derive(Serialize)]
+pub struct FragmentSlice<'a>(&'a [BlockAttestation]);
 
-impl<'a, H: Clone, A> FragmentSlice<'a, H, A> {
+impl<'a> FragmentSlice<'a> {
     pub fn start(&self) -> Option<u64> {
-        self.0.first().map(Attestation::header_number)
+        self.0.first().map(BlockAttestation::header_number)
     }
 }
