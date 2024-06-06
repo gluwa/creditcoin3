@@ -50,8 +50,8 @@ pub struct NewBlock {
     pub header_number: u64,
     pub header_hash: H256,
     pub last_digest: H256,
-    pub transactions: Vec<eth::Transaction>,
-    pub receipts: Vec<eth::Receipt>,
+    pub transactions: Vec<eth::transaction::Transaction>,
+    pub receipts: Vec<eth::transaction::Receipt>,
 }
 
 /// Rlps is the `rlp::encoded` version of either a Transaction or Receipt
@@ -61,14 +61,14 @@ impl NewBlock {
     fn to_transactions_rlps(&self) -> Rlps {
         self.transactions
             .iter()
-            .map(eth::BlockItem::to_bytes)
+            .map(eth::transaction::BlockItem::to_bytes)
             .collect::<Vec<Vec<u8>>>()
     }
 
     fn to_receipts_rlps(&self) -> Rlps {
         self.receipts
             .iter()
-            .map(eth::BlockItem::to_bytes)
+            .map(eth::transaction::BlockItem::to_bytes)
             .collect::<Vec<Vec<u8>>>()
     }
 

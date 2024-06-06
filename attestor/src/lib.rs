@@ -1,9 +1,10 @@
 use anyhow::Result;
+use eth::Client;
 use kameo::spawn;
 
 pub mod attestation;
 pub mod cc3;
-pub mod eth;
+pub mod eth_sub;
 pub mod merkle;
 
 #[derive(Debug, Clone)]
@@ -47,7 +48,8 @@ impl Server {
         let attestor = spawn(attestation::Attestor::new());
 
         // Subscribe to new eth head given the attestor and cc3 client
-        eth::subscribe_to_new_heads(&self.config.eth_rpc_url, attestor, cc3_client).await?;
+        let eth_client = Client::new(&self.config.eth_rpc_url).await?;
+        eth_sub::subscribe_to_new_heads(eth_client, attestor, cc3_client).await?;
 
         Ok(())
     }

@@ -1252,7 +1252,6 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "attestor"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "anyhow",
  "async-trait",
  "attestor-primitives",
@@ -1263,8 +1262,6 @@ dependencies = [
  "creditcoin3-attestor-gossip",
  "creditcoin3-attestor-rpc",
  "eth",
- "futures 0.3.30",
- "futures-util",
  "hex",
  "jsonrpsee 0.22.5",
  "jsonrpsee-core 0.22.5",
@@ -3511,6 +3508,11 @@ name = "eth"
 version = "3.24.1"
 dependencies = [
  "alloy",
+ "anyhow",
+ "futures-util",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -8495,7 +8497,6 @@ dependencies = [
 name = "prover"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "anyhow",
  "attestor-primitives",
  "cc-client",

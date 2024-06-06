@@ -5,9 +5,8 @@ use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, info, warn};
 
 pub mod cc3;
+pub mod claim;
 pub mod config;
-pub mod eth;
-pub mod transaction;
 
 use cc3::Claim;
 use config::Config;
@@ -105,7 +104,7 @@ pub async fn process_claim(
     info!("Processing claim with hash: {:?}", claim.hash);
 
     // Check if claim exists on source chain
-    match eth_client.check_claim_inclusion(claim.claim).await {
+    match claim::check_claim_inclusion(eth_client, claim.claim).await {
         Ok(true) => {
             info!("Claim included on source chain");
         }

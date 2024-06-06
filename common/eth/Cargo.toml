@@ -26,3 +26,8 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "signers",
     "signer-wallet",
 ] }
+anyhow = "1.0"
+tokio = { version = "1.0" }
+thiserror = "1.0"
+tracing = "0.1"
+futures-util = "0.3"

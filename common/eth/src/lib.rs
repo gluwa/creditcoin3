@@ -1,104 +1,100 @@
-use alloy::consensus::{ReceiptWithBloom, Signed};
-use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy};
-use alloy::core::primitives::{Address, Log, U256};
+use alloy::{
+    providers::{Provider, ProviderBuilder, RootProvider},
+    pubsub::PubSubFrontend,
+    rpc::{
+        client::WsConnect,
+        types::eth::{Block, BlockId, BlockNumberOrTag, BlockTransactions},
+    },
+};
+use anyhow::Result;
+use thiserror::Error;
+use tracing::{error, info};
 
-pub trait BlockItem: Sized {
-    fn to_bytes(&self) -> Vec<u8>;
+pub use alloy::core::primitives::Address;
 
-    fn chain_id(&self) -> u64;
-    fn block_number(&self) -> U256;
-    fn index(&self) -> u64;
-    fn from(&self) -> Address;
-    fn to(&self) -> Option<Address>;
-}
+pub mod subscription;
+pub mod transaction;
 
-#[derive(Debug, Clone, Default)]
-pub struct Transaction(pub alloy::rpc::types::eth::Transaction);
-
-impl BlockItem for Transaction {
-    fn to_bytes(&self) -> Vec<u8> {
-        match self.0.transaction_type {
-            Some(0) => {
-                let tx: Signed<TxLegacy> = self.0.clone().try_into().unwrap();
-                alloy::rlp::encode(tx.into_parts().0)
-            }
-            Some(1) => {
-                let tx: Signed<TxEip1559> = self.0.clone().try_into().unwrap();
-                alloy::rlp::encode(tx.into_parts().0)
-            }
-            Some(2) => {
-                let tx: Signed<TxEip2930> = self.0.clone().try_into().unwrap();
-                alloy::rlp::encode(tx.into_parts().0)
-            }
-            Some(_) | None => Vec::new(),
-        }
-    }
-
-    fn chain_id(&self) -> u64 {
-        self.0.chain_id.unwrap_or_default()
-    }
-
-    fn index(&self) -> u64 {
-        self.0.transaction_index.unwrap_or_default()
-    }
-
-    fn block_number(&self) -> U256 {
-        U256::saturating_from(self.0.block_number.unwrap_or_default())
-    }
-
-    fn from(&self) -> Address {
-        self.0.from
-    }
-
-    fn to(&self) -> Option<Address> {
-        self.0.to
-    }
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Failed to get block {0}")]
+    FailedToGetBlock(u64),
+    #[error("Failed to get receipts")]
+    FailedToGetReceipts,
+    #[error("Failed to get chain id")]
+    FailedToGetChainId,
 }
 
 #[derive(Debug, Clone)]
-pub struct Receipt(pub alloy::rpc::types::eth::TransactionReceipt);
+pub struct Client {
+    provider: RootProvider<PubSubFrontend>,
+}
 
-impl BlockItem for Receipt {
-    fn to_bytes(&self) -> Vec<u8> {
-        let rwb = self.0.inner.as_receipt_with_bloom().unwrap();
-        let receipt = rwb.receipt.clone();
+impl Client {
+    pub async fn new(url: impl Into<String>) -> Result<Self> {
+        // Create a provider.
+        let ws = WsConnect::new(url);
+        let provider = ProviderBuilder::new().on_ws(ws).await?;
 
-        let logs = receipt
-            .logs
+        Ok(Self { provider })
+    }
+
+    pub async fn get_block(&self, number: u64) -> Result<Block, Error> {
+        let block = self
+            .provider
+            .get_block(BlockId::Number(BlockNumberOrTag::Number(number)), true)
+            .await
+            .map_err(|e| {
+                error!("Failed to get block: {:?}", e);
+                Error::FailedToGetBlock(number)
+            })?;
+
+        if let Some(block) = block {
+            Ok(block)
+        } else {
+            Err(Error::FailedToGetBlock(number))
+        }
+    }
+
+    pub async fn get_receipts(&self, number: u64) -> Result<Vec<transaction::Receipt>, Error> {
+        let receipts = self
+            .provider
+            .get_block_receipts(alloy::rpc::types::eth::BlockNumberOrTag::Number(number))
+            .await
+            .map_err(|e| {
+                error!("Failed to get receipts: {:?}", e);
+                Error::FailedToGetReceipts
+            })?;
+
+        let receipts = receipts
             .into_iter()
-            .map(|l| {
-                let log = Log::new(l.address(), l.topics().to_vec(), l.data().data.clone());
-                log.unwrap()
-            })
-            .collect::<Vec<Log>>();
+            .flatten()
+            .map(transaction::Receipt)
+            .collect();
 
-        let new_receipt = alloy::consensus::Receipt {
-            cumulative_gas_used: receipt.cumulative_gas_used,
-            status: receipt.status,
-            logs,
+        Ok(receipts)
+    }
+
+    pub async fn get_transactions(
+        &self,
+        number: u64,
+    ) -> Result<Vec<transaction::Transaction>, Error> {
+        let block = self.get_block(number).await?;
+
+        let transactions = if let BlockTransactions::Full(tx) = block.transactions {
+            tx.into_iter().map(transaction::Transaction).collect()
+        } else {
+            info!("No full tx");
+            vec![]
         };
 
-        let rwb_new: ReceiptWithBloom<Log> = ReceiptWithBloom::new(new_receipt, rwb.logs_bloom);
-        alloy::rlp::encode(&rwb_new)
+        Ok(transactions)
     }
 
-    fn chain_id(&self) -> u64 {
-        0
-    }
-
-    fn block_number(&self) -> U256 {
-        U256::saturating_from(self.0.block_number.unwrap_or_default())
-    }
-
-    fn index(&self) -> u64 {
-        self.0.transaction_index.unwrap_or_default()
-    }
-
-    fn from(&self) -> Address {
-        self.0.from
-    }
-
-    fn to(&self) -> Option<Address> {
-        self.0.to
+    pub async fn get_chain_id(&self) -> Result<u64, Error> {
+        self.provider.get_chain_id().await.map_err(|e| {
+            error!("Failed to get chain id: {:?}", e);
+            Error::FailedToGetChainId
+        })
     }
 }
