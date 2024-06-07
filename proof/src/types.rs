@@ -189,6 +189,7 @@ pub enum ClaimProverError {
     OutputFileNameNotSet,
     OutputParseFailure(String),
     Cairo(ScriptError),
+    TempDirPathConversionError(String),
 }
 
 impl From<ScriptError> for ClaimProverError {

@@ -7,9 +7,16 @@ use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::{Claim, ClaimKind};
 use serde::Serialize;
 use std::fs::create_dir_all;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use tempfile::TempDir;
 
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";
+
+const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
+
+const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo/scripts/stone_prove_claim.sh";
 
 fn claim_proof_dir() -> String {
     format!("{}/{}", DATA_ROOT_DIR, CLAIM_PROOF_DIR)
@@ -25,7 +32,8 @@ pub struct ClaimProver<'a> {
     claim_index: usize,
     cairo_input_file: Option<String>,
     cairo_output_file: Option<String>,
-    dir: Option<String>,
+    #[serde(skip_serializing, skip_deserializing)]
+    temp_dir: Option<TempDir>,
     #[serde(skip_serializing, skip_deserializing)]
     cairo_output: Option<CairoVerifierOutput>,
 }
@@ -49,22 +57,27 @@ impl<'a> ClaimProver<'a> {
             claim_index,
             cairo_output_file: None,
             cairo_input_file: None,
-            dir: None,
+            temp_dir: None,
             cairo_output: None,
         }
     }
 
-    fn with_default_files(mut self) -> anyhow::Result<Self> {
-        let dir = self.default_dir(self.claim_block_number, self.claim_kind, self.claim_index);
-
-        create_dir_all(&dir)?;
+    fn with_temp_files(mut self) -> anyhow::Result<Self> {
+        let temp_dir = TempDir::new()?;
+        let dir = temp_dir
+            .path()
+            .to_str()
+            .ok_or_else(|| {
+                anyhow::Error::msg("Failed to convert temporary directory path to string")
+            })?
+            .to_string();
 
         let cairo_input_file = Self::default_cairo_input_file_name(&dir);
         let cairo_output_file = Self::default_cairo_output_file_name(&dir);
 
-        self.to_file(&cairo_input_file)?;
+        self.to_temp_file(&cairo_input_file)?;
 
-        self.dir = Some(dir);
+        self.temp_dir = Some(temp_dir);
         self.cairo_input_file = Some(cairo_input_file);
         self.cairo_output_file = Some(cairo_output_file);
         Ok(self)
@@ -88,33 +101,32 @@ impl<'a> ClaimProver<'a> {
         format!("{}/{partial_dir}", claim_proof_dir())
     }
 
-    fn to_file(&self, fname: &str) -> anyhow::Result<()> {
-        use std::fs::File;
-        use std::io::{BufWriter, Write};
-
+    fn to_temp_file(&self, fname: &str) -> anyhow::Result<()> {
         let file = File::create(fname)?;
         let mut writer = BufWriter::new(file);
         serde_json::to_writer_pretty(&mut writer, self)?;
         Ok(writer.flush()?)
     }
 
-    const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
-
-    const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo/scripts/stone_prove_claim.sh";
-
     pub fn script_source() -> &'static str {
-        Self::SCRIPT_SOURCE
+        SCRIPT_SOURCE
     }
 
     pub async fn cairo_verify(mut self, proof_mode: bool) -> Result<Self, ClaimProverError> {
-        match &self.dir {
-            Some(dir) => run_cairo_verify(Self::script_source(), dir, proof_mode)
-                .await
-                .map_err(ClaimProverError::Cairo)
-                .and_then(|_| {
-                    self.cairo_output = Some(self.read_output()?);
-                    Ok(self)
-                }),
+        match &self.temp_dir {
+            Some(temp_dir) => {
+                let dir = temp_dir.path().to_str().ok_or_else(|| {
+                    ClaimProverError::TempDirPathConversionError("Invalid temp dir path".into())
+                })?;
+
+                run_cairo_verify(Self::script_source(), dir, proof_mode)
+                    .await
+                    .map_err(ClaimProverError::Cairo)
+                    .and_then(|_| {
+                        self.cairo_output = Some(self.read_output()?);
+                        Ok(self)
+                    })
+            }
             None => Err(ClaimProverError::InputFileNameNotSet),
         }
     }
@@ -141,18 +153,67 @@ impl<'a> ClaimProver<'a> {
     }
 
     pub async fn stone_prove(self, stone_proof_mode: bool) -> Result<String, ClaimProverError> {
-        match &self.dir {
-            Some(dir) => {
-                run_stone_prover(Self::STONE_PROVER_SCRIPT_SOURCE, dir, stone_proof_mode).await
+        match &self.temp_dir {
+            Some(temp_dir) => {
+                let dir = temp_dir.path().to_str().ok_or_else(|| {
+                    ClaimProverError::TempDirPathConversionError("Invalid temp dir path".into())
+                })?;
+                run_stone_prover(STONE_PROVER_SCRIPT_SOURCE, dir, stone_proof_mode).await
             }
             None => Err(ClaimProverError::InputFileNameNotSet),
         }
     }
+
+    pub async fn build_prover<Address>(
+        claim: Claim<Address>,
+        attestation_chain_slice: FragmentSlice<'_>,
+        // every tx in a given block in order
+        tx_bytes: Vec<Vec<u8>>,
+        // every rx in a given block in order
+        rx_bytes: Vec<Vec<u8>>,
+    ) -> Result<ClaimProver<'_>, ClaimProverError> {
+        let claim_block_number: u64 = claim.block_number;
+
+        // this is good for now
+        let claim_index = claim.tx_index;
+
+        let (transaction_tree, receipt_tree) =
+            futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {
+                StarknetPedersenMmr::from(&rx_bytes[..])
+            })
+            .await;
+
+        let (claim_bytes, merkle_path) = match claim.kind {
+            ClaimKind::Tx => (
+                tx_bytes[claim_index as usize].clone(),
+                transaction_tree.generate_proof(claim_index as usize),
+            ),
+            ClaimKind::Rx => (
+                rx_bytes[claim_index as usize].clone(),
+                receipt_tree.generate_proof(claim_index as usize),
+            ),
+        };
+
+        let digest_roots =
+            ClaimDigestRoots::new(&transaction_tree.root().0, &receipt_tree.root().0);
+
+        let prover = ClaimProver::new(
+            merkle_path,
+            claim_bytes,
+            claim_block_number,
+            claim.kind,
+            claim_index as usize,
+            digest_roots,
+            attestation_chain_slice,
+        )
+        .with_temp_files()
+        .map_err(|err| ClaimProverError::SerializationFailure(format!("{err:?}")))?;
+
+        Ok(prover)
+    }
 }
 
 async fn run_cairo_verify(script: &str, dir: &str, proof_mode: bool) -> Result<(), ScriptError> {
-    use std::io::Write;
-
     tokio::process::Command::new("/bin/bash")
         .arg("-c")
         .arg(format!(
@@ -180,7 +241,6 @@ async fn run_stone_prover(
     input_dir: &str,
     force_stone_proving: bool,
 ) -> Result<String, ClaimProverError> {
-    use std::io::Write;
     let output = tokio::process::Command::new("/bin/bash")
         .arg("-c")
         .arg(format!(
@@ -204,51 +264,4 @@ async fn run_stone_prover(
 
         Err(ClaimProverError::Cairo(output.status.code().into()))
     }
-}
-
-pub async fn build_prover<Address>(
-    claim: Claim<Address>,
-    attestation_chain_slice: FragmentSlice<'_>,
-    // every tx in a given block in order
-    tx_bytes: Vec<Vec<u8>>,
-    // every rx in a given block in order
-    rx_bytes: Vec<Vec<u8>>,
-) -> Result<ClaimProver<'_>, ClaimProverError> {
-    let claim_block_number: u64 = claim.block_number;
-
-    // this is good for now
-    let claim_index = claim.tx_index;
-
-    let (transaction_tree, receipt_tree) =
-        futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {
-            StarknetPedersenMmr::from(&rx_bytes[..])
-        })
-        .await;
-
-    let (claim_bytes, merkle_path) = match claim.kind {
-        ClaimKind::Tx => (
-            tx_bytes[claim_index as usize].clone(),
-            transaction_tree.generate_proof(claim_index as usize),
-        ),
-        ClaimKind::Rx => (
-            rx_bytes[claim_index as usize].clone(),
-            receipt_tree.generate_proof(claim_index as usize),
-        ),
-    };
-
-    let digest_roots = ClaimDigestRoots::new(&transaction_tree.root().0, &receipt_tree.root().0);
-
-    let prover = ClaimProver::new(
-        merkle_path,
-        claim_bytes,
-        claim_block_number,
-        claim.kind,
-        claim_index as usize,
-        digest_roots,
-        attestation_chain_slice,
-    )
-    .with_default_files()
-    .map_err(|err| ClaimProverError::SerializationFailure(format!("{err:?}")))?;
-
-    Ok(prover)
 }

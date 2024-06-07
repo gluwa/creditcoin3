@@ -38,3 +38,4 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "consensus",
     "rlp",
 ] }
+tempfile = "3.10.1"

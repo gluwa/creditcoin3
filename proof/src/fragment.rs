@@ -1,5 +1,5 @@
 use crate::SOME_FRAGMENT_SIZE;
-use pallet_attestation_poc::types::BlockAttestation;
+use attestor_primitives::BlockAttestation;
 use serde::Serialize;
 
 pub struct AttestationFragment {

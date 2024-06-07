@@ -4,8 +4,9 @@ pub mod fragment;
 pub mod types;
 
 use anyhow::anyhow;
-use claim_prover::build_prover;
+//use claim_prover::build_prover;
 
+use crate::claim_prover::ClaimProver;
 use crate::fragment::AttestationFragment;
 use crate::types::ClaimProverError;
 use prover_primitives::claim::Claim;
@@ -25,7 +26,7 @@ pub async fn cairo_generate_proof<Address>(
             attestation_fragment.tail().map(|att| att.header_number()),
             attestation_fragment.head().map(|att| att.header_number())))?;
 
-    let prover = build_prover(claim, attestation_chain_slice, tx_bytes, rx_bytes)
+    let prover = ClaimProver::build_prover(claim, attestation_chain_slice, tx_bytes, rx_bytes)
         .await
         .map(|claim_prover| {
             println!("done");
