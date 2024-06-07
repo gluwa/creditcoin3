@@ -9,7 +9,7 @@ permissions: read-all
 
 jobs:
   upload-coverage-info:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -41,7 +41,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.33.11
+        uses: taiki-e/install-action@v2.33.35
         with:
           tool: cargo-llvm-cov
 

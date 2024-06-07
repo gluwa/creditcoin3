@@ -27,3 +27,9 @@ polkadot.*
 .envrc
 
 **/throwaway
+
+# hardhat
+**/artifacts/
+**/cache/
+**/typechain-types/
+**/ignition/deployments/

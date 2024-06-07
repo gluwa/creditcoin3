@@ -19,11 +19,10 @@ env:
   # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
   LINODE_VM_SIZE: "g6-standard-4"
 
-
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -96,7 +95,7 @@ jobs:
           sudo killall -9 creditcoin3-node
 
   sanity-tests:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -128,7 +127,7 @@ jobs:
           ./.github/check-bootnodes.sh
 
   sanity-test-cli:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -154,7 +153,7 @@ jobs:
 
   fmt:
     name: Rustfmt
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -179,7 +178,7 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -211,7 +210,7 @@ jobs:
 
   check:
     # The type of runner that the job will run on
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -246,7 +245,7 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   unit-test-creditcoin:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -281,7 +280,7 @@ jobs:
       matrix:
         target: [devnet, testnet]
     name: build-creditcoin-node-for-${{ matrix.target }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -343,7 +342,7 @@ jobs:
       matrix:
         target: [devnet, ci]
     name: build-creditcoin-node-for-testing-${{ matrix.target }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -400,7 +399,7 @@ jobs:
   integration-test-smart-contract:
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -444,7 +443,7 @@ jobs:
   integration-test-check-extrinsics:
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install Node Dependencies
@@ -483,7 +482,7 @@ jobs:
             # metadata-cmp-with-testnet.txt
 
   unit-test-cli:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -532,15 +531,14 @@ jobs:
             proxy_type: All
 
     name: deploy-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Install linode-cli
         run: |
           python3 --version
-          pip3 --version
-          sudo pip3 install linode-cli --upgrade
+          pipx install linode-cli
           linode-cli --version
 
       - name: Authorize hosted-runner
@@ -581,7 +579,7 @@ jobs:
           # All SSH logins should be via the `ubuntu@` user. For more info see:
           # https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
           linode-cli linodes create --json \
-                --image 'linode/ubuntu22.04' --region ${{ env.LINODE_REGION }} \
+                --image 'linode/ubuntu24.04' --region ${{ env.LINODE_REGION }} \
                 --type ${{ env.LINODE_VM_SIZE }} --label "${{ steps.get-env.outputs.runner_vm_name }}" \
                 --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
                 --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
@@ -609,7 +607,7 @@ jobs:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
   remove-github-runner:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs:
       - integration-test-cli
     if: ${{ always() }}
@@ -660,8 +658,7 @@ jobs:
       - name: Install linode-cli
         run: |
           python3 --version
-          pip3 --version
-          sudo pip3 install linode-cli --upgrade
+          pipx install linode-cli
           linode-cli --version
 
       - name: Remove VM
@@ -670,7 +667,6 @@ jobs:
           linode-cli linodes delete "$VM_ID"
         env:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-
 
   integration-test-cli:
     strategy:
@@ -702,7 +698,13 @@ jobs:
       - build-creditcoin-node-for-testing
       - deploy-github-runner
     runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-${{ matrix.proxy }}", "secret-${{ matrix.secret }}", "type-${{ matrix.proxy_type }}"]
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "proxy-${{ matrix.proxy }}",
+        "secret-${{ matrix.secret }}",
+        "type-${{ matrix.proxy_type }}",
+      ]
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
@@ -840,7 +842,7 @@ jobs:
   integration-test-blockchain:
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -897,7 +899,7 @@ jobs:
       matrix:
         chainspec: [devnet, testnet]
     name: integration-test-chainspec-${{ matrix.chainspec }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -950,7 +952,7 @@ jobs:
 
   audit:
     name: cargo audit
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -994,7 +996,7 @@ jobs:
 
   shellcheck:
     name: "🐚 Shellcheck"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Run ShellCheck
@@ -1004,7 +1006,7 @@ jobs:
 
   javascript-checks:
     name: javascript-${{ matrix.command }} / ${{ matrix.directory }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         directory: [cli]
@@ -1024,3 +1026,126 @@ jobs:
         run: |
           yarn install
           yarn ${{ matrix.command }}
+
+  docs-smart-contract-development-with-hardhat:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+
+      - name: Compile contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat compile
+
+      - name: Test contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat test
+
+      - name: Deploy contract(s) to ephemeral Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy "$module"
+          done
+
+      - name: Start a local Hardhat JSON-RPC instance
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat node &
+          sleep 10
+
+      - name: Deploy contract(s) to Hardhat Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy --reset "$module" --network hardhat_local
+          done
+
+      - name: Start Creditcoin Node 1 - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s) to start
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Deploy contract(s) to Creditcoin Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy --reset "$module" --network creditcoin_local
+          done
+        env:
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Deploy contract(s) to Creditcoin Devnet
+        if: github.base_ref == 'dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_devnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.DEVNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Deploy contract(s) to Creditcoin Testnet
+        if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_testnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.TESTNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Deploy contract(s) to Creditcoin Mainnet
+        if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_mainnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.MAINNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Fork Creditcoin Testnet with Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          echo "Skipped b/c of https://github.com/NomicFoundation/hardhat/discussions/5266"
+          # npx hardhat node --fork https://rpc.cc3-testnet.creditcoin.network
