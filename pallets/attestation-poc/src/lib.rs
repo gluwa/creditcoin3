@@ -29,6 +29,8 @@ pub mod pallet {
     use parity_scale_codec::FullCodec;
     use sp_std::{fmt::Debug, vec::Vec};
 
+    pub type ChainAttestationIntervalType = u64;
+
     #[pallet::config]
     pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -134,6 +136,11 @@ pub mod pallet {
     #[pallet::getter(fn supported_chains)]
     pub type SupportedChains<T: Config> = StorageValue<_, SupportedChainsVec, ValueQuery>;
 
+    #[pallet::storage]
+    #[pallet::getter(fn chain_attestation_interval)]
+    pub type ChainAttestationInterval<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainId, ChainAttestationIntervalType>;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -143,7 +150,7 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         pub comittee_set_size: u32,
         pub invulnerables: Vec<(T::AccountId, BlsPublicKeyWrapper)>,
-        pub supported_chains: Vec<ChainId>,
+        pub supported_chains: Vec<(ChainId, ChainAttestationIntervalType)>,
     }
 
     #[pallet::genesis_build]
@@ -159,8 +166,10 @@ pub mod pallet {
             }
 
             let mut chains: SupportedChainsVec = BoundedVec::new();
-            for chain in self.supported_chains.clone().into_iter() {
-                chains.try_push(chain).unwrap();
+            for (chain_id, chain_attestation_interval) in self.supported_chains.clone().into_iter()
+            {
+                chains.try_push(chain_id).unwrap();
+                ChainAttestationInterval::<T>::insert(chain_id, chain_attestation_interval);
             }
             SupportedChains::<T>::set(chains);
         }
@@ -243,7 +252,11 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::add_supported_chain())]
-        pub fn add_supported_chain(origin: OriginFor<T>, chain_id: ChainId) -> DispatchResult {
+        pub fn add_supported_chain(
+            origin: OriginFor<T>,
+            chain_id: ChainId,
+            chain_attestation_interval: ChainAttestationIntervalType,
+        ) -> DispatchResult {
             ensure_root(origin)?;
 
             let mut chains = SupportedChains::<T>::get();
@@ -252,6 +265,9 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::CannotAddChain)?;
 
             SupportedChains::<T>::set(chains);
+
+            // Set the chain attestation interval
+            ChainAttestationInterval::<T>::set(chain_id, Some(chain_attestation_interval));
 
             Ok(())
         }

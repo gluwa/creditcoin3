@@ -1361,6 +1361,10 @@ impl_runtime_apis! {
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey> {
             Attestation::attestor_bls_pubkey(attestor)
         }
+
+        fn chain_attestation_interval(chain_id: ChainId) -> Option<u64> {
+            Attestation::chain_attestation_interval(chain_id)
+        }
     }
 
     impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {

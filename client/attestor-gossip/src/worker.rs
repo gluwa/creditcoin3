@@ -199,6 +199,10 @@ where
     async fn triage_message(&mut self, message: Message<B, AccountId>) -> Result<(), Error> {
         match message {
             Message::Attestation(attestation) => {
+                // Verify the attestation data
+                self.verify_attestation_data(&attestation)?;
+
+                // Verify the VRF output
                 self.verify_vrf(&attestation)?;
 
                 let block_hash = self.backend.blockchain().info().best_hash;
@@ -312,6 +316,26 @@ where
             info!(target: LOG_TARGET, "📝 Vrf output for {:?} signature is valid: {is_valid}", attestation.attestor);
         } else {
             info!(target: LOG_TARGET, "📝 Vrf output for {:?} is invalid ❌", attestation.attestor);
+        }
+
+        Ok(())
+    }
+
+    fn verify_attestation_data(
+        &self,
+        attestation: &Attestation<HashFor<B>, AccountId>,
+    ) -> Result<(), Error> {
+        let runtime = self.runtime.runtime_api();
+        let chain_attestation_interval = runtime
+            .chain_attestation_interval(
+                self.backend.blockchain().info().best_hash,
+                attestation.attestation_data.chain_id,
+            )?
+            .ok_or(Error::AttestationHeaderNumberInvalid)?;
+
+        // Attestation block number mod chain_attestation_interval should be 0
+        if attestation.attestation_data.header_number % chain_attestation_interval != 0 {
+            return Err(Error::AttestationToEarly);
         }
 
         Ok(())

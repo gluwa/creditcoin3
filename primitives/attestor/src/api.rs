@@ -20,5 +20,7 @@ sp_api::decl_runtime_apis! {
         fn contains_digest(chain_id: ChainId, digest: Digest) -> bool;
 
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey>;
+
+        fn chain_attestation_interval(chain_id: ChainId) -> Option<u64>;
     }
 }

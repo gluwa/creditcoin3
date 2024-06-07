@@ -257,7 +257,13 @@ fn adding_a_supported_chain_works() {
         let supported_chains = Attestation::supported_chains();
         assert_eq!(supported_chains.len(), 1);
 
-        assert_ok!(Attestation::add_supported_chain(RuntimeOrigin::root(), 2));
+        let chain_id = 2;
+        let chain_attestation_interval = 10;
+        assert_ok!(Attestation::add_supported_chain(
+            RuntimeOrigin::root(),
+            chain_id,
+            chain_attestation_interval
+        ));
 
         let supported_chains = Attestation::supported_chains();
         assert_eq!(supported_chains.len(), 2);

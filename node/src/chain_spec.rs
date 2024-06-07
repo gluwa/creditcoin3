@@ -210,7 +210,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                             ]),
                         ),
                     ],
-                    vec![1],
+                    vec![(1, 10)],
                 ),
                 enable_manual_seal,
             }
@@ -315,7 +315,7 @@ pub fn local_testnet_config() -> ChainSpec {
                         ]),
                     ),
                 ],
-                vec![1],
+                vec![(1, 10)],
             )
         },
         // Bootnodes
@@ -356,7 +356,7 @@ fn testnet_genesis(
     chain_id: u64,
     comittee_set_size: u32,
     attestation_invulnerables: Vec<(AccountId, BlsPublicKeyWrapper)>,
-    supported_chains: Vec<u64>,
+    supported_chains: Vec<(u64, u64)>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
