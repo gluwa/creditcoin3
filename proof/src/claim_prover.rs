@@ -6,7 +6,6 @@ use attestor::merkle::tree::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::{Claim, ClaimKind};
 use serde::Serialize;
-use std::fs::create_dir_all;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use tempfile::TempDir;
@@ -14,9 +13,9 @@ use tempfile::TempDir;
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";
 
-const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
+const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
 
-const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo/scripts/stone_prove_claim.sh";
+const STONE_PROVER_SCRIPT_SOURCE: &str = "../cairo/scripts/stone_prove_claim.sh";
 
 fn claim_proof_dir() -> String {
     format!("{}/{}", DATA_ROOT_DIR, CLAIM_PROOF_DIR)
@@ -63,6 +62,9 @@ impl<'a> ClaimProver<'a> {
     }
 
     fn with_temp_files(mut self) -> anyhow::Result<Self> {
+        // unused for now
+        let _default_dir = self.default_dir(self.claim_block_number, self.claim_kind, self.claim_index);
+
         let temp_dir = TempDir::new()?;
         let dir = temp_dir
             .path()

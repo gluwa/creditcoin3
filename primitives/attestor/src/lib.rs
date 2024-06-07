@@ -133,3 +133,18 @@ where
         H256::from(&sp_io::hashing::blake2_256(&self.serialize()))
     }
 }
+
+#[derive(Serialize, Clone)]
+pub struct BlockAttestation {
+    pub block_number: u64,
+    pub tx_root: Felt,
+    pub rx_root: Felt,
+    pub prev_digest: Felt,
+    pub digest: Felt,
+}
+
+impl BlockAttestation {
+    pub fn header_number(&self) -> u64 {
+        self.block_number
+    }
+}
