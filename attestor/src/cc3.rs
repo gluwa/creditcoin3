@@ -15,7 +15,7 @@ use sp_core::H256;
 use subxt::{OnlineClient, SubstrateConfig};
 use subxt_signer::{sr25519::Keypair, SecretUri};
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use attestor_primitives::{AttestationData, BlsPublicKey, ChainId, Digest};
 
@@ -259,6 +259,23 @@ impl<'a> Client {
     pub fn get_attestor_id(&self) -> AttestorId {
         AttestorId::from_public(self.keypair.public_key().0)
     }
+
+    pub async fn chain_attestation_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
+        let api = self.get_substrate_client().await?;
+
+        let storage_query = cc3::storage()
+            .attestation()
+            .chain_attestation_interval(chain_id);
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
+    }
 }
 
 impl Actor for Client {}
@@ -293,6 +310,8 @@ pub enum Error {
     FailedToGetRPcClient,
     #[error("Failed to get comittee set size")]
     FailedToGetComitteSetSize,
+    #[error("Failed to get attestation interval")]
+    FailedToGetAttestationInterval,
 }
 
 impl<H> Message<AttestationSubmit<H>> for Client
@@ -308,6 +327,26 @@ where
         msg: AttestationSubmit<H>,
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
+        // check we can submit this attestation according to the interval
+        let attestation_interval = self
+            .chain_attestation_interval(msg.attestation.chain_id)
+            .await
+            .map_err(|_e| {
+                error!(
+                    "Error getting attestation interval for chain: {}",
+                    msg.attestation.chain_id
+                );
+                Error::FailedToGetAttestationInterval
+            })?
+            .ok_or(Error::FailedToGetAttestationInterval)?;
+
+        if msg.attestation.header_number % attestation_interval != 0 {
+            warn!(
+                "Skipping Attestation because it's not in the configured interval for this chain"
+            );
+            return Ok(());
+        };
+
         let vrf_output = self.sign_babe_vrf().await.map_err(|e| {
             error!("Error signing babe vrf: {:?}", e);
             Error::FailedToSignBabeVrf
