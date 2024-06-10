@@ -162,5 +162,5 @@ log output like
 
 ```sh
 cd ../hardhat
-npx hardhat --network localhost run scripts/Transfer.js
+npx hardhat --network localhost run scripts/AutoTransfers.js
 ```
