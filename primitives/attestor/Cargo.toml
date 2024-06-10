@@ -21,8 +21,9 @@ scale-info = { workspace = true }
 bls-signatures = { workspace = true }
 sp-api = { workspace = true }
 serde_bytes = { version = "0.11.14", default-features = false }
-
 rand = { version = "0.8", default-features = false }
+#ethereum-types = "0.14.1"
+starknet-crypto = { version = "0.6.2", default-features = false }
 
 [dev-dependencies]
 
@@ -41,4 +42,5 @@ std = [
     "sp-api/std",
     "rand/std",
     "bls-signatures/std",
+    "starknet-crypto/std",
 ]

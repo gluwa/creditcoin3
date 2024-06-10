@@ -27,6 +27,7 @@ attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 bls-signatures = { workspace = true }
 serde = { version = "1.0.203", default-features = false, features = ["derive"] }
+starknet-crypto = { version = "0.6.2", default-features = false }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
@@ -53,5 +54,6 @@ std = [
     "pallet-supported-chains/std",
     "supported-chains-primitives/std",
     "bls-signatures/std",
+    "starknet-crypto/std",
 ]
 runtime-benchmarks = ["frame-benchmarking", "pallet-balances"]

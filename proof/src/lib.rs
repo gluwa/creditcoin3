@@ -4,12 +4,17 @@ pub mod fragment;
 pub mod types;
 
 use anyhow::anyhow;
+use attestor_primitives::BlockAttestation;
+use std::os::fd::AsFd;
 //use claim_prover::build_prover;
 
 use crate::claim_prover::ClaimProver;
 use crate::fragment::AttestationFragment;
-use crate::types::ClaimProverError;
-use prover_primitives::claim::Claim;
+use crate::types::{CairoVerifierOutput, ClaimProverError};
+use attestor::merkle::tree::FieldElement;
+use prover_primitives::claim::{Claim, ClaimKind};
+use tokio::{fs::File, io::AsyncReadExt};
+use tracing::field::Field;
 
 const SOME_FRAGMENT_SIZE: usize = 5;
 
@@ -66,7 +71,6 @@ pub async fn cairo_generate_proof<Address>(
                 Err(anyhow!("proof generation failed"))
             }
         })?;
-
     // ToDo always stone proving, make this configurable
     if true {
         println!("stone proving... will take some time");
@@ -79,4 +83,199 @@ pub async fn cairo_generate_proof<Address>(
     } else {
         Ok(())
     }
+}
+
+// fn transform(number: u64, tx_root: [u8; 32], rx_root: [u8; 32], prev_digest: [u8; 32], digest: [u8; 32]) -> BlockAttestation {
+//     BlockAttestation {
+//         block_number: number,
+//         tx_root: FieldElement::from_dec_str(tx_root).unwrap(),
+//         rx_root: rx_root,
+//         prev_digest: prev_digest,
+//         digest: digest,
+//     }
+// }
+
+#[tokio::test]
+async fn test_cairo_generate_proof() {
+    // ToDo
+    let claim = Claim {
+        chain_id: 0,
+        block_number: 19543674,
+        tx_index: 0x11,
+        from: "0xc37362927fe05aba72c533e23f97781ebb0877b7",
+        to: "0x9b9647431632af44be02ddd22477ed94d14aacaa",
+        kind: ClaimKind::Rx,
+    };
+
+    let att1 = BlockAttestation {
+        block_number: 19543672,
+        tx_root: FieldElement::from_dec_str(
+            "1730029226712287283625343349648287262633652074500146618079593135643196863334".as_ref(),
+        )
+        .unwrap(),
+        rx_root: FieldElement::from_dec_str(
+            "2976310028842250931614337973419246799732187412150662372262748884712533368052".as_ref(),
+        )
+        .unwrap(),
+        prev_digest: FieldElement::from_dec_str(
+            "000000000000000000000000000000000000000000000000000000000000000000000000000".as_ref(),
+        )
+        .unwrap(),
+        digest: FieldElement::from_dec_str(
+            "957557156768970007813030806711276673390269449912169785311563311253398517646".as_ref(),
+        )
+        .unwrap(),
+    };
+
+    let att2 = BlockAttestation {
+        block_number: 19543673,
+        tx_root: FieldElement::from_dec_str(
+            "2804518106394961886505830853749725749107561316450119143644615672880228111014".as_ref(),
+        )
+        .unwrap(),
+        rx_root: FieldElement::from_dec_str(
+            "2241421852074295547956850702263696450907673665495240773159235287302864374988".as_ref(),
+        )
+        .unwrap(),
+        prev_digest: FieldElement::from_dec_str(
+            "957557156768970007813030806711276673390269449912169785311563311253398517646".as_ref(),
+        )
+        .unwrap(),
+        digest: FieldElement::from_dec_str(
+            "2243274825215257874235489694730852979328209710580434206775996433564470378086".as_ref(),
+        )
+        .unwrap(),
+    };
+
+    let att3 = BlockAttestation {
+        block_number: 19543674,
+        tx_root: FieldElement::from_dec_str(
+            "1650285496682882100196203453056579872474782262612983757579575523952258804399".as_ref(),
+        )
+        .unwrap(),
+        rx_root: FieldElement::from_dec_str(
+            "2774373924042063225686852017418633883649363447256155232327621780612266897946".as_ref(),
+        )
+        .unwrap(),
+        prev_digest: FieldElement::from_dec_str(
+            "2243274825215257874235489694730852979328209710580434206775996433564470378086".as_ref(),
+        )
+        .unwrap(),
+        digest: FieldElement::from_dec_str(
+            "148423544603031434156059001399389504786284405970174057774967538614785944798".as_ref(),
+        )
+        .unwrap(),
+    };
+
+    let att4 = BlockAttestation {
+        block_number: 19543675,
+        tx_root: FieldElement::from_dec_str(
+            "000000000000000000000000000000000000000000000000000000000000000000000000000".as_ref(),
+        )
+        .unwrap(),
+        rx_root: FieldElement::from_dec_str(
+            "000000000000000000000000000000000000000000000000000000000000000000000000000".as_ref(),
+        )
+        .unwrap(),
+        prev_digest: FieldElement::from_dec_str(
+            "148423544603031434156059001399389504786284405970174057774967538614785944798".as_ref(),
+        )
+        .unwrap(),
+        digest: FieldElement::from_dec_str(
+            "2687230123067379987899726620028707571645047797244764298536114987985591982606".as_ref(),
+        )
+        .unwrap(),
+    };
+
+    let att5 = BlockAttestation {
+        block_number: 19543676,
+        tx_root: FieldElement::from_dec_str(
+            "3518195695565040937707985852221095261407757251524320194026033337092578497374".as_ref(),
+        )
+        .unwrap(),
+        rx_root: FieldElement::from_dec_str(
+            "924256633821954093825555968433330603637463931069479457103877798059916073714".as_ref(),
+        )
+        .unwrap(),
+        prev_digest: FieldElement::from_dec_str(
+            "2687230123067379987899726620028707571645047797244764298536114987985591982606".as_ref(),
+        )
+        .unwrap(),
+        digest: FieldElement::from_dec_str(
+            "1720736962047806001433973964549945821537816635634855954453126389221365990231".as_ref(),
+        )
+        .unwrap(),
+    };
+
+    // let att4 = BlockAttestation {
+    //     block_number: 19543675,
+    //     tx_root: "000000000000000000000000000000000000000000000000000000000000000000000000000".as_bytes()[..32].try_into().unwrap(),
+    //     rx_root: "000000000000000000000000000000000000000000000000000000000000000000000000000".as_bytes()[..32].try_into().unwrap(),
+    //     prev_digest: "148423544603031434156059001399389504786284405970174057774967538614785944798".as_bytes()[..32].try_into().unwrap(),
+    //     digest: "2687230123067379987899726620028707571645047797244764298536114987985591982606".as_bytes()[..32].try_into().unwrap(),
+    // };
+    //
+    // let att5 = BlockAttestation {
+    //     block_number: 19543676,
+    //     tx_root: "924256633821954093825555968433330603637463931069479457103877798059916073714".as_bytes()[..32].try_into().unwrap(),
+    //     rx_root: "2976310028842250931614337973419246799732187412150662372262748884712533368052".as_bytes()[..32].try_into().unwrap(),
+    //     prev_digest: "2687230123067379987899726620028707571645047797244764298536114987985591982606".as_bytes()[..32].try_into().unwrap(),
+    //     digest: "1720736962047806001433973964549945821537816635634855954453126389221365990231".as_bytes()[..32].try_into().unwrap(),
+    // };
+    //
+
+    // // rewrite att2 as att1
+    // let att2 = BlockAttestation {
+    //     block_number: 19543673,
+    //     tx_root: "2804518106394961886505830853749725749107561316450119143644615672880228111014".as_bytes()[..32].try_into().unwrap(),
+    //     rx_root: "2241421852074295547956850702263696450907673665495240773159235287302864374988".as_bytes()[..32].try_into().unwrap(),
+    //     prev_digest: "957557156768970007813030806711276673390269449912169785311563311253398517646".as_bytes()[..32].try_into().unwrap(),
+    //     digest: "2243274825215257874235489694730852979328209710580434206775996433564470378086".as_bytes()[..32].try_into().unwrap(),
+    // };
+    // let att3 = BlockAttestation {
+    //     //     block_number: 19543674,
+    //     //     tx_root: "1650285496682882100196203453056579872474782262612983757579575523952258804399".as_bytes()[..32].try_into().unwrap(),
+    //     //     rx_root: "2774373924042063225686852017418633883649363447256155232327621780612266897946".as_bytes()[..32].try_into().unwrap(),
+    //     //     prev_digest: "2243274825215257874235489694730852979328209710580434206775996433564470378086".as_bytes()[..32].try_into().unwrap(),
+    //     //     digest: "148423544603031434156059001399389504786284405970174057774967538614785944798".as_bytes()[..32].try_into().unwrap(),
+    //     // };
+
+    let attestation_fragment = AttestationFragment {
+        attestations: [att1, att2, att3, att4, att5],
+        len: 5,
+    };
+
+    use attestor::transaction::BlockItem;
+    let tx_asd = eth::fetch_block_transactions(
+        "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e",
+        19543674,
+    )
+    .await
+    .unwrap()
+    .iter()
+    .map(|tx| tx.to_bytes())
+    .collect::<Vec<Vec<u8>>>();
+    let rx_asd = eth::fetch_block_receipts(
+        "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e",
+        19543674,
+    )
+    .await
+    .unwrap()
+    .iter()
+    .map(|rx| rx.to_bytes())
+    .collect::<Vec<Vec<u8>>>();
+
+    println!("transactions {:?}", tx_asd);
+    println!("receipts {:?}", rx_asd);
+    //tx_asd.iter().map(Vec::<u8>::new);
+    // let mut tx_bytes_file = File::open("./data/tx_bytes").await.unwrap();
+    // let mut rx_bytes_file = File::open("./data/rx_bytes").await.unwrap();
+    //
+    // let mut tx = Vec::new();
+    // let mut rx = Vec::new();
+    // tx_bytes_file.read_to_end(&mut tx).await.unwrap();
+    // rx_bytes_file.read_to_end(&mut rx).await.unwrap();
+    let result = cairo_generate_proof(claim, &attestation_fragment, tx_asd, rx_asd).await;
+    println!("{:?}", result);
+    assert!(result.is_ok());
 }

@@ -1290,6 +1290,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "starknet-crypto",
 ]
 
 [[package]]
@@ -7382,6 +7383,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "starknet-crypto",
  "supported-chains-primitives",
 ]
 
@@ -8616,7 +8618,6 @@ dependencies = [
  "attestor",
  "attestor-primitives",
  "ethereum 0.15.0",
- "ethereum-types",
  "futures 0.3.30",
  "mmr",
  "pallet-attestation-poc",

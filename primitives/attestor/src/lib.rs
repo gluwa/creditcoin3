@@ -134,13 +134,13 @@ where
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Clone, Copy)]
 pub struct BlockAttestation {
     pub block_number: u64,
-    pub tx_root: Felt,
-    pub rx_root: Felt,
-    pub prev_digest: Felt,
-    pub digest: Felt,
+    pub tx_root: starknet_crypto::FieldElement,
+    pub rx_root: starknet_crypto::FieldElement,
+    pub prev_digest: starknet_crypto::FieldElement,
+    pub digest: starknet_crypto::FieldElement,
 }
 
 impl BlockAttestation {
