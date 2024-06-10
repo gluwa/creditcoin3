@@ -12,7 +12,7 @@ use cc3::Claim;
 use config::Config;
 
 #[derive(Debug)]
-/// Attestor server is configured using `Config`
+/// Prover server is configured using `Config`
 pub struct Server {
     #[allow(dead_code)]
     config: Config,
