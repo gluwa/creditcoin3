@@ -210,7 +210,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                             ]),
                         ),
                     ],
-                    vec![(1, 10)],
+                    vec![(31337, 10)],
                 ),
                 enable_manual_seal,
             }
@@ -315,7 +315,7 @@ pub fn local_testnet_config() -> ChainSpec {
                         ]),
                     ),
                 ],
-                vec![(1, 10)],
+                vec![(31337, 10)],
             )
         },
         // Bootnodes
