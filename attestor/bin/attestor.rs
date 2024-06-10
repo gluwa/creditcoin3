@@ -11,6 +11,9 @@ pub struct Attestor {
     #[arg(long, default_value = "ws://localhost:8545")]
     eth_rpc_url: String,
 
+    #[arg(long)]
+    eth_start_block: Option<u64>,
+
     #[arg(long, default_value = "http://localhost:9944")]
     cc3_rpc_url: String,
 
@@ -42,6 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config = Config {
         eth_rpc_url: args.eth_rpc_url,
+        eth_start_block: args.eth_start_block,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
         //bls_key: args.bls_key[..].try_into().unwrap(),

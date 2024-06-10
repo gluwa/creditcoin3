@@ -1,11 +1,12 @@
 use crate::Client;
-use alloy::{providers::Provider, rpc::types::eth::Block, transports::TransportErrorKind};
+use alloy::{providers::Provider, rpc::types::eth::Block};
 use anyhow::Result;
 use futures_util::StreamExt;
-use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
+
+use crate::Error;
 
 const BUFFER_SIZE: usize = 100;
 
@@ -32,18 +33,6 @@ impl NewBlockSubscription {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Failed to subscribe {0}")]
-    FailedToSubscribe(String),
-    #[error("Failed to fetch block {0}")]
-    FailedToFetchBlock(String),
-    #[error("Ethereum RPC error {0}")]
-    EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
-    #[error("client error {0}")]
-    ClientError(#[from] anyhow::Error),
-}
-
 impl Client {
     pub fn subscribe_latest_heads(&self) -> Result<NewBlockSubscription, Error> {
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
@@ -55,18 +44,40 @@ impl Client {
 
             loop {
                 if let Some(block) = stream.next().await {
-                    let hash = block.header.hash.ok_or(Error::FailedToFetchBlock(
-                        block.header.hash.unwrap_or_default().to_string(),
+                    let hash = block.header.hash.ok_or(Error::FailedToGetBlock(
+                        block.header.number.unwrap_or_default(),
                     ))?;
                     info!("New block header: {:?}", hash);
 
-                    let block = provider
-                        .get_block_by_hash(hash, true)
-                        .await?
-                        .ok_or(Error::FailedToFetchBlock(hash.to_string()))?;
+                    let block = provider.get_block_by_hash(hash, true).await?.ok_or(
+                        Error::FailedToGetBlock(block.header.number.unwrap_or_default()),
+                    )?;
 
                     sender.send(block).await.ok();
                 }
+            }
+        });
+
+        Ok(NewBlockSubscription { receiver, handle })
+    }
+
+    pub async fn subscribe_from_head_with_interval(
+        &self,
+        header_number: u64,
+        interval: u64,
+    ) -> Result<NewBlockSubscription, Error> {
+        let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
+
+        // create a for loop that gets the block by number and sends it to the receiver
+        // the loop should start from the header_number
+        let client = self.clone();
+        let handle = tokio::spawn(async move {
+            let mut header_number = header_number;
+            loop {
+                let block = client.get_block(header_number).await?;
+
+                sender.send(block).await.ok();
+                header_number += interval;
             }
         });
 

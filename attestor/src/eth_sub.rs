@@ -32,8 +32,16 @@ pub async fn subscribe_to_new_heads(
     eth_client: eth::Client,
     attestor: ActorRef<Attestor>,
     cc3_client: ActorRef<Client>,
+    eth_start_block: Option<u64>,
+    attestation_interval: u64,
 ) -> Result<(), Error> {
-    let mut subscription = eth_client.subscribe_latest_heads().unwrap();
+    let mut subscription = if let Some(eth_start_block) = eth_start_block {
+        eth_client
+            .subscribe_from_head_with_interval(eth_start_block, attestation_interval)
+            .await?
+    } else {
+        eth_client.subscribe_latest_heads()?
+    };
 
     // Continuously await new blocks and notify the attestor
     loop {

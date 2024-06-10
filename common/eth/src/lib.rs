@@ -5,6 +5,7 @@ use alloy::{
         client::WsConnect,
         types::eth::{Block, BlockId, BlockNumberOrTag, BlockTransactions},
     },
+    transports::TransportErrorKind,
 };
 use anyhow::Result;
 use thiserror::Error;
@@ -23,6 +24,10 @@ pub enum Error {
     FailedToGetReceipts,
     #[error("Failed to get chain id")]
     FailedToGetChainId,
+    #[error("Ethereum RPC error {0}")]
+    EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
+    #[error("client error {0}")]
+    ClientError(#[from] anyhow::Error),
 }
 
 #[derive(Debug, Clone)]

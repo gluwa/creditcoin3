@@ -28,6 +28,7 @@ pub type Randomness = [u8; 32];
 pub struct Client {
     pub cc_client: CcClient,
     pub bls_keypair: PrivateKey,
+    pub attestation_interval: u64,
 }
 
 impl Client {
@@ -50,9 +51,10 @@ impl<'a> Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
-    pub fn new(
+    pub async fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
+        chain_id: ChainId,
         // private_key: &[u8; 32],
     ) -> Result<Self> {
         let cc_client = CcClient::new(url, key)?;
@@ -60,9 +62,15 @@ impl<'a> Client {
         // Derive bls key from secret seed
         let bls_keypair = PrivateKey::new(key.as_bytes());
 
+        let attestation_interval = cc_client
+            .chain_attestation_interval(chain_id)
+            .await?
+            .ok_or(Error::FailedToGetAttestationInterval)?;
+
         Ok(Self {
             cc_client,
             bls_keypair,
+            attestation_interval,
         })
     }
 
