@@ -86,8 +86,6 @@ const refreshCount = async () => {
   const count = await CounterContract.getCount();
   document.getElementById("count").innerHTML = count;
 }
-
-
 // Create contract increment function for button
 const increment = async () => {
   const tx = await CounterContract.incrementCounter();
