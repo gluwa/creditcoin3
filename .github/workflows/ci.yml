@@ -168,8 +168,27 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Prepare ENV for Devnet
+        id: devnet-env
+        if: github.base_ref == 'dev'
+        run: |
+          echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare ENV for Testnet
+        id: testnet-env
+        if: github.base_ref == 'testnet'
+        run: |
+          echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare ENV for Mainnnet
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
+
       - name: Check
         run: |
+          export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
 
   fmt:
