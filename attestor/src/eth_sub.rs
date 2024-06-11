@@ -73,7 +73,15 @@ pub async fn subscribe_to_new_heads(
 
             cc3_client.send(AttestationSubmit { attestation }).await?;
         } else {
-            panic!("no block");
+            // This else case will trigger in 2 scenarios:
+            // - The subscription to latest heads will die (in that case we can either reopen the subscription or panic?)
+            // - Subscription from a specific head will have caught up until "now", in that case we can open a subscription to latest head and replace the current subscription
+            if eth_start_block.is_some() {
+                subscription = eth_client.subscribe_latest_heads()?;
+            } else {
+                // Either panic or reopen
+                panic!("no block");
+            }
         }
     }
 }
