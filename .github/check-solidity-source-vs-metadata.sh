@@ -20,4 +20,17 @@ else
     exit 1
 fi
 
+ADDRESS_FROM_DISK=$(grep "address constant" precompiles/metadata/sol/*.sol | cut -f2 -d'=' | tr -d ' ;')
+ADDRESS_FROM_JSON=$(jq -r .[0].address precompiles/metadata/precompiles-creditcoin3-devnet.json)
 
+if [ "$ADDRESS_FROM_DISK" == "$ADDRESS_FROM_JSON" ]; then
+    echo "INFO: Address on disk matches address in JSON file"
+else
+    echo "FAIL: Address on disk differs from address in JSON file"
+
+    echo "FROM_DISK=$ADDRESS_FROM_DISK"
+    echo "FROM_JSON=$ADDRESS_FROM_JSON"
+    echo "========================"
+
+    exit 2
+fi
