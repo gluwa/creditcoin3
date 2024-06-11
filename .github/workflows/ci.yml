@@ -162,6 +162,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install solc
 
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
       - name: Check
         run: |
           .github/check-solidity-source-vs-metadata.sh
