@@ -426,7 +426,7 @@ pub mod pallet {
             };
 
             ensure!(
-                !T::SupportedChains::is_chain_supported(attestation.chain_id()),
+                T::SupportedChains::is_chain_supported(attestation.chain_id()),
                 Error::<T>::ChainNotSupported
             );
 
