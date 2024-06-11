@@ -151,6 +151,21 @@ jobs:
           creditcoin help
           creditcoin wizard --help
 
+  sanity-test-precompiles:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Check
+        run: |
+          solc --version
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-24.04
