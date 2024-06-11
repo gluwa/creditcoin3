@@ -163,13 +163,8 @@ jobs:
           sudo apt-get install solc
 
       - name: Check
-        working-directory: ./precompiles/metadata
         run: |
-          solc --version
-
-          ./abi-creator.sh
-
-          git status
+          .github/check-solidity-source-vs-metadata.sh
 
   fmt:
     name: Rustfmt
