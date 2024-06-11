@@ -90,6 +90,7 @@ attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 pallet-evm-precompile-claim = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
+#rlp = "0.5.2"
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }

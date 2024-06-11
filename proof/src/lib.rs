@@ -201,7 +201,7 @@ async fn test_cairo_generate_proof() {
         len: 5,
     };
 
-    use attestor::transaction::BlockItem;
+    use eth_common::transaction::BlockItem;
     let tx_asd = eth::fetch_block_transactions(
         "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e",
         19543674,

@@ -25,7 +25,7 @@ ethereum = "0.15.0"
 attestor = { path = "../attestor" }
 tracing = "0.1.40"
 thiserror = "1.0"
-
+eth-common = { path = "../common/eth", package = "eth" }
 alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "node-bindings",
     "providers",

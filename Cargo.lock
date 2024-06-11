@@ -8617,6 +8617,7 @@ dependencies = [
  "anyhow",
  "attestor",
  "attestor-primitives",
+ "eth",
  "ethereum 0.15.0",
  "futures 0.3.30",
  "mmr",
