@@ -41,7 +41,6 @@ fi
 ABI_FROM_DISK=$(jq -r "..|.abi?|select(.)" precompiles/metadata/abi/*.json)
 ABI_FROM_JSON=$(jq -r .[].abi precompiles/metadata/precompiles-creditcoin3-devnet.json | jq -r)
 
-# TODO: compare against ABI in integration tests as well
 if [ "$ABI_FROM_DISK" == "$ABI_FROM_JSON" ]; then
     echo "INFO: ABI on disk matches ABI in JSON file"
 else
@@ -52,4 +51,18 @@ else
     echo "========================"
 
     exit 3
+fi
+
+ABI_FROM_TEST=$(cat cli/src/test/blockchain-tests/artifacts/SubstrateTransfer.json)
+if [ "$ABI_FROM_DISK" == "$ABI_FROM_TEST" ]; then
+    echo "INFO: ABI on disk matches ABI in tests"
+else
+    echo "FAIL: ABI on disk differs from ABI in tests"
+    echo "TODO: Update the tests to make sure we're testing what we build"
+
+    echo "FROM_DISK=$ABI_FROM_DISK"
+    echo "FROM_TEST=$ABI_FROM_TEST"
+    echo "========================"
+
+    exit 4
 fi
