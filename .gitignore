@@ -33,3 +33,4 @@ polkadot.*
 **/cache/
 **/typechain-types/
 **/ignition/deployments/
+precompiles/metadata/abi/*.json
