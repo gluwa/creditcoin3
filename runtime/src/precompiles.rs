@@ -20,15 +20,16 @@ where
     }
     pub fn used_addresses() -> [H160; 8] {
         [
-            hash(1),
-            hash(2),
-            hash(3),
-            hash(4),
-            hash(5),
-            hash(1024),
-            hash(1025),
-            hash(4049),
+            hash(1),    // 0x0000000000000000000000000000000000000001
+            hash(2),    // 0x0000000000000000000000000000000000000002
+            hash(3),    // 0x0000000000000000000000000000000000000003
+            hash(4),    // 0x0000000000000000000000000000000000000004
+            hash(5),    // 0x0000000000000000000000000000000000000005
+            hash(1024), // 0x0000000000000000000000000000000000000400
+            hash(1025), // 0x0000000000000000000000000000000000000401
+            hash(4049), // 0x0000000000000000000000000000000000000Fd1
         ]
+        // see fn execute() below for an address-->precompile map
     }
 }
 impl<R> PrecompileSet for FrontierPrecompiles<R>
@@ -61,5 +62,6 @@ where
 }
 
 fn hash(a: u64) -> H160 {
+    // just converts the argument to its hex value
     H160::from_low_u64_be(a)
 }
