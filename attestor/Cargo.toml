@@ -53,3 +53,4 @@ attestor-primitives = { workspace = true }
 mmr = { workspace = true, features = ["par_mmr"] }
 cc-client = { workspace = true }
 eth = { workspace = true }
+exponential-backoff = "1.2.0"

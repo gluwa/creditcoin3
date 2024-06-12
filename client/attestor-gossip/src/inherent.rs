@@ -54,7 +54,7 @@ where
     // Removes an attestation from the queue by digest
     pub fn remove_by_digest(&mut self, digest: Digest) {
         self.attestation_queue
-            .retain(|attestation| attestation.digest != digest);
+            .retain(|attestation| attestation.attestation.digest() != digest);
     }
 }
 
@@ -107,25 +107,24 @@ where
         while let Some(attestation) = provider.get_latest() {
             // Get the runtime and fetch the last digest
             let runtime = provider.runtime_api.runtime_api();
+
+            let digest = attestation.attestation.digest();
+
             let contains_digest = runtime
-                .contains_digest(
-                    block_hash,
-                    attestation.attestation_data.chain_id,
-                    attestation.digest,
-                )
+                .contains_digest(block_hash, attestation.attestation.chain_id, digest)
                 .map_err(|_e| sp_inherents::Error::FatalErrorReported)?;
 
             // If the last digest matches the one we want to submit in the inherent
             // we can safely remove this pending attestation. It means this was already submitted to the network
             // Check if the attestation is already included on the chain
             if contains_digest {
-                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping", attestation.digest);
-                provider.remove_by_digest(attestation.digest);
+                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping", digest);
+                provider.remove_by_digest(digest);
             } else {
                 // Update inherent data and then remove the attestation from queue
                 inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)?;
-                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} submitted", attestation.digest);
-                provider.remove_by_digest(attestation.digest);
+                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} submitted", digest);
+                provider.remove_by_digest(digest);
                 break; // Break the loop since we successfully submitted an attestation
             }
         }

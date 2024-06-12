@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::{AttestationData, ChainId};
+use attestor_primitives::{Attestation, ChainId};
 use kameo::{
     actor::Actor,
     message::{Context, Message},
@@ -7,7 +7,7 @@ use kameo::{
 use mmr::traits::MerkleTreeTrait;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::merkle;
 use crate::merkle::tree::StarknetPedersenMmr;
@@ -49,7 +49,7 @@ pub struct NewBlock {
     pub chain_id: ChainId,
     pub header_number: u64,
     pub header_hash: H256,
-    pub last_digest: H256,
+    pub last_digest: Option<H256>,
     pub transactions: Vec<eth::transaction::Transaction>,
     pub receipts: Vec<eth::transaction::Receipt>,
 }
@@ -86,15 +86,16 @@ impl NewBlock {
 
 impl Message<NewBlock> for Attestor {
     /// Reply is the attestation data or error
-    type Reply = Result<AttestationData<H256>, Error>;
+    type Reply = Result<Option<Attestation<H256>>, Error>;
 
     async fn handle(&mut self, msg: NewBlock, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         // handle the new block
-        let attestation: AttestationData<H256> = match create::<H256>(&msg) {
-            Ok(attestation) => attestation,
+        let attestation: Option<Attestation<H256>> = match create::<H256>(&msg) {
+            Ok(attestation) => Some(attestation),
             Err(e) => {
-                error!("Error creating attestation: {:?}", e);
-                return Err(Error::ErrorBuildingAttestation(e.to_string()));
+                warn!("Error creating attestation: {:?}", e);
+                None
+                // return Err(Error::ErrorBuildingAttestation(e.to_string()));
             }
         };
 
@@ -104,10 +105,10 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create<H>(new_block: &NewBlock) -> Result<AttestationData<H256>, Error> {
+pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
 
-    let attestation = AttestationData {
+    let attestation = Attestation {
         chain_id: new_block.chain_id,
         header_number: new_block.header_number,
         header_hash: new_block.header_hash,

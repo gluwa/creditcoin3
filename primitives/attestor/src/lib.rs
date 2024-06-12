@@ -51,15 +51,21 @@ impl IsFatalError for InherentError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
 pub struct SignedAttestation<H, AccountId> {
-    pub attestation_data: AttestationData<H>,
-    pub digest: Digest,
+    pub attestation: Attestation<H>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId>,
 }
 
-impl<H, A> SignedAttestation<H, A> {
+impl<H, A> SignedAttestation<H, A>
+where
+    H: AsRef<[u8]>,
+{
     pub fn chain_id(&self) -> ChainId {
-        self.attestation_data.chain_id
+        self.attestation.chain_id
+    }
+
+    pub fn digest(&self) -> Digest {
+        self.attestation.digest()
     }
 }
 
@@ -76,18 +82,18 @@ impl<H, A> SignedAttestation<H, A> {
     MaxEncodedLen,
     TypeInfo,
 )]
-pub struct AttestationData<H> {
+pub struct Attestation<H> {
     pub chain_id: ChainId,
     pub header_number: u64,
     pub header_hash: H,
     pub tx_root: Felt,
     pub rx_root: Felt,
-    pub prev_digest: H,
+    pub prev_digest: Option<Digest>,
 }
 
 pub type Digest = H256;
 
-impl<H> AttestationData<H>
+impl<H> Attestation<H>
 where
     H: AsRef<[u8]>,
 {

@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod types;
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
@@ -14,9 +13,8 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{Attestation, Digest};
     use attestor_primitives::{
-        BlsPublicKey, BlsPublicKeyWrapper, ChainId, InherentError, SignedAttestation,
+        BlsPublicKey, BlsPublicKeyWrapper, ChainId, Digest, InherentError, SignedAttestation,
         INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
@@ -121,7 +119,7 @@ pub mod pallet {
         ChainId,
         Blake2_128Concat,
         Digest,
-        Attestation<T::Hash, T::AccountId>,
+        SignedAttestation<T::Hash, T::AccountId>,
         OptionQuery,
     >;
 
@@ -191,11 +189,11 @@ pub mod pallet {
 
         InvulnerableUnregistered(T::AccountId),
 
-        ChainBootstrapped(ChainId, Attestation<T::Hash, T::AccountId>),
+        ChainBootstrapped(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
-        BlockAttested(ChainId, Attestation<T::Hash, T::AccountId>),
+        BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
-        CheckpointReached(ChainId, Attestation<T::Hash, T::AccountId>),
+        CheckpointReached(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
         ComitteeSetSizeChanged(u32),
     }
@@ -399,14 +397,13 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
-            let digest = attestation.digest;
+            let digest = attestation.digest();
+
             LastDigest::<T>::set(chain_id, Some(digest));
 
-            let attestation_insert: Attestation<T::Hash, T::AccountId> =
-                Attestation::new(attestation.clone(), digest);
-            Attestations::<T>::insert(chain_id, digest, &attestation_insert);
+            Attestations::<T>::insert(chain_id, digest, &attestation);
 
-            Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation_insert));
+            Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation));
             Ok(())
         }
 
@@ -418,27 +415,58 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_none(origin)?;
 
-            let digest = if let Some(digest) = LastDigest::<T>::get(attestation.chain_id()) {
-                digest
-            } else {
-                debug!("First attestation for chain, otherwise something is wrong");
-                attestation.digest
-            };
-
             ensure!(
                 T::SupportedChains::is_chain_supported(attestation.chain_id()),
                 Error::<T>::ChainNotSupported
             );
 
-            let attestation_insert = Attestation::new(attestation.clone(), digest);
-            Attestations::<T>::insert(attestation.chain_id(), digest, &attestation_insert);
+            let previous_digest = Self::last_digest(attestation.chain_id());
+            if let Some(previous_digest) = previous_digest {
+                let previous_attestation =
+                    Attestations::<T>::get(attestation.chain_id(), previous_digest);
+
+                // Only check if the previous attestation exists
+                if let Some(prev_attestation) = previous_attestation {
+                    // Check if the attestation is not a duplicate
+                    ensure!(
+                        prev_attestation.digest() != attestation.digest(),
+                        Error::<T>::AttestationExists
+                    );
+
+                    // check if the new attestation extends the previous one by checking if the blocknumber increased by atleast the interval
+                    if let Some(interval) =
+                        ChainAttestationInterval::<T>::get(attestation.chain_id())
+                    {
+                        let prev_block_number = prev_attestation.attestation.header_number;
+
+                        debug!(
+                        "Checking if block number is at the interval, expected: {:?}, got: {:?}",
+                        prev_block_number + interval,
+                        attestation.attestation.header_number
+                    );
+
+                        if attestation.attestation.header_number < prev_block_number + interval {
+                            debug!(
+                                "Block number is not at the interval, expected: {:?}, got: {:?}",
+                                prev_block_number + interval,
+                                attestation.attestation.header_number
+                            );
+                            return Err(Error::<T>::InvalidAttestation.into());
+                        }
+                    }
+                }
+            }
+
+            // Store the attestation
+            let digest = attestation.digest();
+            Attestations::<T>::insert(attestation.chain_id(), digest, &attestation);
 
             // Update last digest
-            LastDigest::<T>::set(attestation.chain_id(), Some(attestation.digest));
+            LastDigest::<T>::set(attestation.chain_id(), Some(digest));
 
             Self::deposit_event(Event::<T>::BlockAttested(
                 attestation.chain_id(),
-                attestation_insert,
+                attestation,
             ));
 
             Ok(())
@@ -458,8 +486,8 @@ pub mod pallet {
 
             // Check if atleast the attestation was not already submitted
             if let Some(attestation) = inherent_data {
-                if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
-                    if digest == attestation.digest {
+                if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_id) {
+                    if digest == attestation.digest() {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
                         return None;
                     }
@@ -495,7 +523,7 @@ pub mod pallet {
                             InherentError::NotValid
                         })?;
 
-                    let message = &attestation.attestation_data.serialize()[..];
+                    let message = &attestation.attestation.serialize()[..];
 
                     Pallet::<T>::verify_agg_signature(
                         &agg_signature,
@@ -599,8 +627,8 @@ pub mod pallet {
         fn check_duplicate(
             attestation: &SignedAttestation<T::Hash, T::AccountId>,
         ) -> Result<(), InherentError> {
-            if let Some(digest) = LastDigest::<T>::get(attestation.attestation_data.chain_id) {
-                if digest == attestation.attestation_data.digest() {
+            if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_id) {
+                if digest == attestation.attestation.digest() {
                     log::error!("Attestation with digest: {:?} is duplicate", digest);
                     return Err(InherentError::Duplicate(digest));
                 }

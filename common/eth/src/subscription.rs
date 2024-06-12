@@ -66,6 +66,11 @@ impl Client {
         header_number: u64,
         interval: u64,
     ) -> Result<NewBlockSubscription, Error> {
+        tracing::info!(
+            "Subscribing from block number: {} with interval {}",
+            header_number,
+            interval
+        );
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
         // create a for loop that gets the block by number and sends it to the receiver
@@ -73,6 +78,7 @@ impl Client {
         let client = self.clone();
         let handle = tokio::spawn(async move {
             let mut header_number = header_number;
+            info!("Subscribing from block number: {}", header_number);
             loop {
                 let block = client.get_block(header_number).await?;
 

@@ -1,5 +1,5 @@
 use attestor_primitives::bls::{Bls, CryptoScheme};
-use attestor_primitives::{api::AttestorApi, AttestationData};
+use attestor_primitives::{api::AttestorApi, Attestation as AttestationPrimitive};
 use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
@@ -110,13 +110,14 @@ impl Topic {
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attestation<B, AccountId> {
-    pub attestation_data: AttestationData<B>,
+    pub attestation_data: AttestationPrimitive<B>,
     pub attestor: AccountId,
     pub topic: Topic,
     pub vrf_output: VrfOutput,
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
 }
+
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VrfOutput {
     pub signature: sp_core::sr25519::Signature,

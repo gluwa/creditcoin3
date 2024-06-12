@@ -1262,6 +1262,7 @@ dependencies = [
  "creditcoin3-attestor-gossip",
  "creditcoin3-attestor-rpc",
  "eth",
+ "exponential-backoff",
  "hex",
  "jsonrpsee 0.22.5",
  "jsonrpsee-core 0.22.5",
@@ -3691,6 +3692,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.71",
+]
+
+[[package]]
+name = "exponential-backoff"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47f78d87d930eee4b5686a2ab032de499c72bd1e954b84262bb03492a0f932cd"
+dependencies = [
+ "rand 0.8.5",
 ]
 
 [[package]]

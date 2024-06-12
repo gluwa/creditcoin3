@@ -347,6 +347,42 @@ impl<'a> Client {
 
         Ok(())
     }
+
+    pub async fn chain_attestation_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
+        let api = self.get_substrate_client().await?;
+
+        let storage_query = cc3::storage()
+            .attestation()
+            .chain_attestation_interval(chain_id);
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
+    }
+
+    pub async fn chain_attestation_exists(
+        &self,
+        chain_id: ChainId,
+        digest: Digest,
+    ) -> Result<bool> {
+        let api = self.get_substrate_client().await?;
+
+        let storage_query = cc3::storage().attestation().attestations(chain_id, digest);
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result.is_some())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

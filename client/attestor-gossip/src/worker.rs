@@ -2,7 +2,7 @@ use attestor_primitives::bls::{Bls, CryptoScheme, WrapEncode};
 use attestor_primitives::{api::AttestorApi, ChainId, Digest, SignedAttestation};
 use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
-use log::{error, info};
+use log::{debug, error, info};
 use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
@@ -13,7 +13,7 @@ use sp_runtime::{
     traits::{Block as BlockT, Hash as HashT, Header as HeaderT},
     AccountId32,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -57,7 +57,7 @@ where
     pub backend: Arc<BE>,
 
     /// Block attestations. Maps a blocknumber to a list of valid attestations
-    pub block_attestations: HashMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
+    pub block_attestations: BTreeMap<(ChainId, BlockNumber), Vec<(AttestorId, Digest)>>,
 
     /// Raw block attestations. Maps a blocknumber to a list of actual attestations, not digests
     pub block_attestations_raw:
@@ -123,7 +123,7 @@ where
             runtime: params.runtime,
             client: params.client,
             create_inherent_data_providers: params.create_inherent_data_providers,
-            block_attestations: HashMap::new(),
+            block_attestations: BTreeMap::new(),
             block_attestations_raw: HashMap::new(),
             backend: params.backend,
             inherent_provider: params.inherent_provider,
@@ -252,15 +252,15 @@ where
             return Err(Error::NotAnAttestor);
         }
 
-        let last_digest = runtime
-            .last_digest(
-                blockchain_info.best_hash,
-                attestation.attestation_data.chain_id,
-            )?
-            .unwrap_or(H256::zero());
+        let last_digest = runtime.last_digest(
+            blockchain_info.best_hash,
+            attestation.attestation_data.chain_id,
+        )?;
 
-        if last_digest != attestation.attestation_data.prev_digest.into() {
-            info!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, attestation.attestation_data.prev_digest);
+        let prev_digest = attestation.attestation_data.prev_digest;
+
+        if last_digest != prev_digest {
+            info!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, prev_digest);
 
             return Err(Error::DigestMissMatch);
         }
@@ -346,6 +346,7 @@ where
     }
 
     /// Add attestation to round, returns if we need to conclude the round or not
+    /// We can only conclude the round if we have enough attestations for the first attestation in the queue
     fn add_to_round(
         &mut self,
         attestation: &Attestation<HashFor<B>, AccountId>,
@@ -372,16 +373,31 @@ where
         let threshold = runtime.comittee_set_size(hash).unwrap_or(0);
 
         let exceed_threshold = if let Some(attestations) = self.block_attestations.get_mut(&k) {
-            attestations.push((attestor_id, digest));
-            attestations.len() as u32 >= threshold
+            // only push to the attestation if the attestor is not already in the list
+            if !attestations.iter().any(|(id, _)| id == &attestor_id) {
+                attestations.push((attestor_id, digest));
+                attestations.len() as u32 >= threshold
+            } else {
+                debug!(target: LOG_TARGET, "📝 Attestor({:?}) already voted for round {:?}", attestor_id, k);
+                // Probably need to punish the attestor here
+                false
+            }
         } else {
             self.block_attestations
                 .insert(k, vec![(attestor_id, digest)]);
             false // Newly inserted, so it cannot exceed the threshold yet
         };
 
-        // If exceeds threshold check if we can have a majority of attestors that have pushed the same attestation
-        exceed_threshold
+        let first_attestation = self.block_attestations.first_key_value().unwrap();
+
+        if first_attestation.0 == &k && exceed_threshold {
+            debug!(target: LOG_TARGET, "📝 Majority vote for round {:?}", k);
+            // If we can submit this one already
+            return exceed_threshold;
+        }
+
+        debug!(target: LOG_TARGET, "📝 Added attestation to round {:?}", attestation);
+        false
     }
 
     /// In practice, this method would:
@@ -450,9 +466,9 @@ where
             .and_then(|sig| sig.as_bytes().try_into().ok())?;
 
         let res = Some(SignedAttestation {
-            attestation_data: attestation.clone().attestation_data,
+            attestation: attestation.clone().attestation_data,
             signature: aggregated_signature,
-            digest: major_digest,
+            // digest: major_digest,
             attestors,
         });
 
