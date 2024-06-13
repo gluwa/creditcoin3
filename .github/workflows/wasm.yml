@@ -58,14 +58,14 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
           override: true
 
       - name: Install Subwasm
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: install
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
@@ -87,14 +87,14 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
           override: true
 
       - name: Install Subwasm
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: install
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0

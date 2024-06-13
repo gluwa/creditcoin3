@@ -163,7 +163,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
@@ -171,7 +171,7 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: fmt
           args: -- --check
@@ -193,7 +193,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -203,7 +203,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run Clippy
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: clippy
           args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
@@ -228,7 +228,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -260,7 +260,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -269,7 +269,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
@@ -300,7 +300,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -317,7 +317,7 @@ jobs:
           echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release ${{ steps.compiler-flags.outputs.extra }}
@@ -362,7 +362,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -379,7 +379,7 @@ jobs:
           echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
@@ -967,7 +967,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
