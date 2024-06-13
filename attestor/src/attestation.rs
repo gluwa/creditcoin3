@@ -49,7 +49,6 @@ pub struct NewBlock {
     pub chain_id: ChainId,
     pub header_number: u64,
     pub header_hash: H256,
-    pub last_digest: Option<H256>,
     pub transactions: Vec<eth::transaction::Transaction>,
     pub receipts: Vec<eth::transaction::Receipt>,
 }
@@ -95,7 +94,6 @@ impl Message<NewBlock> for Attestor {
             Err(e) => {
                 warn!("Error creating attestation: {:?}", e);
                 None
-                // return Err(Error::ErrorBuildingAttestation(e.to_string()));
             }
         };
 
@@ -114,7 +112,8 @@ pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
         header_hash: new_block.header_hash,
         tx_root: tx_tree.root().into(),
         rx_root: rx_tree.root().into(),
-        prev_digest: new_block.last_digest,
+        // We don't have a prev_digest yet, so we set it to None
+        prev_digest: None,
     };
 
     debug!("tree tx root: {:?}", attestation.tx_root);

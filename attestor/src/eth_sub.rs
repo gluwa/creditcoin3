@@ -1,5 +1,5 @@
 use anyhow::Result;
-use eth;
+use eth::{self, subscription::SubscriptionConfig};
 use kameo::actor::ActorRef;
 use sp_core::H256;
 use thiserror::Error;
@@ -7,7 +7,7 @@ use tracing::error;
 
 use crate::{
     attestation::{self, Attestor, NewBlock},
-    cc3::{self, AttestationSubmit, Client, GetLastDigest},
+    cc3::{self, AttestationSubmit, Client},
 };
 
 #[derive(Debug, Error)]
@@ -20,8 +20,6 @@ pub enum Error {
     AttestationError(#[from] kameo::error::SendError<NewBlock, attestation::Error>),
     #[error("Attestation submit error {0}")]
     AttestationSubmitError(#[from] kameo::error::SendError<AttestationSubmit<H256>, cc3::Error>),
-    #[error("Get last digest error {0}")]
-    FetchDigestError(#[from] kameo::error::SendError<GetLastDigest, cc3::Error>),
     #[error("Eth client error {0}")]
     EthClientError(#[from] eth::Error),
 }
@@ -35,13 +33,15 @@ pub async fn subscribe_to_new_heads(
     eth_start_block: Option<u64>,
     attestation_interval: u64,
 ) -> Result<(), Error> {
-    let mut subscription = if let Some(eth_start_block) = eth_start_block {
-        eth_client
-            .subscribe_from_head_with_interval(eth_start_block, attestation_interval)
-            .await?
-    } else {
-        eth_client.subscribe_latest_heads()?
-    };
+    // Only create a subscription config if we have a start block
+    let config = eth_start_block.map(|eth_start_block| SubscriptionConfig {
+        start_block: eth_start_block,
+        interval: attestation_interval,
+    });
+
+    let mut subscription = eth_client.open_subscription(config).map_err(|e| {
+        Error::FailedToSubscribe(format!("Failed to subscribe to new heads on chain: {e}"))
+    })?;
 
     // Continuously await new blocks and notify the attestor
     loop {
@@ -57,7 +57,7 @@ pub async fn subscribe_to_new_heads(
 
             let chain_id = eth_client.get_chain_id().await?;
 
-            let last_digest = cc3_client.send(GetLastDigest { chain_id }).await?;
+            // let last_digest = cc3_client.send(GetLastDigest { chain_id }).await?;
 
             // Notify the attestor with a new block
             let attestation = attestor
@@ -65,7 +65,6 @@ pub async fn subscribe_to_new_heads(
                     chain_id,
                     header_number: block.header.number.unwrap(),
                     header_hash: sp_core::H256(block.header.hash.unwrap().0),
-                    last_digest,
                     transactions,
                     receipts,
                 })
@@ -73,15 +72,10 @@ pub async fn subscribe_to_new_heads(
 
             cc3_client.send(AttestationSubmit { attestation }).await?;
         } else {
-            // This else case will trigger in 2 scenarios:
-            // - The subscription to latest heads will die (in that case we can either reopen the subscription or panic?)
-            // - Subscription from a specific head will have caught up until "now", in that case we can open a subscription to latest head and replace the current subscription
-            if eth_start_block.is_some() {
-                subscription = eth_client.subscribe_latest_heads()?;
-            } else {
-                // Either panic or reopen
-                panic!("no block");
-            }
+            error!("Subscription stream ended unexpectedly");
+            subscription = eth_client.open_subscription(None).map_err(|e| {
+                Error::FailedToSubscribe(format!("Failed to subscribe to new heads on chain: {e}",))
+            })?;
         }
     }
 }

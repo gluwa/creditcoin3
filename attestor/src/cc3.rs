@@ -32,7 +32,6 @@ pub struct Client {
     pub cc_client: CcClient,
     pub bls_keypair: PrivateKey,
     pub attestation_interval: u64,
-    pub last_digest: H256,
 }
 
 impl Client {
@@ -75,8 +74,6 @@ impl<'a> Client {
             cc_client,
             bls_keypair,
             attestation_interval,
-            // init last digest to zero
-            last_digest: H256::zero(),
         })
     }
 
@@ -201,7 +198,7 @@ where
 
 pub async fn submit_attestation<H, AccountId>(
     cc_client: CcClient,
-    attestation: Attestation<H, AccountId>,
+    mut attestation: Attestation<H, AccountId>,
 ) -> Result<()>
 where
     H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
@@ -232,6 +229,7 @@ where
         return Ok(());
     };
 
+    // Get the digest of the attestation
     let attestation_digest = attestation.attestation_data.digest();
 
     // check if attestation already exists
@@ -244,6 +242,13 @@ where
         warn!("Attestation already exists, skipping...");
         return Ok(());
     }
+
+    // Get the last digest from the chain
+    // and set it as the previous digest of the attestation
+    let prev_digest = cc_client
+        .fetch_last_digest(attestation.attestation_data.chain_id)
+        .await?;
+    attestation.attestation_data.prev_digest = prev_digest;
 
     // Submit the attestation to the chain
     let rpc_client = cc_client.get_rpc_client()?;
@@ -304,34 +309,9 @@ pub async fn check_attestation_inclusion(
             }
         }
 
-        error!("Last digest is none, retrying in {:?}", duration);
+        warn!("Last digest is none, retrying in {:?}", duration);
         thread::sleep(duration);
     }
 
     Ok(false)
-}
-
-pub struct GetLastDigest {
-    pub chain_id: ChainId,
-}
-
-impl Message<GetLastDigest> for Client {
-    type Reply = Result<Option<H256>, Error>;
-
-    async fn handle(
-        &mut self,
-        msg: GetLastDigest,
-        _ctx: Context<'_, Self, Self::Reply>,
-    ) -> Self::Reply {
-        let last_digest = self
-            .cc_client
-            .fetch_last_digest(msg.chain_id)
-            .await
-            .map_err(|e| {
-                error!("Error checking latest digest: {:?}", e);
-                Error::FailedToFetchDigest
-            })?;
-
-        Ok(last_digest)
-    }
 }

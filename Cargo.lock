@@ -3510,6 +3510,7 @@ version = "3.24.1"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-trait",
  "futures-util",
  "thiserror",
  "tokio",
