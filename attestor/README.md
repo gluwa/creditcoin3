@@ -113,20 +113,20 @@ atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, y
 #### Start the first prefunded attestor
 
 ```sh
-cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade" --dev
+cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade" 
 ```
 
 #### (Optionally) Start the second prefunded attestor
 
 ```sh
-cargo run -- -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry" --dev
+cargo run -- -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry" 
 
 ```
 
 #### (Optionally) Start the third prefunded attestor
 
 ```sh
-cargo run -- -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere" --dev
+cargo run -- -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere" 
 ```
 
 Alternatively, you can generate your own keys, transfer some balance to that address in order to register an attestor and then start the attestors.
