@@ -32,10 +32,6 @@ pub enum Error {
 
 /// Create a merkletree given input of byte slices
 pub fn create(rlps: &[Vec<u8>]) -> Result {
-    if rlps.is_empty() {
-        return Err(Error::ErrorCreatingTree);
-    }
-
     let tree = StarknetPedersenMmr::from(&rlps[..]);
 
     Ok(tree)

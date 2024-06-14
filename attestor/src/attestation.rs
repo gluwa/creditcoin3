@@ -7,7 +7,7 @@ use kameo::{
 use mmr::traits::MerkleTreeTrait;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::merkle;
 use crate::merkle::tree::StarknetPedersenMmr;
@@ -34,8 +34,6 @@ impl Actor for Attestor {}
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("No Transactions")]
-    NoTransactions,
     #[error("Error building merkle tree")]
     ErrorBuildingMerkleTree,
     #[error("Error building attestation")]
@@ -124,14 +122,9 @@ pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
 
 /// Construct a pedersen merkletree from given input
 fn rlps_to_merkletree(rlps: &Rlps) -> Result<StarknetPedersenMmr, Error> {
-    if rlps.is_empty() {
-        info!("No transactions in block, not doing anything now...");
-        return Err(Error::NoTransactions);
-    }
-
     let tree = merkle::tree::create(rlps).map_err(|e| {
         error!("Error creating tree: {:?}", e);
-        Error::NoTransactions
+        Error::ErrorBuildingMerkleTree
     })?;
 
     Ok(tree)
