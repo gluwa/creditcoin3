@@ -219,7 +219,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                             ]),
                         ),
                     ],
-                    vec![(31337, 10)],
+                    vec![(31337, 10), (11155111, 10)],
                     vec![(
                         eth_acct(hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3")),
                         vec![ChainPriceConfiguration {
@@ -332,7 +332,7 @@ pub fn local_testnet_config() -> ChainSpec {
                         ]),
                     ),
                 ],
-                vec![(31337, 10)],
+                vec![(31337, 10), (11155111, 10)],
                 vec![(
                     eth_acct(hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3")),
                     vec![ChainPriceConfiguration {
@@ -380,7 +380,7 @@ fn testnet_genesis(
     chain_id: u64,
     comittee_set_size: u32,
     attestation_invulnerables: Vec<(AccountId, BlsPublicKeyWrapper)>,
-    supported_chains: Vec<(u64, u64)>,
+    attestation_chains_interval: Vec<(u64, u64)>,
     provers: Vec<(AccountId, Vec<ChainPriceConfiguration>)>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
@@ -492,12 +492,13 @@ fn testnet_genesis(
         attestation: AttestationConfig {
             comittee_set_size,
             invulnerables: attestation_invulnerables,
-            supported_chains: supported_chains.clone(),
+            attestation_chains_interval: attestation_chains_interval.clone(),
         },
         supported_chains: SupportedChainsConfig {
             supported_chains: vec![
                 (1, "Ethereum".as_bytes().to_vec()),
-                (31337, "Test_chain_for_attestations".as_bytes().to_vec()),
+                (31337, "Local anvil".as_bytes().to_vec()),
+                (11155111, "Sepolia ethereum".as_bytes().to_vec()),
             ],
             _phantom: Default::default(),
         },

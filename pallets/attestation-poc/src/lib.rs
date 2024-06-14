@@ -151,7 +151,7 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         pub comittee_set_size: u32,
         pub invulnerables: Vec<(T::AccountId, BlsPublicKeyWrapper)>,
-        pub supported_chains: Vec<(ChainId, ChainAttestationIntervalType)>,
+        pub attestation_chains_interval: Vec<(ChainId, ChainAttestationIntervalType)>,
     }
 
     #[pallet::genesis_build]
@@ -167,7 +167,8 @@ pub mod pallet {
             }
 
             let mut chains: SupportedChainsVec = BoundedVec::new();
-            for (chain_id, chain_attestation_interval) in self.supported_chains.clone().into_iter()
+            for (chain_id, chain_attestation_interval) in
+                self.attestation_chains_interval.clone().into_iter()
             {
                 chains.try_push(chain_id).unwrap();
                 ChainAttestationInterval::<T>::insert(chain_id, chain_attestation_interval);
