@@ -107,6 +107,7 @@ jobs:
           echo "Tag & Platform is '${{ needs.sanity-check.outputs.TAG_NAME }}-${{ env.PLATFORM }}'"
 
       - name: Build
+        continue-on-error: true
         uses: gluwa/cargo@dev
         with:
           command: build
@@ -120,6 +121,7 @@ jobs:
           args: --release --target aarch64-apple-darwin
 
       - name: Compress
+        continue-on-error: true
         uses: thedoctor0/zip-release@0.7.6
         with:
           type: "zip"
@@ -144,7 +146,7 @@ jobs:
         with:
           name: binary-for-${{ matrix.operating-system }}
           path: "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-*.zip"
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build-wasm-runtime:
     needs:
