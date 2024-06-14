@@ -24,6 +24,8 @@ use creditcoin3_runtime::{
     Signature, StakingConfig, WASM_BINARY,
 };
 
+use sp_core::crypto::Ss58Codec;
+
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
 
@@ -199,8 +201,45 @@ pub fn local_testnet_config() -> ChainSpec {
                     hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
                 ],
                 vec![
-                    authority_keys_from_seed("Alice"),
-                    authority_keys_from_seed("Bob"),
+                    (
+                        hex!("e6d016a8965f769d6a2572364e19a772c76300de96f8e49ca7f26be45605902c")
+                            .into(),
+                        GrandpaId::from_string("5FPfCXHWGTqxHwpynt1yo5awMYGmCsMuCEeDaoyiZjwkTQqc")
+                            .expect("grandpa")
+                            .into(),
+                        BabeId::from_string("5HHLgjRbzx6AuTaMj4VaGnwF5rKhEVCAchNEh3PxYmafXZS9")
+                            .expect("babe")
+                            .into(),
+                        ImOnlineId::from_string("5HHLgjRbzx6AuTaMj4VaGnwF5rKhEVCAchNEh3PxYmafXZS9")
+                            .expect("imonline")
+                            .into(),
+                    ),
+                    (
+                        hex!("cb9c940cbf72725cb4716500d1406088509d38ffda143c90a2f177d083d03a50")
+                            .into(),
+                        GrandpaId::from_string("5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6")
+                            .expect("grandpa")
+                            .into(),
+                        BabeId::from_string("5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ")
+                            .expect("babe")
+                            .into(),
+                        ImOnlineId::from_string("5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ")
+                            .expect("imonline")
+                            .into(),
+                    ),
+                    (
+                        hex!("9aa0eb707c852ec9956808e5e9ea5705afca9dd8fa11b770261e87445431f668")
+                            .into(),
+                        GrandpaId::from_string("5H536NUxwnQtHBCRmsZwxVqHhEpUEgR6eG4g2VDR6CmUS3vR")
+                            .expect("grandpa")
+                            .into(),
+                        BabeId::from_string("5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh")
+                            .expect("babe")
+                            .into(),
+                        ImOnlineId::from_string("5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh")
+                            .expect("imonline")
+                            .into(),
+                    ),
                 ],
                 SS58Prefix::get() as u64,
             )
