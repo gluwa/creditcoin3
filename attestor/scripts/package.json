@@ -1,0 +1,7 @@
+{
+    "name": "attestor-scripts",
+    "dependencies": {
+      "ethers": "^6.11.1"
+    }
+  }
+  

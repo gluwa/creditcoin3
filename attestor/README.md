@@ -101,14 +101,24 @@ Open a pane for a local EVM network simulation
 
 - Install [foundry](https://book.getfoundry.sh/getting-started/installation)
 
-Run `anvil`
+Run `anvil --block-time 6`
 
 (Deprecated hardhat because it's not supporting `eth_getTransactionReceipt` rpc call)
 
+### Simulate transactions (Optional)
+
+This script will automatically transfer some funds between the accounts. You can run this script to simulate some transactions.
+
+```sh
+cd scripts
+npm install
+node AutoTransfers.js
+```
+
 ### Run Attestors
 
-We have a couple of prefunded attestors to start with. To start them you can the run the following commands from the attestor directory. Depending on the `THRESHOLD` variable in `client/atestor-gossip/src/worker.rs` file, you need to start 
-atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, you need to start 3 attestors minimum to be able to attest a block. 
+We have a couple of prefunded attestors to start with. To start them you can the run the following commands from the attestor directory. Depending on the `THRESHOLD` variable in `client/atestor-gossip/src/worker.rs` file, you need to start
+atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, you need to start 3 attestors minimum to be able to attest a block.
 
 #### Start the first prefunded attestor
 
@@ -161,6 +171,7 @@ log output like
 ### Do a transfer
 
 ```sh
-cd ../hardhat
-npx hardhat --network localhost run scripts/AutoTransfers.js
+cd scripts
+npm install
+node scripts/Transfer.js
 ```
