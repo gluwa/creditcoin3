@@ -1,6 +1,7 @@
 use alloy::primitives::Address;
 use anyhow::Result;
-use creditcoin3_attestor_gossip::{AttestorId, VrfOutput};
+use jsonrpsee_core::client::ClientT;
+use jsonrpsee_core::{params::ArrayParams, rpc_params};
 use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use serde::{Deserialize, Serialize};
 use sp_core::{H256, U256};
@@ -16,6 +17,7 @@ use tracing::{debug, error, info};
 
 use crate::cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 use attestor_primitives::{BlsPublicKey, ChainId, Digest};
+use creditcoin3_attestor_gossip::{Attestation, AttestorId, VrfOutput};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -382,6 +384,21 @@ impl<'a> Client {
             .await?;
 
         Ok(result.is_some())
+    }
+
+    pub async fn submit_attestation<H, A>(&self, attestation: Attestation<H, A>) -> Result<()>
+    where
+        H: Serialize,
+        A: Serialize,
+    {
+        let rpc_client = self.get_rpc_client()?;
+
+        rpc_client
+            .request::<(), ArrayParams>("attestor_submitAttestation", rpc_params!(attestation))
+            .await?;
+
+        info!("Attestation submitted");
+        Ok(())
     }
 }
 

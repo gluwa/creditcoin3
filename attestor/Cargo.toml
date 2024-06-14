@@ -24,27 +24,10 @@ release = false
 
 [dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3.3"
-nanorand = "0.7.0"
-jsonrpsee-http-client = "0.22"
-jsonrpsee = "0.22"
-jsonrpsee-core = "0.22"
-subxt = "0.35"
-subxt-signer = "0.35"
-anyhow = "1.0.81"
+anyhow = "1.0"
 kameo = { version = "0.8" }
-once_cell = "1.19.0"
-async-trait = "0.1.80"
-tracing = "0.1.40"
-tokio = "1.37.0"
-clap = { version = "4.4.18", features = ["derive", "deprecated"] }
-thiserror = "1.0"
-sp-core = { version = "21.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
-hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
-starknet-crypto = "0.6.2"
-bls-signatures = { workspace = true }
-rand = "0.8.4"
+starknet-crypto = "0.6"
+exponential-backoff = "1.2"
 
 # Creditcoin deps
 creditcoin3-attestor-rpc = { workspace = true }
@@ -53,4 +36,14 @@ attestor-primitives = { workspace = true }
 mmr = { workspace = true, features = ["par_mmr"] }
 cc-client = { workspace = true }
 eth = { workspace = true }
-exponential-backoff = "1.2.0"
+bls-signatures = { workspace = true }
+
+# Workspace deps
+async-trait = { workspace = true }
+sp-core = { workspace = true }
+serde = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use eth::Client;
 use kameo::spawn;
+use tracing::debug;
 
 pub mod attestation;
 pub mod cc3;
@@ -39,6 +40,7 @@ impl Server {
         let eth_client = Client::new(&self.config.eth_rpc_url).await?;
 
         let chain_id = eth_client.get_chain_id().await?;
+        debug!("Opened connection to ethereum chain with id {}", chain_id);
 
         let cc3_client = cc3::Client::new(
             &self.config.cc3_rpc_url,

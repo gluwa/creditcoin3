@@ -2,7 +2,6 @@ use anyhow::Result;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
 use exponential_backoff::Backoff;
-use jsonrpsee_core::{client::ClientT, params::ArrayParams, rpc_params};
 use kameo::{
     actor::Actor,
     message::{Context, Message},
@@ -251,14 +250,13 @@ where
     attestation.attestation_data.prev_digest = prev_digest;
 
     // Submit the attestation to the chain
-    let rpc_client = cc_client.get_rpc_client()?;
-
-    rpc_client
-        .request::<(), ArrayParams>(
-            "attestor_submitAttestation",
-            rpc_params!(attestation.clone()),
-        )
-        .await?;
+    cc_client
+        .submit_attestation(attestation.clone())
+        .await
+        .map_err(|e| {
+            error!("Error submitting attestation: {:?}", e);
+            Error::FailedToSubmit
+        })?;
 
     info!("Attestation submitted");
 

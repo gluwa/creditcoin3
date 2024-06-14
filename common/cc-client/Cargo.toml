@@ -19,15 +19,12 @@ module_name_repetitions = "allow"
 
 [dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing = "0.1"
-jsonrpsee-http-client = "0.22"
-jsonrpsee = "0.22"
-jsonrpsee-core = "0.22"
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
+jsonrpsee-http-client = "0.23"
+jsonrpsee = "0.23"
+jsonrpsee-core = "0.23"
 anyhow = "1.0"
-hex = { version = "0.4", default-features = false, features = ["alloc"] }
-tokio = "1.37.0"
+
+# Ethereum
 alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "node-bindings",
     "providers",
@@ -47,13 +44,20 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
 # Substrate 
 subxt = "0.37"
 subxt-signer = "0.37"
-sp-core = { workspace = true, default-features = false }
 
 # Creditcoin deps
 creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true }
 prover-primitives = { workspace = true }
+
+# workspace deps
+tracing = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+tokio = { workspace = true }
+sp-core = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]

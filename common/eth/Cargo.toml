@@ -24,7 +24,6 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "contract",
     "sol-types",
     "signers",
-    "signer-wallet",
 ] }
 anyhow = "1.0"
 tokio = { version = "1.0" }
