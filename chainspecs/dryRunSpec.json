@@ -1,15 +1,14 @@
 {
-  "name": "Local Testnet",
-  "id": "local_testnet",
-  "chainType": "Local",
-  "bootNodes": [
-    "/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWMREnAyGAsJomUDCy59TR5D5HFBNYr6FNKaPdwrHQZH7H"
-  ],
+  "name": "Creditcoin3 DryRun",
+  "id": "creditcoin3_dryrun",
+  "chainType": "Live",
+  "bootNodes": [],
   "telemetryEndpoints": null,
   "protocolId": null,
   "properties": {
     "ss58Format": 42,
-    "tokenDecimals": 18
+    "tokenDecimals": 18,
+    "tokenSymbol": "CTC"
   },
   "codeSubstitutes": {},
   "genesis": {
@@ -30,31 +29,11 @@
       "balances": {
         "balances": [
           [
-            "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
-            1000000000000000000000000
-          ],
-          [
-            "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy",
-            1000000000000000000000000
-          ],
-          [
             "5HHLgjRbzx6AuTaMj4VaGnwF5rKhEVCAchNEh3PxYmafXZS9",
             1000000000000000000000000
           ],
           [
-            "5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh",
-            1000000000000000000000000
-          ],
-          [
-            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-            1000000000000000000000000
-          ],
-          [
-            "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
-            1000000000000000000000000
-          ],
-          [
-            "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw",
+            "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y",
             1000000000000000000000000
           ],
           [
@@ -62,7 +41,27 @@
             1000000000000000000000000
           ],
           [
-            "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y",
+            "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
+            1000000000000000000000000
+          ],
+          [
+            "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
+            1000000000000000000000000
+          ],
+          [
+            "5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh",
+            1000000000000000000000000
+          ],
+          [
+            "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw",
+            1000000000000000000000000
+          ],
+          [
+            "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy",
+            1000000000000000000000000
+          ],
+          [
+            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
             1000000000000000000000000
           ]
         ]
@@ -72,7 +71,7 @@
         "minimumValidatorCount": 1,
         "invulnerables": [
           "5HHLgjRbzx6AuTaMj4VaGnwF5rKhEVCAchNEh3PxYmafXZS9",
-          "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
+          "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
           "5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh"
         ],
         "forceEra": "NotForcing",
@@ -86,8 +85,8 @@
             "Validator"
           ],
           [
-            "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
-            "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
+            "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
+            "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
             100000000000000000000000,
             "Validator"
           ],
@@ -115,8 +114,8 @@
             }
           ],
           [
-            "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
-            "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
+            "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
+            "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
             {
               "grandpa": "5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6",
               "babe": "5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ",
