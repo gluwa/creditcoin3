@@ -59,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        operating-system: [ubuntu-24.04, windows-2022, macos-11]
+        operating-system: [ubuntu-24.04]
     runs-on: ${{ matrix.operating-system }}
 
     steps:
@@ -84,15 +84,6 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Install MacOS aarch64 target
-        if: matrix.operating-system == 'macos-11'
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          target: aarch64-apple-darwin
-          profile: minimal
-          override: true
-
       - uses: Swatinem/rust-cache@v2
 
       - name: Figure out platform
@@ -113,13 +104,6 @@ jobs:
           command: build
           args: --release ${{ needs.setup.outputs.build_options}}
 
-      - name: Build MacOS aarch64 target
-        if: matrix.operating-system == 'macos-11'
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release --target aarch64-apple-darwin
-
       - name: Compress
         continue-on-error: true
         uses: thedoctor0/zip-release@0.7.6
@@ -130,18 +114,7 @@ jobs:
           filename: "../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-${{ env.PLATFORM }}.zip"
           exclusions: "creditcoin3-node.d"
 
-      - name: Compress MacOS aarch64 target
-        if: matrix.operating-system == 'macos-11'
-        uses: thedoctor0/zip-release@0.7.6
-        with:
-          type: "zip"
-          directory: "target/aarch64-apple-darwin/release/"
-          path: "creditcoin3-node*"
-          filename: "../../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-aarch64-apple-darwin.zip"
-          exclusions: "creditcoin3-node.d"
-
       - name: Upload binary
-        if: matrix.operating-system != 'windows-2022'
         uses: actions/upload-artifact@v4
         with:
           name: binary-for-${{ matrix.operating-system }}
