@@ -24,8 +24,6 @@ use creditcoin3_runtime::{
     Signature, StakingConfig, WASM_BINARY,
 };
 
-use sp_core::crypto::Ss58Codec;
-
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
 
@@ -111,6 +109,10 @@ pub fn devnet_config() -> Result<ChainSpec, String> {
 
 pub fn testnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/testnetSpecRaw.json")[..])
+}
+
+pub fn dry_run_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/dryRunSpecRaw.json")[..])
 }
 
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
@@ -204,88 +206,6 @@ pub fn local_testnet_config() -> ChainSpec {
                 vec![
                     authority_keys_from_seed("Alice"),
                     authority_keys_from_seed("Bob"),
-                ],
-                SS58Prefix::get() as u64,
-            )
-        },
-        // Bootnodes
-        vec![],
-        // Telemetry
-        None,
-        // Protocol ID
-        None,
-        // Fork ID
-        None,
-        // Properties
-        Some(properties()),
-        // Extensions
-        None,
-    )
-}
-
-pub fn dry_run_config() -> ChainSpec {
-    let wasm_binary = WASM_BINARY.expect("WASM not available");
-
-    ChainSpec::from_genesis(
-        // Name
-        "Creditcoin3 DryRun",
-        // ID
-        "creditcoin3_dryrun",
-        ChainType::Live,
-        move || {
-            testnet_genesis(
-                wasm_binary,
-                // Initial PoA authorities
-                // Sudo account (Alice)
-                get_account_id_from_seed::<sr25519::Public>("Alice"),
-                // Pre-funded accounts
-                vec![
-                    get_account_id_from_seed::<sr25519::Public>("Alice"),
-                    get_account_id_from_seed::<sr25519::Public>("Bob"),
-                    get_account_id_from_seed::<sr25519::Public>("Charlie"),
-                    get_account_id_from_seed::<sr25519::Public>("Dave"),
-                    get_account_id_from_seed::<sr25519::Public>("Eve"),
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-                ],
-                vec![
-                    hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
-                    hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
-                    hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
-                    hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
-                    hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
-                    hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
-                ],
-                vec![
-                    (
-                        hex!("e6d016a8965f769d6a2572364e19a772c76300de96f8e49ca7f26be45605902c")
-                            .into(),
-                        GrandpaId::from_string("5FPfCXHWGTqxHwpynt1yo5awMYGmCsMuCEeDaoyiZjwkTQqc")
-                            .expect("grandpa"),
-                        BabeId::from_string("5HHLgjRbzx6AuTaMj4VaGnwF5rKhEVCAchNEh3PxYmafXZS9")
-                            .expect("babe"),
-                        ImOnlineId::from_string("5HHLgjRbzx6AuTaMj4VaGnwF5rKhEVCAchNEh3PxYmafXZS9")
-                            .expect("imonline"),
-                    ),
-                    (
-                        hex!("9e1d4c1dda3cc8f5b5c7a6e715f97d7c408bdf0819e5368f93cadd9ad8901509")
-                            .into(),
-                        GrandpaId::from_string("5Gfg6FA6wiDYZoxiiJHgMWP7cGpFgnehxpdLttZUzWKN1Ln6")
-                            .expect("grandpa"),
-                        BabeId::from_string("5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ")
-                            .expect("babe"),
-                        ImOnlineId::from_string("5Fe28GMBhLZicu41rrWcgGcUnfghck9dkMXYw5MV88QcbnVZ")
-                            .expect("imonline"),
-                    ),
-                    (
-                        hex!("9aa0eb707c852ec9956808e5e9ea5705afca9dd8fa11b770261e87445431f668")
-                            .into(),
-                        GrandpaId::from_string("5H536NUxwnQtHBCRmsZwxVqHhEpUEgR6eG4g2VDR6CmUS3vR")
-                            .expect("grandpa"),
-                        BabeId::from_string("5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh")
-                            .expect("babe"),
-                        ImOnlineId::from_string("5FZT2xS7z2bLPJLNkpQMsc37LeTJ7YyqWHw5oTQWRbxCt1eh")
-                            .expect("imonline"),
-                    ),
                 ],
                 SS58Prefix::get() as u64,
             )
