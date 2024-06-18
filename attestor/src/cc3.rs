@@ -26,7 +26,6 @@ pub type Randomness = [u8; 32];
 /// - `cc_client`: Creditcoin3 client
 /// - `bls_keypair`: BLS keypair
 /// - `attestation_interval`: Attestation interval for the chain
-/// - `last_digest`: Last digest of the chain
 pub struct Client {
     pub cc_client: CcClient,
     pub bls_keypair: PrivateKey,
