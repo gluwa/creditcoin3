@@ -350,13 +350,14 @@ mod tests {
 
     #[test]
     fn get_bls_signature() {
+        use libc_print::std_name::println;
+
         let key = "snake adult despair divide embrace this smart fatigue wine latin page parade";
         let private_key = PrivateKey::new(key.as_bytes());
         let public_key = private_key.public_key();
 
         let signature = private_key.sign(public_key.as_bytes());
 
-        use libc_print::std_name::println;
         println!("Signature: {:?}", signature.as_bytes());
         assert!(public_key.verify(signature, public_key.as_bytes()));
     }
