@@ -21,6 +21,9 @@ npm install
 echo "+++++ Execute basicTest"
 ./node_modules/.bin/basicTest --rpc "$TARGET_URL" --private_key "$PRIVATE_KEY"
 
+echo "++++ Execute stateOverrideTest"
+./node_modules/.bin/stateOverrideTest --rpc "$TARGET_URL" --private_key "$PRIVATE_KEY"
+
 echo "++++ Execute gasTest"
 ./node_modules/.bin/gasTest --rpc "$TARGET_URL" --private_key "$PRIVATE_KEY"
 
