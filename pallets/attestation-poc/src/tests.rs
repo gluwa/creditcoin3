@@ -23,12 +23,21 @@ pub const VALID_BLS_PUBLIC_KEY: [u8; 48] = [
     170, 249, 160, 113, 43, 9,
 ];
 
+pub const VALID_BLS_PUBLIC_SIGNATURE: [u8; 96] = [
+    170, 58, 137, 206, 248, 203, 230, 122, 86, 91, 224, 157, 175, 64, 32, 188, 138, 74, 235, 23,
+    175, 30, 251, 224, 58, 113, 135, 123, 20, 237, 220, 195, 1, 3, 69, 88, 3, 17, 227, 4, 240, 208,
+    170, 249, 160, 113, 43, 9, 170, 58, 139, 206, 248, 203, 236, 122, 86, 91, 220, 157, 175, 64,
+    32, 188, 138, 74, 235, 27, 175, 30, 251, 224, 58, 113, 137, 123, 20, 237, 220, 195, 1, 3, 69,
+    88, 3, 17, 227, 4, 240, 210, 170, 249, 160, 113, 43, 9,
+];
+
 #[test]
 fn register_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
         assert_ok!(Attestation::register_attestor(
             RuntimeOrigin::signed(ATTESTOR_1),
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
     })
 }
@@ -38,11 +47,16 @@ fn register_attestor_should_fail_when_address_is_already_registered() {
     ExtBuilder.build_and_execute(|| {
         assert_ok!(Attestation::register_attestor(
             RuntimeOrigin::signed(ATTESTOR_1,),
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
 
         assert_err!(
-            Attestation::register_attestor(RuntimeOrigin::signed(ATTESTOR_1), VALID_BLS_PUBLIC_KEY),
+            Attestation::register_attestor(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                VALID_BLS_PUBLIC_KEY,
+                VALID_BLS_PUBLIC_SIGNATURE
+            ),
             Error::<Test>::AlreadyAttestor
         );
     })
@@ -58,10 +72,15 @@ fn register_attestor_should_fail_when_list_is_full() {
         assert_ok!(Attestation::set_max_attestors(root, 2));
         assert_ok!(Attestation::register_attestor(
             attestor_1,
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
         assert_err!(
-            Attestation::register_attestor(attestor_2, VALID_BLS_PUBLIC_KEY),
+            Attestation::register_attestor(
+                attestor_2,
+                VALID_BLS_PUBLIC_KEY,
+                VALID_BLS_PUBLIC_SIGNATURE
+            ),
             Error::<Test>::AttestorListFull
         );
     })
@@ -104,11 +123,13 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
         let attestor_2 = attestor_2();
         assert_ok!(Attestation::register_attestor(
             attestor_1,
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
         assert_ok!(Attestation::register_attestor(
             attestor_2,
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
         assert_err!(
             Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
@@ -123,7 +144,8 @@ fn unregister_attestor_should_work_happy_path() {
         let attestor = attestor_1();
         assert_ok!(Attestation::register_attestor(
             attestor.clone(),
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
         assert_ok!(Attestation::unregister_attestor(attestor));
     })
@@ -146,7 +168,8 @@ fn unregister_invulnerable_should_work_happy_path() {
         let attestor = attestor_1();
         assert_ok!(Attestation::register_attestor(
             attestor.clone(),
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
 
         assert_ok!(Attestation::register_invulnerable(
@@ -176,7 +199,8 @@ fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
         let attestor = attestor_1();
         assert_ok!(Attestation::register_attestor(
             attestor.clone(),
-            VALID_BLS_PUBLIC_KEY
+            VALID_BLS_PUBLIC_KEY,
+            VALID_BLS_PUBLIC_SIGNATURE
         ));
         assert_err!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),

@@ -14,8 +14,8 @@ mod tests;
 #[frame_support::pallet]
 pub mod pallet {
     use attestor_primitives::{
-        BlsPublicKey, BlsPublicKeyWrapper, ChainId, Digest, InherentError, SignedAttestation,
-        INHERENT_IDENTIFIER,
+        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainId, Digest, InherentError,
+        SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
     use frame_support::pallet_prelude::{
@@ -246,11 +246,17 @@ pub mod pallet {
         // If there is a duplicate attestation
         AttestationExists,
 
+        /// The chain is not supported
+        ChainNotSupported,
+
         // Bls public key is invalid
         InvalidBlsPublicKey,
 
-        /// The chain is not supported
-        ChainNotSupported,
+        // Failed proof of posession check
+        InvalidBlsPrivateKey,
+
+        // Invalid BLS signature
+        InvalidBlsSignature,
     }
 
     #[pallet::call]
@@ -297,6 +303,7 @@ pub mod pallet {
         pub fn register_attestor(
             origin: OriginFor<T>,
             bls_public_key: BlsPublicKey,
+            bls_public_key_signature: BlsSignature,
         ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
 
@@ -304,9 +311,20 @@ pub mod pallet {
                 Self::address_is_not_attestor(&who),
                 Error::<T>::AlreadyAttestor
             );
+
+            let public_key = PublicKey::from_bytes(&bls_public_key[..])
+                .map_err(|_| Error::<T>::InvalidBlsPublicKey)?;
+
+            let signature = Signature::from_bytes(&bls_public_key_signature[..])
+                .map_err(|_| Error::<T>::InvalidBlsSignature)?;
+
             ensure!(
-                PublicKey::from_bytes(&bls_public_key[..]).is_ok(),
-                Error::<T>::InvalidBlsPublicKey
+                bls_signatures::verify(
+                    &signature,
+                    &[bls_signatures::hash(bls_public_key[..].into())],
+                    &[public_key]
+                ),
+                Error::<T>::InvalidBlsPrivateKey
             );
 
             Self::try_insert_attestor_and_emit_event(&who, bls_public_key)
