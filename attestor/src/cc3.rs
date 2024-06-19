@@ -248,28 +248,27 @@ where
         .await?;
     attestation.attestation_data.prev_digest = prev_digest;
 
-    // Submit the attestation to the chain
-    cc_client
-        .submit_attestation(attestation.clone())
-        .await
-        .map_err(|e| {
-            error!("Error submitting attestation: {:?}", e);
-            Error::FailedToSubmit
-        })?;
+    let mut inclusion = false;
+    while !inclusion {
+        info!("Trying to submit attestation...");
+        // Submit the attestation to the chain
+        cc_client
+            .submit_attestation(attestation.clone())
+            .await
+            .map_err(|e| {
+                error!("Error submitting attestation: {:?}", e);
+                Error::FailedToSubmit
+            })?;
 
-    info!("Attestation submitted");
-
-    let inclusion = check_attestation_inclusion(
-        cc_client.clone(),
-        attestation.attestation_data.chain_id,
-        attestation_digest,
-    )
-    .await?;
-
-    if !inclusion {
-        error!("Attestation not included in chain");
-        return Err(Error::CannotAttest.into());
+        inclusion = check_attestation_inclusion(
+            cc_client.clone(),
+            attestation.attestation_data.chain_id,
+            attestation_digest,
+        )
+        .await?;
     }
+
+    info!("✅ Attestation with digest {attestation_digest} included in chain");
 
     Ok(())
 }
@@ -290,23 +289,21 @@ pub async fn check_attestation_inclusion(
     // Retry 10 times with 6 seconds interval (blocktime is 6 seconds)
     let backoff = Backoff::new(retries, min, min);
 
-    info!("Checking for attestation on chain...");
+    info!("Validating attestation submission now...");
     for duration in &backoff {
         // get last digest from cc3
         let last_digest = cc_client.fetch_last_digest(chain_id).await?;
 
         if let Some(last_digest) = last_digest {
-            info!(
+            debug!(
                 "Last digest: {:?}, attestation_digest: {:?}",
                 last_digest, attestation_digest
             );
             if last_digest == attestation_digest {
-                info!("Attestation confirmed on chain");
+                debug!("Attestation confirmed on chain");
                 return Ok(true);
             }
         }
-
-        warn!("Last digest is none, retrying in {:?}", duration);
         thread::sleep(duration);
     }
 

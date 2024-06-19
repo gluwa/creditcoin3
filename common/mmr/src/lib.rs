@@ -294,8 +294,6 @@ where
         let len = input.len();
         let partition_offsets = partition_by_arity(len, ARITY);
 
-        println!("parallel mmr partition offsets: {len} => {partition_offsets:?}");
-
         let base_trees = partition_offsets
             .par_windows(2)
             .map(|w| BaseTree::from(&input[w[0]..w[1]]))

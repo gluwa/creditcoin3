@@ -421,39 +421,33 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
+            ensure!(
+                !Attestations::<T>::contains_key(attestation.chain_id(), attestation.digest()),
+                Error::<T>::AttestationExists
+            );
+
             let previous_digest = Self::last_digest(attestation.chain_id());
             if let Some(previous_digest) = previous_digest {
                 let previous_attestation =
-                    Attestations::<T>::get(attestation.chain_id(), previous_digest);
+                    Attestations::<T>::get(attestation.chain_id(), previous_digest)
+                        .ok_or(Error::<T>::NoPreviousDigest)?;
 
-                // Only check if the previous attestation exists
-                if let Some(prev_attestation) = previous_attestation {
-                    // Check if the attestation is not a duplicate
-                    ensure!(
-                        prev_attestation.digest() != attestation.digest(),
-                        Error::<T>::AttestationExists
-                    );
+                if let Some(interval) = ChainAttestationInterval::<T>::get(attestation.chain_id()) {
+                    let prev_block_number = previous_attestation.attestation.header_number;
 
-                    // check if the new attestation extends the previous one by checking if the blocknumber increased by atleast the interval
-                    if let Some(interval) =
-                        ChainAttestationInterval::<T>::get(attestation.chain_id())
-                    {
-                        let prev_block_number = prev_attestation.attestation.header_number;
-
-                        debug!(
+                    debug!(
                         "Checking if block number is at the interval, expected: {:?}, got: {:?}",
                         prev_block_number + interval,
                         attestation.attestation.header_number
                     );
 
-                        if attestation.attestation.header_number < prev_block_number + interval {
-                            debug!(
-                                "Block number is not at the interval, expected: {:?}, got: {:?}",
-                                prev_block_number + interval,
-                                attestation.attestation.header_number
-                            );
-                            return Err(Error::<T>::InvalidAttestation.into());
-                        }
+                    if attestation.attestation.header_number < prev_block_number + interval {
+                        debug!(
+                            "Block number is not at the interval, expected: {:?}, got: {:?}",
+                            prev_block_number + interval,
+                            attestation.attestation.header_number
+                        );
+                        return Err(Error::<T>::InvalidAttestation.into());
                     }
                 }
             }

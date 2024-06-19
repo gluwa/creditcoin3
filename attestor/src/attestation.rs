@@ -7,7 +7,7 @@ use kameo::{
 use mmr::traits::MerkleTreeTrait;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 use crate::merkle;
 use crate::merkle::tree::StarknetPedersenMmr;
@@ -113,9 +113,6 @@ pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
         // We don't have a prev_digest yet, so we set it to None
         prev_digest: None,
     };
-
-    debug!("tree tx root: {:?}", attestation.tx_root);
-    debug!("tree rx root: {:?}", attestation.rx_root);
 
     Ok(attestation)
 }

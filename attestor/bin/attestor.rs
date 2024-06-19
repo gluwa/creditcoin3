@@ -1,7 +1,6 @@
 use clap::Parser;
 use std::error::Error;
 use tracing::debug;
-use tracing_subscriber::EnvFilter;
 
 use attestor::{Config, Server};
 
@@ -40,13 +39,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Attestor::parse();
 
     // enable tracing debug logs if verbose flag is set
-    if args.verbose {
-        std::env::set_var("RUST_LOG", "debug");
+    let env_filter = if args.verbose {
         debug!("debug mode enabled!");
-    }
+        "debug"
+    } else {
+        "attestor=info"
+    };
 
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .compact()
+        .with_file(false)
+        .with_target(true)
+        .with_env_filter(env_filter)
         .try_init();
 
     let config = Config {
@@ -54,7 +58,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eth_start_block: args.eth_start_block,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
-        //bls_key: args.bls_key[..].try_into().unwrap(),
     };
 
     let server = Server::new(config);

@@ -189,11 +189,11 @@ where
                     message = message_stream.next() => {
                         if let Some(message) = message {
                             let topic = votes_topic::<B>();
-                            info!(target: LOG_TARGET, "📝 📝 Got message to gossip {:?}, on topic: {:?}", message, topic);
+                            info!(target: LOG_TARGET, "📝 Got message to gossip {:?}, on topic: {:?}", message, topic);
                             gossip_engine.gossip_message(
                                 topic,
                                 message.encode(),
-                                false,
+                                true,
                             );
                         }
             }}
@@ -376,6 +376,7 @@ where
             // only push to the attestation if the attestor is not already in the list
             if !attestations.iter().any(|(id, _)| id == &attestor_id) {
                 attestations.push((attestor_id, digest));
+                debug!(target: LOG_TARGET, "📝 Attestations in cache: {}, treshold: {}", attestations.len(), threshold);
                 attestations.len() as u32 >= threshold
             } else {
                 debug!(target: LOG_TARGET, "📝 Attestor({:?}) already voted for round {:?}", attestor_id, k);
@@ -389,6 +390,7 @@ where
         };
 
         let first_attestation = self.block_attestations.first_key_value().unwrap();
+        debug!(target: LOG_TARGET, "📝 First attestation in round key: {:?}, vec(attestator, digest): {:?}", first_attestation.0, first_attestation.1);
 
         if first_attestation.0 == &k && exceed_threshold {
             debug!(target: LOG_TARGET, "📝 Majority vote for round {:?}", k);
