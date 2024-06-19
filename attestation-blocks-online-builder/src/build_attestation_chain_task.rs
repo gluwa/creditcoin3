@@ -115,6 +115,7 @@ pub(crate) async fn build_attestation_chain_task(
                     .insert(block_number, task_join_handle);
             }
             None => {
+                force_shutdown_token.cancel();
                 break Outcome::Cancelled;
             }
         }

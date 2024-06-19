@@ -1,0 +1,13 @@
+{
+
+    "source_chain_api_server_url": "https://<API server url>/<token>",
+    "block_cache_url": "optional block cache path, default: ../data/block-cache ",
+    "execution_chain_url": "optional, default: ../data/execution-chain",
+    "attestation_blocks_builder": {
+        "source_chain_wss_server_url": "wss://<pubsub server url>/<token>",
+        "max_num_of_blocks_to_retrieve": "optional usize, default 5",
+    },
+    "demo_prover": {
+        "db_url": "optional, default: ../data/db"
+    }
+}

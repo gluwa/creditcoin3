@@ -18,7 +18,7 @@ jsonrpsee = { version = "0.20.3", features = ["full"] }
 jsonrpsee-core = { version = "0.22.2", features = ["client"] }
 rlp = { version = "0.5.2", features = ["rlp-derive"] }
 ethereum = "0.15.0"
-mmr = { path = "../mmr" }
+mmr = { path = "../mmr", features = ["par_mmr"] }
 #[dev-dependencies]
 fs2 = "0.4.3"
 

@@ -218,7 +218,7 @@ proof-verifier = { path = "host", default-features = false }
 
 # Common
 bls-signatures = { path = "common/bls-signatures" }
-mmr = { path = "common/mmr" }
+mmr = { path = "common/mmr", features = ["par_mmr"] }
 cc-client = { path = "common/cc-client" }
 eth = { path = "common/eth" }
 

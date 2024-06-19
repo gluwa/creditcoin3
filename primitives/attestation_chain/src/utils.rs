@@ -1,5 +1,4 @@
-use utils::block_item_traits::FetchFromBlock;
-use eth_common::transaction::{BlockItem, Receipt, Transaction};
+use eth_common::transaction::BlockItem;
 //  use common::sorted_block::SortedBlockError;
 use utils::{Felt, StarknetPedersenMmr};
 use mmr::traits::MerkleTreeTrait;
@@ -13,7 +12,7 @@ pub async fn retrieve_and_compute_merkle_trees(
 ) -> anyhow::Result<(StarknetPedersenMmr, StarknetPedersenMmr)> {
 //) -> Result<(StarknetPedersenMmr, StarknetPedersenMmr), SortedBlockError> {
     // let mut tx_cache =
-    //     cache_dir.map(|dir| <TypedTransaction as FetchFromBlock>::Cache::new(dir, block_number));
+    //     cache_dir.map(|dir| <Transaction as FetchFromBlock>::Cache::new(dir, block_number));
     // let mut rx_cache =
     //     cache_dir.map(|dir| <Receipt as FetchFromBlock>::Cache::new(dir, block_number));
 

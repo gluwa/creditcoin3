@@ -6,12 +6,9 @@ use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use sp_std::vec::Vec;
-use utils::Felt;
 
 pub mod api;
 pub mod bls;
-
-//pub type Felt = [u8; 32];
 
 pub type ChainId = u64;
 

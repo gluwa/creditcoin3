@@ -39,7 +39,6 @@ pub fn felt_from_dec_str(s: &str) -> anyhow::Result<Felt> {
 #[derive(Debug, Clone)]
 pub struct CairoVerifierOutput {
     pub claim_id: ClaimIdentifier,
-//    pub tx_type: u8,
     pub continuity_checkpoint_digest: Felt,
     pub continuity_checkpoint_block_number: U256,
     pub query_hash: Felt,

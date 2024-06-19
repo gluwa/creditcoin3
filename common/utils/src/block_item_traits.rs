@@ -74,16 +74,3 @@ pub trait BlockItem: Sized {
     fn id(&self) -> &BlockItemIdentifier;
     fn tx_type(&self) -> Option<u8>;
 }
-
-pub trait FetchFromBlock: Sized {
-    type Cache: CacheT<Self>;
-    type ErrorType: Debug;
-
-    fn fetch_all(
-        url: &str,
-        cache: Option<&mut Self::Cache>,
-        block_number: U256,
-    ) -> impl std::future::Future<Output = Result<Vec<Self>, Self::ErrorType>> + Send;
-
-    fn fetch_from_cache(cache: &Self::Cache) -> Result<Vec<Self>, Self::ErrorType>;
-}

@@ -38,13 +38,15 @@ pub enum Error {
 #[derive(Debug, Clone)]
 pub struct Client {
     provider: RootProvider<PubSubFrontend>,
+//    https_provider: RootProvider<alloy::transports::http::Http<reqwest::Client>>,
 }
 
 impl Client {
-    pub async fn new(url: impl Into<String>) -> Result<Self> {
+    pub async fn new(ws_url: impl Into<String>) -> Result<Self> {
         // Create a provider.
-        let ws = WsConnect::new(url);
+        let ws = WsConnect::new(ws_url);
         let provider = ProviderBuilder::new().on_ws(ws).await?;
+    //    let https_provider = ProviderBuilder::new().on_http(https_url.into().as_str().parse()?);
 
         Ok(Self { provider })
     }

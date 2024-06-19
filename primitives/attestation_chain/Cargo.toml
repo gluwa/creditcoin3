@@ -15,7 +15,7 @@ serde_json = { version = "1.0.108", features = ["alloc"] }
 rand = "0.8.5"
 anyhow = "1.0.68"
 futures = "0.3.30"
-mmr = { path = "../../common/mmr" }
+mmr = { path = "../../common/mmr", features = ["par_mmr"] }
 utils = { path = "../../common/utils" }
 eth-common = { path = "../../common/eth", package = "eth" }
 ethereum-types = "0.14.1"

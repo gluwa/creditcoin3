@@ -40,7 +40,7 @@ pub trait ClaimQueryField: TryFrom<usize> + Serialize {
             inner_range
         } else if let Some(inner_index) = self.inner_index() {
             let mut accum_range = 0..0;
-            for i in 0..inner_index {
+            for i in 0..=inner_index {
                 let pi = rlp_at_n
                     .at(i)
                     .map_err(RlpDecoder)?
@@ -91,24 +91,6 @@ pub enum ClaimQueryFieldError {
     InvalidFieldIndex(usize),
     InvalidPayloadOffset(Range<usize>),
 }
-
-// #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-// pub(crate) struct QueryFeltOffsets(pub Vec<Range<usize>>);
-
-// impl QueryFeltOffsets {
-//     pub fn ranges(&self) -> &[Range<usize>] {
-//         &self.0
-//     }
-
-//     // pub fn as_byte_offsets(&self) -> Vec<Range<usize>> {
-//     //     self.0
-//     //         .iter()
-//     //         .map(|r| r.start * U248_BYTE_COUNT..r.end * U248_BYTE_COUNT)
-//     //         .collect()
-//     // }
-// }
-
-//impl JsonSerializable for QueryFeltOffsets {}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash,  Debug, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -330,7 +312,7 @@ pub enum Eip4844TxClaimQueryField {
     SingleDataRelativeRange(Option<Range<usize>>),
     AccessListItem(Option<usize>),
     MaxFeePerBlobGas,
-    BlobVersionedHashes,
+    BlobVersionedHashes(Option<usize>),
     Signature,
 }
 
@@ -348,7 +330,7 @@ impl ClaimQueryField for Eip4844TxClaimQueryField {
             SingleDataRelativeRange(_) => 7,
             AccessListItem(_) => 8,
             MaxFeePerBlobGas => 9,
-            BlobVersionedHashes => 10,
+            BlobVersionedHashes(_) => 10,
             Signature => 11,
         }
     }
@@ -369,7 +351,9 @@ impl ClaimQueryField for Eip4844TxClaimQueryField {
         use Eip4844TxClaimQueryField::*;
 
         match self {
-            AccessListItem(index) => index.clone(),
+            AccessListItem(index) 
+            |
+            BlobVersionedHashes(index) => index.clone(),
             _ => None,
         }
     }
@@ -391,7 +375,7 @@ impl TryFrom<usize> for Eip4844TxClaimQueryField {
             7 => Ok(SingleDataRelativeRange(Default::default())),
             8 => Ok(AccessListItem(Default::default())),
             9 => Ok(MaxFeePerBlobGas),
-            10 => Ok(BlobVersionedHashes),
+            10 => Ok(BlobVersionedHashes(Default::default())),
             11 => Ok(Signature),
             n => Err(ClaimQueryFieldError::InvalidFieldIndex(n))
         }
@@ -644,22 +628,6 @@ impl ClaimQuery for RxClaimQuery {
     }
 }
 
-// impl TryFrom<HashSet<LegacyTxClaimQueryField>> for TxClaimQuery {
-//     type Error = anyhow::Error;
-
-//     fn try_from(fields: HashSet<LegacyTxClaimQueryField>) -> Result<Self, Self::Error> {
-//         Ok(Self::TargetLegacyType(TypedClaimQuery::<LegacyTxClaimQueryField>::try_from(fields)?))
-//     }
-// }
-
-// impl TryFrom<HashSet<Eip2930TxClaimQueryField>> for TxClaimQuery {
-//     type Error = anyhow::Error;
-
-//     fn try_from(fields: HashSet<Eip2930TxClaimQueryField>) -> Result<Self, Self::Error> {
-//         Ok(Self::TargetEip2930Type(TypedClaimQuery::<Eip2930TxClaimQueryField>::try_from(fields)?))
-//     }
-// }
-
 impl TryFrom<HashSet<Eip658RxClaimQueryField>> for RxClaimQuery {
     type Error = anyhow::Error;
 
@@ -678,265 +646,3 @@ impl TryFrom<HashSet<FrontierClaimQueryField>> for RxClaimQuery {
 
 impl JsonSerializable for RxClaimQuery {}
 
-// #[cfg(test)]
-// mod tests {
-//     use std::collections::HashSet;
-
-//     use crate::{claim_query::{Eip2930TxClaimQueryField, TxClaimQuery, TypedClaimQuery}, U256};
-//     use crate::transaction::TypedTransaction;
-//     use crate::sorted_block::SortedBlock;
-//     use crate::claim_query::{ClaimQueryField, Eip4844TxClaimQueryField};
-//     use utils::utils::U248_BYTE_COUNT;
-//     use utils::json_serializable::JsonSerializable;
-
-//     #[test]
-//     fn claim_query_serialize_test() {
-//         let fname = "./claim_query.json";
-//         println!("file name: {fname}");
-//         let claim_query = TypedClaimQuery::<Eip2930TxClaimQueryField>::try_from(
-//             vec![Eip2930TxClaimQueryField::To, Eip2930TxClaimQueryField::Nonce].into_iter().collect::<HashSet<_>>()
-//         )
-//         .unwrap();
-
-//         claim_query.to_file(fname).unwrap();
-//         assert_eq!(claim_query, TypedClaimQuery::try_from_file(fname).unwrap());
-//     }
-
-//     #[test]
-//     fn claim_query_serialize_eip2930_test() {
-//         let fname = "./claim_query_eip2930.json";
-//         println!("file name: {fname}");
-//         let claim_query = TxClaimQuery::try_from(
-//             vec![Eip2930TxClaimQueryField::To, Eip2930TxClaimQueryField::Nonce].into_iter().collect::<HashSet<_>>()
-//         )
-//         .unwrap();
-
-//         claim_query.to_file(fname).unwrap();
-//         assert_eq!(claim_query, TxClaimQuery::try_from_file(fname).unwrap());
-//     }
-
-//     #[test]
-//     fn claim_query_serialize_eip4844_test() {
-//         let fname = "./claim_query_eip4844.json";
-//         println!("file name: {fname}");
-//         let claim_query = TxClaimQuery::try_from(
-//             vec![
-//                 Eip4844TxClaimQueryField::To, 
-//                 Eip4844TxClaimQueryField::SingleDataRelativeRange(Some(2..4)),
-//                 Eip4844TxClaimQueryField::Nonce,
-//                 Eip4844TxClaimQueryField::SingleDataRelativeRange(Some(3..7)),
-//                 Eip4844TxClaimQueryField::SingleDataRelativeRange(None)
-//             ]
-//             .into_iter()
-//             .collect::<HashSet<_>>()
-//         )
-//         .unwrap();
-
-//         claim_query.to_file(fname).unwrap();
-//         assert_eq!(claim_query, TxClaimQuery::try_from_file(fname).unwrap());
-//     }
-
-//     // #[tokio::test]
-//     // async fn claim_query_to_felts_test() {
-//     //     use Eip4844TxClaimQueryField::*;
-
-//     //     let block = 19543673.into();
-//     //     let tx_cache = &mut <TypedTransaction as crate::FetchFromBlock>::Cache::new(
-//     //         &crate::block_cache_dir(),
-//     //         block,
-//     //     );
-//     //     let sorted_transactions_block =
-//     //         SortedBlock::<TypedTransaction>::try_fetch("no_url_only_cache", Some(tx_cache), block)
-//     //             .await
-//     //             .unwrap();
-//     //     let payload_bytes = sorted_transactions_block.iter().nth(95).unwrap().payload_bytes();
-//     //     let rlp = rlp::Rlp::new(&payload_bytes[..]);
-
-//     //     let fname = "./claim_query_eip4844_felts.json";
-//     //     println!("file name: {fname}");
-//     //     let claim_query = TxClaimQuery::try_from(
-//     //         vec![
-//     //             To, 
-//     //             SingleDataRelativeRange(Some(2..4)),
-//     //             Nonce,
-//     //             SingleDataRelativeRange(Some(3..7)),
-//     //             SingleDataRelativeRange(None)
-//     //         ]
-//     //         .into_iter()
-//     //         .collect::<HashSet<_>>()
-//     //     )
-//     //     .unwrap();
-
-//     //     let claim = NewClaim::new(rlp, claim_query);
-
-//     //     let felt_offsets = claim.felt_offsets().unwrap();
-//     //     felt_offsets.to_file(fname).unwrap();
-//     //     assert_eq!(felt_offsets, QueryFeltOffsets::try_from_file(fname).unwrap());
-//     // }
-
-//     #[tokio::test]
-//     async fn query_test_1() {
-//         use Eip4844TxClaimQueryField::*;
-//         let block = 19543673.into();
-//         let tx_cache = &mut <TypedTransaction as crate::FetchFromBlock>::Cache::new(
-//             &crate::block_cache_dir(),
-//             block,
-//         );
-//         let sorted_transactions_block =
-//             SortedBlock::<TypedTransaction>::try_fetch("no_url_only_cache", Some(tx_cache), block)
-//                 .await
-//                 .unwrap();
-//         let payload_bytes = sorted_transactions_block.iter().nth(95).unwrap().payload_bytes();
-
-//         println!("{:?}", payload_bytes);
-//         let rlp = rlp::Rlp::new(&payload_bytes[..]);
-//         let x = rlp::decode::<U256>(rlp.at(2).unwrap().as_raw());
-//         println!("x: {x:?}", );
-//         let x = rlp::decode::<U256>(rlp.at(3).unwrap().as_raw());
-//         println!("x: {x:?}", );
-//         let x = rlp.val_at::<u64>(0);
-//         println!("x: {x:?}", );
-//         let x = rlp.val_at::<U256>(2);
-//         println!("x: {x:?}", );
-//         let x = rlp.val_at::<U256>(3);
-//         println!("x: {x:?}", );
-//         let x = rlp.val_at::<U256>(4);
-//         println!("x: {x:?}", );
-
-//         let x = rlp.val_at::<Vec<u8>>(7).unwrap();
-//         println!("x: {:?}", hex::encode(&x));
-
-//         let offsets = ChainId.as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(0..1));
-//         let offsets = Nonce.as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(1..2));
-
-
-//         // let offsets = Eip4844TxClaimQueryField::SingleDataRelativeRange(42..43).as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         // assert_eq!(offsets, 1..x.len());
-//         let offsets = MaxPriorityFeePerGas.as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(2..7));
-//         let offsets = MaxFeePerGas.as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(7..13));
-//         let offsets = SingleDataRelativeRange(None).as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(38..77));
-//         let offsets = SingleDataRelativeRange(Some(0..1)).as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(38..39));
-//         let offsets = AccessListItem(None).as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(77..78));
-//         let offsets = MaxFeePerBlobGas.as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(offsets, Ok(78..79));
-
-//         let decoded_field = MaxFeePerGas.decode_payload::<U256>(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(decoded_field, Ok(40000000000u64.into()));
-
-//         assert!(SingleDataRelativeRange(None).decode_payload::<Vec<u8>>(&rlp).is_ok());
-//         assert!(rlp.val_at::<Vec<u8>>(SingleDataRelativeRange(None).as_usize()).is_ok());
-//     }
-
-//     #[tokio::test]
-//     async fn query_test_2() {
-//         use Eip4844TxClaimQueryField::*;
-//         let block = 19543673.into();
-//         let tx_cache = &mut <TypedTransaction as crate::FetchFromBlock>::Cache::new(
-//             &crate::block_cache_dir(),
-//             block,
-//         );
-//         let sorted_transactions_block: SortedBlock<TypedTransaction> =
-//             SortedBlock::<TypedTransaction>::try_fetch("no_url_only_cache", Some(tx_cache), block)
-//                 .await
-//                 .unwrap();
-//         let payload_bytes = sorted_transactions_block.iter().nth(95).unwrap().payload_bytes();
-
-//         let felts = felts_from_bytes(&payload_bytes[..]);
-
-//         let felt_offsets = ChainId.as_felt_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(felt_offsets, Ok(0..1));
-
-//         let felt_offsets = felt_offsets.unwrap();
-//         let bytes_chain_id = felts_to_bytes(&felts[felt_offsets], None);
-
-// //        println!("bytes_chain_id: {:?}", &bytes_chain_id[offsets.clone()]);
-
-//         assert_eq!(&payload_bytes[..31], &bytes_chain_id[..]);
-//     }
-
-//     #[tokio::test]
-//     async fn query_test_3() {
-//         use Eip4844TxClaimQueryField::*;
-//         let block = 19543673.into();
-//         let tx_cache = &mut <TypedTransaction as crate::FetchFromBlock>::Cache::new(
-//             &crate::block_cache_dir(),
-//             block,
-//         );
-//         let sorted_transactions_block: SortedBlock<TypedTransaction> =
-//             SortedBlock::<TypedTransaction>::try_fetch("no_url_only_cache", Some(tx_cache), block)
-//                 .await
-//                 .unwrap();
-//         let payload_bytes = sorted_transactions_block.iter().nth(95).unwrap().payload_bytes();
-
-//         let felts = felts_from_bytes(&payload_bytes[..]);
-//         let felt_offsets = GasLimit.as_felt_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(felt_offsets, Ok(0..1));
-
-//         let felt_offsets = felt_offsets.unwrap();
-//         let bytes_gas_limit = felts_to_bytes(&felts[felt_offsets], None);
-
-//         assert_eq!(&payload_bytes[..31], &bytes_gas_limit[..]);
-//     }
-
-//     #[tokio::test]
-//     async fn query_test_4() {
-//         use Eip4844TxClaimQueryField::*;
-//         let block = 19543673.into();
-//         let tx_cache = &mut <TypedTransaction as crate::FetchFromBlock>::Cache::new(
-//             &crate::block_cache_dir(),
-//             block,
-//         );
-//         let sorted_transactions_block: SortedBlock<TypedTransaction> =
-//             SortedBlock::<TypedTransaction>::try_fetch("no_url_only_cache", Some(tx_cache), block)
-//                 .await
-//                 .unwrap();
-//         let payload_bytes = sorted_transactions_block.iter().nth(95).unwrap().payload_bytes();
-
-//         let felts = felts_from_bytes(&payload_bytes[..]);
-//         let felt_offsets = SingleDataRelativeRange(None).as_felt_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(felt_offsets, Ok(1..3));
-
-//         let felt_offsets = felt_offsets.unwrap();
-//         let bytes_data = felts_to_bytes(&felts[felt_offsets], None);
-
-//         assert_eq!(&payload_bytes[31..31*3], &bytes_data[..]);
-//     }
-
-//     #[tokio::test]
-//     async fn query_test_5() {
-//         use Eip4844TxClaimQueryField::*;
-//         let block = 19543673.into();
-//         let tx_cache = &mut <TypedTransaction as crate::FetchFromBlock>::Cache::new(
-//             &crate::block_cache_dir(),
-//             block,
-//         );
-//         let sorted_transactions_block: SortedBlock<TypedTransaction> =
-//             SortedBlock::<TypedTransaction>::try_fetch("no_url_only_cache", Some(tx_cache), block)
-//                 .await
-//                 .unwrap();
-//         let payload_bytes = sorted_transactions_block.iter().nth(95).unwrap().payload_bytes();
-
-//         let offsets = SingleDataRelativeRange(Some(24..30)).as_byte_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-
-//         println!("payload offsets: {:?}", offsets);
-
-//         let felts = felts_from_bytes(&payload_bytes[..]);
-//         let felt_offsets = SingleDataRelativeRange(Some(24..30)).as_felt_offsets(&rlp::Rlp::new(&payload_bytes[..]));
-//         assert_eq!(felt_offsets, Ok(2..3));
-
-//         let felt_offsets = felt_offsets.unwrap();
-//         let bytes_data = felts_to_bytes(&felts[felt_offsets.clone()], None);
-
-//         assert_eq!(
-//             &payload_bytes[U248_BYTE_COUNT * felt_offsets.start..U248_BYTE_COUNT * felt_offsets.end], 
-//             &bytes_data[..]
-//         );
-//     }
-// }

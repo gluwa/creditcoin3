@@ -32,10 +32,8 @@ use futures_util::stream::Stream;
 use anyhow::anyhow;
 use ethereum_types::U256;
 use either::Either;
-use prover_primitives::claim_query::TxClaimQuery;
 use proof::types::{CairoVerifierOutput, StoneProof};
 use utils::json_serializable::JsonSerializable;
-use eth_common::transaction::{BlockItem, Transaction};
 use prover_primitives::claim::ClaimSerializable;
 use poc_config::PocConfig;
 
@@ -490,7 +488,8 @@ async fn build_attestation_db(
         DEFAULT_MAX_BLOCKS_TO_RETRIEVE,
         cancel_on_fatal_failure,
         crawler_kickoff_fragment_rx,
-        stop_condition.clone(),
+        StopCondition::FatalFailure,
+//        stop_condition.clone(),
     )
     .await
     .map_err(|err| anyhow!("{err:?}"))?;
@@ -563,48 +562,48 @@ async fn shutdown_instance(
     }
 }
 
-pub(crate) fn create_sample_query(tx: &Transaction) -> TxClaimQuery {
-//    use common::claim_query::{Eip1559TxClaimQueryField, LegacyTxClaimQueryField, Eip2930TxClaimQueryField, Eip4844TxClaimQueryField};
-    use prover_primitives::claim_query::{Eip1559TxClaimQueryField, LegacyTxClaimQueryField, Eip4844TxClaimQueryField, Eip2930TxClaimQueryField};
-    use std::collections::HashSet;
+// pub(crate) fn create_sample_query(tx: &Transaction) -> TxClaimQuery {
+// //    use common::claim_query::{Eip1559TxClaimQueryField, LegacyTxClaimQueryField, Eip2930TxClaimQueryField, Eip4844TxClaimQueryField};
+//     use prover_primitives::claim_query::{Eip1559TxClaimQueryField, LegacyTxClaimQueryField, Eip4844TxClaimQueryField, Eip2930TxClaimQueryField};
+//     use std::collections::HashSet;
 
-    println!("{}", format!("transaction type: {:?}", tx.tx_type()).bold().cyan());
+//     println!("{}", format!("transaction type: {:?}", tx.tx_type()).bold().cyan());
 
-    match tx.tx_type() {
-        None => TxClaimQuery::try_from(
-            vec![
-                LegacyTxClaimQueryField::To,
-                LegacyTxClaimQueryField::SingleDataRelativeRange(None),
-                LegacyTxClaimQueryField::Signature,
-            ].into_iter().collect::<HashSet<_>>()
-        ).unwrap(),
-        Some(1) => TxClaimQuery::try_from(
-            vec![
-                Eip2930TxClaimQueryField::ChainId, 
-                Eip2930TxClaimQueryField::To,
-                Eip2930TxClaimQueryField::SingleDataRelativeRange(None),
-                Eip2930TxClaimQueryField::Signature,
-            ].into_iter().collect::<HashSet<_>>()
-        ).unwrap(),
-        Some(2) => TxClaimQuery::try_from(
-            vec![
-                Eip1559TxClaimQueryField::ChainId, 
-                Eip1559TxClaimQueryField::To,
-                Eip1559TxClaimQueryField::SingleDataRelativeRange(None),
-                Eip1559TxClaimQueryField::Signature,
-            ].into_iter().collect::<HashSet<_>>()
-        ).unwrap(),
-        Some(3) => TxClaimQuery::try_from(
-            vec![
-                Eip4844TxClaimQueryField::ChainId, 
-                Eip4844TxClaimQueryField::To,
-                Eip4844TxClaimQueryField::SingleDataRelativeRange(None),
-                Eip4844TxClaimQueryField::Signature,
-            ].into_iter().collect::<HashSet<_>>()
-        ).unwrap(),
-        _ => unimplemented!("tx type not supported"),
-    }
-}
+//     match tx.tx_type() {
+//         None => TxClaimQuery::try_from(
+//             vec![
+//                 LegacyTxClaimQueryField::To,
+//                 LegacyTxClaimQueryField::SingleDataRelativeRange(None),
+//                 LegacyTxClaimQueryField::Signature,
+//             ].into_iter().collect::<HashSet<_>>()
+//         ).unwrap(),
+//         Some(1) => TxClaimQuery::try_from(
+//             vec![
+//                 Eip2930TxClaimQueryField::ChainId, 
+//                 Eip2930TxClaimQueryField::To,
+//                 Eip2930TxClaimQueryField::SingleDataRelativeRange(None),
+//                 Eip2930TxClaimQueryField::Signature,
+//             ].into_iter().collect::<HashSet<_>>()
+//         ).unwrap(),
+//         Some(2) => TxClaimQuery::try_from(
+//             vec![
+//                 Eip1559TxClaimQueryField::ChainId, 
+//                 Eip1559TxClaimQueryField::To,
+//                 Eip1559TxClaimQueryField::SingleDataRelativeRange(None),
+//                 Eip1559TxClaimQueryField::Signature,
+//             ].into_iter().collect::<HashSet<_>>()
+//         ).unwrap(),
+//         Some(3) => TxClaimQuery::try_from(
+//             vec![
+//                 Eip4844TxClaimQueryField::ChainId, 
+//                 Eip4844TxClaimQueryField::To,
+//                 Eip4844TxClaimQueryField::SingleDataRelativeRange(None),
+//                 Eip4844TxClaimQueryField::Signature,
+//             ].into_iter().collect::<HashSet<_>>()
+//         ).unwrap(),
+//         _ => unimplemented!("tx type not supported"),
+//     }
+// }
 
 // fn main_main() {
 //     let args = Args::parse();

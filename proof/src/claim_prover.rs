@@ -148,7 +148,8 @@ impl<'a> ClaimProver<'a> {
         Ok(writer.flush()?)
     }
 
-    fn default_dir(&self) -> String {
+    // TODO: make it private, it's public only for dev
+    pub fn default_dir(&self) -> String {
         let hex_block_number = format!("0x{:X}", self.claim.id().block_item_id.block_number());
         let subject_index = self.claim.id().block_item_id.index() as usize;
 
@@ -248,7 +249,6 @@ pub async fn build_prover<'a>(
         digest_roots,
         attestation_chain_slice.into(),
     )
-//    .with_claim_status(claim_status)
     .with_default_files()
     .map_err(|err| ClaimProverError::SerializationFailure(format!("{err:?}")))?;
 

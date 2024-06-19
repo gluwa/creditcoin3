@@ -77,6 +77,10 @@ pub(crate) async fn create_attestation_block_task(
 
             true => {
                 sleep(Duration::from_millis(retrial_period)).await;
+
+                if create_attestation_block_cancellation_token.is_cancelled() {
+                    break Err(CreateAttestationBlockError::Cancelled(block_number));
+                }
             }
         }
     }
