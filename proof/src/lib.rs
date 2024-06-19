@@ -2,22 +2,17 @@ pub mod claim_prover;
 pub mod types;
 
 use anyhow::anyhow;
-use attestor_primitives::BlockAttestation;
-use std::os::fd::AsFd;
-//use claim_prover::build_prover;
 
 use crate::claim_prover::{ClaimProver, build_prover};
 use utils::print_with_timestamp;
 use attestation_chain::attestation_fragment::AttestationFragment;
 use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 //use attestor::merkle::tree::FieldElement;
-use prover_primitives::{claim::{Claim, ClaimKind, ClaimSerializable}, claim_query::ClaimQueryField};
-use tokio::{fs::File, io::AsyncReadExt};
+use prover_primitives::claim::ClaimSerializable;
 //use eth_common::transaction::Transaction;
-use either::Either::{self, Right};
+use either::Either;
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use colored::Colorize;
-use utils::Felt;
 
 pub async fn cairo_generate_proof(
     url: &str,
@@ -108,6 +103,7 @@ pub async fn cairo_generate_proof(
     }
 }
 
+#[allow(dead_code)]
 async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow::Result<()> {
     use std::io::Write;
 
@@ -135,126 +131,122 @@ async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow
         })
 }
 
-/// tests a circuit: 
-/// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
-/// prior to running this test:
-/// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
-/// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
-/// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory 
-/// to create attestation db on prover's side
-#[tokio::test]
-async fn claim_validation_test() {
+#[cfg(test)]
+mod tests {
     use std::collections::HashSet;
-    use prover_primitives::{{claim::ClaimIdentifier}, claim_query::{TxClaimQuery, Eip4844TxClaimQueryField::*}};
-    use eth_common::{fetch_block_transactions, transaction::BlockItem};
+    use prover_primitives::{{claim::{Claim, ClaimSerializable, ClaimIdentifier, ClaimKind}}, claim_query::{TxClaimQuery, Eip4844TxClaimQueryField::*}};
+    use eth_common::fetch_block_transactions;
     use utils::{{utils::felts_from_bytes}, block_item_traits::BlockItemIdentifier};
     use attestation_db::AttestationDB;
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use crate::types::StoneProofPublicInput;
+    use colored::Colorize;
 
-    const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
+    /// tests this circuit: 
+    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    /// prior to running this test:
+    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory 
+    /// to create attestation db on prover's side
+    #[tokio::test]
+    async fn claim_validation_test() {
 
-    let block = 19543673;
-    let index = 95;
-    // access token should not be published on github
-    let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
-    let checkpoints_path = "../data/execution-chain";
+        const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
 
-    // -------------------------------------- claimer part ----------------------------------
-    let tx_asd = fetch_block_transactions(url, block,)
-        .await
+        let block = 19543673;
+        let index = 95;
+        // access token should not be published on github
+        let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
+        let checkpoints_path = "../data/execution-chain";
+
+        // -------------------------------------- claimer part ----------------------------------
+        let tx_asd = fetch_block_transactions(url, block,)
+            .await
+            .unwrap();
+
+        // rlp-encoded tx/rx 
+        let payload_bytes = tx_asd[index].payload_bytes();
+        // create rlp instance containing payload bytes
+        let rlp = rlp::Rlp::new(&payload_bytes[..]);
+        // form claim id
+        let claim_id = ClaimIdentifier {
+            kind: ClaimKind::Tx,
+            block_item_id: BlockItemIdentifier::new(
+                block.into(),
+                index as u64
+            ),
+        };
+        // form query of fields of interest to get values from prover for
+        let claim_query = TxClaimQuery::try_from(
+            vec![
+                To,
+                SingleDataRelativeRange(Some(24..30)),
+                Nonce,
+                SingleDataRelativeRange(Some(33..39)),
+                BlobVersionedHashes(Some(0)),
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>()
+        )
         .unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, rlp).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+        
+        // ----------------------- prover's part ------------------------------------------------
+        // internal prover's data
+        let db_url = "../data/db";
+        let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
+        let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
 
-    // rlp-encoded tx/rx 
-    let payload_bytes = tx_asd[index].payload_bytes();
-    // create rlp instance containing payload bytes
-    let rlp = rlp::Rlp::new(&payload_bytes[..]);
-    // form claim id
-    let claim_id = ClaimIdentifier {
-        kind: ClaimKind::Tx,
-        block_item_id: BlockItemIdentifier::new(
-            block.into(),
-            index as u64
-        ),
-    };
-    // form query of fields of interest to get values from prover for
-    let claim_query = TxClaimQuery::try_from(
-        vec![
-            To,
-            SingleDataRelativeRange(Some(24..30)),
-            Nonce,
-            SingleDataRelativeRange(Some(33..39)),
-            BlobVersionedHashes(Some(0)),
-        ]
-        .into_iter()
-        .collect::<HashSet<_>>()
-    )
-    .unwrap();
-    // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
-    let claim = Claim::try_create(claim_id, claim_query, rlp).unwrap();
-    // cairo_claim is sent by claimer to prover
-    let cairo_claim = ClaimSerializable::from(&claim);
-    
-    // ----------------------- prover's part ------------------------------------------------
-    // internal prover's data
-    let db_url = "../data/db";
-    let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
-    let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
+        let mut checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path);
+        // simulate polling checkpoints from CC3 blockchain
+        checkpoints.poll().unwrap();
 
-    let mut checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path);
-    // simulate polling checkpoints from CC3 blockchain
-    checkpoints.poll().unwrap();
+        // change to false if you don't want to generate stone-proof and rather use output of cairo program
+        let generate_stone_proof = true;  
+        let overwrite_existing_stone_proof = false;
+        let result = crate::cairo_generate_proof(
+            url, 
+            cairo_claim, 
+            &attestation_fragment, 
+            &checkpoints.inner(),
+            generate_stone_proof, 
+            overwrite_existing_stone_proof
+        )
+        .await;
 
-    // change to false if you don't want to generate stone-proof and rather use output of cairo program
-    let generate_stone_proof = false;  
-    let overwrite_existing_stone_proof = false;
-    let result = cairo_generate_proof(
-        url, 
-        cairo_claim, 
-        &attestation_fragment, 
-        &checkpoints.inner(),
-        generate_stone_proof, 
-        overwrite_existing_stone_proof
-    )
-    .await;
+        // -------------------------------------- claimer part ----------------------------------
+        let cairo_output_or_stone_proof = result.unwrap();
 
-    // -------------------------------------- claimer part ----------------------------------
-    let cairo_output_or_stone_proof = result.unwrap();
+        let output = match cairo_output_or_stone_proof {
+            either::Left((mut stone_proof, stone_proof_dir)) => {
+                crate::run_stone_verify_script(SCRIPT_SOURCE, &stone_proof_dir).await.unwrap();
+                println!("{}", "CLAIMER: proof stone-verified".bold().green());
 
-    let output = match cairo_output_or_stone_proof {
-        either::Left((mut stone_proof, stone_proof_dir)) => {
-            run_stone_verify_script(SCRIPT_SOURCE, &stone_proof_dir).await.unwrap();
-            println!("{}", "CLAIMER: proof stone-verified".bold().green());
+                stone_proof
+                    .strip_off_annotations()
+                    .strip_off_prover_config()
+                    .strip_off_private_input();
+                StoneProofPublicInput::try_from(stone_proof.proof()).unwrap()
+            },
+            either::Right(cairo_output) => cairo_output,
+        };
 
-            stone_proof
-                .strip_off_annotations()
-                .strip_off_prover_config()
-                .strip_off_private_input();
-            StoneProofPublicInput::try_from(stone_proof.proof()).unwrap()
-        },
-        either::Right(cairo_output) => cairo_output,
-    };
+        let checkpoint = checkpoints.inner().checkpoint_for(block.into()).unwrap(); 
+        assert_eq!(output.continuity_checkpoint_block_number, checkpoint.n());
+        assert_eq!(&output.continuity_checkpoint_digest, checkpoint.digest());
+        println!("{}", "CLAIMER: continuity verified".bold().green());
 
-    let checkpoint = checkpoints.inner().checkpoint_for(block.into()).unwrap(); 
-    assert_eq!(output.continuity_checkpoint_block_number, checkpoint.n());
-    assert_eq!(&output.continuity_checkpoint_digest, checkpoint.digest());
-    println!("{}", "CLAIMER: continuity verified".bold().green());
+        claim.validate_fields(&output.claim_fields, &output.query_hash).unwrap();
 
-    claim.validate_fields(&output.claim_fields, &output.query_hash).unwrap();
+        println!("{}", "CLAIMER: query fields and hash validated".bold().green());
+    }
 
-    println!("{}", "CLAIMER: query fields and hash validated".bold().green());
-}
-
-#[tokio::test]
+    #[tokio::test]
     async fn tx_output_matches_rlp_test() {
-        use prover_primitives::claim_query::Eip2930TxClaimQueryField::*;
-        use eth_common::transaction::BlockItem;
-        use utils::utils::felts_from_bytes;
-        use std::collections::HashSet;
-        use prover_primitives::claim_query::TxClaimQuery;
-        use utils::block_item_traits::BlockItemIdentifier;
-        use prover_primitives::claim::ClaimIdentifier;
-
         let block = 19543696;
         let index = 45;
 
@@ -296,4 +288,5 @@ async fn claim_validation_test() {
         let felts_from_prover = rlp_felts.clone();
 
         assert!(claim.validate_fields(&felts_from_prover, &claim.query_hash()).is_ok());
+    }
 }

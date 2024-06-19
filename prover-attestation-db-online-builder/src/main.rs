@@ -492,7 +492,10 @@ async fn build_attestation_db(
 //        stop_condition.clone(),
     )
     .await
-    .map_err(|err| anyhow!("{err:?}"))?;
+    .map_err(|err| match err {
+        InstanceCreationError::Other(msg) => anyhow!(msg),
+        _ => anyhow!("{err:?}")
+    })?;
 
     let historical_blocks_db_manager = create_historical_blocks_db_manager_instance(
         Arc::clone(&runtime),

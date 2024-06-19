@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use utils::StarknetPedersenMerkleProof;
-use prover_primitives::claim::{ClaimKind, ClaimIdentifier};
+use prover_primitives::claim::ClaimIdentifier;
 use serde::{Deserialize, Serialize};
 use utils::Felt;
 use utils::json_serializable::JsonSerializable;

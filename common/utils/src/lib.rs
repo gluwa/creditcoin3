@@ -5,7 +5,6 @@ pub mod block_item_traits;
 
 use crate::pedersen_hash::StarknetPedersenHash;
 use mmr::{Mmr, proof::Proof};
-use ethereum_types::U256;
 
 pub type Felt = starknet_crypto::FieldElement;
 

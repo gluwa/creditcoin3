@@ -1,6 +1,6 @@
 use alloy::consensus::{ReceiptWithBloom, Signed};
 use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy, TxEip4844};
-use alloy::core::primitives::{Address, Log, U256};
+use alloy::core::primitives::Log;
 use utils::block_item_traits::BlockItemIdentifier;
 
 use crate::{AlloyTransaction, AlloyTransactionReceipt};

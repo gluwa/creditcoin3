@@ -4,11 +4,10 @@ use crate::types::{
 };
 use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
 use mmr::traits::MerkleTreeTrait;
-use prover_primitives::claim::{Claim, ClaimKind};
+use prover_primitives::claim::ClaimKind;
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
-use tempfile::TempDir;
 use prover_primitives::claim::ClaimSerializable;
 use utils::json_serializable::JsonSerializable;
 use eth_common::transaction::{Transaction, Receipt, BlockItem};
