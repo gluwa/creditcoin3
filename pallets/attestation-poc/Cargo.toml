@@ -32,6 +32,7 @@ assert_matches = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-supported-chains = { workspace = true }
 env_logger = { workspace = true }
+bls-signatures = { workspace = true }
 
 [features]
 default = ["std"]

@@ -616,6 +616,27 @@ pub mod pallet {
 
             Ok(())
         }
+
+        fn validate_attestation(
+            attestation: &SignedAttestation<T::Hash, T::AccountId>,
+        ) -> Result<(), InherentError> {
+            Self::check_duplicate(attestation)?;
+            let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
+            let attestor_public_keys = Self::gather_attestor_public_keys(&attestation.attestors)?;
+            let aggregated_public_key =
+                aggregate_public_keys(&attestor_public_keys[..]).map_err(|_| {
+                    log::error!("Failed to aggregate public keys");
+                    InherentError::NotValid
+                })?;
+
+            let message = &attestation.attestation.serialize()[..];
+
+            Self::verify_agg_signature(&agg_signature, message, aggregated_public_key)?;
+
+            log::info!("Attestation signature is valid");
+
+            Ok(())
+        }
     }
     // helper functions for checking inherent data
     impl<T: Config> Pallet<T> {
