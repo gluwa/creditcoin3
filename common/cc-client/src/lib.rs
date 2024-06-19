@@ -16,7 +16,7 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use crate::cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
-use attestor_primitives::{BlsPublicKey, ChainId, Digest};
+use attestor_primitives::{BlsPublicKey, BlsSignature, ChainId, Digest};
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, VrfOutput};
 
 #[subxt::subxt(
@@ -186,11 +186,16 @@ impl<'a> Client {
     }
 
     /// Register to the attestation pallet
-    pub async fn register_attestor(&self, bls_public_key: BlsPublicKey) -> Result<()> {
+    pub async fn register_attestor(
+        &self,
+        bls_public_key: BlsPublicKey,
+        proof_of_possession: BlsSignature,
+    ) -> Result<()> {
         let api = self.get_substrate_client().await?;
 
-        // let public_key = self.get_bls_pubkey()?;
-        let tx = cc3::tx().attestation().register_attestor(bls_public_key);
+        let tx = cc3::tx()
+            .attestation()
+            .register_attestor(bls_public_key, proof_of_possession);
 
         let ext = api
             .tx()
@@ -446,6 +451,8 @@ pub enum Error {
     InvalidAttestor,
     #[error("Invalid bls key")]
     InvalidBlsKey,
+    #[error("Invalid proof of possession")]
+    InvalidProofOfPossession,
     #[error("Failed to get cc3 RPC client")]
     FailedToGetRPcClient,
     #[error("Failed to get comittee set size")]

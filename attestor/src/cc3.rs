@@ -13,7 +13,9 @@ use tracing::{debug, error, info, warn};
 
 use cc_client::Client as CcClient;
 
-use attestor_primitives::{Attestation as AttestationPrimitive, BlsPublicKey, ChainId};
+use attestor_primitives::{
+    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId,
+};
 
 #[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
 pub mod cc3 {}
@@ -45,6 +47,17 @@ impl Client {
         pubkey.copy_from_slice(&pubkey_bytes[0..48]);
 
         Ok(pubkey)
+    }
+
+    pub fn proof_of_possession(&self) -> Result<BlsSignature, Error> {
+        let pubkey = self.get_bls_pubkey()?;
+
+        self.bls_keypair.sign(pubkey).as_bytes()[..96]
+            .try_into()
+            .map_err(|_| {
+                error!("Error converting proof of possession to bytes");
+                Error::InvalidProofOfPossession
+            })
     }
 }
 
@@ -92,7 +105,7 @@ impl<'a> Client {
     /// Register to the attestation pallet
     pub async fn register(&self) -> Result<()> {
         self.cc_client
-            .register_attestor(self.get_bls_pubkey()?)
+            .register_attestor(self.get_bls_pubkey()?, self.proof_of_possession()?)
             .await
     }
 

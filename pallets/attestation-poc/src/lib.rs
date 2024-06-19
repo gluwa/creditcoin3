@@ -303,7 +303,7 @@ pub mod pallet {
         pub fn register_attestor(
             origin: OriginFor<T>,
             bls_public_key: BlsPublicKey,
-            bls_public_key_signature: BlsSignature,
+            proof_of_possession: BlsSignature,
         ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
 
@@ -315,7 +315,7 @@ pub mod pallet {
             let public_key = PublicKey::from_bytes(&bls_public_key[..])
                 .map_err(|_| Error::<T>::InvalidBlsPublicKey)?;
 
-            let signature = Signature::from_bytes(&bls_public_key_signature[..])
+            let signature = Signature::from_bytes(&proof_of_possession[..])
                 .map_err(|_| Error::<T>::InvalidBlsSignature)?;
 
             ensure!(
