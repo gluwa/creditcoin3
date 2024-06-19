@@ -252,11 +252,11 @@ pub mod pallet {
         // Bls public key is invalid
         InvalidBlsPublicKey,
 
-        // Failed proof of posession check
-        InvalidBlsPrivateKey,
-
         // Invalid BLS signature
         InvalidBlsSignature,
+
+        // Failed proof of possession check
+        InvalidProofOfPossession,
     }
 
     #[pallet::call]
@@ -324,7 +324,7 @@ pub mod pallet {
                     &[bls_signatures::hash(bls_public_key[..].into())],
                     &[public_key]
                 ),
-                Error::<T>::InvalidBlsPrivateKey
+                Error::<T>::InvalidProofOfPossession
             );
 
             Self::try_insert_attestor_and_emit_event(&who, bls_public_key)

@@ -41,7 +41,6 @@ serde_json = "1.0.52"
 base64-serde = "0.6.1"
 rand_chacha = "0.3.1"
 sp-std = { workspace = true }
-libc-print = "0.1.23"
 
 [features]
 default = ["pairing", "std"]
