@@ -78,8 +78,8 @@ mod tests {
     use crate::pedersen_hash::{pedersen_array, u64_to_bytes_be, FieldElement};
     use crate::utils::felt_from_dec_str;
 
-    use starknet_crypto::pedersen_hash;
     use libc_print::std_name::println;
+    use starknet_crypto::pedersen_hash;
 
     #[test]
     fn pedersen2_test() {

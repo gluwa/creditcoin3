@@ -5,9 +5,9 @@ use anyhow::anyhow;
 use ethereum_types::{Address, H256, U256};
 
 extern crate alloc;
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use scale_info::prelude::string::String;
 
 pub const U248_BYTE_COUNT: usize = 31;
 const HASH_LENGTH: usize = 32;
