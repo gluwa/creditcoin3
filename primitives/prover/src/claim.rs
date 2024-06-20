@@ -109,9 +109,10 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         &self.query
     }
 
+    /// takes field elements from proof, converts them into bytes and compares them againts local rlp bytes
+    /// the hashed query values are compared too
     pub fn validate_fields(&self, proof_felts: &[Felt], query_hash: &Felt) -> Result<(), ClaimValidationError> {
         let local_offsets_hash = self.query_hash();
-//        println!("felts_offsets: {:?}", felts_offsets.iter().map(|f| f.to_string()).collect::<Vec<_>>());
         if query_hash != &local_offsets_hash {
             return Err(ClaimValidationError::QueryOffsetsMismatch(query_hash.clone(), local_offsets_hash));
         }
@@ -133,7 +134,12 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
                 )
             )
     }
-
+    /// takes query and rlp object and returns field element ranges for the prover to output and return to claimer
+    /// to prevent ambiguities these ranges must be ensured to be ordered
+    /// to define ordering for ranges they are first compacted so the resulting range array 
+    /// contains non-overlapping ranges.
+    /// for example [(3..6), (4..7), (2..4)] is compacted to [(2..7)]
+    /// when ranges do not intersect the ordering for them can be defined by compare(a.start, b.start)
     fn felt_offsets(query: &Q, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError> {
         let mut compact_ranges = Self::compact_contiguous_ranges(query.as_felt_offsets(&rlp)?);
         compact_ranges.sort_by(|a, b| a.start.cmp(&b.start));
@@ -148,13 +154,15 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
     fn proof_felts_to_bytes_inner(proof_felts: &[Felt], felt_offsets: &[Range<usize>], original_bytes_len: usize) -> Vec<u8> {
         use std::cmp::min;
 
+        // form a buffer of original rlp length and initialize it.
         let mut bytes = vec![0u8; original_bytes_len];      
         let mut i = 0;
         for r in felt_offsets {
+            // byte chunk corresponding to current felt slice
             let chunk_range = r.start * U248_BYTE_COUNT..min(r.end * U248_BYTE_COUNT, original_bytes_len);
             let source_bytes_len = (original_bytes_len == chunk_range.end)
                 .then_some(chunk_range.end - chunk_range.start);
-
+            // prover outputs field elements in order determined by felt_offsets ranges on claimer side
             let chunk = felts_to_bytes(&proof_felts[i..i + r.end - r.start], source_bytes_len);
             i += r.end - r.start;
     
@@ -164,7 +172,7 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         bytes
     }
 
-    // TODO: make it private. Now it is public for easier testing
+    // TODO: make it private. Now it is public for easier unit testing
     pub fn query_hash(&self) -> Felt {
         let felts_offsets = self
             .felt_offsets
@@ -174,7 +182,8 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
             .collect::<Vec<Felt>>();
         pedersen_array(&felts_offsets[..])
     }
-
+    // TODO: check worst case complexity (possibly worse than polynomial?)
+    // TODO: could an intentionally malformed query be an attack vector to degrade claimer performance?
     fn compact_contiguous_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
         let mut compact_ranges = Vec::<Range<usize>>::new();
         let mut needs_further_compaction = false;
@@ -211,6 +220,8 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
     }
 }
 
+/// claim as sent to prover
+// maybe find better name for it?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimSerializable {
     id: ClaimIdentifier,
