@@ -1,15 +1,17 @@
-use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
-use mmr::traits::MerkleTreeTrait;
-use prover_primitives::claim::ClaimKind;
-use prover_primitives::claim::ClaimSerializable;
-use prover_primitives::types::{
-    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
-    StoneProof, StoneProofJson,
-};
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
+
+use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
+use mmr::traits::MerkleTreeTrait;
+use prover_primitives::claim::{ClaimKind, ClaimSerializable};
+use utils::json_serializable::JsonSerializable;
 use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
+
+use crate::types::{
+    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
+    StoneProof, StoneProofJson,
+};
 
 use crate::json_serializable::JsonSerializable;
 
@@ -182,36 +184,6 @@ pub async fn build_prover<'a>(
     claim: ClaimSerializable,
     attestation_chain_slice: FragmentSlice<'a>,
 ) -> Result<ClaimProver<'a>, ClaimProverError> {
-    // let claim_block_number = claim.id().block_item_id.block_number();
-
-    // // let tx_cache = &mut <TypedTransaction as FetchFromBlock>::Cache::new(
-    // //     &block_cache_dir(),
-    // //     claim_block_number,
-    // // );
-    // let fetch_tx_block_fut = fetch_block_transactions(url, claim_block_number.as_u64());
-    // //        SortedBlock::<TypedTransaction>::try_fetch(url, Some(tx_cache), claim_block_number);
-
-    // // let rx_cache =
-    // //     &mut <Receipt as FetchFromBlock>::Cache::new(&block_cache_dir(), claim_block_number);
-    // let fetch_rx_block_fut = fetch_block_receipts(url, claim_block_number.as_u64());
-    // //    SortedBlock::<Receipt>::try_fetch(url, Some(rx_cache), claim_block_number);
-
-    // let (sorted_transactions_block, sorted_receipts_block) =
-    //     futures::future::try_join(fetch_tx_block_fut, fetch_rx_block_fut)
-    //         .await
-    //         .map_err(|err| ClaimProverError::BlockFetchFailure(format!("{err:?}")))?;
-
-    // //        let tx_bytes = sorted_transactions_block.to_bytes();
-    // let tx_bytes = sorted_transactions_block
-    //     .iter()
-    //     .map(Transaction::to_bytes)
-    //     .collect::<Vec<_>>();
-    // let rx_bytes = sorted_receipts_block
-    //     .iter()
-    //     .map(Receipt::to_bytes)
-    //     .collect::<Vec<_>>();
-    // //    let rx_bytes = sorted_receipts_block.to_bytes();
-
     let (transactions_tree, receipts_tree) =
         futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {
             StarknetPedersenMmr::from(&rx_bytes[..])
