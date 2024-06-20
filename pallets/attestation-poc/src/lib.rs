@@ -445,6 +445,11 @@ pub mod pallet {
             );
 
             let previous_digest = Self::last_digest(attestation.chain_id());
+            ensure!(
+                previous_digest == attestation.attestation.prev_digest,
+                Error::<T>::InvalidAttestation
+            );
+
             if let Some(previous_digest) = previous_digest {
                 let previous_attestation =
                     Attestations::<T>::get(attestation.chain_id(), previous_digest)

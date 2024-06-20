@@ -441,13 +441,14 @@ fn submitting_invalid_attestation_chain_fails() {
             attestors: vec![ATTESTOR_1],
         };
 
-        assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
-            attestation
-        ));
-    })
+        assert_err!(
+            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
+            Error::<Test>::InvalidAttestation
+        );
+    });
 }
 
+#[test]
 fn invalid_proof_of_possession() {
     ExtBuilder.build_and_execute(|| {
         let att_1 = Attestor::new(ATTESTOR_1);
