@@ -4,41 +4,34 @@ use crate::mock::{
 };
 use assert_matches::assert_matches;
 use attestor_primitives::{Attestation as AttestationPrimitive, SignedAttestation};
+use attestor_primitives::{BlsPublicKey, BlsSignature};
+use bls_signatures::key::Serialize;
 use frame_support::{assert_err, assert_ok};
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
-fn attestor_1() -> RuntimeOrigin {
-    RuntimeOrigin::signed(ATTESTOR_1)
+pub fn attestor(attestor: u64) -> (RuntimeOrigin, BlsPublicKey, BlsSignature) {
+    let rng = sp_core::H256::random().0;
+    let bls_private_key = bls_signatures::PrivateKey::new(rng);
+    let bls_public_key = bls_private_key.public_key().as_bytes()[..]
+        .try_into()
+        .unwrap();
+
+    (
+        RuntimeOrigin::signed(attestor),
+        bls_public_key,
+        bls_private_key.sign(bls_public_key).as_bytes()[..]
+            .try_into()
+            .unwrap(),
+    )
 }
-
-fn attestor_2() -> RuntimeOrigin {
-    RuntimeOrigin::signed(ATTESTOR_2)
-}
-
-// taken from account ba87dcf396d413b2d97ce38a3b7deedbb9373f6ca2147efa90e4f58cbb81e068 in node/src/chain_spec.rs file
-pub const VALID_BLS_PUBLIC_KEY: [u8; 48] = [
-    170, 58, 137, 206, 248, 203, 230, 122, 86, 91, 224, 157, 175, 64, 32, 188, 138, 74, 235, 23,
-    175, 30, 251, 224, 58, 113, 135, 123, 20, 237, 220, 195, 1, 3, 69, 88, 3, 23, 227, 4, 240, 208,
-    170, 249, 160, 113, 43, 9,
-];
-
-// taken by signing the public key of above account with its private key
-pub const VALID_BLS_PUBLIC_SIGNATURE: [u8; 96] = [
-    163, 165, 57, 118, 248, 75, 117, 169, 4, 128, 9, 51, 178, 182, 62, 10, 181, 95, 18, 20, 101,
-    63, 68, 232, 167, 57, 196, 139, 6, 171, 125, 123, 100, 82, 80, 193, 214, 54, 62, 107, 164, 80,
-    172, 150, 220, 198, 115, 45, 1, 0, 254, 149, 212, 239, 92, 85, 99, 41, 35, 35, 212, 31, 192,
-    32, 213, 88, 166, 45, 145, 79, 119, 200, 65, 118, 33, 83, 255, 119, 106, 139, 167, 5, 120, 98,
-    73, 166, 237, 151, 168, 207, 48, 145, 114, 181, 98, 199,
-];
 
 #[test]
 fn register_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
+        let (attestor_1, public_key, signature) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            RuntimeOrigin::signed(ATTESTOR_1),
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            attestor_1, public_key, signature
         ));
     })
 }
@@ -46,18 +39,15 @@ fn register_attestor_should_work_happy_path() {
 #[test]
 fn register_attestor_should_fail_when_address_is_already_registered() {
     ExtBuilder.build_and_execute(|| {
+        let (attestor_1, public_key, signature) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            RuntimeOrigin::signed(ATTESTOR_1,),
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            attestor_1.clone(),
+            public_key,
+            signature
         ));
 
         assert_err!(
-            Attestation::register_attestor(
-                RuntimeOrigin::signed(ATTESTOR_1),
-                VALID_BLS_PUBLIC_KEY,
-                VALID_BLS_PUBLIC_SIGNATURE
-            ),
+            Attestation::register_attestor(attestor_1, public_key, signature),
             Error::<Test>::AlreadyAttestor
         );
     })
@@ -67,21 +57,15 @@ fn register_attestor_should_fail_when_address_is_already_registered() {
 fn register_attestor_should_fail_when_list_is_full() {
     ExtBuilder.build_and_execute(|| {
         let root = RuntimeOrigin::root();
-        let attestor_1 = attestor_1();
-        let attestor_2 = attestor_2();
+        let (attestor_1, public_key, signature) = attestor(ATTESTOR_1);
+        let (attestor_2, public_key_2, signature_2) = attestor(ATTESTOR_2);
 
         assert_ok!(Attestation::set_max_attestors(root, 2));
         assert_ok!(Attestation::register_attestor(
-            attestor_1,
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            attestor_1, public_key, signature
         ));
         assert_err!(
-            Attestation::register_attestor(
-                attestor_2,
-                VALID_BLS_PUBLIC_KEY,
-                VALID_BLS_PUBLIC_SIGNATURE
-            ),
+            Attestation::register_attestor(attestor_2, public_key_2, signature_2),
             Error::<Test>::AttestorListFull
         );
     })
@@ -101,7 +85,7 @@ fn max_invulnerable_default_should_be_100() {
 #[test]
 fn set_max_attestors_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
-        let bad_origin = attestor_1();
+        let bad_origin = attestor(ATTESTOR_1).0;
         assert_err!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin)
     })
 }
@@ -109,7 +93,7 @@ fn set_max_attestors_should_error_with_non_root_origin() {
 #[test]
 fn set_max_invulnerables_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
-        let bad_origin = attestor_1();
+        let bad_origin = attestor(ATTESTOR_1).0;
         assert_err!(
             Attestation::set_max_invulnerables(bad_origin, 200),
             BadOrigin
@@ -120,17 +104,17 @@ fn set_max_invulnerables_should_error_with_non_root_origin() {
 #[test]
 fn set_max_attestors_should_error_if_list_is_truncated() {
     ExtBuilder.build_and_execute(|| {
-        let attestor_1 = attestor_1();
-        let attestor_2 = attestor_2();
+        let (attestor_1, public_key_1, signature_1) = attestor(ATTESTOR_1);
+        let (attestor_2, public_key_2, signature_2) = attestor(ATTESTOR_2);
         assert_ok!(Attestation::register_attestor(
             attestor_1,
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            public_key_1,
+            signature_1
         ));
         assert_ok!(Attestation::register_attestor(
             attestor_2,
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            public_key_2,
+            signature_2
         ));
         assert_err!(
             Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
@@ -142,11 +126,11 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
 #[test]
 fn unregister_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor_1();
+        let (attestor, public_key, signature) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             attestor.clone(),
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            public_key,
+            signature
         ));
         assert_ok!(Attestation::unregister_attestor(attestor));
     })
@@ -155,9 +139,9 @@ fn unregister_attestor_should_work_happy_path() {
 #[test]
 fn unregister_attestor_should_fail_when_address_is_not_registered() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor_1();
+        let attestor = attestor(ATTESTOR_1);
         assert_err!(
-            Attestation::unregister_attestor(attestor),
+            Attestation::unregister_attestor(attestor.0),
             Error::<Test>::AddressNotAttestor
         );
     })
@@ -166,17 +150,17 @@ fn unregister_attestor_should_fail_when_address_is_not_registered() {
 #[test]
 fn unregister_invulnerable_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor_1();
+        let (attestor, public_key, signature) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             attestor.clone(),
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            public_key,
+            signature
         ));
 
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
-            VALID_BLS_PUBLIC_KEY
+            public_key
         ));
         assert_ok!(Attestation::unregister_invulnerable(
             RuntimeOrigin::root(),
@@ -197,11 +181,11 @@ fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
 #[test]
 fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor_1();
+        let (attestor, public_key, signature) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             attestor.clone(),
-            VALID_BLS_PUBLIC_KEY,
-            VALID_BLS_PUBLIC_SIGNATURE
+            public_key,
+            signature
         ));
         assert_err!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
@@ -230,19 +214,23 @@ fn test_set_max_comittee_size_root_works() {
 #[test]
 fn test_set_max_comittee_size_other_fails() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor_1();
+        let attestor = attestor(ATTESTOR_1);
 
-        assert_err!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
+        assert_err!(
+            Attestation::set_comittee_set_size(attestor.0, 512),
+            BadOrigin
+        );
     })
 }
 
 #[test]
 fn add_invulnerable_also_adds_as_attestor_works() {
     ExtBuilder.build_and_execute(|| {
+        let (_, public_key, _) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
-            VALID_BLS_PUBLIC_KEY
+            public_key
         ));
 
         assert!(Attestation::attestors(ATTESTOR_1).is_some());
@@ -254,15 +242,16 @@ fn add_invulnerable_also_adds_as_attestor_works() {
 #[test]
 fn remove_invulnerable_that_is_not_attestor_works() {
     ExtBuilder.build_and_execute(|| {
+        let (_, public_key, _) = attestor(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
-            VALID_BLS_PUBLIC_KEY
+            public_key
         ));
 
         // Unregister
-        let attestor = attestor_1();
-        assert_ok!(Attestation::unregister_attestor(attestor));
+        let attestor = attestor(ATTESTOR_1);
+        assert_ok!(Attestation::unregister_attestor(attestor.0));
 
         // Not an attestor anymore
         assert!(Attestation::attestors(ATTESTOR_1).is_none());
@@ -435,5 +424,16 @@ fn submitting_invalid_attestation_chain_fails() {
             RuntimeOrigin::none(),
             attestation
         ));
+    })
+}
+
+fn invalid_proof_of_possession() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, public_key, _) = attestor(ATTESTOR_1);
+        let (_, _, invalid_bls_signature) = crate::tests::attestor(ATTESTOR_2);
+        assert_err!(
+            Attestation::register_attestor(attestor, public_key, invalid_bls_signature),
+            Error::<Test>::InvalidProofOfPossession
+        );
     })
 }
