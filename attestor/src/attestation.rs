@@ -7,7 +7,7 @@ use kameo::{
 use mmr::traits::MerkleTreeTrait;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::{error, warn};
+use tracing::{debug, error};
 
 //use crate::merkle;
 use utils::StarknetPedersenMmr;

@@ -4,6 +4,7 @@ use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, Attestat
 use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
 use either::Either;
+use eth_common::{transaction::BlockItem, Client};
 use proof::claim_prover::{build_prover, ClaimProver};
 use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
@@ -32,7 +33,21 @@ pub async fn cairo_verify_claim(
     println!("claim: {:?}", claim);
     println!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_prover(url, claim.clone(), claim_attestation_slice)
+    let eth_client = Client::new(url).await.map_err(|err| anyhow!("{err:?}"))?;
+
+    let tx_bytes = eth_client.get_transactions(block_number.as_u64()).await?;
+    let rx_bytes = eth_client.get_receipts(block_number.as_u64()).await?;
+
+    let tx_bytes = tx_bytes
+        .iter()
+        .map(eth_common::transaction::Transaction::to_bytes)
+        .collect::<Vec<_>>();
+    let rx_bytes = rx_bytes
+        .iter()
+        .map(eth_common::transaction::Receipt::to_bytes)
+        .collect::<Vec<_>>();
+
+    let mut cairo_verifier = build_prover(tx_bytes, rx_bytes, claim.clone(), claim_attestation_slice)
         .await
         .map(|claim_cairo_verifier| {
             print_with_timestamp("done".into());

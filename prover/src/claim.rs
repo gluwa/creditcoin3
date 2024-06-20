@@ -1,6 +1,6 @@
-use anyhow::Result;
-use cc_client::{cc3::runtime_types::prover_primitives::claim::ClaimKind, claim::Cc3Claim};
-use eth::{transaction::BlockItem, Address};
+// use anyhow::Result;
+// use cc_client::{cc3::runtime_types::prover_primitives::claim::ClaimKind, claim::Cc3Claim};
+// use eth::{transaction::BlockItem, Address};
 
 // pub async fn check_claim_inclusion(client: eth::Client, claim: Cc3Claim) -> Result<bool> {
 //     let block = client.get_block(claim.block_number).await?;

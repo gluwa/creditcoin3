@@ -1,23 +1,16 @@
-use eth_common::transaction::BlockItem;
-//  use common::sorted_block::SortedBlockError;
-use eth_common::{fetch_block_receipts, fetch_block_transactions};
+use eth_common::{transaction::BlockItem, Client};
 use ethereum_types::U256;
 use mmr::traits::MerkleTreeTrait;
 use utils::{Felt, StarknetPedersenMmr};
 
 pub async fn retrieve_and_compute_merkle_trees(
     url: &str,
-    //    cache_dir: Option<&str>,
     block_number: U256,
 ) -> anyhow::Result<(StarknetPedersenMmr, StarknetPedersenMmr)> {
-    //) -> Result<(StarknetPedersenMmr, StarknetPedersenMmr), SortedBlockError> {
-    // let mut tx_cache =
-    //     cache_dir.map(|dir| <Transaction as FetchFromBlock>::Cache::new(dir, block_number));
-    // let mut rx_cache =
-    //     cache_dir.map(|dir| <Receipt as FetchFromBlock>::Cache::new(dir, block_number));
+    let eth_client = Client::new(url).await?;
 
-    let tx_merkle_tree_fut = fetch_block_transactions(url, block_number.as_u64());
-    let rx_merkle_tree_fut = fetch_block_receipts(url, block_number.as_u64());
+    let tx_merkle_tree_fut = eth_client.get_transactions(block_number.as_u64());
+    let rx_merkle_tree_fut = eth_client.get_receipts(block_number.as_u64());
 
     let (txs, rxs) = futures::future::try_join(tx_merkle_tree_fut, rx_merkle_tree_fut).await?;
 
@@ -32,10 +25,8 @@ pub async fn retrieve_and_compute_merkle_trees(
 
 pub async fn retrieve_and_compute_merkle_roots(
     url: &str,
-    //    cache_dir: Option<&str>,
     block_number: U256,
 ) -> anyhow::Result<(Felt, Felt)> {
-    //) -> Result<(Felt, Felt), SortedBlockError> {
     let (tx_tree, rx_tree) = retrieve_and_compute_merkle_trees(url, block_number).await?;
 
     Ok((tx_tree.root().0, rx_tree.root().0))

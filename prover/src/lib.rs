@@ -6,7 +6,7 @@ use sp_core::H256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 pub mod attestation_cache;
 pub mod cc3;

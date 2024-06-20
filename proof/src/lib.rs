@@ -1,19 +1,21 @@
-pub mod claim_prover;
-pub mod json_serializable;
-
 use anyhow::anyhow;
-
-use crate::claim_prover::{build_prover, ClaimProver};
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
 use either::Either;
 use prover_primitives::claim::ClaimSerializable;
-use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+use utils::print_with_timestamp;
+
+use crate::claim_prover::{build_prover, ClaimProver};
+use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+
+pub mod claim_prover;
+pub mod types;
 
 pub async fn cairo_generate_proof(
-    url: &str,
     claim: ClaimSerializable,
+    rx_bytes: Vec<Vec<u8>>,
+    tx_bytes: Vec<Vec<u8>>,
     claim_attestation_fragment: &AttestationFragment,
     checkpoints: &AttestationCheckpoints,
     cairo_proof_mode: bool,
@@ -33,7 +35,7 @@ pub async fn cairo_generate_proof(
     println!("claim: {:?}", claim);
     println!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_prover(url, claim.clone(), claim_attestation_slice)
+    let mut cairo_verifier = build_prover(rx_bytes, tx_bytes, claim.clone(), claim_attestation_slice)
         .await
         .map(|claim_cairo_verifier| {
             println!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
@@ -134,7 +136,9 @@ mod tests {
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use attestation_db::AttestationDB;
     use colored::Colorize;
-    use eth_common::fetch_block_transactions;
+    use eth_common::{
+        fetch_block_receipts, fetch_block_transactions, transaction::BlockItem, Client,
+    };
     use hashbrown::HashSet;
     use prover_primitives::types::StoneProofPublicInput;
     use prover_primitives::{
@@ -160,8 +164,19 @@ mod tests {
         let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
         let checkpoints_path = "../data/execution-chain";
 
+        let eth_client = Client::new(url).await.expect("failed to create eth client");
         // -------------------------------------- claimer part ----------------------------------
-        let tx_asd = fetch_block_transactions(url, block).await.unwrap();
+        let tx_asd = eth_client.get_transactions(block).await.unwrap();
+        let rx_asd = eth_client.get_receipts(block).await.unwrap();
+
+        let tx_bytes = tx_asd
+            .iter()
+            .map(eth_common::transaction::Transaction::to_bytes)
+            .collect::<Vec<_>>();
+        let rx_bytes = rx_asd
+            .iter()
+            .map(eth_common::transaction::Receipt::to_bytes)
+            .collect::<Vec<_>>();
 
         // rlp-encoded tx/rx
         let payload_bytes = tx_asd[index].payload_bytes();
@@ -205,8 +220,9 @@ mod tests {
         let generate_stone_proof = true;
         let overwrite_existing_stone_proof = false;
         let result = crate::cairo_generate_proof(
-            url,
             cairo_claim,
+            tx_bytes,
+            rx_bytes,
             &attestation_fragment,
             checkpoints.inner(),
             generate_stone_proof,
