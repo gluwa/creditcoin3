@@ -69,7 +69,7 @@ impl NewBlock {
             .collect::<Vec<Vec<u8>>>()
     }
 
-    fn get_tx_rx_merkle_trees(&self) -> Result<(StarknetPedersenMmr, StarknetPedersenMmr), Error> {
+    fn get_tx_rx_merkle_trees(&self) -> (StarknetPedersenMmr, StarknetPedersenMmr) {
         // Create rlp's for all transactions
         let tx_rlps = self.to_transactions_rlps();
         let rx_rlps = self.to_receipts_rlps();
@@ -79,7 +79,7 @@ impl NewBlock {
         // let tx_tree = rlps_to_merkletree(&tx_rlps)?;
         // let rx_tree = rlps_to_merkletree(&rx_rlps)?;
 
-        Ok((tx_tree, rx_tree))
+        (tx_tree, rx_tree)
     }
 }
 
@@ -89,22 +89,23 @@ impl Message<NewBlock> for Attestor {
 
     async fn handle(&mut self, msg: NewBlock, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         // handle the new block
-        let attestation: Option<Attestation<H256>> = match create::<H256>(&msg) {
-            Ok(attestation) => Some(attestation),
-            Err(e) => {
-                warn!("Error creating attestation: {:?}", e);
-                None
-            }
-        };
+        // let attestation: Option<Attestation<H256>> = match create::<H256>(&msg) {
+        //     Ok(attestation) => Some(attestation),
+        //     Err(e) => {
+        //         warn!("Error creating attestation: {:?}", e);
+        //         None
+        //     }
+        // };
 
-        Ok(attestation)
+        // Ok(attestation)
+        Ok(create::<H256>(&msg))
     }
 }
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
-    let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees()?;
+pub fn create<H>(new_block: &NewBlock) -> AttestationData<H256> {
+    let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees();
 
     let attestation = Attestation {
         chain_id: new_block.chain_id,
@@ -116,7 +117,7 @@ pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
         prev_digest: None,
     };
 
-    Ok(attestation)
+    attestation
 }
 
 // /// Construct a pedersen merkletree from given input

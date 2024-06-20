@@ -1,11 +1,13 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::AsyncCallbackWithArg;
 //use common::sorted_block::SortedBlockError;
+use ethereum_types::U256;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
-use ethereum_types::U256;
 use utils::Felt;
 
 #[derive(Debug, Clone)]
@@ -50,11 +52,12 @@ pub(crate) async fn create_attestation_block_task(
                 // compute Pedersen hashes and create attestation block
                 match retrieve_block_and_compute_merkle_roots(
                     &source_chain_api_server_url,
-//                    cache_dir.as_deref(),
+                    //                    cache_dir.as_deref(),
                     block_number,
                     create_attestation_block_cancellation_token,
                 )
-                .await {
+                .await
+                {
                     Ok(roots) => break Ok(roots),
 
                     Err(CreateAttestationBlockError::Network(msg)) => {
@@ -70,7 +73,7 @@ pub(crate) async fn create_attestation_block_task(
                             }
                             disconnected.store(true, AtomicOrdering::Relaxed);
                         }
-                    },
+                    }
                     Err(err) => break Err(err), // other non-recoverable errors
                 }
             }
@@ -88,24 +91,24 @@ pub(crate) async fn create_attestation_block_task(
 
 async fn retrieve_block_and_compute_merkle_roots(
     url: &str,
-//    cache_dir: Option<&str>,
+    //    cache_dir: Option<&str>,
     block_number: U256,
     cancellation_token: CancellationToken,
 ) -> Result<(Felt, Felt), CreateAttestationBlockError> {
     use attestation_chain::utils::retrieve_and_compute_merkle_roots;
 
     tokio::select! {
-        res = retrieve_and_compute_merkle_roots(url, block_number) => {
-//            res = retrieve_and_compute_merkle_roots(url, cache_dir, block_number) => {
-            match res {
-                Ok((tx_tree_root, rx_tree_root)) => Ok((tx_tree_root, rx_tree_root)),
-                Err(err) => Err(CreateAttestationBlockError::Network(err.to_string())),
-//                Err(err) => Err(CreateAttestationBlockError::from(err)),
+            res = retrieve_and_compute_merkle_roots(url, block_number) => {
+    //            res = retrieve_and_compute_merkle_roots(url, cache_dir, block_number) => {
+                match res {
+                    Ok((tx_tree_root, rx_tree_root)) => Ok((tx_tree_root, rx_tree_root)),
+                    Err(err) => Err(CreateAttestationBlockError::Network(err.to_string())),
+    //                Err(err) => Err(CreateAttestationBlockError::from(err)),
+                }
             }
-        }
 
-        _ = cancellation_token.cancelled() => {
-            Err(CreateAttestationBlockError::Cancelled(block_number))
-        },
-    }
+            _ = cancellation_token.cancelled() => {
+                Err(CreateAttestationBlockError::Cancelled(block_number))
+            },
+        }
 }

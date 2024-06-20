@@ -6,12 +6,12 @@ use attestation_chain::block::Block;
 use attestation_db::json_db::AttestationJsonDB;
 use attestation_db::{AttestationDB, AttestationDbError};
 use colored::Colorize;
+use ethereum_types::U256;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use ethereum_types::U256;
 
 pub(crate) fn create_historical_blocks_db_manager_instance(
     runtime: Arc<Runtime>,

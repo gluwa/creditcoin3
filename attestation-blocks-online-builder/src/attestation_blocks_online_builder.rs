@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_arguments)]
+
+use ethereum_types::U256;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -6,7 +9,6 @@ use tokio::sync::mpsc::{error::SendError, unbounded_channel};
 use tokio::sync::RwLock;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
-use ethereum_types::U256;
 
 use crate::build_attestation_chain_task::{
     build_attestation_chain_task, Outcome as ChainBuildTaskOutcome,

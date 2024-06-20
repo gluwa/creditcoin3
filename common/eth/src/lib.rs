@@ -1,3 +1,4 @@
+use crate::transaction::{BlockItem, Receipt, Transaction};
 use alloy::{
     providers::{Provider, ProviderBuilder, RootProvider},
     pubsub::PubSubFrontend,
@@ -11,7 +12,6 @@ use anyhow::Result;
 use thiserror::Error;
 use tracing::{error, info};
 use utils::block_item_traits::BlockItemIdentifier;
-use crate::transaction::{BlockItem, Transaction, Receipt};
 
 pub use alloy::core::primitives::Address;
 
@@ -38,7 +38,7 @@ pub enum Error {
 #[derive(Debug, Clone)]
 pub struct Client {
     provider: RootProvider<PubSubFrontend>,
-//    https_provider: RootProvider<alloy::transports::http::Http<reqwest::Client>>,
+    //    https_provider: RootProvider<alloy::transports::http::Http<reqwest::Client>>,
 }
 
 impl Client {
@@ -46,7 +46,7 @@ impl Client {
         // Create a provider.
         let ws = WsConnect::new(ws_url);
         let provider = ProviderBuilder::new().on_ws(ws).await?;
-    //    let https_provider = ProviderBuilder::new().on_http(https_url.into().as_str().parse()?);
+        //    let https_provider = ProviderBuilder::new().on_http(https_url.into().as_str().parse()?);
 
         Ok(Self { provider })
     }
@@ -89,9 +89,9 @@ impl Client {
             .into_iter()
             .flatten()
             .enumerate()
-            .map(|(index, rx)| 
+            .map(|(index, rx)| {
                 transaction::Receipt::new(rx, BlockItemIdentifier::new(number.into(), index as u64))
-            )
+            })
             .collect();
 
         Ok(receipts)
@@ -104,12 +104,14 @@ impl Client {
         let block = self.get_block(number).await?;
 
         let transactions = if let BlockTransactions::Full(tx) = block.transactions {
-            tx
-                .into_iter()
+            tx.into_iter()
                 .enumerate()
-                .map(|(index, rx)| 
-                    transaction::Transaction::new(rx, BlockItemIdentifier::new(number.into(), index as u64))
-                )
+                .map(|(index, rx)| {
+                    transaction::Transaction::new(
+                        rx,
+                        BlockItemIdentifier::new(number.into(), index as u64),
+                    )
+                })
                 .collect()
         } else {
             info!("No full tx");
@@ -144,15 +146,18 @@ pub async fn fetch_block_transactions(
         .get_block_by_number(BlockNumberOrTag::Number(block_number), true)
         .await?
         .ok_or(anyhow::anyhow!("failed to fetch block {}", block_number))?;
-//        .ok_or(Error::FailedToFetchBlock(block_number))?;
+    //        .ok_or(Error::FailedToFetchBlock(block_number))?;
 
     let transactions = if let BlockTransactions::Full(tx) = block.transactions {
         let mut txs = tx
             .into_iter()
             .enumerate()
-            .map(|(index, rx)| 
-                Transaction::new(rx, BlockItemIdentifier::new(block_number.into(), index as u64))
-            )
+            .map(|(index, rx)| {
+                Transaction::new(
+                    rx,
+                    BlockItemIdentifier::new(block_number.into(), index as u64),
+                )
+            })
             .collect::<Vec<_>>();
         txs.sort_by_key(|tx| tx.id().index());
         txs
@@ -177,11 +182,14 @@ pub async fn fetch_block_receipts(
         .into_iter()
         .flatten()
         .enumerate()
-        .map(|(index, rx)| 
-            Receipt::new(rx, BlockItemIdentifier::new(block_number.into(), index as u64))
-        )
+        .map(|(index, rx)| {
+            Receipt::new(
+                rx,
+                BlockItemIdentifier::new(block_number.into(), index as u64),
+            )
+        })
         .collect::<Vec<_>>();
-    
+
     receipts.sort_by_key(|rx| rx.id().index());
 
     Ok(receipts)

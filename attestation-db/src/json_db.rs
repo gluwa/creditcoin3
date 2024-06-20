@@ -3,10 +3,10 @@ use attestation_chain::attestation_checkpoints::AttestationInterval;
 use attestation_chain::attestation_fragment::AttestationFragment;
 use attestation_chain::block::Block;
 use attestation_chain::{ATTESTATION_GENESIS, CHECKPOINT_INTERVAL};
-use utils::json_serializable::JsonSerializable;
+use ethereum_types::U256;
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
-use ethereum_types::U256;
+use utils::json_serializable::JsonSerializable;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct AttestationJsonDBState {
@@ -44,7 +44,7 @@ impl AttestationJsonDB {
                 .try_append_block(
                     last_saved_fragment
                         .head()
-                        .map(Clone::clone)
+                        .cloned()
                         .expect("full fragment has head"),
                 )
                 .expect("can append to empty fragment");
@@ -84,15 +84,11 @@ impl AttestationDB for AttestationJsonDB {
         &self.recent_fragment
     }
     fn get_fragment_for(&self, block_number: U256) -> Option<AttestationFragment> {
-        Self::get_saved_fragment_for(&self.local_path, block_number)
-            .or_else(|| 
-                (
-                    Self::key_for(block_number) == Self::fragment_key(&self.recent_fragment())
-                    &&
-                    self.recent_fragment().head()?.n() >= block_number
-                )
+        Self::get_saved_fragment_for(&self.local_path, block_number).or_else(|| {
+            (Self::key_for(block_number) == Self::fragment_key(self.recent_fragment())
+                && self.recent_fragment().head()?.n() >= block_number)
                 .then_some(self.recent_fragment().clone())
-            )
+        })
     }
 
     fn fragment_exists(&self, interval: &AttestationInterval) -> bool {

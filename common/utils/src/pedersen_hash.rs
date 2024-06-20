@@ -1,6 +1,6 @@
+use crate::utils::felts_from_bytes;
 use starknet_crypto::{pedersen_hash, FieldElement};
 use std::fmt::Debug;
-use crate::utils::felts_from_bytes;
 
 #[derive(core::hash::Hash, Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct StarknetFeltWrapped(pub FieldElement);
@@ -47,7 +47,7 @@ pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
     //    println!("zero: {}", prev.to_string());
 
     for felt in &felts[1..] {
-//        println!("prev: {}, felt: {}", prev.as_ref().to_string(),  felt.as_ref().to_string());
+        //        println!("prev: {}, felt: {}", prev.as_ref().to_string(),  felt.as_ref().to_string());
         prev = pedersen_hash(&prev, felt.as_ref());
     }
 
@@ -55,7 +55,7 @@ pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
         .expect("length (u64) is less than field element. qed");
 
     //    println!("len: {}", len_felt.as_ref().to_string());
-//    println!("prev: {}, felt: {}", prev.as_ref().to_string(),  len_felt.as_ref().to_string());
+    //    println!("prev: {}, felt: {}", prev.as_ref().to_string(),  len_felt.as_ref().to_string());
     pedersen_hash(prev.as_ref(), &len_felt)
 }
 
@@ -136,7 +136,7 @@ mod tests {
         let c = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
 
         let h = pedersen_array(&[a, b, c]);
-        
+
         assert_eq!(
             h,
             // output taken from running ../cairo-scripts/test_pedersen_array.cairo

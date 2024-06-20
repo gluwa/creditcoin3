@@ -1,6 +1,10 @@
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
 use crate::create_attestation_block_task::CreateAttestationBlockError;
 use crate::purgatory::BlockPurgatoryQueue;
 use crate::{AsyncCallbackWithArg, SourceChainBlockIdentifier, SourceChainBlockStream};
+use ethereum_types::U256;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -10,7 +14,6 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
-use ethereum_types::U256;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Outcome {

@@ -35,7 +35,7 @@ impl BlockItemIdentifier {
     pub fn new(block_number: U256, index: u64) -> Self {
         Self {
             block_number,
-            index
+            index,
         }
     }
     pub fn block_number(&self) -> U256 {
@@ -53,15 +53,18 @@ impl BlockItemIdentifier {
         // block_number                                         -> U256              -> felts[1,2] (block number hi & lo big endian)
         // shifting of index (u64) to fit big endian 31 bytes   -> (31 - 8) bytes    -> felt[3] (index u64 big endian)
         const BLOCK_HI_ALIGNMENT_PADDING_LEN: usize = U248_BYTE_COUNT - size_of::<u8>();
-        // the hi part of 256-bit long block number to be shifted to right due to big-endianness 
-        const BLOCK_HI_BE_SHIFT_LEN: usize = U248_BYTE_COUNT - (size_of::<U256>() - U248_BYTE_COUNT);
+        // the hi part of 256-bit long block number to be shifted to right due to big-endianness
+        const BLOCK_HI_BE_SHIFT_LEN: usize =
+            U248_BYTE_COUNT - (size_of::<U256>() - U248_BYTE_COUNT);
         const INDEX_BE_SHIFT_LEN: usize = U248_BYTE_COUNT - size_of::<u64>();
 
-        let mut buf = [0u8;  size_of::<Self>() + BLOCK_HI_ALIGNMENT_PADDING_LEN + BLOCK_HI_BE_SHIFT_LEN + INDEX_BE_SHIFT_LEN];
+        let mut buf = [0u8; size_of::<Self>()
+            + BLOCK_HI_ALIGNMENT_PADDING_LEN
+            + BLOCK_HI_BE_SHIFT_LEN
+            + INDEX_BE_SHIFT_LEN];
         let block_number_offset = BLOCK_HI_ALIGNMENT_PADDING_LEN + BLOCK_HI_BE_SHIFT_LEN;
-        self.block_number.to_big_endian(
-        &mut buf[block_number_offset..block_number_offset + size_of::<U256>()]
-        );
+        self.block_number
+            .to_big_endian(&mut buf[block_number_offset..block_number_offset + size_of::<U256>()]);
 
         let index_offset = block_number_offset + size_of::<U256>() + INDEX_BE_SHIFT_LEN;
         buf[index_offset..].copy_from_slice(&self.index.to_be_bytes());

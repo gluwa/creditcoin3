@@ -35,7 +35,7 @@ pub enum AttestationDbError {
 
     MisalignedBlockDiscarded(Box<Block>),
     BlockNumberMismatch(U256),
-//    BlockNumberMismatch(u64),
+    //    BlockNumberMismatch(u64),
     BlockDigestMismatch(Box<Block>),
 
     FragmentIsFull,

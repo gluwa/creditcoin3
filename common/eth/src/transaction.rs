@@ -1,5 +1,5 @@
 use alloy::consensus::{ReceiptWithBloom, Signed};
-use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy, TxEip4844};
+use alloy::consensus::{TxEip1559, TxEip2930, TxEip4844, TxLegacy};
 use alloy::core::primitives::Log;
 use utils::block_item_traits::BlockItemIdentifier;
 
@@ -21,7 +21,7 @@ pub struct Transaction {
 impl Transaction {
     pub fn payload_bytes(&self) -> Vec<u8> {
         match self.tx_type() {
-            Some(0) => {                
+            Some(0) => {
                 let tx: Signed<TxLegacy> = self.inner.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
@@ -35,19 +35,16 @@ impl Transaction {
             }
             Some(3) => {
                 let tx: Signed<TxEip4844> = self.inner.clone().try_into().unwrap();
-                alloy::rlp::encode(tx.into_parts().0)                
-            },
-            _ => unimplemented!("unsupported tx type")
+                alloy::rlp::encode(tx.into_parts().0)
+            }
+            _ => unimplemented!("unsupported tx type"),
         }
     }
 }
 
 impl Transaction {
     pub fn new(tx: AlloyTransaction, id: BlockItemIdentifier) -> Self {
-        Self {
-            inner: tx,
-            id
-        }
+        Self { inner: tx, id }
     }
 }
 
@@ -81,10 +78,7 @@ pub struct Receipt {
 
 impl Receipt {
     pub fn new(rx: AlloyTransactionReceipt, id: BlockItemIdentifier) -> Self {
-        Self {
-            inner: rx,
-            id
-        }
+        Self { inner: rx, id }
     }
 }
 

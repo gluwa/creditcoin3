@@ -1,9 +1,9 @@
 use crate::AsyncCallbackWithArg;
 use attestation_chain::block::Block;
+use ethereum_types::U256;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use tokio::sync::mpsc::UnboundedReceiver;
-use ethereum_types::U256;
 use utils::Felt;
 
 #[derive(Debug)]
@@ -62,7 +62,7 @@ pub(crate) async fn resiliency_queue_event_loop(
                                 prev_top_opt = Some(block_number);
 
                                 if let Some(ref cb) = on_block_ready {
-                                    let block = Block::new(block_number.into(), roots.0, roots.1);
+                                    let block = Block::new(block_number, roots.0, roots.1);
                                     cb(block).await;
                                 };
                             },
@@ -89,7 +89,7 @@ pub(crate) async fn resiliency_queue_event_loop(
                                     compare_to += 1.into();
 
                                     if let Some(ref cb) = on_block_ready {
-                                        let block = Block::new(block_number.into(), roots.0, roots.1);
+                                        let block = Block::new(block_number, roots.0, roots.1);
                                         cb(block).await;
                                     };
                                 }

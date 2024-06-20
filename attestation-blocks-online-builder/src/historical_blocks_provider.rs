@@ -1,9 +1,9 @@
 use crate::{SourceChainBlockIdentifier, SourceChainBlockStream};
 use attestation_chain::attestation_checkpoints::AttestationInterval;
 use core::pin::Pin;
+use ethereum_types::U256;
 use futures::task::{Context, Poll};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use ethereum_types::U256;
 
 pub struct HistoricalBlocksProvider {
     stream: Option<HistoricalBlocksStream>,
@@ -16,7 +16,10 @@ impl HistoricalBlocksProvider {
 
         Self {
             stream: Some(HistoricalBlocksStream { rx }),
-            block_injector: Some(NextHistoricalBlockInjector { watermark: 0.into(), tx }),
+            block_injector: Some(NextHistoricalBlockInjector {
+                watermark: 0.into(),
+                tx,
+            }),
         }
     }
 

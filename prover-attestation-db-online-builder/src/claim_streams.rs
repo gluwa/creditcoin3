@@ -9,8 +9,8 @@ use futures::task::{Context, Poll};
 // use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
 //use ethereum_types::U256;
 use prover_primitives::claim::ClaimSerializable;
-use utils::json_serializable::JsonSerializable;
 use serde::{Deserialize, Serialize};
+use utils::json_serializable::JsonSerializable;
 // pub(crate) struct RandomClaimGenerationStream<'a> {
 //     checkpoints: AttestationCheckpointsForDev,
 //     cache_dir: Option<&'a str>,
@@ -43,14 +43,14 @@ use serde::{Deserialize, Serialize};
 //     type Item = ClaimSerializable;
 
 //     fn poll_next(mut self: Pin<&mut Self>, _ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        
+
 //         Poll::Ready(
 //             self
 //                 .checkpoint_range()
 //                 .and_then(|range| {
 //                     let claim_block_number = rand::thread_rng().gen_range(range.start.as_u64()..range.end.as_u64());
 //                     let claim_kind = ClaimKind::try_from(rand::thread_rng().gen_range(1..=2)).unwrap();
-                    
+
 //                     self
 //                         .cache_dir
 //                         .map(|dir| <TypedTransaction as FetchFromBlock>::Cache::new(dir, claim_block_number.into()))
@@ -68,7 +68,7 @@ use serde::{Deserialize, Serialize};
 
 //                             Some(
 //                                 ClaimSerializable::from(
-//                                     &Claim::try_create( 
+//                                     &Claim::try_create(
 //                                         ClaimIdentifier {
 //                                             kind: claim_kind,
 //                                             block_item_id: BlockItemIdentifier::new(
@@ -81,7 +81,7 @@ use serde::{Deserialize, Serialize};
 //                                     )
 //                                     .unwrap()
 //                                 )
-//                             )        
+//                             )
 //                         })
 //                 })
 //         )
@@ -117,7 +117,7 @@ use serde::{Deserialize, Serialize};
 //         let kickoff_state_cloned = Arc::clone(&kickoff_state);
 //         let stream_dropped_cloned = Arc::clone(&stream_dropped);
 //         thread::spawn(move || {
-//             while !stream_dropped_cloned.load(Ordering::Relaxed) { 
+//             while !stream_dropped_cloned.load(Ordering::Relaxed) {
 //                 if let Some(kickoff_waker) = kickoff_state_cloned.lock().unwrap().kickoff_waker.take() {
 //                     kickoff_waker.wake()
 //                 }
@@ -167,7 +167,7 @@ use serde::{Deserialize, Serialize};
 //         let claim_block_number = self.curr.unwrap_or(
 //             checkpoint_range.as_ref().expect("checked earlier").start
 //         );
-                    
+
 //         let claim = self.cache_dir
 //                     .map(|dir| <TypedTransaction as FetchFromBlock>::Cache::new(dir, claim_block_number))
 //                     .as_ref()
@@ -183,7 +183,7 @@ use serde::{Deserialize, Serialize};
 
 //                         Some(
 //                             ClaimSerializable::from(
-//                                 &Claim::try_create( 
+//                                 &Claim::try_create(
 //                                     ClaimIdentifier {
 //                                         kind: ClaimKind::Tx,
 //                                         block_item_id: BlockItemIdentifier::new(
@@ -228,10 +228,7 @@ impl futures_util::stream::Stream for FromJsonClaimGenerationStream {
         Poll::Ready(
             (!self.claims.0.is_empty())
                 .then_some(&mut self.claims.0)
-                .and_then(|claims| claims
-                    .drain(0..1)
-                    .next()
-                )
+                .and_then(|claims| claims.drain(0..1).next()),
         )
     }
 }

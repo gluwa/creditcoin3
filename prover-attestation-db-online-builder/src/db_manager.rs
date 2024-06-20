@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use futures::future::BoxFuture;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -174,42 +176,42 @@ async fn historical_blocks_forward_crawler_db_event_loop(
 ) {
     let outcome = loop {
         tokio::select! {
-            res = block_receiver.recv() => match res {
-                Some(block) => {
-                    let result = db.write().await.try_append_block(block);
-                    match result {
-                        Ok(Some(fragment_boxed)) => {
-                            if let Some(ref callback) = on_full_fragment_set_outcome {
-                                callback(Ok(fragment_boxed.clone())).await;
-                            }
-                        },
-                        Err(AttestationDbError::FragmentAlreadySet(fragment_interval)) => {
-//                            Err(AttestationDbError::FragmentAlreadySet(fragment_boxed)) => {
-//                            let fragment_boxed_cloned = fragment_boxed.clone();
-                            if let Some(ref callback) = on_full_fragment_set_outcome {
-                                callback(Err(AttestationDbError::FragmentAlreadySet(fragment_interval))).await;
-//                                callback(Err(AttestationDbError::FragmentAlreadySet(fragment_boxed_cloned))).await;
-                            }
-                        },
-                        Ok(None) => {
-                            if let Some(ref callback) = on_block_append_outcome {
-                                let head = db.read().await.recent_fragment().head().expect("fragment has head").clone();
-                                callback(Ok(head)).await;
+                    res = block_receiver.recv() => match res {
+                        Some(block) => {
+                            let result = db.write().await.try_append_block(block);
+                            match result {
+                                Ok(Some(fragment_boxed)) => {
+                                    if let Some(ref callback) = on_full_fragment_set_outcome {
+                                        callback(Ok(fragment_boxed.clone())).await;
+                                    }
+                                },
+                                Err(AttestationDbError::FragmentAlreadySet(fragment_interval)) => {
+        //                            Err(AttestationDbError::FragmentAlreadySet(fragment_boxed)) => {
+        //                            let fragment_boxed_cloned = fragment_boxed.clone();
+                                    if let Some(ref callback) = on_full_fragment_set_outcome {
+                                        callback(Err(AttestationDbError::FragmentAlreadySet(fragment_interval))).await;
+        //                                callback(Err(AttestationDbError::FragmentAlreadySet(fragment_boxed_cloned))).await;
+                                    }
+                                },
+                                Ok(None) => {
+                                    if let Some(ref callback) = on_block_append_outcome {
+                                        let head = db.read().await.recent_fragment().head().expect("fragment has head").clone();
+                                        callback(Ok(head)).await;
+                                    }
+                                },
+
+                                Err(err) => {
+                                    if let Some(ref callback) = on_block_append_outcome {
+                                        callback(Err(err)).await;
+                                    }
+                                },
                             }
                         },
 
-                        Err(err) => {
-                            if let Some(ref callback) = on_block_append_outcome {
-                                callback(Err(err)).await;
-                            }
-                        },
-                    }
-                },
-
-                None => break Outcome::SenderDropped,
-            },
-            _ = cancellation_token.cancelled() => break Outcome::Cancelled,
-        }
+                        None => break Outcome::SenderDropped,
+                    },
+                    _ = cancellation_token.cancelled() => break Outcome::Cancelled,
+                }
     };
 
     if let Some(callback) = on_db_manager_task_exitted {

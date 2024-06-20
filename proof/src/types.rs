@@ -1,12 +1,12 @@
 use anyhow::anyhow;
-use utils::StarknetPedersenMerkleProof;
+use ethereum_types::U256;
 use prover_primitives::claim::ClaimIdentifier;
 use serde::{Deserialize, Serialize};
-use utils::Felt;
-use utils::json_serializable::JsonSerializable;
-use utils::utils::{try_parse_usize, try_parse_felt, try_parse_u64, u256_from_felts};
-use ethereum_types::U256;
 use utils::block_item_traits::BlockItemIdentifier;
+use utils::json_serializable::JsonSerializable;
+use utils::utils::{try_parse_felt, try_parse_u64, try_parse_usize, u256_from_felts};
+use utils::Felt;
+use utils::StarknetPedersenMerkleProof;
 //pub type Felt = starknet_crypto::FieldElement;
 
 #[derive(Serialize)]
@@ -49,7 +49,6 @@ impl CairoVerifierOutput {
     const PREFIX: &'static str = "Program output:";
 
     pub fn try_from_prefixed_str(s: &str) -> Result<Self, String> {
-
         if s.len() < Self::PREFIX.len() {
             return Err("failed to parse output string".to_owned());
         }
@@ -62,27 +61,22 @@ impl CairoVerifierOutput {
             }
         }
 
-        let prefix_index = prefix_index
-            .ok_or(format!(
-                "failed to parse output string. Expected to find '{}' prefix",
-                Self::PREFIX
-            ))?;
-            
+        let prefix_index = prefix_index.ok_or(format!(
+            "failed to parse output string. Expected to find '{}' prefix",
+            Self::PREFIX
+        ))?;
+
         Self::try_from(&s[prefix_index..].split_whitespace().collect::<Vec<_>>()[..])
     }
 
     fn parse_field<T, E: std::fmt::Debug, F: FnOnce(&str) -> Result<T, E>>(
         s: Option<&&str>,
         f: F,
-        field_name: &str
+        field_name: &str,
     ) -> Result<T, String> {
-        s
-            .ok_or("value for '{field_name}' is absent".to_owned())
-            .and_then(|s| f(s)
-                .map_err(|err| format!("failed to parse '{field_name}': {err:?}"))
-            )
+        s.ok_or("value for '{field_name}' is absent".to_owned())
+            .and_then(|s| f(s).map_err(|err| format!("failed to parse '{field_name}': {err:?}")))
     }
-
 }
 
 impl TryFrom<&[&str]> for CairoVerifierOutput {
@@ -90,39 +84,50 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
 
     fn try_from(ss: &[&str]) -> Result<Self, Self::Error> {
         let rlp_len = Self::parse_field(ss.last(), try_parse_usize, "rlp_len")?;
-        
+
         let mut it = ss.iter();
 
-        let claim_kind = (Self::parse_field(it.next(), try_parse_usize,"claim_kind")? as u8)
-                                        .try_into()
-                                        .map_err(|x| format!("invalid claim kind: {x}"))?;
-        let block_number_lo = Self::parse_field(it.next(), try_parse_felt,"block_number_lo")?;
-        let block_number_hi = Self::parse_field(it.next(), try_parse_felt,"block_number_hi")?;
+        let claim_kind = (Self::parse_field(it.next(), try_parse_usize, "claim_kind")? as u8)
+            .try_into()
+            .map_err(|x| format!("invalid claim kind: {x}"))?;
+        let block_number_lo = Self::parse_field(it.next(), try_parse_felt, "block_number_lo")?;
+        let block_number_hi = Self::parse_field(it.next(), try_parse_felt, "block_number_hi")?;
         let claim_id = ClaimIdentifier {
             kind: claim_kind,
             block_item_id: BlockItemIdentifier::new(
-            u256_from_felts(&block_number_lo, &block_number_hi),
-            Self::parse_field(it.next(), try_parse_u64, "index")?,
-            )
+                u256_from_felts(&block_number_lo, &block_number_hi),
+                Self::parse_field(it.next(), try_parse_u64, "index")?,
+            ),
         };
-//        let tx_type = Self::parse_field(it.next(), try_parse_u64, "tx_type")? as u8;
-        let continuity_checkpoint_digest = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_digest")?;
-        let continuity_checkpoint_block_number_lo = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_block_number_lo")?;
-        let continuity_checkpoint_block_number_hi = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_block_number_hi")?;
-        let continuity_checkpoint_block_number = u256_from_felts(&continuity_checkpoint_block_number_lo, &continuity_checkpoint_block_number_hi);
+        //        let tx_type = Self::parse_field(it.next(), try_parse_u64, "tx_type")? as u8;
+        let continuity_checkpoint_digest =
+            Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_digest")?;
+        let continuity_checkpoint_block_number_lo = Self::parse_field(
+            it.next(),
+            try_parse_felt,
+            "continuity_checkpoint_block_number_lo",
+        )?;
+        let continuity_checkpoint_block_number_hi = Self::parse_field(
+            it.next(),
+            try_parse_felt,
+            "continuity_checkpoint_block_number_hi",
+        )?;
+        let continuity_checkpoint_block_number = u256_from_felts(
+            &continuity_checkpoint_block_number_lo,
+            &continuity_checkpoint_block_number_hi,
+        );
         let query_hash = Self::parse_field(it.next(), try_parse_felt, "query_hash")?;
-        it
-            .take(rlp_len)
+        it.take(rlp_len)
             .enumerate()
             .map(|(i, s)| Self::parse_field(Some(s), try_parse_felt, &format!("felt[{i}]")))
             .collect::<Result<Vec<_>, _>>()
             .map(|claim_fields| Self {
                 claim_id,
-//                tx_type,
+                //                tx_type,
                 continuity_checkpoint_digest,
                 continuity_checkpoint_block_number,
                 query_hash,
-                claim_fields
+                claim_fields,
             })
     }
 }
@@ -139,9 +144,7 @@ pub struct MerkleProofSerializable {
 }
 
 impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
-    fn from(
-        (proof, claim_rlp): (StarknetPedersenMerkleProof, Vec<u8>),
-    ) -> Self {
+    fn from((proof, claim_rlp): (StarknetPedersenMerkleProof, Vec<u8>)) -> Self {
         Self {
             height: proof.height(),
             arity: StarknetPedersenMerkleProof::arity(),
@@ -166,7 +169,6 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
         }
     }
 }
-
 
 #[derive(Debug)]
 pub enum ClaimProverError {
@@ -232,17 +234,15 @@ impl TryFrom<&StoneProofJson> for StoneProofPublicInput {
     type Error = String;
 
     fn try_from(proof: &StoneProofJson) -> Result<Self, String> {
-        let public_memory = &proof
-            .public_input
-            .public_memory.0;
+        let public_memory = &proof.public_input.public_memory.0;
         let rlp_len = public_memory
-                        .last()
-                        .ok_or("proof public input is empty".to_owned())
-                        .map(PublicMemoryItem::value)
-                        .and_then(|s| try_parse_usize(s)
-                            .map_err(|err| format!("failed to parse 'rlp_len': {err:?}"))
-                        )?;
-    
+            .last()
+            .ok_or("proof public input is empty".to_owned())
+            .map(PublicMemoryItem::value)
+            .and_then(|s| {
+                try_parse_usize(s).map_err(|err| format!("failed to parse 'rlp_len': {err:?}"))
+            })?;
+
         Self::try_from(
             &public_memory
                 .iter()
@@ -250,7 +250,7 @@ impl TryFrom<&StoneProofJson> for StoneProofPublicInput {
                 .take(rlp_len + Self::NUMBER_OF_STATIC_FIELDS + 1)
                 .rev()
                 .map(PublicMemoryItem::value)
-                .collect::<Vec<_>>()[..]
+                .collect::<Vec<_>>()[..],
         )
     }
 }
@@ -282,7 +282,6 @@ pub struct PublicInput {
     rc_min: serde_json::value::Value,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoneProofJson {
     pub proof_hex: Box<str>,
@@ -294,7 +293,6 @@ pub struct StoneProofJson {
 }
 
 impl JsonSerializable for StoneProofJson {}
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StoneProof(StoneProofJson);
@@ -315,7 +313,7 @@ impl StoneProof {
         self.proof_mut().private_input = serde_json::value::Value::Null;
         self
     }
-    
+
     fn proof_mut(&mut self) -> &mut StoneProofJson {
         &mut self.0
     }
@@ -328,4 +326,3 @@ impl From<StoneProofJson> for StoneProof {
 }
 
 impl JsonSerializable for StoneProof {}
-

@@ -16,14 +16,14 @@ use clap::Parser;
 use colored::Colorize;
 use utils::json_serializable::JsonSerializable;
 //use common::poc_config::{AttestationBlocksBuilderConfig, PocConfig};
+use ethereum_types::U256;
+use poc_config::{AttestationBlocksBuilderConfig, PocConfig};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::signal;
 use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use ethereum_types::U256;
-use poc_config::{PocConfig, AttestationBlocksBuilderConfig};
 
 fn print_with_timestamp(s: colored::ColoredString) {
     println!(

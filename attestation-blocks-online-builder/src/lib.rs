@@ -13,10 +13,10 @@ pub mod source_blocks_provider;
 pub use crate::attestation_blocks_online_builder::*;
 pub use crate::historical_blocks_provider::*;
 pub use crate::source_blocks_provider::*;
+use ethereum_types::U256;
 use ethers::providers::Ws;
 use futures::future::BoxFuture;
 use std::sync::Arc;
-use ethereum_types::U256;
 //pub use crate::attestation_blocks_online_builder::AttestationChainOnlineBuilder;
 
 type EthersBlock = ethers::types::Block<EthersTxHash>;

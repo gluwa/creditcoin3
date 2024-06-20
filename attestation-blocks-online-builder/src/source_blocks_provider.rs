@@ -1,9 +1,14 @@
+#![allow(clippy::result_unit_err)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
 use crate::create_attestation_block_task::CreateAttestationBlockError;
 use crate::ethereum_block_listener::{ethereum_block_listener, Outcome};
 use crate::{
     AsyncCallbackWithArg, HistoricalBlocksProvider, NextHistoricalBlockInjector,
     SourceChainBlockIdentifier,
 };
+use ethereum_types::U256;
 use ethers::providers::{Middleware, Provider, Ws};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +18,6 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
-use ethereum_types::U256;
 
 pub(crate) trait SourceChainBlockStream:
     StreamExt<Item = Self::SourceBlock> + Unpin + Send + Sync

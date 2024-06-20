@@ -1,41 +1,40 @@
-
 mod cairo_verify_claim;
+mod claim_streams;
 mod db_manager;
 mod db_manager_instance;
 mod historical_blocks_crawler_instance;
 mod historical_blocks_db_manager_instance;
-mod claim_streams;
 
 use crate::cairo_verify_claim::cairo_verify_claim;
+use crate::claim_streams::FromJsonClaimGenerationStream;
 use crate::historical_blocks_crawler_instance::*;
 use crate::historical_blocks_db_manager_instance::*;
 use attestation_blocks_online_builder::{
     AttestationChainOnlineBuilder, DEFAULT_MAX_BLOCKS_TO_RETRIEVE, SOURCE_BLOCK_TIME_MILLIS,
 };
-use crate::claim_streams::FromJsonClaimGenerationStream;
 //use crate::claim_streams::{SeqClaimGenerationStream, RandomClaimGenerationStream, FromJsonClaimGenerationStream};
-use std::pin::Pin;
+use anyhow::anyhow;
 use attestation_chain::attestation_checkpoints::AttestationInterval;
 use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
 use attestation_db::json_db::AttestationJsonDB;
 use attestation_db::AttestationDB;
 use clap::Parser;
 use colored::Colorize;
+use either::Either;
+use ethereum_types::U256;
+use futures::StreamExt;
+use futures_util::stream::Stream;
+use poc_config::PocConfig;
+use proof::types::{CairoVerifierOutput, StoneProof};
+use prover_primitives::claim::ClaimSerializable;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::signal;
 use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use futures::StreamExt;
-use futures_util::stream::Stream;
-use anyhow::anyhow;
-use ethereum_types::U256;
-use either::Either;
-use proof::types::{CairoVerifierOutput, StoneProof};
 use utils::json_serializable::JsonSerializable;
-use prover_primitives::claim::ClaimSerializable;
-use poc_config::PocConfig;
 
 fn print_with_timestamp(s: colored::ColoredString) {
     println!(
@@ -222,10 +221,10 @@ fn main() {
 
         while let Some(claim) = claim_stream.next().await {
             let res = build_db_and_submit_claim(
-                poc_config.clone(), 
-                Arc::clone(&runtime_cloned), 
-                Arc::clone(&db), 
-                checkpoints.clone(), 
+                poc_config.clone(),
+                Arc::clone(&runtime_cloned),
+                Arc::clone(&db),
+                checkpoints.clone(),
                 claim.clone(),
                 args.generate_stone_proof,
                 args.force_stone_proving,
@@ -246,7 +245,7 @@ fn main() {
                         // .strip_off_private_input()
                         .to_file(fname).unwrap();
                 },
-        
+
                 Ok(Either::Right(_output)) => {
                     // if output.claim_id.kind == ClaimKind::Tx {
                     //     let txs = TypedTransaction::fetch_all(
@@ -263,7 +262,6 @@ fn main() {
                     //     let rlp = rlp::Rlp::new(payload_bytes);
                     //     let query = create_sample_query(&tx);
                     //     let claim = common::claim::Claim::try_create(claim.id().clone(), query.clone(), rlp).unwrap();
-                        
                     //     match claim.validate_fields(&output.claim_fields, &output.query_hash) {
                     //         Ok(_) => {
                     //             println!("{}", format!("claim validated").green().bold());
@@ -274,14 +272,13 @@ fn main() {
                     //     }   
                     // }          
                 },
-        
                 Err(err) => {
                     println!("{}", format!("error: {:?}", err).red());
                     if !args.dont_stop_on_failure {
                         break;
                     }
                 }
-            }            
+            }
         }
     });
 
@@ -303,7 +300,7 @@ async fn build_db_and_submit_claim(
     generate_stone_proof: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<Either<StoneProof, CairoVerifierOutput>> {
-//) -> anyhow::Result<Option<StoneProof>> {
+    //) -> anyhow::Result<Option<StoneProof>> {
 
     let source_chain_api_server_url = poc_config.source_chain_api_server_url();
     let block_cache_dir = poc_config.block_cache_url();
@@ -311,18 +308,16 @@ async fn build_db_and_submit_claim(
     checkpoints
         .poll()
         .map_err(|err| anyhow!("unable to access checkpoints: {err:?}\nrun attestor simulator to generate one or some checkpoints"))?;
-    let checkpoints_tail = checkpoints
-                            .inner()
-                            .tail()
-                            .ok_or(anyhow!("inconsistent checkpoints: no tail. Try running attestor simulator for longer time period"))?;
+    let checkpoints_tail = checkpoints.inner().tail().ok_or(anyhow!(
+        "inconsistent checkpoints: no tail. Try running attestor simulator for longer time period"
+    ))?;
     let checkpoints_stabilized_head = checkpoints
                                         .inner()
                                         .stabilized_head()
                                         .ok_or(anyhow!("inconsistent checkpoints: no stabilized head. Try running attestor simulator for longer time period"))?;
-    let checkpoints_head = checkpoints
-                            .inner()
-                            .head()
-                            .ok_or(anyhow!("inconsistent checkpoints: no head. Try running attestor simulator for longer time period"))?;
+    let checkpoints_head = checkpoints.inner().head().ok_or(anyhow!(
+        "inconsistent checkpoints: no head. Try running attestor simulator for longer time period"
+    ))?;
     println!(
         "{}",
         format!(
@@ -335,12 +330,20 @@ async fn build_db_and_submit_claim(
     println!("{}", format!("{claim:?}").bold().blue());
     let claim_block_number = claim.id().block_item_id.block_number();
     let claim_checkpoint = checkpoints
-                                .inner()
-                                .checkpoint_for(claim_block_number)
-                                .map(|cp| cp.n())
-                                .ok_or(anyhow!("claim block number {} matches no checkpoints", claim_block_number))?;  
+        .inner()
+        .checkpoint_for(claim_block_number)
+        .map(|cp| cp.n())
+        .ok_or(anyhow!(
+            "claim block number {} matches no checkpoints",
+            claim_block_number
+        ))?;
 
-    println!("{}", format!("claim checkpoint: {claim_checkpoint}").bold().blue());
+    println!(
+        "{}",
+        format!("claim checkpoint: {claim_checkpoint}")
+            .bold()
+            .blue()
+    );
     let claim_attestation_fragment = db.read().await.get_fragment_for(claim_block_number);
 
     let claim_attestation_fragment = match claim_attestation_fragment {
@@ -363,15 +366,11 @@ async fn build_db_and_submit_claim(
 
             let start_interval = AttestationInterval::interval_for(checkpoints_tail)
                 .expect("interval exists for aligned checkpoint");
-            let crawler_kickoff_block = skip_existing_fragments(
-                                            Arc::clone(&db), 
-                                            start_interval, 
-                                            claim_checkpoint
-                                        )
-                                        .await?;
-            let stop_condition = StopCondition::OnBlockReached(
-                Arc::new(move |curr_block| curr_block >= claim_checkpoint)
-            );
+            let crawler_kickoff_block =
+                skip_existing_fragments(Arc::clone(&db), start_interval, claim_checkpoint).await?;
+            let stop_condition = StopCondition::OnBlockReached(Arc::new(move |curr_block| {
+                curr_block >= claim_checkpoint
+            }));
             build_attestation_db(
                 source_chain_api_server_url,
                 block_cache_dir,
@@ -379,19 +378,17 @@ async fn build_db_and_submit_claim(
                 Arc::clone(&db),
                 crawler_kickoff_block,
                 stop_condition,
-            ).
-            await?;
-            
+            )
+            .await?;
+
             db.read()
                 .await
                 .get_fragment_for(claim_block_number)
-                .ok_or(anyhow!(
-                        format!(
-                            "something went wrong - fragment for {} is not in db - should be explored",
-                            claim_block_number
-                        )
-                ))?
-        }        
+                .ok_or(anyhow!(format!(
+                    "something went wrong - fragment for {} is not in db - should be explored",
+                    claim_block_number
+                )))?
+        }
     };
     cairo_verify_claim(
         source_chain_api_server_url,
@@ -399,7 +396,7 @@ async fn build_db_and_submit_claim(
         &claim_attestation_fragment,
         checkpoints.inner(),
         generate_stone_proof,
-        force_stone_proving
+        force_stone_proving,
     )
     .await
     .map_err(|err| anyhow!("claim verification failure: {err:?}"))
@@ -412,27 +409,28 @@ async fn skip_existing_fragments(
 ) -> anyhow::Result<U256> {
     let mut next_interval = start_interval;
     let mut crawler_kickoff_block = next_interval.tail();
-    while db.read().await.fragment_exists(&next_interval) 
-        && 
-        claim_checkpoint != next_interval.head() {
-
+    while db.read().await.fragment_exists(&next_interval)
+        && claim_checkpoint != next_interval.head()
+    {
         print_with_timestamp(
             format!(
                 "fragment {} -> {:?} already set in DB, skipping",
-                <AttestationJsonDB as AttestationDB>::key_for(next_interval.head())
-                    .unwrap(),
+                <AttestationJsonDB as AttestationDB>::key_for(next_interval.head()).unwrap(),
                 next_interval,
             )
             .yellow(),
         );
-        
+
         next_interval = next_interval.next();
         crawler_kickoff_block = next_interval.tail() + 1;
     }
 
     let (db_head, db_recent_tail) = {
         let db = db.read().await;
-        (db.recent_fragment().head().cloned(), db.recent_fragment().tail().cloned())
+        (
+            db.recent_fragment().head().cloned(),
+            db.recent_fragment().tail().cloned(),
+        )
     };
     if let Some(db_head) = db_head {
         if crawler_kickoff_block > db_head.n() + 1 {
@@ -479,7 +477,9 @@ async fn build_attestation_db(
     let cancel_on_fatal_failure_cloned = cancel_on_fatal_failure.clone();
 
     let (crawler_kickoff_fragment_tx, crawler_kickoff_fragment_rx) = channel(1);
-    let _ = crawler_kickoff_fragment_tx.send(crawler_kickoff_block).await;
+    let _ = crawler_kickoff_fragment_tx
+        .send(crawler_kickoff_block)
+        .await;
 
     let (historical_blocks_crawler, db_block_receiver) = create_historical_blocks_crawler_instance(
         source_chain_api_server_url,
@@ -489,12 +489,12 @@ async fn build_attestation_db(
         cancel_on_fatal_failure,
         crawler_kickoff_fragment_rx,
         StopCondition::FatalFailure,
-//        stop_condition.clone(),
+        //        stop_condition.clone(),
     )
     .await
     .map_err(|err| match err {
         InstanceCreationError::Other(msg) => anyhow!(msg),
-        _ => anyhow!("{err:?}")
+        _ => anyhow!("{err:?}"),
     })?;
 
     let historical_blocks_db_manager = create_historical_blocks_db_manager_instance(
@@ -504,11 +504,10 @@ async fn build_attestation_db(
         stop_condition,
     );
 
-    let cancelled_by_user = 
-        tokio::select! {
-            _ = signal::ctrl_c() => true,
-            _ = cancel_on_fatal_failure_cloned.cancelled() => false,
-        };
+    let cancelled_by_user = tokio::select! {
+        _ = signal::ctrl_c() => true,
+        _ = cancel_on_fatal_failure_cloned.cancelled() => false,
+    };
 
     let success = shutdown_instance(historical_blocks_crawler).await;
     let success = success && !cancelled_by_user;
@@ -518,9 +517,13 @@ async fn build_attestation_db(
         "main task is waiting for historical blocks db manager to exit...".yellow()
     );
     let _ = historical_blocks_db_manager.wait_for_stop_condition().await;
-    if success {Ok(())} else {Err(anyhow!("db building task cancelled or shutdown error"))}
-//    println!("{}", "main task is exitting".yellow());
-//    success
+    if success {
+        Ok(())
+    } else {
+        Err(anyhow!("db building task cancelled or shutdown error"))
+    }
+    //    println!("{}", "main task is exitting".yellow());
+    //    success
 }
 
 async fn shutdown_instance(
@@ -582,7 +585,7 @@ async fn shutdown_instance(
 //         ).unwrap(),
 //         Some(1) => TxClaimQuery::try_from(
 //             vec![
-//                 Eip2930TxClaimQueryField::ChainId, 
+//                 Eip2930TxClaimQueryField::ChainId,
 //                 Eip2930TxClaimQueryField::To,
 //                 Eip2930TxClaimQueryField::SingleDataRelativeRange(None),
 //                 Eip2930TxClaimQueryField::Signature,
@@ -590,7 +593,7 @@ async fn shutdown_instance(
 //         ).unwrap(),
 //         Some(2) => TxClaimQuery::try_from(
 //             vec![
-//                 Eip1559TxClaimQueryField::ChainId, 
+//                 Eip1559TxClaimQueryField::ChainId,
 //                 Eip1559TxClaimQueryField::To,
 //                 Eip1559TxClaimQueryField::SingleDataRelativeRange(None),
 //                 Eip1559TxClaimQueryField::Signature,
@@ -598,7 +601,7 @@ async fn shutdown_instance(
 //         ).unwrap(),
 //         Some(3) => TxClaimQuery::try_from(
 //             vec![
-//                 Eip4844TxClaimQueryField::ChainId, 
+//                 Eip4844TxClaimQueryField::ChainId,
 //                 Eip4844TxClaimQueryField::To,
 //                 Eip4844TxClaimQueryField::SingleDataRelativeRange(None),
 //                 Eip4844TxClaimQueryField::Signature,

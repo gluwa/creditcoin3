@@ -3,12 +3,12 @@ use anyhow::anyhow;
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
-use proof::types::CairoVerifierOutput;
 use either::Either;
+use proof::claim_prover::{build_prover, ClaimProver};
+use proof::types::CairoVerifierOutput;
+use proof::types::ClaimProverError;
 use proof::types::StoneProof;
 use prover_primitives::claim::ClaimSerializable;
-use proof::claim_prover::{ClaimProver, build_prover};
-use proof::types::ClaimProverError;
 
 pub async fn cairo_verify_claim(
     url: &str,
@@ -18,11 +18,12 @@ pub async fn cairo_verify_claim(
     cairo_proof_mode: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<Either<StoneProof, CairoVerifierOutput>> {
-//) -> anyhow::Result<Option<StoneProof>> {
+    //) -> anyhow::Result<Option<StoneProof>> {
     let block_number = claim.id().block_item_id.block_number();
-    let claim_checkpoint = checkpoints
-                                .checkpoint_for(block_number)
-                                .ok_or(anyhow!("claim block number {} matches no checkpoints", block_number))?;
+    let claim_checkpoint = checkpoints.checkpoint_for(block_number).ok_or(anyhow!(
+        "claim block number {} matches no checkpoints",
+        block_number
+    ))?;
 
     let claim_attestation_slice = claim_attestation_fragment
         .attestation_slice_for(block_number, Some(claim_checkpoint.n()))
@@ -56,29 +57,39 @@ pub async fn cairo_verify_claim(
             )
         })?;
 
-        
     cairo_verifier
         .cairo_verify(cairo_proof_mode)
         .await
         .map_err(|err| anyhow!("{err:?}"))?;
 
     let output = cairo_verifier
-                    .cairo_output()
-                    .ok_or(anyhow!("successful verification expected to yield output"))?;
+        .cairo_output()
+        .ok_or(anyhow!("successful verification expected to yield output"))?;
     print_with_timestamp("----- cairo verification successful -----".green());
     println!("cairo verification output:");
     println!("{}", format!("{:?}", output).bold());
 
     let output_checkpoint = AttestationCheckpoint::try_from_block(
         output.continuity_checkpoint_block_number,
-        output.continuity_checkpoint_digest
+        output.continuity_checkpoint_digest,
     )
-    .ok_or(anyhow!("expected to get a valid checkpoint from cairo verifier's output"))?;
-   
+    .ok_or(anyhow!(
+        "expected to get a valid checkpoint from cairo verifier's output"
+    ))?;
+
     if checkpoints.verify_claim_continuity(&output_checkpoint) {
-        println!("{}", format!("\nclaim continuity validated at checkpoint: {:?}", output_checkpoint).green());
+        println!(
+            "{}",
+            format!(
+                "\nclaim continuity validated at checkpoint: {:?}",
+                output_checkpoint
+            )
+            .green()
+        );
     } else {
-        return Err(anyhow!("claim continuity not validated on attestation chain"))
+        return Err(anyhow!(
+            "claim continuity not validated on attestation chain"
+        ));
     };
 
     if cairo_proof_mode {
@@ -93,7 +104,6 @@ pub async fn cairo_verify_claim(
             .map_err(|err| anyhow!("{err:?}"))?;
 
         cairo_verifier.stone_proof().map(Either::<_, _>::Left)
-
     } else {
         Ok(Either::Right(output.clone()))
     }

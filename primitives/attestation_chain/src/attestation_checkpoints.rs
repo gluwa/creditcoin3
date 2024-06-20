@@ -1,9 +1,9 @@
 use crate::block::Block;
 use crate::dense_checkpoints::{DenseCheckpoints, DenseCheckpointsSerializable};
 use crate::{ATTESTATION_GENESIS, CHECKPOINT_INTERVAL};
-use utils::json_serializable::JsonSerializable;
-use serde::{Deserialize, Serialize};
 use ethereum_types::U256;
+use serde::{Deserialize, Serialize};
+use utils::json_serializable::JsonSerializable;
 use utils::Felt;
 
 #[derive(Debug, PartialEq)]
@@ -42,12 +42,11 @@ impl AttestationCheckpoint {
     }
     pub fn checkpoint_for(b: U256) -> Option<U256> {
         b.checked_sub(ATTESTATION_GENESIS).map(|d| {
-//            CHECKPOINT_INTERVAL as U256 * (d / CHECKPOINT_INTERVAL as U256 + 1) 
+            //            CHECKPOINT_INTERVAL as U256 * (d / CHECKPOINT_INTERVAL as U256 + 1)
             ATTESTATION_GENESIS
-            +
-            CHECKPOINT_INTERVAL 
-            * 
-            (d.as_usize() / CHECKPOINT_INTERVAL + usize::from(b % Into::<U256>::into(CHECKPOINT_INTERVAL) != 0.into())) 
+                + CHECKPOINT_INTERVAL
+                    * (d.as_usize() / CHECKPOINT_INTERVAL
+                        + usize::from(b % Into::<U256>::into(CHECKPOINT_INTERVAL) != 0.into()))
         })
     }
 }
@@ -98,7 +97,7 @@ impl TryFrom<&AttestationCheckpointSerializable> for Option<AttestationCheckpoin
         let block_number = match &cp.block_number {
             None => return Ok(None),
             Some(block_number) => U256::from_dec_str(block_number).map_err(|_| ())?,
-//            Some(block_number) => block_number.parse().map_err(|_| ())?,
+            //            Some(block_number) => block_number.parse().map_err(|_| ())?,
         };
 
         let digest = cp
@@ -243,13 +242,11 @@ impl AttestationCheckpoints {
 
         let scp = AttestationCheckpoint::try_from_block(bcp, Default::default())
             .and_then(|cp| StabilizedCheckpoint::try_from(cp).ok())?;
-//        println!("bcp: {bcp:?}, block: {b}, index: {}, stabilized len: {}", scp.index(), self.stabilized.len());
+        //        println!("bcp: {bcp:?}, block: {b}, index: {}, stabilized len: {}", scp.index(), self.stabilized.len());
         if scp.index() < self.stabilized.len() {
             self.stabilized[scp.index()].as_ref().map(|scp| scp.0)
         } else {
-            self.dense_checkpoints
-                .checkpoint_for(b)
-                .copied()
+            self.dense_checkpoints.checkpoint_for(b).copied()
         }
     }
     // pub fn checkpoint_block_number_for(&self, b: U256) -> Option<U256> {
@@ -266,7 +263,8 @@ impl AttestationCheckpoints {
             .unwrap_or_else(|| {
                 if self.stabilized.is_empty() {
                     if let Some(head) = self.head() {
-                        if let Some(future_stabilized) = AttestationCheckpoint::checkpoint_for(head) {
+                        if let Some(future_stabilized) = AttestationCheckpoint::checkpoint_for(head)
+                        {
                             let checkpoint = AttestationCheckpoint::try_from_block(
                                 future_stabilized,
                                 Default::default(),
@@ -690,7 +688,9 @@ mod tests {
         println!("{}", checkpoints);
         assert_eq!(
             res,
-            Err(AttestationCheckpointError::TailCheckpointExpected(4u64.into()))
+            Err(AttestationCheckpointError::TailCheckpointExpected(
+                4u64.into()
+            ))
         );
 
         let block_number = 16;
@@ -701,7 +701,9 @@ mod tests {
         let res = checkpoints.try_prepend(prepended);
         assert_eq!(
             res,
-            Err(AttestationCheckpointError::TailCheckpointExpected(4u64.into()))
+            Err(AttestationCheckpointError::TailCheckpointExpected(
+                4u64.into()
+            ))
         );
         println!("{}", checkpoints);
     }

@@ -520,7 +520,7 @@ mod tests {
         }
     }
 
-    #[test]    
+    #[test]
     fn base_tree_claim_index_test() {
         let input = (0..123456u32)
             .map(|i| (0..(i % 17)).map(|i| i as u8).collect::<Vec<_>>())
@@ -533,7 +533,6 @@ mod tests {
             let proof = tree.generate_proof(i);
             assert_eq!(proof.claim_index(), i);
         }
-
     }
 
     #[test]

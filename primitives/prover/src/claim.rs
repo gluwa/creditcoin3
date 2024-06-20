@@ -1,14 +1,18 @@
+use crate::claim_query::{ClaimQuery, ClaimQueryFieldError};
+use attestor_primitives::ChainId;
+use core::cmp::max;
+use core::ops::Range;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use rlp::Rlp;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
-use rlp::Rlp;
-use attestor_primitives::ChainId;
-use crate::claim_query::{ClaimQuery, ClaimQueryFieldError};
-use core::ops::Range;
-use core::cmp::max;
-use utils::{Felt, utils::{felts_to_bytes, U248_BYTE_COUNT}, pedersen_hash::pedersen_array};
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::json_serializable::JsonSerializable;
+use utils::{
+    pedersen_hash::pedersen_array,
+    utils::{felts_to_bytes, U248_BYTE_COUNT},
+    Felt,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, MaxEncodedLen, Hash)]
 pub struct ClaimOld<Address> {
@@ -68,7 +72,7 @@ impl TryFrom<u8> for ClaimKind {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ClaimValidationError {
-    // field at range (.0) not validated because value (.1) doesn't match expected value (.2) 
+    // field at range (.0) not validated because value (.1) doesn't match expected value (.2)
     FieldNotValidated(Range<usize>, Vec<u8>, Vec<u8>),
     FieldInner(ClaimQueryFieldError),
     QueryOffsetsMismatch(Felt, Felt),
@@ -90,16 +94,18 @@ pub struct Claim<'a, Q: ClaimQuery> {
 }
 
 impl<'a, Q: ClaimQuery> Claim<'a, Q> {
-    pub fn try_create(id: ClaimIdentifier, query: Q, rlp: Rlp<'a>) -> Result<Self, ClaimQueryFieldError> {
+    pub fn try_create(
+        id: ClaimIdentifier,
+        query: Q,
+        rlp: Rlp<'a>,
+    ) -> Result<Self, ClaimQueryFieldError> {
         let felt_offsets = Self::felt_offsets(&query, &rlp)?;
-        Ok(
-            Self {
-                id,
-                query,
-                rlp,
-                felt_offsets
-            }
-        )
+        Ok(Self {
+            id,
+            query,
+            rlp,
+            felt_offsets,
+        })
     }
 
     pub fn id(&self) -> &ClaimIdentifier {
@@ -111,37 +117,42 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
 
     /// takes field elements from proof, converts them into bytes and compares them againts local rlp bytes
     /// the hashed query values are compared too
-    pub fn validate_fields(&self, proof_felts: &[Felt], query_hash: &Felt) -> Result<(), ClaimValidationError> {
+    pub fn validate_fields(
+        &self,
+        proof_felts: &[Felt],
+        query_hash: &Felt,
+    ) -> Result<(), ClaimValidationError> {
         let local_offsets_hash = self.query_hash();
         if query_hash != &local_offsets_hash {
-            return Err(ClaimValidationError::QueryOffsetsMismatch(query_hash.clone(), local_offsets_hash));
+            return Err(ClaimValidationError::QueryOffsetsMismatch(
+                *query_hash,
+                local_offsets_hash,
+            ));
         }
 
         let bytes_from_proof = self.proof_felts_to_bytes(proof_felts);
-        self
-            .query
+        self.query
             .as_byte_offsets(&self.rlp)
             .map_err(ClaimValidationError::FieldInner)?
             .into_iter()
-            .try_for_each(|r| 
+            .try_for_each(|r| {
                 (bytes_from_proof[r.clone()] == self.rlp.as_raw()[r.clone()])
                     .then_some(())
                     .ok_or(ClaimValidationError::FieldNotValidated(
-                        r.clone(), 
-                        bytes_from_proof[r.clone()].to_vec(), 
-                        self.rlp.as_raw()[r].to_vec()
-                    )
-                )
-            )
+                        r.clone(),
+                        bytes_from_proof[r.clone()].to_vec(),
+                        self.rlp.as_raw()[r].to_vec(),
+                    ))
+            })
     }
     /// takes query and rlp object and returns field element ranges for the prover to output and return to claimer
     /// to prevent ambiguities these ranges must be ensured to be ordered
-    /// to define ordering for ranges they are first compacted so the resulting range array 
+    /// to define ordering for ranges they are first compacted so the resulting range array
     /// contains non-overlapping ranges.
     /// for example [(3..6), (4..7), (2..4)] is compacted to [(2..7)]
     /// when ranges do not intersect the ordering for them can be defined by compare(a.start, b.start)
     fn felt_offsets(query: &Q, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError> {
-        let mut compact_ranges = Self::compact_contiguous_ranges(query.as_felt_offsets(&rlp)?);
+        let mut compact_ranges = Self::compact_contiguous_ranges(query.as_felt_offsets(rlp)?);
         compact_ranges.sort_by(|a, b| a.start.cmp(&b.start));
 
         Ok(compact_ranges)
@@ -151,21 +162,26 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         Self::proof_felts_to_bytes_inner(proof_felts, &self.felt_offsets, self.rlp.as_raw().len())
     }
 
-    fn proof_felts_to_bytes_inner(proof_felts: &[Felt], felt_offsets: &[Range<usize>], original_bytes_len: usize) -> Vec<u8> {
+    fn proof_felts_to_bytes_inner(
+        proof_felts: &[Felt],
+        felt_offsets: &[Range<usize>],
+        original_bytes_len: usize,
+    ) -> Vec<u8> {
         use std::cmp::min;
 
         // form a buffer of original rlp length and initialize it.
-        let mut bytes = vec![0u8; original_bytes_len];      
+        let mut bytes = vec![0u8; original_bytes_len];
         let mut i = 0;
         for r in felt_offsets {
             // byte chunk corresponding to current felt slice
-            let chunk_range = r.start * U248_BYTE_COUNT..min(r.end * U248_BYTE_COUNT, original_bytes_len);
+            let chunk_range =
+                r.start * U248_BYTE_COUNT..min(r.end * U248_BYTE_COUNT, original_bytes_len);
             let source_bytes_len = (original_bytes_len == chunk_range.end)
                 .then_some(chunk_range.end - chunk_range.start);
             // prover outputs field elements in order determined by felt_offsets ranges on claimer side
             let chunk = felts_to_bytes(&proof_felts[i..i + r.end - r.start], source_bytes_len);
             i += r.end - r.start;
-    
+
             bytes[chunk_range].copy_from_slice(&chunk[..]);
         }
 
@@ -177,8 +193,7 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         let felts_offsets = self
             .felt_offsets
             .iter()
-            .map(|r| r.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
-            .flatten()
+            .flat_map(|r| r.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
             .collect::<Vec<Felt>>();
         pedersen_array(&felts_offsets[..])
     }
@@ -187,18 +202,17 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
     fn compact_contiguous_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
         let mut compact_ranges = Vec::<Range<usize>>::new();
         let mut needs_further_compaction = false;
-    
+
         for r in ranges.into_iter() {
             match compact_ranges
-                    .iter()
-                    .enumerate()
-                    .find_map(|(i, cr)| 
-                        Self::range_union(&r, &cr).map(|r1| (i, r1))
-                    ) {
+                .iter()
+                .enumerate()
+                .find_map(|(i, cr)| Self::range_union(&r, cr).map(|r1| (i, r1)))
+            {
                 Some((i, r1)) => {
                     needs_further_compaction = true;
                     compact_ranges[i] = r1;
-                },
+                }
                 None => compact_ranges.push(r),
             }
         }
@@ -243,9 +257,8 @@ impl<Q: ClaimQuery> From<&Claim<'_, Q>> for ClaimSerializable {
         Self {
             id: claim.id.clone(),
             felt_ranges: claim.felt_offsets.to_vec(),
-        }  
+        }
     }
 }
 
 impl JsonSerializable for ClaimSerializable {}
-

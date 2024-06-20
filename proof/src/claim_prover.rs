@@ -1,17 +1,18 @@
-use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
 use crate::types::{
-    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError, StoneProof, StoneProofJson,
+    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
+    StoneProof, StoneProofJson,
 };
-use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
+use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
+use eth_common::transaction::{BlockItem, Receipt, Transaction};
+use eth_common::{fetch_block_receipts, fetch_block_transactions};
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimKind;
+use prover_primitives::claim::ClaimSerializable;
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
-use prover_primitives::claim::ClaimSerializable;
 use utils::json_serializable::JsonSerializable;
-use eth_common::transaction::{Transaction, Receipt, BlockItem};
-use eth_common::{fetch_block_transactions, fetch_block_receipts};
+use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
 
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";
@@ -50,18 +51,15 @@ impl<'a> ClaimProver<'a> {
         Self::STONE_PROVER_SCRIPT_SOURCE
     }
 
-    pub async fn cairo_verify(
-        &mut self,
-        cairo_proof_mode: bool,
-    ) -> Result<(), ClaimProverError> {
+    pub async fn cairo_verify(&mut self, cairo_proof_mode: bool) -> Result<(), ClaimProverError> {
         match &self.dir {
             Some(dir) => run_cairo_verify_script(Self::script_source(), dir, cairo_proof_mode)
-                            .await
-                            .map_err(|err| ClaimProverError::Cairo(err))
-                            .and_then(|_| {
-                                self.cairo_output = Some(self.read_output()?);
-                                Ok(())
-                            }),
+                .await
+                .map_err(ClaimProverError::Cairo)
+                .and_then(|_| {
+                    self.cairo_output = Some(self.read_output()?);
+                    Ok(())
+                }),
             None => Err(ClaimProverError::InputFileNameNotSet),
         }
     }
@@ -69,11 +67,8 @@ impl<'a> ClaimProver<'a> {
     pub fn cairo_output(&self) -> Option<&CairoVerifierOutput> {
         self.cairo_output.as_ref()
     }
-    
-    pub async fn stone_prove(
-        &self,
-        force_stone_proving: bool,
-    ) -> Result<String, ClaimProverError> {
+
+    pub async fn stone_prove(&self, force_stone_proving: bool) -> Result<String, ClaimProverError> {
         match &self.dir {
             Some(dir) => {
                 run_stone_prover_script(Self::STONE_PROVER_SCRIPT_SOURCE, dir, force_stone_proving)
@@ -83,22 +78,21 @@ impl<'a> ClaimProver<'a> {
         }
     }
     pub fn stone_proof(&self) -> anyhow::Result<StoneProof> {
-        self
-            .stone_proof_file
+        self.stone_proof_file
             .as_ref()
             .ok_or(anyhow::anyhow!("stone proof file name not set"))
             .and_then(|stone_proof_file| StoneProofJson::try_from_file(stone_proof_file))
-            .map(|stone_proof| StoneProof::from(stone_proof))
+            .map(StoneProof::from)
     }
 
     pub fn file_name(&self) -> Option<&str> {
-        self.cairo_input_file.as_ref().map(String::as_str)
+        self.cairo_input_file.as_deref()
     }
     pub fn cairo_output_file(&self) -> Option<&str> {
-        self.cairo_output_file.as_ref().map(String::as_str)
+        self.cairo_output_file.as_deref()
     }
     pub fn stone_proof_file(&self) -> Option<&str> {
-        self.stone_proof_file.as_ref().map(String::as_str)
+        self.stone_proof_file.as_deref()
     }
 }
 
@@ -130,7 +124,7 @@ impl<'a> ClaimProver<'a> {
         let cairo_input_file = Self::default_cairo_input_file_name(&dir);
         let cairo_output_file = Self::default_cairo_output_file_name(&dir);
         let stone_proof_file = Self::default_stone_proof_file_name(&dir);
-        
+
         self.to_file(&cairo_input_file)?;
 
         self.dir = Some(dir);
@@ -168,7 +162,7 @@ impl<'a> ClaimProver<'a> {
     fn default_stone_proof_file_name(dir: &str) -> String {
         format!("{dir}/proof.json")
     }
-    
+
     fn read_output(&self) -> Result<CairoVerifierOutput, ClaimProverError> {
         self.cairo_output_file
             .as_ref()
@@ -194,47 +188,53 @@ pub async fn build_prover<'a>(
     //     &block_cache_dir(),
     //     claim_block_number,
     // );
-    let fetch_tx_block_fut =
-        fetch_block_transactions(url, claim_block_number.as_u64());
-//        SortedBlock::<TypedTransaction>::try_fetch(url, Some(tx_cache), claim_block_number);
+    let fetch_tx_block_fut = fetch_block_transactions(url, claim_block_number.as_u64());
+    //        SortedBlock::<TypedTransaction>::try_fetch(url, Some(tx_cache), claim_block_number);
 
     // let rx_cache =
     //     &mut <Receipt as FetchFromBlock>::Cache::new(&block_cache_dir(), claim_block_number);
-    let fetch_rx_block_fut =
-        fetch_block_receipts(url, claim_block_number.as_u64());
-//    SortedBlock::<Receipt>::try_fetch(url, Some(rx_cache), claim_block_number);
+    let fetch_rx_block_fut = fetch_block_receipts(url, claim_block_number.as_u64());
+    //    SortedBlock::<Receipt>::try_fetch(url, Some(rx_cache), claim_block_number);
 
     let (sorted_transactions_block, sorted_receipts_block) =
         futures::future::try_join(fetch_tx_block_fut, fetch_rx_block_fut)
             .await
             .map_err(|err| ClaimProverError::BlockFetchFailure(format!("{err:?}")))?;
 
-//        let tx_bytes = sorted_transactions_block.to_bytes();
-    let tx_bytes = sorted_transactions_block.iter().map(Transaction::to_bytes).collect::<Vec<_>>();
-    let rx_bytes = sorted_receipts_block.iter().map(Receipt::to_bytes).collect::<Vec<_>>();
-//    let rx_bytes = sorted_receipts_block.to_bytes();
+    //        let tx_bytes = sorted_transactions_block.to_bytes();
+    let tx_bytes = sorted_transactions_block
+        .iter()
+        .map(Transaction::to_bytes)
+        .collect::<Vec<_>>();
+    let rx_bytes = sorted_receipts_block
+        .iter()
+        .map(Receipt::to_bytes)
+        .collect::<Vec<_>>();
+    //    let rx_bytes = sorted_receipts_block.to_bytes();
 
-    let (transactions_tree, receipts_tree) = futures::future::join(
-        async { StarknetPedersenMmr::from(&tx_bytes[..]) },
-        async { StarknetPedersenMmr::from(&rx_bytes[..]) },
-    )
-    .await;
+    let (transactions_tree, receipts_tree) =
+        futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {
+            StarknetPedersenMmr::from(&rx_bytes[..])
+        })
+        .await;
 
     let subject_index = claim.id().block_item_id.index() as usize;
     let (subject_bytes, merkle_path) = match claim.id().kind {
         ClaimKind::Tx => (
             tx_bytes
-                .iter()
-                .nth(subject_index)
-                .ok_or(ClaimProverError::Other(format!("tx index {subject_index} is out of bounds")))?
+                .get(subject_index)
+                .ok_or(ClaimProverError::Other(format!(
+                    "tx index {subject_index} is out of bounds"
+                )))?
                 .clone(),
             transactions_tree.generate_proof(subject_index),
         ),
         ClaimKind::Rx => (
             rx_bytes
-                .iter()
-                .nth(subject_index)
-                .ok_or(ClaimProverError::Other(format!("rx index {subject_index} is out of bounds")))?
+                .get(subject_index)
+                .ok_or(ClaimProverError::Other(format!(
+                    "rx index {subject_index} is out of bounds"
+                )))?
                 .clone(),
             receipts_tree.generate_proof(subject_index),
         ),
@@ -259,7 +259,6 @@ async fn run_cairo_verify_script(
     input_dir: &str,
     cairo_proof_mode: bool,
 ) -> Result<(), ScriptError> {
-
     tokio::process::Command::new("/bin/bash")
         .arg("-c")
         .arg(format!(

@@ -1,22 +1,22 @@
-use utils::Felt;
 use ethereum_types::U256;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use utils::utils::{u256_to_felts};
+use utils::utils::u256_to_felts;
+use utils::Felt;
 pub trait MaybeCreatedFromEmpty {
     fn created_from_empty(&self) -> bool;
 }
 
 #[derive(Debug)]
 pub enum BlockError {
-//    BlockNumberMismatch(u64),
+    //    BlockNumberMismatch(u64),
     BlockNumberMismatch(U256),
     Empty(U256),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Block {
-//    block_number: u64,
+    //    block_number: u64,
     block_number: U256,
     tx_root: Felt,
     rx_root: Felt,
@@ -26,16 +26,17 @@ pub struct Block {
 
 impl Block {
     pub fn new(block_number: U256, tx_root: Felt, rx_root: Felt) -> Self {
-//        pub fn new(block_number: u64, tx_root: Felt, rx_root: Felt) -> Self {
+        //        pub fn new(block_number: u64, tx_root: Felt, rx_root: Felt) -> Self {
         let prev_digest = Default::default();
-        let (block_number_lo, block_number_hi) = u256_to_felts(&block_number); 
+        let (block_number_lo, block_number_hi) = u256_to_felts(&block_number);
         let digest = Self::hash_payload(
-            // &block_number.into(), 
-            &block_number_lo, 
-            &block_number_hi, 
-            &tx_root, 
-            &rx_root, 
-            &prev_digest);
+            // &block_number.into(),
+            &block_number_lo,
+            &block_number_hi,
+            &tx_root,
+            &rx_root,
+            &prev_digest,
+        );
 
         Self {
             block_number,
@@ -46,11 +47,8 @@ impl Block {
         }
     }
     pub fn n(&self) -> U256 {
-//        let n = self.block_number.as_u64();
-        let n = self.block_number;
-        // println!("n == {n}");
-        // println!("block u256: {}", self.block_number);
-        n
+        //        let n = self.block_number.as_u64();
+        self.block_number
     }
     pub fn digest(&self) -> Felt {
         self.digest
@@ -60,14 +58,14 @@ impl Block {
     }
     pub fn try_from_previous(prev: &Self, block: Self) -> Result<Self, BlockError> {
         if block.block_number != prev.block_number + 1 {
-//            if block.block_number != prev.block_number + 1u64 {
+            //            if block.block_number != prev.block_number + 1u64 {
             return Err(BlockError::BlockNumberMismatch(block.block_number));
         }
         let (block_number_lo, block_number_hi) = u256_to_felts(&block.block_number);
         let digest = Self::hash_payload(
             &block_number_lo,
             &block_number_hi,
-//            &block.block_number.into(),
+            //            &block.block_number.into(),
             &block.tx_root,
             &block.rx_root,
             &prev.digest,
@@ -90,7 +88,7 @@ impl Block {
     }
 
     fn hash_payload(
-//        block_number: &Felt,
+        //        block_number: &Felt,
         block_number_lo: &Felt,
         block_number_hi: &Felt,
         tx_root: &Felt,
@@ -128,7 +126,7 @@ pub struct BlockSerializable<'a> {
 
 impl<'a> From<&'a Block> for BlockSerializable<'a> {
     fn from(b: &'a Block) -> Self {
-//        let (block_number_lo, block_number_hi) = u256_to_felts(&b.block_number);
+        //        let (block_number_lo, block_number_hi) = u256_to_felts(&b.block_number);
         Self {
             block_number: b.block_number.to_string(),
             // block_number_lo: block_number_lo.to_string(),
@@ -150,7 +148,7 @@ impl TryFrom<BlockSerializable<'_>> for Block {
         // let block_number_hi = Felt::from_dec_str(block.block_number_hi.as_ref()).map_err(|_| ())?;
         // let block_number = u256_from_felts(&block_number_lo, &block_number_hi);
         Ok(Self {
-//            block_number: block.block_number.parse().map_err(|_| ())?,
+            //            block_number: block.block_number.parse().map_err(|_| ())?,
             block_number: U256::from_dec_str(block.block_number.as_ref()).map_err(|_| ())?,
             tx_root: Felt::from_dec_str(block.tx_root.as_ref()).map_err(|_| ())?,
             rx_root: Felt::from_dec_str(block.rx_root.as_ref()).map_err(|_| ())?,

@@ -3,12 +3,12 @@
 // use serde::{Deserialize, Serialize};
 // use std::marker::PhantomData;
 
-use ethereum_types::U256;
 use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
 use crate::block::{Block, BlockError, BlockSerializable};
 use crate::FRAGMENT_SIZE;
-use utils::json_serializable::JsonSerializable;
+use ethereum_types::U256;
 use serde::{Deserialize, Serialize};
+use utils::json_serializable::JsonSerializable;
 
 #[derive(Debug, Clone)]
 pub struct AttestationFragment {
@@ -113,7 +113,8 @@ impl AttestationFragment {
 
         if tail < block_number && head >= block_number {
             Some(FragmentSlice(
-                &self.blocks[(block_number - tail - 1).as_usize()..(upper_bound + 1 - tail).as_usize()],
+                &self.blocks
+                    [(block_number - tail - 1).as_usize()..(upper_bound + 1 - tail).as_usize()],
             ))
         } else {
             None
@@ -167,7 +168,7 @@ impl<'a> From<FragmentSlice<'a>> for FragmentSliceSerializable<'a> {
 
 #[derive(Debug, Clone)]
 pub enum AttestationFragmentError {
-//    BlockNumberMismatch(u64),
+    //    BlockNumberMismatch(u64),
     BlockNumberMismatch(U256),
     BlockDigestMismatch(Box<Block>),
     MisalignedBlock(Box<Block>),

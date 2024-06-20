@@ -1,5 +1,5 @@
-use utils::json_serializable::JsonSerializable;
 use serde::{Deserialize, Serialize};
+use utils::json_serializable::JsonSerializable;
 
 const DEFAULT_CONFIG_FILE: &str = "../config.json";
 const DEFAULT_ATTESTATION_CHAIN_DIR: &str = "attestation-chain";
@@ -8,7 +8,6 @@ const DEFAULT_ATTESTATION_CHAIN_FILE: &str = "chain.json";
 const DATA_ROOT_DIR: &str = "../data";
 const EXECUTION_CHAIN_DIR: &str = "execution-chain";
 const ATTESTATION_DB_DIR: &str = "db";
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PocConfig {
