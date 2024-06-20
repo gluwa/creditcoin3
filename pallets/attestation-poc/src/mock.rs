@@ -1,4 +1,4 @@
-use crate::{self as attestation_poc, tests::attestor};
+use crate::{self as attestation_poc, tests::Attestor};
 use attestor_primitives::BlsPublicKeyWrapper;
 use frame_support::{parameter_types, traits::ConstU32};
 use frame_system as system;
@@ -124,10 +124,11 @@ impl ExtBuilder {
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();
-        let (_, public_key, _) = attestor(ATTESTOR_3);
+
+        let att = Attestor::new(ATTESTOR_3);
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             comittee_set_size: DEFAULT_COMITTEE_SET_SIZE,
-            invulnerables: vec![(ATTESTOR_3, BlsPublicKeyWrapper(public_key))],
+            invulnerables: vec![(ATTESTOR_3, BlsPublicKeyWrapper(att.public_key))],
             attestation_chains_interval: vec![(1, 10)],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();

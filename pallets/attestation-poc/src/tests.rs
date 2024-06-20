@@ -6,32 +6,56 @@ use assert_matches::assert_matches;
 use attestor_primitives::{Attestation as AttestationPrimitive, SignedAttestation};
 use attestor_primitives::{BlsPublicKey, BlsSignature};
 use bls_signatures::key::Serialize;
+use bls_signatures::PrivateKey;
 use frame_support::{assert_err, assert_ok};
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
-pub fn attestor(attestor: u64) -> (RuntimeOrigin, BlsPublicKey, BlsSignature) {
-    let rng = sp_core::H256::random().0;
-    let bls_private_key = bls_signatures::PrivateKey::new(rng);
-    let bls_public_key = bls_private_key.public_key().as_bytes()[..]
-        .try_into()
-        .unwrap();
+pub struct Attestor {
+    pub attestor: RuntimeOrigin,
+    private_key: PrivateKey,
+    pub public_key: BlsPublicKey,
+    pub signature: BlsSignature,
+}
 
-    (
-        RuntimeOrigin::signed(attestor),
-        bls_public_key,
-        bls_private_key.sign(bls_public_key).as_bytes()[..]
+impl Attestor {
+    pub fn new(attestor: u64) -> Self {
+        let rng = sp_core::H256::random().0;
+        let private_key = PrivateKey::new(rng);
+        let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
+        let signature = private_key.sign(public_key).as_bytes()[..]
             .try_into()
-            .unwrap(),
-    )
+            .unwrap();
+
+        let attestor = RuntimeOrigin::signed(attestor);
+
+        Self {
+            attestor,
+            private_key,
+            public_key,
+            signature,
+        }
+    }
+
+    fn sign(&self, message: &[u8]) -> BlsSignature {
+        self.private_key.sign(message).as_bytes()[..]
+            .try_into()
+            .unwrap()
+    }
+
+    fn private_key(&self) -> PrivateKey {
+        self.private_key
+    }
 }
 
 #[test]
 fn register_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor_1, public_key, signature) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            attestor_1, public_key, signature
+            att.attestor,
+            att.public_key,
+            att.signature
         ));
     })
 }
@@ -39,15 +63,15 @@ fn register_attestor_should_work_happy_path() {
 #[test]
 fn register_attestor_should_fail_when_address_is_already_registered() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor_1, public_key, signature) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            attestor_1.clone(),
-            public_key,
-            signature
+            att.attestor.clone(),
+            att.public_key,
+            att.signature
         ));
 
         assert_err!(
-            Attestation::register_attestor(attestor_1, public_key, signature),
+            Attestation::register_attestor(att.attestor, att.public_key, att.signature),
             Error::<Test>::AlreadyAttestor
         );
     })
@@ -57,15 +81,16 @@ fn register_attestor_should_fail_when_address_is_already_registered() {
 fn register_attestor_should_fail_when_list_is_full() {
     ExtBuilder.build_and_execute(|| {
         let root = RuntimeOrigin::root();
-        let (attestor_1, public_key, signature) = attestor(ATTESTOR_1);
-        let (attestor_2, public_key_2, signature_2) = attestor(ATTESTOR_2);
-
+        let att_1 = Attestor::new(ATTESTOR_1);
+        let att_2 = Attestor::new(ATTESTOR_2);
         assert_ok!(Attestation::set_max_attestors(root, 2));
         assert_ok!(Attestation::register_attestor(
-            attestor_1, public_key, signature
+            att_1.attestor,
+            att_1.public_key,
+            att_1.signature
         ));
         assert_err!(
-            Attestation::register_attestor(attestor_2, public_key_2, signature_2),
+            Attestation::register_attestor(att_2.attestor, att_2.public_key, att_2.signature),
             Error::<Test>::AttestorListFull
         );
     })
@@ -85,7 +110,7 @@ fn max_invulnerable_default_should_be_100() {
 #[test]
 fn set_max_attestors_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
-        let bad_origin = attestor(ATTESTOR_1).0;
+        let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
         assert_err!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin)
     })
 }
@@ -93,7 +118,7 @@ fn set_max_attestors_should_error_with_non_root_origin() {
 #[test]
 fn set_max_invulnerables_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
-        let bad_origin = attestor(ATTESTOR_1).0;
+        let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
         assert_err!(
             Attestation::set_max_invulnerables(bad_origin, 200),
             BadOrigin
@@ -104,17 +129,17 @@ fn set_max_invulnerables_should_error_with_non_root_origin() {
 #[test]
 fn set_max_attestors_should_error_if_list_is_truncated() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor_1, public_key_1, signature_1) = attestor(ATTESTOR_1);
-        let (attestor_2, public_key_2, signature_2) = attestor(ATTESTOR_2);
+        let att_1 = Attestor::new(ATTESTOR_1);
+        let att_2 = Attestor::new(ATTESTOR_2);
         assert_ok!(Attestation::register_attestor(
-            attestor_1,
-            public_key_1,
-            signature_1
+            att_1.attestor,
+            att_1.public_key,
+            att_1.signature
         ));
         assert_ok!(Attestation::register_attestor(
-            attestor_2,
-            public_key_2,
-            signature_2
+            att_2.attestor,
+            att_2.public_key,
+            att_2.signature
         ));
         assert_err!(
             Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
@@ -126,22 +151,22 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
 #[test]
 fn unregister_attestor_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor, public_key, signature) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            attestor.clone(),
-            public_key,
-            signature
+            att.attestor.clone(),
+            att.public_key,
+            att.signature
         ));
-        assert_ok!(Attestation::unregister_attestor(attestor));
+        assert_ok!(Attestation::unregister_attestor(att.attestor));
     })
 }
 
 #[test]
 fn unregister_attestor_should_fail_when_address_is_not_registered() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor(ATTESTOR_1);
+        let attestor = RuntimeOrigin::signed(ATTESTOR_1);
         assert_err!(
-            Attestation::unregister_attestor(attestor.0),
+            Attestation::unregister_attestor(attestor),
             Error::<Test>::AddressNotAttestor
         );
     })
@@ -150,17 +175,17 @@ fn unregister_attestor_should_fail_when_address_is_not_registered() {
 #[test]
 fn unregister_invulnerable_should_work_happy_path() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor, public_key, signature) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            attestor.clone(),
-            public_key,
-            signature
+            att.attestor.clone(),
+            att.public_key,
+            att.signature
         ));
 
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
-            public_key
+            att.public_key
         ));
         assert_ok!(Attestation::unregister_invulnerable(
             RuntimeOrigin::root(),
@@ -181,11 +206,11 @@ fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
 #[test]
 fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor, public_key, signature) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
-            attestor.clone(),
-            public_key,
-            signature
+            att.attestor.clone(),
+            att.public_key,
+            att.signature
         ));
         assert_err!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
@@ -214,23 +239,20 @@ fn test_set_max_comittee_size_root_works() {
 #[test]
 fn test_set_max_comittee_size_other_fails() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = attestor(ATTESTOR_1);
+        let attestor = RuntimeOrigin::signed(ATTESTOR_1);
 
-        assert_err!(
-            Attestation::set_comittee_set_size(attestor.0, 512),
-            BadOrigin
-        );
+        assert_err!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
     })
 }
 
 #[test]
 fn add_invulnerable_also_adds_as_attestor_works() {
     ExtBuilder.build_and_execute(|| {
-        let (_, public_key, _) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
-            public_key
+            att.public_key
         ));
 
         assert!(Attestation::attestors(ATTESTOR_1).is_some());
@@ -242,16 +264,15 @@ fn add_invulnerable_also_adds_as_attestor_works() {
 #[test]
 fn remove_invulnerable_that_is_not_attestor_works() {
     ExtBuilder.build_and_execute(|| {
-        let (_, public_key, _) = attestor(ATTESTOR_1);
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
-            public_key
+            att.public_key
         ));
 
         // Unregister
-        let attestor = attestor(ATTESTOR_1);
-        assert_ok!(Attestation::unregister_attestor(attestor.0));
+        assert_ok!(Attestation::unregister_attestor(att.attestor));
 
         // Not an attestor anymore
         assert!(Attestation::attestors(ATTESTOR_1).is_none());
@@ -429,11 +450,24 @@ fn submitting_invalid_attestation_chain_fails() {
 
 fn invalid_proof_of_possession() {
     ExtBuilder.build_and_execute(|| {
-        let (attestor, public_key, _) = attestor(ATTESTOR_1);
-        let (_, _, invalid_bls_signature) = crate::tests::attestor(ATTESTOR_2);
+        let att_1 = Attestor::new(ATTESTOR_1);
+        let att_2 = Attestor::new(ATTESTOR_2);
         assert_err!(
-            Attestation::register_attestor(attestor, public_key, invalid_bls_signature),
+            Attestation::register_attestor(att_1.attestor, att_1.public_key, att_2.signature),
             Error::<Test>::InvalidProofOfPossession
         );
+    })
+}
+
+#[test]
+fn test_signing() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(ATTESTOR_1);
+        let message = att.public_key;
+        let signature = att.sign(message[..].try_into().unwrap());
+        assert!(att.private_key().public_key().verify(
+            bls_signatures::Signature::from_bytes(&signature[..]).unwrap(),
+            message
+        ));
     })
 }
