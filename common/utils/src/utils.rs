@@ -4,6 +4,11 @@ use crate::Felt;
 use anyhow::anyhow;
 use ethereum_types::{Address, H256, U256};
 
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
+use scale_info::prelude::string::String;
+
 pub const U248_BYTE_COUNT: usize = 31;
 const HASH_LENGTH: usize = 32;
 const HASH_LENGTH_MINUS_1: usize = HASH_LENGTH - 1;
@@ -12,7 +17,7 @@ pub fn decode_prefixed_hex(hex: &mut str) -> anyhow::Result<Vec<u8>> {
     let stripped = strip_hex_prefix(hex);
     //    let stripped = hex.trim_start_matches("0x");
     if !stripped.is_empty() {
-        Ok(hex::decode(stripped)?)
+        Ok(hex::decode(stripped).map_err(|_| anyhow!("Failed to parse hex"))?)
     } else {
         Ok(vec![0])
     }
@@ -37,16 +42,16 @@ pub fn hex_to_u256(hex: &mut str) -> anyhow::Result<U256> {
     decode_prefixed_hex(hex).map(|bytes| U256::from_big_endian(&bytes))
 }
 
-pub fn u256_to_hex(val: &U256) -> String {
-    format!("0x{:X}", val)
-}
+// pub fn u256_to_hex(val: &U256) -> String {
+//     format!("0x{:X}", val)
+// }
 
 pub fn hex_to_u64(hex: &mut str) -> anyhow::Result<u64> {
     let stripped = strip_hex_prefix(hex);
     //    let stripped = hex.trim_start_matches("0x");
 
     if !stripped.is_empty() {
-        Ok(u64::from_str_radix(stripped, 16)?)
+        Ok(u64::from_str_radix(stripped, 16).map_err(|_| anyhow!("Failed to parse hex"))?)
     } else {
         Ok(0u64)
     }
@@ -88,11 +93,11 @@ pub fn felt_from_dec_str(s: &str) -> anyhow::Result<Felt> {
     }
 }
 
-pub fn try_parse_usize(s: &str) -> Result<usize, std::num::ParseIntError> {
+pub fn try_parse_usize(s: &str) -> Result<usize, core::num::ParseIntError> {
     s.parse::<usize>()
         .or_else(|_| usize::from_str_radix(s.trim_start_matches("0x"), 16))
 }
-pub fn try_parse_u64(s: &str) -> Result<u64, std::num::ParseIntError> {
+pub fn try_parse_u64(s: &str) -> Result<u64, core::num::ParseIntError> {
     //    println!("S: {:?}", Felt::from_dec_str(s));
     s.parse::<u64>()
         .or_else(|_| u64::from_str_radix(s.trim_start_matches("0x"), 16))
@@ -195,6 +200,11 @@ mod tests {
         u256_to_felts,
     };
     use ethereum_types::{H256, U256};
+
+    extern crate alloc;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use libc_print::std_name::println;
 
     #[test]
     fn felt_to_bytes_test() {

@@ -1,3 +1,5 @@
+#![no_std]
+
 pub mod block_item_traits;
 pub mod json_serializable;
 pub mod pedersen_hash;
@@ -10,6 +12,7 @@ pub type Felt = starknet_crypto::FieldElement;
 
 pub type StarknetPedersenMmr = Mmr<StarknetPedersenHash>;
 pub type StarknetPedersenMerkleProof = Proof<StarknetPedersenHash>;
+use libc_print::std_name::println;
 
 pub fn print_with_timestamp(s: colored::ColoredString) {
     println!(

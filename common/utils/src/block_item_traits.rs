@@ -1,6 +1,9 @@
+use core::fmt::Debug;
 use ethereum_types::U256;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+
+extern crate alloc;
+use alloc::vec::Vec;
 
 use crate::utils::U248_BYTE_COUNT;
 
@@ -10,18 +13,18 @@ pub trait CacheT<T>: Clone {
     fn key(&self) -> &str;
     fn try_create_key(&mut self) -> anyhow::Result<()>;
 
-    fn try_read(&self) -> anyhow::Result<Vec<Self::CachedItem>> {
-        let file = std::fs::File::open(self.key())?;
-        Ok(serde_json::from_reader::<_, Vec<Self::CachedItem>>(file)?)
-    }
+    // fn try_read(&self) -> anyhow::Result<Vec<Self::CachedItem>> {
+    //     let file = std::fs::File::open(self.key())?;
+    //     Ok(serde_json::from_reader::<_, Vec<Self::CachedItem>>(file)?)
+    // }
 
-    fn try_write(&mut self, items: &[Self::CachedItem]) -> anyhow::Result<()> {
-        self.try_create_key()?;
-
-        let file = std::fs::File::create(self.key())?;
-
-        Ok(serde_json::to_writer_pretty(file, items)?)
-    }
+    // fn try_write(&mut self, items: &[Self::CachedItem]) -> anyhow::Result<()> {
+    //     self.try_create_key()?;
+    //
+    //     let file = std::fs::File::create(self.key())?;
+    //
+    //     Ok(serde_json::to_writer_pretty(file, items)?)
+    // }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -45,7 +48,7 @@ impl BlockItemIdentifier {
         self.index
     }
     pub fn to_bytes(&self) -> Vec<u8> {
-        use std::mem::size_of;
+        use core::mem::size_of;
         // bytes memory layout:
         // Merkle LEAF_HASH_PREPEND_VALUE                       -> u8                -> felt[0]
         // padding                                              -> 30 bytes

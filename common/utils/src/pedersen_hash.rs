@@ -1,6 +1,6 @@
 use crate::utils::felts_from_bytes;
+use core::fmt::Debug;
 use starknet_crypto::{pedersen_hash, FieldElement};
-use std::fmt::Debug;
 
 #[derive(core::hash::Hash, Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct StarknetFeltWrapped(pub FieldElement);
@@ -79,6 +79,7 @@ mod tests {
     use crate::utils::felt_from_dec_str;
 
     use starknet_crypto::pedersen_hash;
+    use libc_print::std_name::println;
 
     #[test]
     fn pedersen2_test() {
