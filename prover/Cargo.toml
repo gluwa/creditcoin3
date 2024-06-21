@@ -44,11 +44,15 @@ diesel-async = { version = "0.4", features = [
 diesel_migrations = "2.1"
 
 # Substrate
-sp-core = { workspace = true }
+sp-core = { workspace = true, default-features = false }
 pallet-evm = { workspace = true, default-features = false }
+parity-scale-codec = { workspace = true, default-features = false }
 
 # Creditcoin deps
 attestor-primitives = { path = "../primitives/attestor" }
 cc-client = { workspace = true }
 eth = { workspace = true }
-futures.workspace = true
+attestation-chain = { workspace = true }
+utils = { workspace = true }
+proof = { workspace = true }
+futures = { workspace = true }

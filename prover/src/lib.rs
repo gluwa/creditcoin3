@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, info};
 
+pub mod attestation;
 pub mod attestation_cache;
 pub mod cc3;
 pub mod claim;
@@ -165,6 +166,9 @@ pub async fn process_claim(client: CcClientArc, _eth_client: Client, claim: Clai
         .iter()
         .map(eth::transaction::Receipt::to_bytes)
         .collect::<Vec<_>>();
+
+    // Get attestations from chain and parse them to `Block` type (see attestation file)
+    // Pass these to the proof library to generate a proof
 
     // let proof_output = proof::cairo_generate_proof(
     //     claim,

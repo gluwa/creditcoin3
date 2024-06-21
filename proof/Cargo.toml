@@ -10,10 +10,7 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-prover-primitives = { workspace = true, features = ["std"] }
-attestor-primitives = { workspace = true, features = ["std"] }
-pallet-attestation-poc = { workspace = true, features = ["std"] }
-starknet-crypto = "0.6.1"
+starknet-crypto = "0.7"
 anyhow = "1.0.68"
 serde = "1.0.193"
 serde_json = "1.0.117"
@@ -39,13 +36,17 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "rlp",
 ] }
 tempfile = "3.10.1"
-utils = { path = "../common/utils", default-features = false}
+utils = { path = "../common/utils", default-features = false }
 either = "1.12.0"
 ethereum-types.workspace = true
 colored = "2.1.0"
 rlp = "0.5.2"
 fs2 = "0.4.3"
 
+prover-primitives = { workspace = true, features = ["std"] }
+attestor-primitives = { workspace = true, features = ["std"] }
+pallet-attestation-poc = { workspace = true, features = ["std"] }
+
 [dev-dependencies]
-attestation-db = { path = "../attestation-db"}
+attestation-db = { path = "../attestation-db" }
 hashbrown = { version = "0.14.5", default-features = false}

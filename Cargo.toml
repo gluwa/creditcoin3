@@ -230,6 +230,7 @@ bls-signatures = { path = "common/bls-signatures" }
 mmr = { path = "common/mmr", features = ["par_mmr"] }
 cc-client = { path = "common/cc-client" }
 eth = { path = "common/eth" }
+utils = { path = "common/utils" }
 
 attestation-db = { path = "attestation-db" }
 attestation-blocks-online-builder = { path = "attestation-blocks-online-builder" }

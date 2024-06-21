@@ -16,12 +16,11 @@ pub enum BlockError {
 
 #[derive(Debug, Clone, Default)]
 pub struct Block {
-    //    block_number: u64,
-    block_number: U256,
-    tx_root: Felt,
-    rx_root: Felt,
-    prev_digest: Felt,
-    digest: Felt,
+    pub block_number: U256,
+    pub tx_root: Felt,
+    pub rx_root: Felt,
+    pub prev_digest: Felt,
+    pub digest: Felt,
 }
 
 impl Block {

@@ -1262,7 +1262,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "starknet-crypto",
+ "starknet-crypto 0.6.2",
  "utils",
 ]
 
@@ -1301,7 +1301,7 @@ dependencies = [
  "mmr",
  "serde",
  "sp-core",
- "starknet-crypto",
+ "starknet-crypto 0.6.2",
  "thiserror",
  "tokio",
  "tracing",
@@ -1325,7 +1325,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "starknet-crypto",
  "utils",
 ]
 
@@ -2435,7 +2434,7 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-runtime",
- "starknet-crypto",
+ "starknet-crypto 0.6.2",
  "substrate-prometheus-endpoint",
  "supported-chains-primitives",
  "thiserror",
@@ -6037,6 +6036,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "lambdaworks-crypto"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fb5d4f22241504f7c7b8d2c3a7d7835d7c07117f10bff2a7d96a9ef6ef217c3"
+dependencies = [
+ "lambdaworks-math",
+ "serde",
+ "sha2 0.10.8",
+ "sha3",
+]
+
+[[package]]
+name = "lambdaworks-math"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "358e172628e713b80a530a59654154bfc45783a6ed70ea284839800cebdf8f97"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7431,7 +7452,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
- "starknet-crypto",
+ "starknet-crypto 0.6.2",
  "supported-chains-primitives",
 ]
 
@@ -8681,7 +8702,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
- "starknet-crypto",
+ "starknet-crypto 0.7.1",
  "tempfile",
  "thiserror",
  "tokio",
@@ -8778,6 +8799,7 @@ name = "prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "attestation-chain",
  "attestor-primitives",
  "cc-client",
  "clap",
@@ -8788,6 +8810,8 @@ dependencies = [
  "futures 0.3.30",
  "hex",
  "pallet-evm",
+ "parity-scale-codec",
+ "proof",
  "rand 0.8.5",
  "serde",
  "sp-core",
@@ -8796,6 +8820,7 @@ dependencies = [
  "toml 0.8.14",
  "tracing",
  "tracing-subscriber 0.3.18",
+ "utils",
 ]
 
 [[package]]
@@ -12353,9 +12378,29 @@ dependencies = [
  "num-traits",
  "rfc6979",
  "sha2 0.10.8",
- "starknet-crypto-codegen",
- "starknet-curve",
+ "starknet-crypto-codegen 0.3.3",
+ "starknet-curve 0.4.2",
  "starknet-ff",
+ "zeroize",
+]
+
+[[package]]
+name = "starknet-crypto"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff2a821ad8d98c6c3e4d0e5097f3fe6e2ed120ada9d32be87cd1330c7923a2f0"
+dependencies = [
+ "crypto-bigint",
+ "hex",
+ "hmac 0.12.1",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "rfc6979",
+ "sha2 0.10.8",
+ "starknet-crypto-codegen 0.4.0",
+ "starknet-curve 0.5.0",
+ "starknet-types-core",
  "zeroize",
 ]
 
@@ -12365,8 +12410,19 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbc159a1934c7be9761c237333a57febe060ace2bc9e3b337a59a37af206d19f"
 dependencies = [
- "starknet-curve",
+ "starknet-curve 0.4.2",
  "starknet-ff",
+ "syn 2.0.71",
+]
+
+[[package]]
+name = "starknet-crypto-codegen"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e179dedc3fa6da064e56811d3e05d446aa2f7459e4eb0e3e49378a337235437"
+dependencies = [
+ "starknet-curve 0.5.0",
+ "starknet-types-core",
  "syn 2.0.71",
 ]
 
@@ -12380,6 +12436,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "starknet-curve"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56935b306dcf0b8f14bb2a1257164b8478bb8be4801dfae0923f5b266d1b457c"
+dependencies = [
+ "starknet-types-core",
+]
+
+[[package]]
 name = "starknet-ff"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12389,6 +12454,20 @@ dependencies = [
  "crypto-bigint",
  "getrandom 0.2.15",
  "hex",
+]
+
+[[package]]
+name = "starknet-types-core"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6bacf0ba19bc721e518bc4bf389ff13daa8a7c5db5fd320600473b8aa9fcbd"
+dependencies = [
+ "lambdaworks-crypto",
+ "lambdaworks-math",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -13656,7 +13735,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-std",
- "starknet-crypto",
+ "starknet-crypto 0.6.2",
  "starknet-ff",
 ]
 

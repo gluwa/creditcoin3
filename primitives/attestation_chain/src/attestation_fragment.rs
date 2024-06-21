@@ -1,8 +1,3 @@
-// use crate::SOME_FRAGMENT_SIZE;
-// use attestor_primitives::BlockAttestation;
-// use serde::{Deserialize, Serialize};
-// use std::marker::PhantomData;
-
 use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
 use crate::block::{Block, BlockError, BlockSerializable};
 use crate::FRAGMENT_SIZE;
