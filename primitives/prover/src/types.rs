@@ -8,6 +8,13 @@ use utils::utils::{try_parse_felt, try_parse_u64, try_parse_usize, u256_from_fel
 use utils::Felt;
 use utils::StarknetPedersenMerkleProof;
 //pub type Felt = starknet_crypto::FieldElement;
+use scale_info::prelude::format;
+use sp_std::boxed::Box;
+use sp_std::vec::Vec;
+
+extern crate alloc;
+use alloc::borrow::ToOwned;
+use alloc::string::{String, ToString};
 
 #[derive(Serialize)]
 pub struct ClaimDigestRoots {
@@ -69,7 +76,7 @@ impl CairoVerifierOutput {
         Self::try_from(&s[prefix_index..].split_whitespace().collect::<Vec<_>>()[..])
     }
 
-    fn parse_field<T, E: std::fmt::Debug, F: FnOnce(&str) -> Result<T, E>>(
+    fn parse_field<T, E: core::fmt::Debug, F: FnOnce(&str) -> Result<T, E>>(
         s: Option<&&str>,
         f: F,
         field_name: &str,
@@ -164,8 +171,8 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
                 })
                 .collect(),
             claim_rlp,
-            leaf_hash_prefix: mmr::LEAF_HASH_PREPEND_VALUE,
-            inner_node_hash_prefix: mmr::INNER_HASH_PREPEND_VALUE,
+            leaf_hash_prefix: 0,       //mmr::LEAF_HASH_PREPEND_VALUE,
+            inner_node_hash_prefix: 1, // mmr::INNER_HASH_PREPEND_VALUE,
         }
     }
 }

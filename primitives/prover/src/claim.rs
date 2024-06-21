@@ -7,6 +7,7 @@ use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use rlp::Rlp;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
+use sp_std::{vec, vec::Vec};
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::json_serializable::JsonSerializable;
 use utils::{
@@ -134,7 +135,7 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         let local_offsets_hash = self.query_hash();
         if proof_public_input.query_hash != local_offsets_hash {
             return Err(QueryOffsetsMismatch(
-                proof_public_input.query_hash,
+                proof_public_input.query_hash.clone(),
                 local_offsets_hash,
             ));
         }
@@ -176,7 +177,7 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         felt_offsets: &[Range<usize>],
         original_bytes_len: usize,
     ) -> Vec<u8> {
-        use std::cmp::min;
+        use core::cmp::min;
 
         // form a buffer of original rlp length and initialize it.
         let mut bytes = vec![0u8; original_bytes_len];

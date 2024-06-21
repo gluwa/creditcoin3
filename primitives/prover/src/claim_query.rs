@@ -1,6 +1,8 @@
+use core::{fmt::Debug, hash::Hash, ops::Range};
+use hashbrown::HashSet;
 use rlp::{Decodable, Rlp};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fmt::Debug, hash::Hash, ops::Range};
+use sp_std::vec::Vec;
 use utils::json_serializable::JsonSerializable;
 use utils::utils::U248_BYTE_COUNT;
 

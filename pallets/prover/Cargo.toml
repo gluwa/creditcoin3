@@ -37,6 +37,7 @@ supported-chains-primitives = { workspace = true }
 proof-verifier = { workspace = true }
 
 fp-account = { workspace = true }
+prover-primitives = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
@@ -66,5 +67,6 @@ std = [
     "fp-account/std",
     "supported-chains-primitives/std",
     "proof-verifier/std",
+    "prover-primitives/std",
 ]
 runtime-benchmarks = ["frame-benchmarking"]
