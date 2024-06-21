@@ -8,4 +8,6 @@ version = "1.10.0"
 optional = true
 
 [features]
+default = ["std"]
+std = ["par_mmr"]
 par_mmr = ["rayon"]

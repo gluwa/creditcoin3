@@ -1,3 +1,5 @@
+#![no_std]
+
 mod prefixed;
 pub mod proof;
 pub mod traits;
@@ -6,6 +8,9 @@ mod utils;
 use core::fmt::Debug;
 use core::mem::size_of;
 use core::ops::Deref;
+
+extern crate alloc;
+use alloc::{vec, vec::Vec};
 
 #[cfg(feature = "par_mmr")]
 use rayon::prelude::*;
@@ -320,7 +325,7 @@ where
         let len = input.len();
         let partition_offsets = partition_by_arity(len, ARITY);
 
-        println!("mmr partition offsets: {len} => {partition_offsets:?}");
+        //println!("mmr partition offsets: {len} => {partition_offsets:?}");
 
         let base_trees = partition_offsets
             .windows(2)

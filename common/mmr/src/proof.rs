@@ -2,6 +2,9 @@ use crate::traits::{HashT, ProofItemT, ProofValidator};
 use crate::{Prefixed, ARITY};
 use core::fmt::Debug;
 
+extern crate alloc;
+use alloc::{vec, vec::Vec};
+
 /// Basic implementation of an item making up a proof.
 /// Supports a power-of-2 number of siblings
 pub struct ProofItem<H: HashT> {

@@ -1,5 +1,10 @@
 //use core::mem::size_of;
 use crate::Arity;
+
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
+
 // #[macro_export]
 // macro_rules! max_leaves {
 //     ($arity:expr, $height:expr) => {
