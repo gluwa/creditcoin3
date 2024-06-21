@@ -16,15 +16,14 @@ anyhow = { version = "1.0.68", default-features = false }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
 rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
 ethereum = { version = "0.15.0", default-features = false }
-mmr = { path = "../mmr", features = ["par_mmr"], default-features = false }
-fs2 = "0.4.3"
-acid_io = { version = "0.1.0", git = "https://github.com/dataphract/acid_io" }
+mmr = { path = "../mmr", default-features = false }
+fs2 = { version = "0.4.3", optional = true, default-features = false }
+acid_io = { version = "0.1.0", git = "https://github.com/dataphract/acid_io", default-features = false }
 
 starknet-ff = { version = "0.3.7", default-features = false }
-chrono = { version = "0.4.38"}
-colored = { version = "2.1.0"}
-libc-print = { version = "0.1.22", default-features = false }
-sp-std = { workspace = true }
+chrono = { version = "0.4.38", default-features = false }
+colored = { version = "2.1.0", default-features = false}
+sp-std = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -40,5 +39,7 @@ std = [
     "acid_io/std",
     "starknet-ff/std",
     "sp-std/std",
-    "chrono/std",
+    "starknet-ff/std",
+    "mmr/std",
+    "fs2"
 ]
