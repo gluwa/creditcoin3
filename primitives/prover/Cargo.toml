@@ -16,13 +16,16 @@ parity-scale-codec = { workspace = true }
 frame-support = { workspace = true }
 sp-runtime = { workspace = true }
 sp-io = { workspace = true }
-serde = { workspace = true }
+serde.workspace = true
 scale-info = { workspace = true }
 attestor-primitives = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true }
-utils = { path = "../../common/utils" } 
+utils = { path = "../../common/utils" }
 anyhow = "1.0.86"
 rlp = "0.5.2"
+ethereum-types = "0.14.1"
+serde_json.workspace = true
+mmr = { path = "../../common/mmr", features = ["par_mmr"] }
 
 [features]
 default = ["std"]

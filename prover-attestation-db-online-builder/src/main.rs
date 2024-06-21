@@ -25,7 +25,7 @@ use ethereum_types::U256;
 use futures::StreamExt;
 use futures_util::stream::Stream;
 use poc_config::PocConfig;
-use proof::types::{CairoVerifierOutput, StoneProof};
+use prover_primitives::types::{CairoVerifierOutput, StoneProof};
 use prover_primitives::claim::ClaimSerializable;
 use std::pin::Pin;
 use std::sync::Arc;

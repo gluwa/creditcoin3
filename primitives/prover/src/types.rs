@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use ethereum_types::U256;
-use prover_primitives::claim::ClaimIdentifier;
+use crate::claim::ClaimIdentifier;
 use serde::{Deserialize, Serialize};
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::json_serializable::JsonSerializable;
@@ -224,7 +224,7 @@ impl From<Option<i32>> for ScriptError {
     }
 }
 
-pub type StoneProofPublicInput = crate::CairoVerifierOutput;
+pub type StoneProofPublicInput = CairoVerifierOutput;
 
 impl StoneProofPublicInput {
     const NUMBER_OF_STATIC_FIELDS: usize = 4 + 1 + 1 + 2;

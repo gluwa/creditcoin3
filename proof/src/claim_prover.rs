@@ -1,4 +1,4 @@
-use crate::types::{
+use prover_primitives::types::{
     CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
     StoneProof, StoneProofJson,
 };

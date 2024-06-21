@@ -1,14 +1,13 @@
 pub mod claim_prover;
-pub mod types;
 
 use anyhow::anyhow;
 
 use crate::claim_prover::{build_prover, ClaimProver};
-use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+use prover_primitives::claim::ClaimSerializable;
 use attestation_chain::attestation_fragment::AttestationFragment;
 use utils::print_with_timestamp;
 //use attestor::merkle::tree::FieldElement;
-use prover_primitives::claim::ClaimSerializable;
 //use eth_common::transaction::Transaction;
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use colored::Colorize;
@@ -137,7 +136,7 @@ async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow
 
 #[cfg(test)]
 mod tests {
-    use crate::types::StoneProofPublicInput;
+    use prover_primitives::types::StoneProofPublicInput;
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use attestation_db::AttestationDB;
     use colored::Colorize;
@@ -245,7 +244,7 @@ mod tests {
         println!("{}", "CLAIMER: continuity verified".bold().green());
 
         claim
-            .validate_fields(&output.claim_fields, &output.query_hash)
+            .validate_fields(&output)
             .unwrap();
 
         println!(
@@ -281,20 +280,27 @@ mod tests {
                 To,
                 //                SingleDataRelativeRange(Some(24..30)),
                 Nonce,
+                SingleDataRelativeRange(None),
                 //                SingleDataRelativeRange(Some(33..39)),
-                AccessListItem(Some(0)),
             ]
             .into_iter()
             .collect::<HashSet<_>>(),
         )
         .unwrap();
 
-        let claim = Claim::try_create(claim_id, claim_query, rlp).unwrap();
+        let claim = Claim::try_create(claim_id.clone(), claim_query, rlp).unwrap();
 
-        let felts_from_prover = rlp_felts.clone();
+//        let felts_from_prover = rlp_felts.clone();
+        let prover_output = StoneProofPublicInput {
+            claim_id,
+            continuity_checkpoint_digest: Default::default(),
+            continuity_checkpoint_block_number: Default::default(),
+            query_hash: claim.query_hash().clone(),
+            claim_fields: rlp_felts,
+        };
 
         assert!(claim
-            .validate_fields(&felts_from_prover, &claim.query_hash())
+            .validate_fields(&prover_output)
             .is_ok());
     }
 }

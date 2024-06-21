@@ -5,9 +5,7 @@ use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
 use either::Either;
 use proof::claim_prover::{build_prover, ClaimProver};
-use proof::types::CairoVerifierOutput;
-use proof::types::ClaimProverError;
-use proof::types::StoneProof;
+use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 use prover_primitives::claim::ClaimSerializable;
 
 pub async fn cairo_verify_claim(

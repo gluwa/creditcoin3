@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod claim;
 pub mod claim_query;
+pub mod types;
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChainPriceConfiguration {

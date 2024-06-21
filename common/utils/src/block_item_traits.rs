@@ -24,8 +24,7 @@ pub trait CacheT<T>: Clone {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockItemIdentifier {
     block_number: U256,
     index: u64,
