@@ -13661,6 +13661,7 @@ dependencies = [
  "rlp",
  "serde",
  "serde_json",
+ "sp-std",
  "starknet-crypto",
  "starknet-ff",
 ]

@@ -678,7 +678,7 @@ mod tests {
         }
         println!("{}", checkpoints);
 
-        let block_number = 8;
+        let block_number = 8u32;
         let prepended = AttestationCheckpoint {
             digest: Felt::from(block_number),
             block_number: block_number.into(),
@@ -692,7 +692,7 @@ mod tests {
             ))
         );
 
-        let block_number = 16;
+        let block_number = 16u32;
         let prepended = AttestationCheckpoint {
             digest: Felt::from(block_number),
             block_number: block_number.into(),

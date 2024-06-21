@@ -24,6 +24,7 @@ starknet-ff = { version = "0.3.7", default-features = false }
 chrono = { version = "0.4.38"}
 colored = { version = "2.1.0"}
 libc-print = { version = "0.1.22", default-features = false }
+sp-std = { workspace = true }
 
 [features]
 default = ["std"]
@@ -38,5 +39,6 @@ std = [
     "ethereum/std",
     "acid_io/std",
     "starknet-ff/std",
+    "sp-std/std",
     "chrono/std",
 ]

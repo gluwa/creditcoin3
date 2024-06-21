@@ -2,8 +2,7 @@ use core::fmt::Debug;
 use ethereum_types::U256;
 use serde::{Deserialize, Serialize};
 
-extern crate alloc;
-use alloc::vec::Vec;
+use sp_std::vec::Vec;
 
 use crate::utils::U248_BYTE_COUNT;
 
