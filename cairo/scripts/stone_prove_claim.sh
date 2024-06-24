@@ -62,6 +62,8 @@ jq --arg LAST_LAYER_DEGREE_BOUND "$LAST_LAYER_DEGREE_BOUND" \
   '.stark.fri.last_layer_degree_bound = ($LAST_LAYER_DEGREE_BOUND | tonumber)' \
   "$AIR_PARAMS" >cpu_air_params_tmp.json && mv cpu_air_params_tmp.json "$AIR_PARAMS"
 
+rm -rf cpu_air_params_tmp.json
+
 PROOF_FILE="$INPUT_PATH/proof.json"
 #ATTESTATION_CHAIN_FILE=$INPUT_PATH"/chain_attestation.json"
 
