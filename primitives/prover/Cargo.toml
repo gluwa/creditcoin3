@@ -26,6 +26,7 @@ anyhow = { version = "1.0.86", default-features = false }
 rlp = { version = "0.5.2", default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false }
 serde_json = { workspace = true }
+mmr = { path = "../../common/mmr", default-features = false }
 
 [features]
 default = ["std"]
@@ -47,4 +48,5 @@ std = [
     "serde/std",
     "serde_json/std",
     "utils/std",
+    "mmr/std",
 ]

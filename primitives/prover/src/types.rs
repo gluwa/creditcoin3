@@ -169,8 +169,8 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
                 })
                 .collect(),
             claim_rlp,
-            leaf_hash_prefix: 0,       //mmr::LEAF_HASH_PREPEND_VALUE,
-            inner_node_hash_prefix: 1, // mmr::INNER_HASH_PREPEND_VALUE,
+            leaf_hash_prefix: mmr::LEAF_HASH_PREPEND_VALUE,
+            inner_node_hash_prefix: mmr::INNER_HASH_PREPEND_VALUE,
         }
     }
 }

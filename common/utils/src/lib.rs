@@ -14,12 +14,3 @@ pub type Felt = starknet_crypto::FieldElement;
 
 pub type StarknetPedersenMmr = Mmr<StarknetPedersenHash>;
 pub type StarknetPedersenMerkleProof = Proof<StarknetPedersenHash>;
-
-// #[cfg(feature = "std")]
-// pub fn print_with_timestamp(s: colored::ColoredString) {
-//     println!(
-//         "[{}] {}",
-//         chrono::Local::now().time().format("%H:%M:%S%.3f"),
-//         s
-//     );
-// }
