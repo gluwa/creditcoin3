@@ -404,9 +404,9 @@ mod tests {
     use crate::traits::ProofValidator;
     use crate::HashT;
     use crate::{BaseTree, Mmr};
-    use twox_hash::XxHash64;
     use core::hash::Hash;
     use core::hash::Hasher;
+    use twox_hash::XxHash64;
     extern crate alloc;
     use alloc::{vec, vec::Vec};
 
@@ -563,7 +563,6 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mmr = Mmr::<StdHash>::from(&input[..]);
-
 
         for (i, d) in input.iter().enumerate() {
             let proof = mmr.generate_proof(i);

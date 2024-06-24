@@ -44,7 +44,6 @@ pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
     let maybe_zero_prefix = *felts[0].as_ref();
     let mut prev = maybe_zero_prefix;
 
-
     for felt in &felts[1..] {
         prev = pedersen_hash(&prev, felt.as_ref());
     }

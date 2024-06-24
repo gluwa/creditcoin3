@@ -4,12 +4,12 @@ pub mod json_serializable;
 use anyhow::anyhow;
 
 use crate::claim_prover::{build_prover, ClaimProver};
-use attestation_chain::attestation_fragment::AttestationFragment;
-use prover_primitives::claim::ClaimSerializable;
-use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
+use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
 use either::Either;
+use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
 pub async fn cairo_generate_proof(
     url: &str,
