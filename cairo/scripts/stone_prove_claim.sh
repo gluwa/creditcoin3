@@ -33,14 +33,14 @@ fi
 PRIVATE_INPUT="$INPUT_PATH/private_input.json"
 PUBLIC_INPUT="$INPUT_PATH/public_input.json"
 TRACE_FILE="$INPUT_PATH/trace.json"
-MEMORY_FILE="$INPUT_PATH/memory.json"
+#MEMORY_FILE="$INPUT_PATH/memory.json"
 
 TRACE_SIZE=$(stat -c "%s" "$TRACE_FILE")
 echo "trace file size: $TRACE_SIZE"
 CHAIN_LEN=$(jq '.blocks | length' "$PROGRAM_INPUT_FILE")
 echo "chain length from the input file: $CHAIN_LEN"
-PUBLIC_INPUT_SIZE=$(stat -c "%s" "$PUBLIC_INPUT")
-PRIVATE_INPUT_SIZE=$(stat -c "%s" "$PRIVATE_INPUT")
+#PUBLIC_INPUT_SIZE=$(stat -c "%s" "$PUBLIC_INPUT")
+#PRIVATE_INPUT_SIZE=$(stat -c "%s" "$PRIVATE_INPUT")
 
 TRACE_SIZE_DIV3=$((TRACE_SIZE / 3))
 LOG_TRACE_SIZE_DIV3=$(echo "$TRACE_SIZE_DIV3" | awk '{print log($1)/log(2)}')
