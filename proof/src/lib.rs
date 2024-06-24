@@ -140,7 +140,7 @@ mod tests {
         claim::{Claim, ClaimIdentifier, ClaimKind, ClaimSerializable},
         claim_query::{Eip4844TxClaimQueryField::*, TxClaimQuery},
     };
-    use std::collections::HashSet;
+    use hashbrown::HashSet;
     use utils::{block_item_traits::BlockItemIdentifier, utils::felts_from_bytes};
 
     /// tests this circuit:

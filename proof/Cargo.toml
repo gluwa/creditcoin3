@@ -48,3 +48,4 @@ fs2 = "0.4.3"
 
 [dev-dependencies]
 attestation-db = { path = "../attestation-db"}
+hashbrown = { version = "0.14.5", default-features = false}

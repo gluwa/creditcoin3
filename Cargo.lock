@@ -8674,6 +8674,7 @@ dependencies = [
  "ethereum-types",
  "fs2",
  "futures 0.3.30",
+ "hashbrown 0.14.5",
  "mmr",
  "pallet-attestation-poc",
  "prover-primitives",
