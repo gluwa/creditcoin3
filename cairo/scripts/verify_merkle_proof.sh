@@ -16,13 +16,13 @@ if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
 fi
 
 CAIRO_PROGRAM_SOURCE="../cairo/scripts/verify_merkle_proof"
-INPUT_PATH="./"$1
+INPUT_PATH="./$1"
 PROOF_MODE=$2
 CAIRO_LANG_DIR="../cairo/lang"
 
-PROGRAM_INPUT_FILE=$INPUT_PATH"/program_input.json"
-AIR_PROVER_CONFIG=$CAIRO_LANG_DIR"/cpu_air_prover_config.json"
-AIR_PARAMS=$CAIRO_LANG_DIR"/cpu_air_params.json"
+PROGRAM_INPUT_FILE="$INPUT_PATH/program_input.json"
+AIR_PROVER_CONFIG="$CAIRO_LANG_DIR/cpu_air_prover_config.json"
+AIR_PARAMS="$CAIRO_LANG_DIR/cpu_air_params.json"
 
 if [ ! -d "$INPUT_PATH" ]; then
   echo "$INPUT_PATH does not exist. This folder is supposed to hold the 'program_input.json'."
@@ -34,7 +34,7 @@ if [ ! -f "$PROGRAM_INPUT_FILE" ]; then
   exit 21
 fi
 
-if [ "$PROOF_MODE" == "proof_mode" ]; then
+if [ "$PROOF_MODE" = "proof_mode" ]; then
   if [ ! -f "$AIR_PARAMS" ]; then
     echo "$AIR_PARAMS does not exist. This file needs to exist so the script can update parameters with accordance to execution trace."
     exit 22
@@ -46,21 +46,20 @@ if [ "$PROOF_MODE" == "proof_mode" ]; then
   fi
 fi
 
-SOURCE_FILE=$CAIRO_PROGRAM_SOURCE".cairo"
-COMPILED_FILE=$CAIRO_PROGRAM_SOURCE"_compiled.json"
+SOURCE_FILE="$CAIRO_PROGRAM_SOURCE.cairo"
+COMPILED_FILE="$CAIRO_PROGRAM_SOURCE""_compiled.json"
 
 if [ ! -f "$SOURCE_FILE" ]; then
   echo "$SOURCE_FILE does not exist. It is expected to contain the attestation chain data."
   exit 25
 fi
 
-
 echo "source: $SOURCE_FILE"
 echo "output: $COMPILED_FILE"
 echo "cairo-compiling..."
 
-message=$(cairo-compile $SOURCE_FILE --output $COMPILED_FILE --proof_mode 2>&1)
-if [[ $? -ne 0 ]]; then
+message=$(cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1)
+if [ $? -ne 0 ]; then
   echo "compilation failed: $message"
   exit 30
 fi
@@ -70,30 +69,30 @@ if [ ! -f "$COMPILED_FILE" ]; then
   exit 31
 fi
 
-PRIVATE_INPUT=$INPUT_PATH"/private_input.json"
-PUBLIC_INPUT=$INPUT_PATH"/public_input.json"
-TRACE_FILE=$INPUT_PATH"/trace.json"
-MEMORY_FILE=$INPUT_PATH"/memory.json"
-OUTPUT_FILE=$INPUT_PATH"/output.txt"
+PRIVATE_INPUT="$INPUT_PATH/private_input.json"
+PUBLIC_INPUT="$INPUT_PATH/public_input.json"
+TRACE_FILE="$INPUT_PATH/trace.json"
+MEMORY_FILE="$INPUT_PATH/memory.json"
+OUTPUT_FILE="$INPUT_PATH/output.txt"
 echo "program: $COMPILED_FILE"
 echo "program input: $PROGRAM_INPUT_FILE"
 #echo "trace_file: $TRACE_FILE"
 #echo "memory_file: $MEMORY_FILE"
 echo "program output: $OUTPUT_FILE"
 
-if [ "$PROOF_MODE" == "proof_mode" ]; then
+if [ "$PROOF_MODE" = "proof_mode" ]; then
   echo "air_private_input: $PRIVATE_INPUT"
   echo "air_public_input: $PUBLIC_INPUT"
 
   echo "cairo-running..."
   message=$(cairo-run \
-    --program=$COMPILED_FILE \
+    --program="$COMPILED_FILE" \
     --layout=recursive \
-    --program_input=$PROGRAM_INPUT_FILE \
-    --air_public_input=$PUBLIC_INPUT \
-    --air_private_input=$PRIVATE_INPUT \
-    --trace_file=$TRACE_FILE \
-    --memory_file=$MEMORY_FILE \
+    --program_input="$PROGRAM_INPUT_FILE" \
+    --air_public_input="$PUBLIC_INPUT" \
+    --air_private_input="$PRIVATE_INPUT" \
+    --trace_file="$TRACE_FILE" \
+    --memory_file="$MEMORY_FILE" \
     --print_output \
     --proof_mode 2>&1)
 
@@ -101,20 +100,20 @@ else
   echo "cairo-running..."
   message=$(
     cairo-run \
-      --program=$COMPILED_FILE \
+      --program="$COMPILED_FILE" \
       --layout=recursive \
-      --program_input=$PROGRAM_INPUT_FILE \
-      --trace_file=$TRACE_FILE \
-      --memory_file=$MEMORY_FILE \
+      --program_input="$PROGRAM_INPUT_FILE" \
+      --trace_file="$TRACE_FILE" \
+      --memory_file="$MEMORY_FILE" \
       --print_output 2>&1
   )
 fi
 
-if [[ $? -ne 0 ]]; then
+if [ $? -ne 0 ]; then
   echo "cairo-run: $message"
   exit 40
 else
-  echo $message >$OUTPUT_FILE
+  echo "$message" >"$OUTPUT_FILE"
 fi
 
 if [ "$PROOF_MODE" != "proof_mode" ]; then
