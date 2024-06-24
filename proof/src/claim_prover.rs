@@ -1,13 +1,13 @@
-use prover_primitives::types::{
-    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
-    StoneProof, StoneProofJson,
-};
 use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
 use eth_common::transaction::{BlockItem, Receipt, Transaction};
 use eth_common::{fetch_block_receipts, fetch_block_transactions};
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimKind;
 use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::types::{
+    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
+    StoneProof, StoneProofJson,
+};
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};

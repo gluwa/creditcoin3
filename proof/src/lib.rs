@@ -3,9 +3,9 @@ pub mod claim_prover;
 use anyhow::anyhow;
 
 use crate::claim_prover::{build_prover, ClaimProver};
-use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
-use prover_primitives::claim::ClaimSerializable;
 use attestation_chain::attestation_fragment::AttestationFragment;
+use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 use utils::print_with_timestamp;
 //use attestor::merkle::tree::FieldElement;
 //use eth_common::transaction::Transaction;
@@ -136,11 +136,11 @@ async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow
 
 #[cfg(test)]
 mod tests {
-    use prover_primitives::types::StoneProofPublicInput;
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use attestation_db::AttestationDB;
     use colored::Colorize;
     use eth_common::fetch_block_transactions;
+    use prover_primitives::types::StoneProofPublicInput;
     use prover_primitives::{
         claim::{Claim, ClaimIdentifier, ClaimKind, ClaimSerializable},
         claim_query::{Eip4844TxClaimQueryField::*, TxClaimQuery},
@@ -243,9 +243,7 @@ mod tests {
         assert_eq!(&output.continuity_checkpoint_digest, checkpoint.digest());
         println!("{}", "CLAIMER: continuity verified".bold().green());
 
-        claim
-            .validate_fields(&output)
-            .unwrap();
+        claim.validate_fields(&output).unwrap();
 
         println!(
             "{}",
@@ -290,7 +288,7 @@ mod tests {
 
         let claim = Claim::try_create(claim_id.clone(), claim_query, rlp).unwrap();
 
-//        let felts_from_prover = rlp_felts.clone();
+        //        let felts_from_prover = rlp_felts.clone();
         let prover_output = StoneProofPublicInput {
             claim_id,
             continuity_checkpoint_digest: Default::default(),
@@ -299,8 +297,6 @@ mod tests {
             claim_fields: rlp_felts,
         };
 
-        assert!(claim
-            .validate_fields(&prover_output)
-            .is_ok());
+        assert!(claim.validate_fields(&prover_output).is_ok());
     }
 }

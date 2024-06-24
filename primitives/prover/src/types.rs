@@ -1,6 +1,6 @@
+use crate::claim::ClaimIdentifier;
 use anyhow::anyhow;
 use ethereum_types::U256;
-use crate::claim::ClaimIdentifier;
 use serde::{Deserialize, Serialize};
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::json_serializable::JsonSerializable;

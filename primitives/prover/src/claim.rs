@@ -1,4 +1,5 @@
 use crate::claim_query::{ClaimQuery, ClaimQueryFieldError};
+use crate::types::StoneProofPublicInput;
 use attestor_primitives::ChainId;
 use core::cmp::max;
 use core::ops::Range;
@@ -13,7 +14,6 @@ use utils::{
     utils::{felts_to_bytes, U248_BYTE_COUNT},
     Felt,
 };
-use crate::types::StoneProofPublicInput;
 
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, MaxEncodedLen, Hash)]
 pub struct ClaimOld<Address> {
@@ -118,35 +118,41 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
 
     /// takes field elements from proof, converts them into bytes and compares them againts local rlp bytes
     /// the claim id and hashed query values are compared too
-    pub fn validate_fields(&self, proof_public_input: &StoneProofPublicInput) -> Result<(), ClaimValidationError> {
+    pub fn validate_fields(
+        &self,
+        proof_public_input: &StoneProofPublicInput,
+    ) -> Result<(), ClaimValidationError> {
         use ClaimValidationError::*;
 
         if self.id != proof_public_input.claim_id {
-            return Err(ClaimIdNotValidated(self.id.clone(), proof_public_input.claim_id.clone()));
+            return Err(ClaimIdNotValidated(
+                self.id.clone(),
+                proof_public_input.claim_id.clone(),
+            ));
         }
 
         let local_offsets_hash = self.query_hash();
-//        println!("felts_offsets: {:?}", felts_offsets.iter().map(|f| f.to_string()).collect::<Vec<_>>());
         if proof_public_input.query_hash != local_offsets_hash {
-            return Err(QueryOffsetsMismatch(proof_public_input.query_hash, local_offsets_hash));
+            return Err(QueryOffsetsMismatch(
+                proof_public_input.query_hash,
+                local_offsets_hash,
+            ));
         }
 
         let bytes_from_proof = self.proof_felts_to_bytes(&proof_public_input.claim_fields);
-        self
-            .query
+        self.query
             .as_byte_offsets(&self.rlp)
             .map_err(FieldInner)?
             .into_iter()
-            .try_for_each(|r| 
+            .try_for_each(|r| {
                 (bytes_from_proof[r.clone()] == self.rlp.as_raw()[r.clone()])
                     .then_some(())
                     .ok_or(ClaimValidationError::FieldNotValidated(
-                        r.clone(), 
-                        bytes_from_proof[r.clone()].to_vec(), 
-                        self.rlp.as_raw()[r].to_vec()
-                    )
-                )
-            )
+                        r.clone(),
+                        bytes_from_proof[r.clone()].to_vec(),
+                        self.rlp.as_raw()[r].to_vec(),
+                    ))
+            })
     }
     /// takes query and rlp object and returns field element ranges for the prover to output and return to claimer
     /// to prevent ambiguities these ranges must be ensured to be ordered

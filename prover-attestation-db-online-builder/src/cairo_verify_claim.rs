@@ -5,8 +5,8 @@ use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
 use either::Either;
 use proof::claim_prover::{build_prover, ClaimProver};
-use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
 pub async fn cairo_verify_claim(
     url: &str,
