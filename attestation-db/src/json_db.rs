@@ -80,29 +80,6 @@ impl AttestationDB for AttestationJsonDB {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    fn recent_fragment(&self) -> &AttestationFragment {
-        &self.recent_fragment
-    }
-    fn get_fragment_for(&self, block_number: U256) -> Option<AttestationFragment> {
-        Self::get_saved_fragment_for(&self.local_path, block_number).or_else(|| {
-            (Self::key_for(block_number) == Self::fragment_key(self.recent_fragment())
-                && self.recent_fragment().head()?.n() >= block_number)
-                .then_some(self.recent_fragment().clone())
-        })
-    }
-
-    fn fragment_exists(&self, interval: &AttestationInterval) -> bool {
-        Self::fragment_full_path_for(&self.local_path, interval.head())
-            .map(|path| std::fs::File::open(path).is_ok())
-            .unwrap_or(false)
-    }
-
-    fn fragment_for_exists(&self, block_number: U256) -> bool {
-        Self::fragment_full_path_for(&self.local_path, block_number)
-            .as_deref()
-            .map(|path| std::fs::File::open(path).is_ok())
-            .unwrap_or(false)
-    }
     fn reset(&mut self) -> Result<(), AttestationDbError> {
         std::fs::remove_dir_all(&self.local_path).map_err(|_| AttestationDbError::ResetFailure)?;
 
@@ -113,6 +90,29 @@ impl AttestationDB for AttestationJsonDB {
         //     .map_err(|err| AttestationDbError::Other(format!("unable to save state: {err:?}")))?;
 
         Ok(())
+    }
+    fn recent_fragment(&self) -> &AttestationFragment {
+        &self.recent_fragment
+    }
+
+    fn get_fragment_for(&self, block_number: U256) -> Option<AttestationFragment> {
+        Self::get_saved_fragment_for(&self.local_path, block_number).or_else(|| {
+            (Self::key_for(block_number) == Self::fragment_key(self.recent_fragment())
+                && self.recent_fragment().head()?.n() >= block_number)
+                .then_some(self.recent_fragment().clone())
+        })
+    }
+
+    fn fragment_for_exists(&self, block_number: U256) -> bool {
+        Self::fragment_full_path_for(&self.local_path, block_number)
+            .as_deref()
+            .map(|path| std::fs::File::open(path).is_ok())
+            .unwrap_or(false)
+    }
+    fn fragment_exists(&self, interval: &AttestationInterval) -> bool {
+        Self::fragment_full_path_for(&self.local_path, interval.head())
+            .map(|path| std::fs::File::open(path).is_ok())
+            .unwrap_or(false)
     }
 }
 
@@ -213,14 +213,16 @@ impl AttestationDBImpl for AttestationJsonDB {
 #[cfg(test)]
 mod tests {
     use crate::json_db::AttestationJsonDB;
+    use crate::AttestationDB;
     use crate::AttestationDbError;
     use crate::AttestationFragment;
     use crate::FullFragment;
     use attestation_chain::attestation_fragment::AttestationFragmentError;
     use attestation_chain::block::Block;
+    use ethereum_types::U256;
     use std::sync::Mutex;
 
-    const DB_PATH: &'static str = "../data/test_db";
+    const DB_PATH: &str = "../data/test_db";
 
     lazy_static::lazy_static! {
         static ref DB_LOCK: Mutex<()> = Mutex::new(());
@@ -261,50 +263,45 @@ mod tests {
     #[test]
     fn key_for_block_test() {
         let _lock = DB_LOCK.lock().unwrap();
-        let db = recreate_instance();
 
-        let block = 42u64;
-        let key = db.key_for(block);
+        let block = U256::from(42);
+        let key = AttestationJsonDB::key_for(block);
         assert_eq!(key, None);
         println!("key({block}) = {:?}", key);
 
-        let block = 45u64;
-        let key = db.key_for(block).unwrap();
-        assert_eq!(key, 0);
+        let block = U256::from(45);
+        let key = AttestationJsonDB::key_for(block).unwrap();
+        assert_eq!(key, 0.into());
         println!("key({block}) = {:?}", key);
 
         let block = 46u64;
-        let key = db.key_for(block).unwrap();
-        assert_eq!(key, 0);
+        let key = AttestationJsonDB::key_for(block.into()).unwrap();
+        assert_eq!(key, 0.into());
         println!("key({block}) = {:?}", key);
 
         let block = 50u64;
-        let key = db.key_for(block).unwrap();
-        assert_eq!(key, 1);
+        let key = AttestationJsonDB::key_for(block.into()).unwrap();
+        assert_eq!(key, 1.into());
         println!("key({block}) = {:?}", key);
 
         let block = 54u64;
-        let key = db.key_for(block).unwrap();
-        assert_eq!(key, 2);
+        let key = AttestationJsonDB::key_for(block.into()).unwrap();
+        assert_eq!(key, 2.into());
         println!("key({block}) = {:?}", key);
     }
 
     #[test]
     fn fail_set_misaligned_fragment_test() {
         let _lock = DB_LOCK.lock().unwrap();
-        let mut db = recreate_instance();
 
         let mut fragment = AttestationFragment::default();
 
         let res = fragment.try_append_block(Block::new(43.into(), 0u64.into(), 0u64.into()));
 
-        assert!(
-            if let Err(AttestationFragmentError::MisalignedBlock(_)) = res {
-                true
-            } else {
-                false
-            }
-        );
+        assert!(matches!(
+            res,
+            Err(AttestationFragmentError::MisalignedBlock(_))
+        ));
     }
 
     #[test]
@@ -354,13 +351,10 @@ mod tests {
 
         let full_fragment = FullFragment::try_from(&fragment).unwrap();
 
-        assert!(if let Err(AttestationDbError::FragmentAlreadySet(_)) =
-            db.set_fragment(full_fragment)
-        {
-            true
-        } else {
-            false
-        });
+        assert!(matches!(
+            db.set_fragment(full_fragment),
+            Err(AttestationDbError::FragmentAlreadySet(_))
+        ));
     }
 
     #[test]
@@ -412,11 +406,11 @@ mod tests {
         db.set_fragment(full_fragment).unwrap();
         assert_eq!(db.len(), 2);
 
-        println!("KEY = {:?}", db.key_for(58));
-        let fr = db.get_fragment_for(58).unwrap();
+        println!("KEY = {:?}", AttestationJsonDB::key_for(58.into()));
+        let fr = AttestationJsonDB::get_fragment_for(&db, 58.into()).unwrap();
         //        println!("!!!! ({}, {})", fr.tail().unwrap().block_number, fr.head().unwrap().block_number);
-        assert_eq!(fr.tail().map(Block::n), Some(54));
-        assert_eq!(fr.head().map(Block::n), Some(58));
+        assert_eq!(fr.tail().map(Block::n), Some(54.into()));
+        assert_eq!(fr.head().map(Block::n), Some(58.into()));
         //        db.flush();
     }
 
@@ -434,13 +428,10 @@ mod tests {
         let mut db = recreate_instance();
 
         let res = db.try_append_block(Block::new(43.into(), 0u64.into(), 0u64.into()));
-        assert!(
-            if let Err(AttestationDbError::MisalignedBlockDiscarded(_)) = res {
-                true
-            } else {
-                false
-            }
-        );
+        assert!(matches!(
+            res,
+            Err(AttestationDbError::MisalignedBlockDiscarded(_))
+        ));
     }
     #[test]
     fn append_blocks_from_genesis_test() {
@@ -522,37 +513,18 @@ mod tests {
             .unwrap();
         assert_eq!(db.len(), 2);
 
-        let fr = db.get_fragment_for(53).unwrap();
-        assert_eq!(fr.head().map(Block::n), Some(54));
+        let fr = db.get_fragment_for(53.into()).unwrap();
+        assert_eq!(fr.head().map(Block::n), Some(54.into()));
 
         db.try_append_block(Block::new(55.into(), 0u64.into(), 0u64.into()))
             .unwrap();
 
         let prev_len = db.len();
-        let prev_head_fragment = db.recent_fragment().clone();
+        let _prev_head_fragment = db.recent_fragment().clone();
         drop(db);
 
         let db = load_instance();
         assert_eq!(prev_len, db.len());
-    }
-
-    #[test]
-    fn db_state_test() {
-        let _lock = DB_LOCK.lock().unwrap();
-        let _db = recreate_instance();
-
-        let recent_fragment = AttestationFragment::new();
-        let state = AttestationJsonDBStateSerializable {
-            num_of_fragments: 42,
-            _marker: std::marker::PhantomData,
-        };
-
-        state.to_file("../data/test_db/test_db_state.json").unwrap();
-        let state_loaded =
-            AttestationJsonDBStateSerializable::try_from_file("../data/test_db/test_db_state.json")
-                .unwrap();
-
-        assert_eq!(state.num_of_fragments, state_loaded.num_of_fragments);
     }
 
     #[test]

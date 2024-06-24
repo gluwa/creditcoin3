@@ -135,12 +135,12 @@ mod tests {
     use attestation_db::AttestationDB;
     use colored::Colorize;
     use eth_common::fetch_block_transactions;
+    use hashbrown::HashSet;
     use prover_primitives::types::StoneProofPublicInput;
     use prover_primitives::{
         claim::{Claim, ClaimIdentifier, ClaimKind, ClaimSerializable},
         claim_query::{Eip4844TxClaimQueryField::*, TxClaimQuery},
     };
-    use hashbrown::HashSet;
     use utils::{block_item_traits::BlockItemIdentifier, utils::felts_from_bytes};
 
     /// tests this circuit:

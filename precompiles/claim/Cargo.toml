@@ -47,7 +47,7 @@ hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
 serde = { workspace = true }
 sha3 = { workspace = true }
-
+prover-primitives = { workspace = true }
 # Moonbeam
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 
