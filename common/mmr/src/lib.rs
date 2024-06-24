@@ -404,9 +404,11 @@ mod tests {
     use crate::traits::ProofValidator;
     use crate::HashT;
     use crate::{BaseTree, Mmr};
-    use std::hash::DefaultHasher;
-    use std::hash::Hash;
-    use std::hash::Hasher;
+    use twox_hash::XxHash64;
+    use core::hash::Hash;
+    use core::hash::Hasher;
+    extern crate alloc;
+    use alloc::{vec, vec::Vec};
 
     #[derive(Debug)]
     struct StdHash;
@@ -424,7 +426,7 @@ mod tests {
         type Output = Wrapped8;
 
         fn hash(input: &[u8]) -> Self::Output {
-            let mut s = DefaultHasher::new();
+            let mut s = XxHash64::with_seed(0);
             input.hash(&mut s);
             Wrapped8(s.finish().to_ne_bytes())
         }
@@ -517,7 +519,6 @@ mod tests {
         ];
         let tree =
             BaseTree::<StdHash>::from(&input.iter().map(|d| d.as_slice()).collect::<Vec<_>>()[..]);
-        println!("tree.height(): {:?}", tree.height());
 
         for (i, d) in input.iter().enumerate() {
             let proof = tree.generate_proof(i);
@@ -532,7 +533,6 @@ mod tests {
             .collect::<Vec<_>>();
         let tree =
             BaseTree::<StdHash>::from(&input.iter().map(|d| d.as_slice()).collect::<Vec<_>>()[..]);
-        println!("tree.height(): {:?}", tree.height());
 
         for (i, d) in input.iter().enumerate() {
             let proof = tree.generate_proof(i);
@@ -563,14 +563,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mmr = Mmr::<StdHash>::from(&input[..]);
-        println!("mmr root: {:?}", mmr.root());
-        println!("mmr num of leaves: {}", mmr.num_of_leaves());
+
 
         for (i, d) in input.iter().enumerate() {
             let proof = mmr.generate_proof(i);
             assert!(proof.validate(d));
         }
-        println!("validated {} inputs", input.len());
     }
 
     #[test]
@@ -589,8 +587,6 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mmr = Mmr::<StdHash>::from(&input[..]);
-        println!("mmr root: {:?}", mmr.root());
-        println!("mmr num of leaves: {}", mmr.num_of_leaves());
 
         for (i, _d) in input.iter().enumerate() {
             let proof = mmr.generate_proof(i);
@@ -601,7 +597,6 @@ mod tests {
                 panic!("malvalidated empty at index: {i}, input: {:?}", input[i])
             }
         }
-        println!("validated {} inputs", input.len());
     }
 
     #[test]
@@ -612,8 +607,6 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mmr = Mmr::<StdHash>::from(&input[..]);
-        println!("mmr root: {:?}", mmr.root());
-        println!("mmr num of leaves: {}", mmr.num_of_leaves());
         let proof = mmr.generate_proof(input.iter().enumerate().last().map(|(i, _)| i).unwrap());
         assert!(proof.validate(input.iter().last().unwrap()));
         //        }
@@ -626,8 +619,6 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mmr = Mmr::<StdHash>::from(&input[..]);
-        println!("mmr root: {:?}", mmr.root());
-        println!("mmr num of leaves: {}", mmr.num_of_leaves());
         let proof = mmr.generate_proof(input.iter().enumerate().last().map(|(i, _)| i).unwrap());
         assert!(proof.validate(input.iter().last().unwrap()));
         //        }

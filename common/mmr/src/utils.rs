@@ -116,6 +116,8 @@ mod tests {
     use crate::num_of_prefixed_for_input;
     use crate::utils::{ceiling_arity_pow, floor_arity_pow, partition_by_arity};
     use crate::Arity;
+    extern crate alloc;
+    use alloc::vec;
 
     #[test]
     fn height_only_test() {

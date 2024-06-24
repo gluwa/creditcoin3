@@ -97,7 +97,6 @@ pub fn try_parse_usize(s: &str) -> Result<usize, core::num::ParseIntError> {
         .or_else(|_| usize::from_str_radix(s.trim_start_matches("0x"), 16))
 }
 pub fn try_parse_u64(s: &str) -> Result<u64, core::num::ParseIntError> {
-    //    println!("S: {:?}", Felt::from_dec_str(s));
     s.parse::<u64>()
         .or_else(|_| u64::from_str_radix(s.trim_start_matches("0x"), 16))
 }
@@ -203,7 +202,6 @@ mod tests {
     extern crate alloc;
     use alloc::vec;
     use alloc::vec::Vec;
-    use libc_print::std_name::println;
 
     #[test]
     fn felt_to_bytes_test() {
@@ -229,9 +227,7 @@ mod tests {
         let u256 = U256::from_big_endian(&bytes[..]);
         //        let u256: U256 = 1.into();
 
-        println!("u256: {}", u256);
         let (lo, hi) = u256_to_felts(&u256);
-        println!("lo: {lo:?}, hi: {hi:?}");
         let expected = u256_from_felts(&lo, &hi);
         assert_eq!(u256, expected);
     }
@@ -242,9 +238,7 @@ mod tests {
         let h256 = H256::from_slice(&bytes[..]);
         //        let u256: U256 = 1.into();
 
-        println!("h256: {}", h256);
         let (lo, hi) = h256_to_felts(&h256);
-        println!("lo: {lo:?}, hi: {hi:?}");
         let expected = h256_from_felts(&lo, &hi);
         assert_eq!(h256, expected);
     }

@@ -6897,6 +6897,7 @@ name = "mmr"
 version = "0.1.0"
 dependencies = [
  "rayon",
+ "twox-hash",
 ]
 
 [[package]]
