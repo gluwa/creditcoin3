@@ -4,9 +4,11 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, info, warn};
 
+pub mod attestation_cache;
 pub mod cc3;
 pub mod claim;
 pub mod config;
+pub mod postgres;
 
 use cc3::Claim;
 use config::Config;
@@ -46,6 +48,15 @@ impl Server {
             .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
 
+        // Handle claim subscription
+        // This will run in the background
+        // The server will continue to run and do other work
+        self.handle_claim_sub(&cc3_client)?;
+
+        Ok(())
+    }
+
+    pub fn handle_claim_sub(&mut self, cc3_client: &cc3::Client) -> Result<()> {
         let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
         debug!(
             "Created claim buffer with size: {}",

@@ -6,6 +6,7 @@ This document explains the prover module
 
 - Running creditcoin3-next chain (Run with `--dev` flag)
 - Running eth node (local or remote), for ease of use configure it to have chain id 31337 since this is a test chain that is configured for a prover with this key (see below).
+- Docker compose
 
 ## Configuration file
 
@@ -21,6 +22,14 @@ price = 31337
 Chain can be repeated multiple times to add multiple chains.
 
 ## Running
+
+Start the side services first:
+
+```sh
+docker compose up -d
+```
+
+Run the prover:
 
 ```sh
 cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade"  --nickname dylan --config-file ./config.toml

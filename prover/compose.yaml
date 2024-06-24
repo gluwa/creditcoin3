@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:alpine
+    ports:
+      - 5432:5432
+    env_file:
+      - .env.docker
+    restart: always
+
+  adminer:
+    image: adminer:latest
+    restart: always
+    ports:
+      - 80:8080
+    depends_on:
+      - postgres

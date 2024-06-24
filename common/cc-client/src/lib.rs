@@ -15,7 +15,9 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+use crate::cc3::runtime_types::attestor_primitives::SignedAttestation;
 use crate::cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
+
 use attestor_primitives::{BlsPublicKey, BlsSignature, ChainId, Digest};
 use creditcoin3_attestor_gossip::{Attestation, AttestorId, VrfOutput};
 
@@ -389,6 +391,25 @@ impl<'a> Client {
             .await?;
 
         Ok(result.is_some())
+    }
+
+    pub async fn get_attestation_by_digest(
+        &self,
+        chain_id: ChainId,
+        digest: Digest,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        let api = self.get_substrate_client().await?;
+
+        let storage_query = cc3::storage().attestation().attestations(chain_id, digest);
+
+        let result = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
     }
 
     pub async fn submit_attestation<H, A>(&self, attestation: Attestation<H, A>) -> Result<()>
