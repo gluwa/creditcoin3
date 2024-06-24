@@ -109,8 +109,8 @@ else
   )
 fi
 
-# shellcheck disable=SC2039
-if [[ $? -ne 0 ]]; then
+# shellcheck disable=SC2181
+if [ $? -ne 0 ]; then
   echo "cairo-run: $message"
   exit 40
 else
