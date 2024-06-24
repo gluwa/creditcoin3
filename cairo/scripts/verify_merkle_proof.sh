@@ -47,7 +47,7 @@ if [ "$PROOF_MODE" = "proof_mode" ]; then
 fi
 
 SOURCE_FILE="$CAIRO_PROGRAM_SOURCE.cairo"
-COMPILED_FILE="$CAIRO_PROGRAM_SOURCE""_compiled.json"
+COMPILED_FILE="${CAIRO_PROGRAM_SOURCE}_compiled.json"
 
 if [ ! -f "$SOURCE_FILE" ]; then
   echo "$SOURCE_FILE does not exist. It is expected to contain the attestation chain data."
@@ -59,7 +59,7 @@ echo "output: $COMPILED_FILE"
 echo "cairo-compiling..."
 
 message=$(cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1)
-if [ $? -ne 0 ]; then
+if ! cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1; then
   echo "compilation failed: $message"
   exit 30
 fi
@@ -109,7 +109,7 @@ else
   )
 fi
 
-if [ $? -ne 0 ]; then
+if ! cairo-run; then
   echo "cairo-run: $message"
   exit 40
 else

@@ -46,8 +46,8 @@ TRACE_SIZE_DIV3=$((TRACE_SIZE / 3))
 LOG_TRACE_SIZE_DIV3=$(echo "$TRACE_SIZE_DIV3" | awk '{print log($1)/log(2)}')
 FRI_STEPS_SUM=$(jq '.stark.fri.fri_step_list | add' "$AIR_PARAMS")
 
-LOG_LAST_LAYER_DEGREE_BOUND=$(echo $((LOG_TRACE_SIZE_DIV3 - FRI_STEPS_SUM)))
-#LOG_LAST_LAYER_DEGREE_BOUND=$(echo $(($LOG_TRACE_SIZE_DIV3 - $FRI_STEPS_SUM + 4)) | tr -d '"')
+LOG_LAST_LAYER_DEGREE_BOUND=$((LOG_TRACE_SIZE_DIV3 - FRI_STEPS_SUM))
+#LOG_LAST_LAYER_DEGREE_BOUND=$((LOG_TRACE_SIZE_DIV3 - FRI_STEPS_SUM + 4))
 LAST_LAYER_DEGREE_BOUND=$((2 << LOG_LAST_LAYER_DEGREE_BOUND))
 
 #log₂(last_layer_degree_bound) + ∑fri_step_list = log₂(#steps) + 4
@@ -84,12 +84,12 @@ else
     --parameter_file="$AIR_PARAMS" \
     -generate_annotations \
     >/dev/null 2>/tmp/elapsed.txt
-  if [ $? -ne 0 ]; then
-    message=$(</tmp/elapsed.txt)
+  if ! "$STONE_PROVER/cpu_air_prover"; then
+    message=$(cat /tmp/elapsed.txt)
     echo "cpu_air_prover failed: $message"
     exit 44
   fi
-  ELAPSED=$(</tmp/elapsed.txt)
+  ELAPSED=$(cat /tmp/elapsed.txt)
 
   echo "proof generated. Elapsed: $ELAPSED s"
 fi
