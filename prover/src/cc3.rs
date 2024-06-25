@@ -1,4 +1,5 @@
 use anyhow::Result;
+use attestor_primitives::{ChainId, Digest, SignedAttestation};
 use pallet_evm::{AddressMapping as EvmAddressMapping, HashedAddressMapping};
 use serde::{Deserialize, Serialize};
 use sp_core::{Blake2Hasher, H160, H256};
@@ -144,6 +145,20 @@ impl<'a> Client {
 
         Ok(())
     }
+
+    pub async fn fetch_last_digest(&self, chain_id: ChainId) -> Result<Option<Digest>> {
+        self.cc_client.fetch_last_digest(chain_id).await
+    }
+
+    pub async fn get_attestation_by_digest(
+        &self,
+        chain_id: ChainId,
+        digest: Digest,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        self.cc_client
+            .get_attestation_by_digest(chain_id, digest)
+            .await
+    }
 }
 
 impl Client {
@@ -176,6 +191,43 @@ impl Client {
                 rec = &mut cancel => {
                     if let Ok(()) = rec { panic!("This doesn't happen") } else {
                         info!("Cancellation received, stopping claim processing");
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn start_attestation_sub(
+        &self,
+        mut cancel: tokio::sync::oneshot::Receiver<()>,
+        attestation_chan: mpsc::Sender<SignedAttestation<H256, AccountId32>>,
+        filter: Vec<ChainId>,
+    ) -> Result<()> {
+        let mut subscription = self
+            .cc_client
+            .subscribe_attestations_submissions(filter)
+            .await?;
+
+        // Process claims in a loop
+        loop {
+            tokio::select! {
+                attestation = subscription.next() => {
+                    match attestation {
+                        Some(attestation) => {
+                            // Process the claim
+                            info!("Received a new attestation: digest({:?})", attestation.digest());
+                            // Handle the claim processing logic here
+                            attestation_chan.send(attestation).await?;
+                        }
+                        None => break, // Exit loop if the subscription stream ends
+                    }
+                }
+                rec = &mut cancel => {
+                    if let Ok(()) = rec { panic!("This doesn't happen") } else {
+                        info!("Cancellation received, stopping attestation processing");
                         break;
                     }
                 }

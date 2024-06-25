@@ -16,6 +16,7 @@ pub struct Config {
     pub nickname: String,
     pub claim_buffer: u8,
     pub chain_price_configurations: ChainPriceConfigurations,
+    pub postgres_uri: String,
 }
 
 impl ChainPriceConfigurations {

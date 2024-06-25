@@ -1,24 +1,34 @@
 use anyhow::Result;
-use attestor_primitives::Digest;
+use attestor_primitives::{Digest, SignedAttestation};
 use hex::ToHex;
+use std::marker::PhantomData;
 
 use crate::postgres::{
     attestation::{self, Attestation},
     db::PgPool,
 };
 
-pub struct AttestationCache {
+#[derive(Clone)]
+pub struct AttestationCache<H, A> {
     pool: PgPool,
+    phantom: PhantomData<(H, A)>,
 }
 
-impl AttestationCache {
+impl<H, A> AttestationCache<H, A> {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
-        AttestationCache { pool }
+        AttestationCache {
+            pool,
+            phantom: PhantomData,
+        }
     }
 }
 
-impl AttestationCache {
+impl<H, A> AttestationCache<H, A>
+where
+    H: AsRef<[u8]> + Clone + Copy,
+    A: AsRef<[u8]> + Clone,
+{
     pub async fn get_by_digest(&self, digest: Digest) -> Result<Option<Attestation>> {
         let mut connection = self.pool.get().await?;
         let attestation = attestation::get_by_digest(&mut connection, digest.encode_hex()).await?;
@@ -28,15 +38,12 @@ impl AttestationCache {
 
     pub async fn digest_exists(&self, digest: Digest) -> Result<bool> {
         let mut connection = self.pool.get().await?;
-        let attestation = attestation::get_by_digest(&mut connection, digest.encode_hex()).await?;
-
-        Ok(attestation.is_some())
+        attestation::exists_by_digest(&mut connection, digest.encode_hex()).await
     }
 
-    // TODO: accept signed atttestation instead of the db type
-    pub async fn insert(&self, attestation: Attestation) -> Result<()> {
+    pub async fn insert(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        attestation::insert(&mut connection, attestation).await?;
+        attestation::insert(&mut connection, attestation.into()).await?;
 
         Ok(())
     }

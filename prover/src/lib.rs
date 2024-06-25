@@ -1,5 +1,10 @@
 use anyhow::Result;
+use attestation_cache::AttestationCache;
+use attestor_primitives::ChainId;
+use cc_client::AccountId32;
 use eth::Client;
+use sp_core::H256;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, info, warn};
@@ -13,7 +18,8 @@ pub mod postgres;
 use cc3::Claim;
 use config::Config;
 
-#[derive(Debug)]
+pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
+
 /// Prover server is configured using `Config`
 pub struct Server {
     #[allow(dead_code)]
@@ -21,16 +27,25 @@ pub struct Server {
     // Channel to send cancellation to the claim subscription
     // will exit when this is dropped
     cancel_tx: Option<oneshot::Sender<()>>,
+    // Channel to send cancellation to the attestation subscription
+    cancel_attestation_tx: Option<oneshot::Sender<()>>,
+    // Attestation cache
+    attestations_cache: AttestationCacheType,
 }
 
 impl Server {
     /// Create a new server based on `Config`
-    #[must_use]
-    pub fn new(config: Config) -> Self {
-        Server {
+    pub fn new(config: Config) -> Result<Self> {
+        let db_pool = postgres::db::get_pool(&config.postgres_uri)?;
+        let attestations_cache: AttestationCacheType =
+            attestation_cache::AttestationCache::new(db_pool);
+
+        Ok(Server {
             config,
             cancel_tx: None,
-        }
+            cancel_attestation_tx: None,
+            attestations_cache,
+        })
     }
 
     /// Runs the server in the background, will start following the configured source chain
@@ -47,6 +62,9 @@ impl Server {
         cc3_client
             .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
+
+        // Sync the cache
+        self.sync_cache(&cc3_client).await?;
 
         // Handle claim subscription
         // This will run in the background
@@ -105,6 +123,126 @@ impl Server {
 
         Ok(())
     }
+
+    async fn sync_cache(&mut self, cc3_client: &cc3::Client) -> Result<()> {
+        let chains: Vec<u64> = self
+            .config
+            .chain_price_configurations
+            .chain
+            .iter()
+            .map(|c| c.chain_id)
+            .collect();
+
+        // First populate historical attestations
+        let futures = chains.clone().into_iter().map(|chain| {
+            let attestation_cache = std::sync::Arc::new(self.attestations_cache.clone());
+            let cc3_client = cc3_client.clone();
+            info!("Building historical cache for chain: {}", chain);
+            build_historical_cache_for_chain(chain, attestation_cache, cc3_client)
+        });
+
+        let _ = futures::future::join_all(futures).await;
+
+        info!("Historical caches built");
+
+        // Start subscription for new attestations
+        let (attestation_tx, mut attestation_rx) = mpsc::channel(self.config.claim_buffer.into());
+        debug!(
+            "Created attestation buffer with size: {}",
+            self.config.claim_buffer
+        );
+
+        info!("Subscribing to attestations on cc3 now...");
+        // Create a channel to cancel the claim subscription
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        // Store the cancel_tx so we can cancel the subscription later
+        self.cancel_attestation_tx = Some(cancel_tx);
+        // Run sub in background and allow server to continue doing other work
+        let client = cc3_client.clone();
+        tokio::spawn(async move {
+            let _ = client
+                .start_attestation_sub(cancel_rx, attestation_tx, chains)
+                .await;
+        });
+
+        // Handle attestations in the main task or another spawned task
+        //
+        // This will run in the background
+        // The server will continue to run and do other work
+        let attestations_cache = self.attestations_cache.clone();
+        tokio::spawn(async move {
+            while let Some(attestation) = attestation_rx.recv().await {
+                info!("Received attestation to insert into cache");
+                attestations_cache
+                    .insert(attestation)
+                    .await
+                    .expect("Error inserting attestation");
+            }
+        });
+
+        Ok(())
+    }
+}
+
+pub async fn build_historical_cache_for_chain(
+    chain: ChainId,
+    attestations_cache: Arc<AttestationCacheType>,
+    cc3_client: cc3::Client,
+) -> Result<()> {
+    info!("Building historical cache for chain: {}", chain);
+    let last_digest = cc3_client.fetch_last_digest(chain).await?;
+    info!("Last digest: {:?}", last_digest);
+    if last_digest.is_none() {
+        error!("No historical attestations found for chain: {}", chain);
+        return Ok(());
+    }
+
+    let last_digest = last_digest.unwrap();
+    info!("Last digest: {:?}", last_digest);
+    // Get the last attestation
+    let mut last_attestation = cc3_client
+        .get_attestation_by_digest(chain, last_digest)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?;
+
+    info!("Last attestation: {:?}", last_attestation);
+
+    let mut fetch_more = true;
+    // Fetch more historical attestations
+    while fetch_more {
+        info!("Fetching more historical attestations");
+        if let Some(last_attestation_object) = last_attestation.clone() {
+            let digest = last_attestation_object.attestation.digest();
+            if attestations_cache.digest_exists(digest).await? {
+                info!(
+                    "Digest {} already exists in cache, skipping insertion",
+                    digest
+                );
+            } else {
+                // Insert the attestation into the cache
+                info!("Inserting attestation: {} into cache", digest);
+                attestations_cache
+                    .insert(last_attestation_object.clone())
+                    .await?;
+            }
+
+            // Fetch the next attestation
+            if let Some(prev_digest) = last_attestation_object.attestation.prev_digest {
+                last_attestation = cc3_client
+                    .get_attestation_by_digest(chain, prev_digest)
+                    .await?;
+            } else {
+                last_attestation = None;
+            }
+        } else {
+            fetch_more = false;
+            info!("No more historical attestations found");
+        }
+    }
+
+    info!("Finished building historical cache for chain: {}", chain);
+
+    Ok(())
 }
 
 pub async fn process_claim(

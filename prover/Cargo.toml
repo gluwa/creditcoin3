@@ -51,3 +51,4 @@ pallet-evm = { workspace = true, default-features = false }
 attestor-primitives = { path = "../primitives/attestor" }
 cc-client = { workspace = true }
 eth = { workspace = true }
+futures.workspace = true

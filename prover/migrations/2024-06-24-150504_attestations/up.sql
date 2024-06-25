@@ -1,7 +1,7 @@
 -- Create table for SignedAttestation
 CREATE TABLE SignedAttestation (
     id SERIAL PRIMARY KEY,
-    chain_id SMALLINT NOT NULL,
+    chain_id BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
     header_hash VARCHAR(64) NOT NULL,
     tx_root VARCHAR(64) NOT NULL,

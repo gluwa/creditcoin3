@@ -6,7 +6,7 @@ use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use serde::{Deserialize, Serialize};
 use sp_core::{H256, U256};
 use std::str::FromStr;
-use subxt::utils::AccountId32;
+pub use subxt::utils::AccountId32;
 use subxt::{OnlineClient, SubstrateConfig};
 use subxt_signer::{
     sr25519::{Keypair, Signature},
@@ -15,11 +15,15 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use crate::cc3::runtime_types::attestor_primitives::SignedAttestation;
-use crate::cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
+use cc3::runtime_types::attestor_primitives::{
+    Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
+};
+use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 
-use attestor_primitives::{BlsPublicKey, BlsSignature, ChainId, Digest};
-use creditcoin3_attestor_gossip::{Attestation, AttestorId, VrfOutput};
+use attestor_primitives::{
+    Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
+};
+use creditcoin3_attestor_gossip::{Attestation as RpcAttestation, AttestorId, VrfOutput};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -28,8 +32,10 @@ use creditcoin3_attestor_gossip::{Attestation, AttestorId, VrfOutput};
         with = "::subxt::utils::Static<crate::U256>"
     )
 )]
+
 pub mod cc3 {}
 
+pub mod attestation;
 pub mod claim;
 pub mod proof;
 
@@ -409,10 +415,10 @@ impl<'a> Client {
             .fetch(&storage_query)
             .await?;
 
-        Ok(result)
+        Ok(result.map(Into::into))
     }
 
-    pub async fn submit_attestation<H, A>(&self, attestation: Attestation<H, A>) -> Result<()>
+    pub async fn submit_attestation<H, A>(&self, attestation: RpcAttestation<H, A>) -> Result<()>
     where
         H: Serialize,
         A: Serialize,
@@ -448,6 +454,35 @@ impl From<ChainPriceConfig> for ChainPriceConfiguration {
         ChainPriceConfiguration {
             chain_id: val.chain_id,
             price: val.price,
+        }
+    }
+}
+
+impl<H, A> From<CcSignedAttestation<H, A>> for SignedAttestation<H, A>
+where
+    H: Into<H256>,
+{
+    fn from(attestation: CcSignedAttestation<H, A>) -> Self {
+        SignedAttestation {
+            attestation: attestation.attestation.into(),
+            signature: attestation.signature,
+            attestors: attestation.attestors,
+        }
+    }
+}
+
+impl<H> From<CcAttestation<H>> for Attestation<H>
+where
+    H: Into<H256>,
+{
+    fn from(attestation: CcAttestation<H>) -> Self {
+        Attestation {
+            chain_id: attestation.chain_id,
+            header_number: attestation.header_number,
+            header_hash: attestation.header_hash,
+            tx_root: attestation.tx_root,
+            rx_root: attestation.rx_root,
+            prev_digest: attestation.prev_digest.map(Into::into),
         }
     }
 }

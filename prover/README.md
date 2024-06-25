@@ -32,7 +32,7 @@ docker compose up -d
 Run the prover:
 
 ```sh
-cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade"  --nickname dylan --config-file ./config.toml
+cargo run -- -v --cc3-key "involve bridge disagree copy aim auction ready garlic industry flee echo era"  --nickname dylan --config-file ./config.toml
 ```
 
 ## Submitting a claim (Via polkadotJS)

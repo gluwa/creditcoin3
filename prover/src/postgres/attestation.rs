@@ -1,29 +1,18 @@
 use anyhow::Result;
+use diesel::dsl::exists as diesel_exists;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 
-use super::schema::signedattestation::{self, dsl::signedattestation as signedattestation_table};
+use attestor_primitives::SignedAttestation;
 
-//CREATE TABLE SignedAttestation (
-//     id SERIAL PRIMARY KEY,
-//     chain_id SMALLINT NOT NULL,
-//     header_number BIGINT NOT NULL,
-//     header_hash VARCHAR(64) NOT NULL,
-//     tx_root VARCHAR(64) NOT NULL,
-//     rx_root VARCHAR(64) NOT NULL,
-//     digest VARCHAR(64) NOT NULL,
-//     prev_digest VARCHAR(64),
-//     signature VARCHAR(192) NOT NULL,
-//     attestors TEXT [] NOT NULL
-// );
+use super::schema::signedattestation::{self, dsl::signedattestation as signedattestation_table};
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable)]
 #[diesel(table_name = signedattestation)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Attestation {
-    pub id: i32,
-    pub chain_id: i16,
+    pub chain_id: i64,
     pub header_number: i64,
     pub header_hash: String,
     pub tx_root: String,
@@ -43,15 +32,56 @@ pub async fn get_by_digest(
             .select(Attestation::as_select())
             .filter(signedattestation::digest.eq(digest))
             .first(connection)
-            .await?,
+            .await
+            .map_err(|e| {
+                tracing::error!("Error getting attestation by digest: {:?}", e);
+                anyhow::anyhow!(e)
+            })?,
     ))
+}
+
+pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
+    Ok(diesel::select(diesel_exists(
+        signedattestation_table.filter(signedattestation::digest.eq(digest.to_lowercase())),
+    ))
+    .get_result(connection)
+    .await?)
 }
 
 pub async fn insert(connection: &mut AsyncPgConnection, attestation: Attestation) -> Result<()> {
     diesel::insert_into(signedattestation_table)
         .values(attestation)
         .execute(connection)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Error inserting attestation: {:?}", e);
+            anyhow::anyhow!(e)
+        })?;
 
     Ok(())
+}
+
+// Mapper from the signed attestation to the db type
+impl<H, A> From<SignedAttestation<H, A>> for Attestation
+where
+    H: AsRef<[u8]> + Clone + Copy,
+    A: AsRef<[u8]> + Clone,
+{
+    fn from(value: SignedAttestation<H, A>) -> Self {
+        Attestation {
+            chain_id: value.attestation.chain_id as i64,
+            header_number: value.attestation.header_number as i64,
+            header_hash: hex::encode(value.attestation.header_hash),
+            tx_root: hex::encode(value.attestation.tx_root),
+            rx_root: hex::encode(value.attestation.rx_root),
+            digest: hex::encode(value.digest()),
+            prev_digest: value.attestation.prev_digest.map(hex::encode),
+            signature: hex::encode(value.signature),
+            attestors: value
+                .attestors
+                .iter()
+                .map(|a| Some(hex::encode(a)))
+                .collect(),
+        }
+    }
 }

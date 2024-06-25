@@ -3,7 +3,7 @@
 diesel::table! {
     signedattestation (id) {
         id -> Int4,
-        chain_id -> Int2,
+        chain_id -> Int8,
         header_number -> Int8,
         #[max_length = 64]
         header_hash -> Varchar,

@@ -2,7 +2,6 @@ use clap::Parser;
 use std::{error::Error, fs};
 use tokio::signal;
 use tracing::{debug, info};
-use tracing_subscriber::EnvFilter;
 
 use prover::{
     config::{ChainPriceConfigurations, Config},
@@ -29,6 +28,12 @@ pub struct Attestor {
 
     #[arg(short, long, default_value = "./config.toml", required = true)]
     config_file: String,
+
+    #[arg(
+        long,
+        default_value = "postgres://prover:prover@127.0.0.1:5432/attestations"
+    )]
+    postgres_uri: String,
 }
 
 #[tokio::main]
@@ -36,13 +41,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Attestor::parse();
 
     // enable tracing debug logs if verbose flag is set
-    if args.verbose {
-        std::env::set_var("RUST_LOG", "debug");
+    let env_filter = if args.verbose {
         debug!("debug mode enabled!");
-    }
+        "debug"
+    } else {
+        "prover=info"
+    };
 
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .compact()
+        .with_file(false)
+        .with_target(true)
+        .with_env_filter(env_filter)
         .try_init();
 
     let config_file = fs::read_to_string(args.config_file)?;
@@ -54,9 +64,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         nickname: args.nickname,
         claim_buffer: args.claim_buffer,
         chain_price_configurations,
+        postgres_uri: args.postgres_uri,
     };
 
-    let mut server = Server::new(config);
+    let mut server = Server::new(config)?;
     server.run().await?;
 
     // Wait for Ctrl+C signal

@@ -8734,6 +8734,7 @@ dependencies = [
  "diesel-async",
  "diesel_migrations",
  "eth",
+ "futures 0.3.30",
  "hex",
  "pallet-evm",
  "rand 0.8.5",
