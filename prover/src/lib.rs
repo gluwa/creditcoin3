@@ -137,13 +137,12 @@ impl Server {
         let futures = chains.clone().into_iter().map(|chain| {
             let attestation_cache = std::sync::Arc::new(self.attestations_cache.clone());
             let cc3_client = cc3_client.clone();
-            info!("Building historical cache for chain: {}", chain);
             build_historical_cache_for_chain(chain, attestation_cache, cc3_client)
         });
 
         let _ = futures::future::join_all(futures).await;
 
-        info!("Historical caches built");
+        info!("Historical attestations caches built");
 
         // Start subscription for new attestations
         let (attestation_tx, mut attestation_rx) = mpsc::channel(self.config.claim_buffer.into());
@@ -172,7 +171,6 @@ impl Server {
         let attestations_cache = self.attestations_cache.clone();
         tokio::spawn(async move {
             while let Some(attestation) = attestation_rx.recv().await {
-                info!("Received attestation to insert into cache");
                 attestations_cache
                     .insert(attestation)
                     .await
@@ -191,27 +189,23 @@ pub async fn build_historical_cache_for_chain(
 ) -> Result<()> {
     info!("Building historical cache for chain: {}", chain);
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
-    info!("Last digest: {:?}", last_digest);
+
     if last_digest.is_none() {
         error!("No historical attestations found for chain: {}", chain);
         return Ok(());
     }
 
-    let last_digest = last_digest.unwrap();
-    info!("Last digest: {:?}", last_digest);
     // Get the last attestation
     let mut last_attestation = cc3_client
-        .get_attestation_by_digest(chain, last_digest)
+        .get_attestation_by_digest(chain, last_digest.unwrap())
         .await
         .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?;
-
-    info!("Last attestation: {:?}", last_attestation);
 
     let mut fetch_more = true;
     // Fetch more historical attestations
     while fetch_more {
         info!("Fetching more historical attestations");
-        if let Some(last_attestation_object) = last_attestation.clone() {
+        if let Some(last_attestation_object) = last_attestation {
             let digest = last_attestation_object.attestation.digest();
             if attestations_cache.digest_exists(digest).await? {
                 info!(
@@ -220,7 +214,12 @@ pub async fn build_historical_cache_for_chain(
                 );
             } else {
                 // Insert the attestation into the cache
-                info!("Inserting attestation: {} into cache", digest);
+                info!(
+                    "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
+                    digest,
+                    last_attestation_object.chain_id(),
+                    last_attestation_object.header_number(),
+                );
                 attestations_cache
                     .insert(last_attestation_object.clone())
                     .await?;
@@ -236,7 +235,7 @@ pub async fn build_historical_cache_for_chain(
             }
         } else {
             fetch_more = false;
-            info!("No more historical attestations found");
+            info!("No more historical attestations found, we reached the end or rather the beginning of the chain.");
         }
     }
 

@@ -69,8 +69,8 @@ where
 {
     fn from(value: SignedAttestation<H, A>) -> Self {
         Attestation {
-            chain_id: value.attestation.chain_id as i64,
-            header_number: value.attestation.header_number as i64,
+            chain_id: convert(value.attestation.chain_id),
+            header_number: convert(value.attestation.header_number),
             header_hash: hex::encode(value.attestation.header_hash),
             tx_root: hex::encode(value.attestation.tx_root),
             rx_root: hex::encode(value.attestation.rx_root),
@@ -84,4 +84,9 @@ where
                 .collect(),
         }
     }
+}
+
+#[must_use]
+fn convert(num: u64) -> i64 {
+    i64::from_ne_bytes(num.to_ne_bytes())
 }

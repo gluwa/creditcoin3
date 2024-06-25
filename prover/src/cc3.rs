@@ -218,7 +218,12 @@ impl Client {
                     match attestation {
                         Some(attestation) => {
                             // Process the claim
-                            info!("Received a new attestation: digest({:?})", attestation.digest());
+                            info!(
+                                "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
+                                attestation.chain_id(),
+                                attestation.header_number(),
+                                attestation.digest()
+                            );
                             // Handle the claim processing logic here
                             attestation_chan.send(attestation).await?;
                         }

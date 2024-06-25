@@ -64,6 +64,10 @@ where
         self.attestation.chain_id
     }
 
+    pub fn header_number(&self) -> u64 {
+        self.attestation.header_number
+    }
+
     pub fn digest(&self) -> Digest {
         self.attestation.digest()
     }
