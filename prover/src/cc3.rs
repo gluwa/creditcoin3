@@ -162,11 +162,7 @@ impl<'a> Client {
 }
 
 impl Client {
-    pub async fn start_claim_sub(
-        &self,
-        mut cancel: tokio::sync::oneshot::Receiver<()>,
-        claim_chan: mpsc::Sender<Claim>,
-    ) -> Result<()> {
+    pub async fn start_claim_sub(&self, claim_chan: mpsc::Sender<Claim>) -> Result<()> {
         let account_id: AccountId32 = eth_acct(self.cc_client.get_evm_address().into_array())?;
 
         let mut subscription = self
@@ -188,12 +184,6 @@ impl Client {
                         None => break, // Exit loop if the subscription stream ends
                     }
                 }
-                rec = &mut cancel => {
-                    if let Ok(()) = rec { panic!("This doesn't happen") } else {
-                        info!("Cancellation received, stopping claim processing");
-                        break;
-                    }
-                }
             }
         }
 
@@ -202,7 +192,6 @@ impl Client {
 
     pub async fn start_attestation_sub(
         &self,
-        mut cancel: tokio::sync::oneshot::Receiver<()>,
         attestation_chan: mpsc::Sender<SignedAttestation<H256, AccountId32>>,
         filter: Vec<ChainId>,
     ) -> Result<()> {
@@ -228,12 +217,6 @@ impl Client {
                             attestation_chan.send(attestation).await?;
                         }
                         None => break, // Exit loop if the subscription stream ends
-                    }
-                }
-                rec = &mut cancel => {
-                    if let Ok(()) = rec { panic!("This doesn't happen") } else {
-                        info!("Cancellation received, stopping attestation processing");
-                        break;
                     }
                 }
             }

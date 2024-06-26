@@ -5,7 +5,7 @@ use cc_client::AccountId32;
 use eth::Client;
 use sp_core::H256;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, info, warn};
 
@@ -20,15 +20,12 @@ use config::Config;
 
 pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
 
+type CcClientArc = Arc<cc3::Client>;
+
 /// Prover server is configured using `Config`
 pub struct Server {
     #[allow(dead_code)]
     config: Config,
-    // Channel to send cancellation to the claim subscription
-    // will exit when this is dropped
-    cancel_tx: Option<oneshot::Sender<()>>,
-    // Channel to send cancellation to the attestation subscription
-    cancel_attestation_tx: Option<oneshot::Sender<()>>,
     // Attestation cache
     attestations_cache: AttestationCacheType,
 }
@@ -42,8 +39,6 @@ impl Server {
 
         Ok(Server {
             config,
-            cancel_tx: None,
-            cancel_attestation_tx: None,
             attestations_cache,
         })
     }
@@ -63,139 +58,137 @@ impl Server {
             .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
 
+        let attestations_cache = Arc::new(self.attestations_cache.clone());
+        let cc3_client = Arc::new(cc3_client);
+
         // Sync the cache
-        self.sync_cache(&cc3_client).await?;
+        let config = self.config.clone();
+        let cc3_client_clone = Arc::clone(&cc3_client);
+        info!("Starting sync cache");
+        tokio::spawn(async move {
+            let _ = sync_cache(config, attestations_cache, &cc3_client_clone).await;
+        });
 
         // Handle claim subscription
         // This will run in the background
         // The server will continue to run and do other work
-        self.handle_claim_sub(&cc3_client)?;
-
-        Ok(())
-    }
-
-    pub fn handle_claim_sub(&mut self, cc3_client: &cc3::Client) -> Result<()> {
-        let (claim_tx, mut claim_rx) = mpsc::channel(self.config.claim_buffer.into());
-        debug!(
-            "Created claim buffer with size: {}",
-            self.config.claim_buffer
-        );
-
-        debug!("Starting claim sub on cc3");
-        // Create a channel to cancel the claim subscription
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        // Store the cancel_tx so we can cancel the subscription later
-        self.cancel_tx = Some(cancel_tx);
-        // Run sub in background and allow server to continue doing other work
-        let client = cc3_client.clone();
+        let config = self.config.clone();
+        let cc3_client_clone = Arc::clone(&cc3_client);
+        info!("Starting claim sub");
         tokio::spawn(async move {
-            let _ = client.start_claim_sub(cancel_rx, claim_tx).await;
-        });
-
-        debug!("Starting claim processing handler");
-        let chain_price_configurations = self.config.chain_price_configurations.clone();
-        // Handle claims in the main task or another spawned task
-        let client = cc3_client.clone();
-        tokio::spawn(async move {
-            while let Some(claim) = claim_rx.recv().await {
-                // Get the rpc url for the chain the claim is from
-                let eth_client_rpc_url = chain_price_configurations
-                    .get_rpc_url(claim.claim.chain_id)
-                    .ok_or(anyhow::anyhow!("Chain not found"))
-                    .unwrap_or_else(|_| panic!("Chain with id {} not found", claim.claim.chain_id));
-
-                // Create an eth client
-                let eth_client = eth::Client::new(eth_client_rpc_url)
-                    .await
-                    .expect("Error creating eth client");
-
-                // Process the claim
-                match process_claim(client.clone(), eth_client, claim).await {
-                    Ok(()) => {
-                        info!("Claim processed");
-                    }
-                    Err(e) => {
-                        panic!("Error processing claim: {e}, unwinding server..")
-                    }
-                }
-            }
-        });
-
-        Ok(())
-    }
-
-    async fn sync_cache(&mut self, cc3_client: &cc3::Client) -> Result<()> {
-        let chains: Vec<u64> = self
-            .config
-            .chain_price_configurations
-            .chain
-            .iter()
-            .map(|c| c.chain_id)
-            .collect();
-
-        // First populate historical attestations
-        let futures = chains.clone().into_iter().map(|chain| {
-            let attestation_cache = std::sync::Arc::new(self.attestations_cache.clone());
-            let cc3_client = cc3_client.clone();
-            build_historical_cache_for_chain(chain, attestation_cache, cc3_client)
-        });
-
-        let _ = futures::future::join_all(futures).await;
-
-        info!("Historical attestations caches built");
-
-        // Start subscription for new attestations
-        let (attestation_tx, mut attestation_rx) = mpsc::channel(self.config.claim_buffer.into());
-        debug!(
-            "Created attestation buffer with size: {}",
-            self.config.claim_buffer
-        );
-
-        info!("Subscribing to attestations on cc3 now...");
-        // Create a channel to cancel the claim subscription
-        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
-        // Store the cancel_tx so we can cancel the subscription later
-        self.cancel_attestation_tx = Some(cancel_tx);
-        // Run sub in background and allow server to continue doing other work
-        let client = cc3_client.clone();
-        tokio::spawn(async move {
-            let _ = client
-                .start_attestation_sub(cancel_rx, attestation_tx, chains)
-                .await;
-        });
-
-        // Handle attestations in the main task or another spawned task
-        //
-        // This will run in the background
-        // The server will continue to run and do other work
-        let attestations_cache = self.attestations_cache.clone();
-        tokio::spawn(async move {
-            while let Some(attestation) = attestation_rx.recv().await {
-                // check if exists in cache
-                if attestations_cache
-                    .digest_exists(attestation.digest())
-                    .await
-                    .expect("Error checking if attestation exists in cache")
-                {
-                    warn!("Attestation already exists in cache, skipping");
-                    continue;
-                }
-
-                attestations_cache
-                    .insert(attestation)
-                    .await
-                    .expect("Error inserting attestation");
-            }
+            let _ = handle_claim_sub(&config, &cc3_client_clone).await;
         });
 
         Ok(())
     }
 }
 
+pub async fn handle_claim_sub(config: &Config, cc3_client: &CcClientArc) -> Result<()> {
+    let (claim_tx, mut claim_rx) = mpsc::channel(config.claim_buffer.into());
+    debug!("Created claim buffer with size: {}", config.claim_buffer);
+
+    // Run sub in background and allow server to continue doing other work
+    let client = Arc::clone(cc3_client);
+    tokio::spawn(async move {
+        let _ = client.start_claim_sub(claim_tx).await;
+    });
+
+    debug!("Starting claim processing handler");
+
+    // Handle claims in the main task or another spawned task
+    let client = Arc::clone(cc3_client);
+    let chain_price_configurations = config.chain_price_configurations.clone();
+    while let Some(claim) = claim_rx.recv().await {
+        // Get the rpc url for the chain the claim is from
+        let eth_client_rpc_url = chain_price_configurations
+            .get_rpc_url(claim.claim.chain_id)
+            .ok_or(anyhow::anyhow!("Chain not found"))
+            .unwrap_or_else(|_| panic!("Chain with id {} not found", claim.claim.chain_id));
+
+        // Create an eth client
+        let eth_client = eth::Client::new(eth_client_rpc_url)
+            .await
+            .expect("Error creating eth client");
+
+        // Process the claim
+        match process_claim(client.clone(), eth_client, claim).await {
+            Ok(()) => {
+                info!("Claim processed");
+            }
+            Err(e) => {
+                panic!("Error processing claim: {e}, unwinding server..")
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn sync_cache(
+    config: Config,
+    attestations_cache: Arc<AttestationCacheType>,
+    cc3_client: &CcClientArc,
+) -> Result<()> {
+    let chains: Vec<u64> = config
+        .chain_price_configurations
+        .chain
+        .iter()
+        .map(|c| c.chain_id)
+        .collect();
+
+    // First populate historical attestations
+    let futures = chains.clone().into_iter().map(|chain| {
+        build_historical_cache_for_chain(chain, attestations_cache.clone(), Arc::clone(cc3_client))
+    });
+
+    let _ = futures::future::join_all(futures).await;
+
+    info!("Historical attestations caches built");
+
+    // Start subscription for new attestations
+    let (attestation_tx, mut attestation_rx) = mpsc::channel(config.claim_buffer.into());
+    debug!(
+        "Created attestation buffer with size: {}",
+        config.claim_buffer
+    );
+
+    // Run sub in background and allow server to continue doing other work
+    let client = cc3_client.clone();
+    tokio::spawn(async move {
+        let _ = client.start_attestation_sub(attestation_tx, chains).await;
+    });
+
+    // Handle attestations in the main task or another spawned task
+    //
+    // This will run in the background
+    // The server will continue to run and do other work
+    let attestations_cache = attestations_cache.clone();
+    tokio::spawn(async move {
+        while let Some(attestation) = attestation_rx.recv().await {
+            // check if exists in cache
+            if attestations_cache
+                .digest_exists(attestation.digest())
+                .await
+                .expect("Error checking if attestation exists in cache")
+            {
+                warn!("Attestation already exists in cache, skipping");
+                continue;
+            }
+
+            attestations_cache
+                .insert(attestation)
+                .await
+                .expect("Error inserting attestation");
+        }
+    });
+
+    Ok(())
+}
+
 pub async fn build_historical_cache_for_chain(
     chain: ChainId,
     attestations_cache: Arc<AttestationCacheType>,
-    cc3_client: cc3::Client,
+    cc3_client: CcClientArc,
 ) -> Result<()> {
     info!("Building historical cache for chain: {}", chain);
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
@@ -293,11 +286,7 @@ pub async fn build_historical_cache_for_chain(
     Ok(())
 }
 
-pub async fn process_claim(
-    client: crate::cc3::Client,
-    eth_client: Client,
-    claim: Claim,
-) -> Result<()> {
+pub async fn process_claim(client: CcClientArc, eth_client: Client, claim: Claim) -> Result<()> {
     info!("Processing claim with hash: {:?}", claim.hash);
 
     // Check if claim exists on source chain
