@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::{Digest, SignedAttestation};
+use attestor_primitives::{ChainId, Digest, SignedAttestation};
 use hex::ToHex;
 use std::marker::PhantomData;
 
@@ -29,7 +29,7 @@ where
     H: AsRef<[u8]> + Clone + Copy,
     A: AsRef<[u8]> + Clone,
 {
-    pub async fn get_by_digest(&self, digest: Digest) -> Result<Option<Attestation>> {
+    pub async fn get_by_digest(&self, digest: Digest) -> Result<Attestation> {
         let mut connection = self.pool.get().await?;
         let attestation = attestation::get_by_digest(&mut connection, digest.encode_hex()).await?;
 
@@ -46,5 +46,15 @@ where
         attestation::insert(&mut connection, attestation.into()).await?;
 
         Ok(())
+    }
+
+    pub async fn first_digest_exists(&self, chain_id: ChainId) -> Result<bool> {
+        let mut connection = self.pool.get().await?;
+        attestation::first_digest_exists(&mut connection, chain_id).await
+    }
+
+    pub async fn last_synced_attestation(&self, chain_id: ChainId) -> Result<Option<Attestation>> {
+        let mut connection = self.pool.get().await?;
+        attestation::last_synced(&mut connection, chain_id).await
     }
 }

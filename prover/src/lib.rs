@@ -171,6 +171,16 @@ impl Server {
         let attestations_cache = self.attestations_cache.clone();
         tokio::spawn(async move {
             while let Some(attestation) = attestation_rx.recv().await {
+                // check if exists in cache
+                if attestations_cache
+                    .digest_exists(attestation.digest())
+                    .await
+                    .expect("Error checking if attestation exists in cache")
+                {
+                    warn!("Attestation already exists in cache, skipping");
+                    continue;
+                }
+
                 attestations_cache
                     .insert(attestation)
                     .await
@@ -196,46 +206,85 @@ pub async fn build_historical_cache_for_chain(
     }
 
     // Get the last attestation
-    let mut last_attestation = cc3_client
+    let mut last_chain_attestation = cc3_client
         .get_attestation_by_digest(chain, last_digest.unwrap())
         .await
-        .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
+        .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
+
+    // Check if the first digest exists (one with prev_digest = Null) (meaning the front of the chain)
+    let head_of_chain_exists = attestations_cache.first_digest_exists(chain).await?;
+
+    // Fetch the last synced attestation from the cache
+    let last_attestation_synced_in_cache =
+        attestations_cache.last_synced_attestation(chain).await?;
+
+    if !head_of_chain_exists && last_attestation_synced_in_cache.is_some() {
+        let digest = H256::from_slice(
+            &hex::decode(
+                last_attestation_synced_in_cache
+                    .unwrap()
+                    .prev_digest
+                    .unwrap(),
+            )
+            .expect("Error decoding digest"),
+        );
+        info!("Head of chain not found in cache, but last attestation found in cache, starting to sync from: {}", digest);
+
+        // fetch last attestation from cache
+        last_chain_attestation = cc3_client
+            .get_attestation_by_digest(chain, digest)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
+            .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
+    }
 
     let mut fetch_more = true;
     // Fetch more historical attestations
     while fetch_more {
-        info!("Fetching more historical attestations");
-        if let Some(last_attestation_object) = last_attestation {
-            let digest = last_attestation_object.attestation.digest();
-            if attestations_cache.digest_exists(digest).await? {
-                info!(
-                    "Digest {} already exists in cache, skipping insertion",
-                    digest
-                );
-            } else {
-                // Insert the attestation into the cache
-                info!(
-                    "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
-                    digest,
-                    last_attestation_object.chain_id(),
-                    last_attestation_object.header_number(),
-                );
-                attestations_cache
-                    .insert(last_attestation_object.clone())
-                    .await?;
-            }
+        let digest = last_chain_attestation.attestation.digest();
 
-            // Fetch the next attestation
-            if let Some(prev_digest) = last_attestation_object.attestation.prev_digest {
-                last_attestation = cc3_client
-                    .get_attestation_by_digest(chain, prev_digest)
-                    .await?;
-            } else {
-                last_attestation = None;
-            }
-        } else {
+        // Check if the digest already exists in the cache
+        let exists_in_cache = attestations_cache.digest_exists(digest).await?;
+        info!(
+            "Checking if digest {} exists in cache: {}",
+            digest, exists_in_cache
+        );
+
+        // Check if the digest already exists in the cache and the first digest exists
+        // If this digest exists in the cache and the first digest exists, we can stop fetching more
+        // because it means we have fetched all the historical attestations
+        if exists_in_cache && head_of_chain_exists {
+            info!(
+                "Digest {} already exists in cache, skipping insertion",
+                digest
+            );
             fetch_more = false;
-            info!("No more historical attestations found, we reached the end or rather the beginning of the chain.");
+        };
+
+        if !exists_in_cache {
+            // Insert the attestation into the cache
+            info!(
+                "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
+                digest,
+                last_chain_attestation.chain_id(),
+                last_chain_attestation.header_number(),
+            );
+            attestations_cache
+                .insert(last_chain_attestation.clone())
+                .await?;
+        }
+
+        // Fetch the next attestation
+        if let Some(prev_digest) = last_chain_attestation.attestation.prev_digest {
+            info!("Fetching attestation with prev_digest: {}", prev_digest);
+            last_chain_attestation = cc3_client
+                .get_attestation_by_digest(chain, prev_digest)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
+        } else {
+            info!("Reached the front of the chain, stopping fetching more historical attestations");
+            fetch_more = false;
         }
     }
 
