@@ -80,6 +80,7 @@ impl Server {
         });
 
         // Handle claim subscription
+        info!("Starting claim subscription");
         let claim_attestations_cache = attestations_cache.clone();
         let claim_cc3_client = cc3_client.clone();
         let claim_config = self.config.clone();
@@ -103,9 +104,7 @@ pub async fn handle_claim_sub(
 
     // Run sub in background and allow server to continue doing other work
     let client = Arc::clone(cc3_client);
-    tokio::spawn(async move {
-        let _ = client.start_claim_sub(claim_tx).await;
-    });
+    let claim_sub_handle = tokio::spawn(async move { client.start_claim_sub(claim_tx).await });
 
     debug!("Starting claim processing handler");
 
@@ -116,24 +115,18 @@ pub async fn handle_claim_sub(
         // Get the rpc url for the chain the claim is from
         let eth_client_rpc_url = chain_price_configurations
             .get_rpc_url(claim.claim.chain_id)
-            .ok_or(anyhow::anyhow!("Chain not found"))
+            .ok_or_else(|| anyhow::anyhow!("Chain not found"))
             .unwrap_or_else(|_| panic!("Chain with id {} not found", claim.claim.chain_id));
 
         // Create an eth client
-        let eth_client = eth::Client::new(eth_client_rpc_url)
-            .await
-            .expect("Error creating eth client");
+        let eth_client = eth::Client::new(eth_client_rpc_url).await?;
 
         // Process the claim
-        match process_claim(client.clone(), eth_client, claim).await {
-            Ok(()) => {
-                info!("Claim processed");
-            }
-            Err(e) => {
-                panic!("Error processing claim: {e}, unwinding server..")
-            }
-        }
+        process_claim(client.clone(), eth_client, claim).await?;
     }
+
+    // Wait for the claim subscription task to finish and handle its result
+    claim_sub_handle.await??;
 
     Ok(())
 }

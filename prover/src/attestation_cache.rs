@@ -99,27 +99,24 @@ pub async fn sync_cache(
 
     // Run sub in background and allow server to continue doing other work
     let client = cc3_client.clone();
-    tokio::spawn(async move {
-        let _ = client.start_attestation_sub(attestation_tx, chains).await;
-    });
+    let sync_handle =
+        tokio::spawn(async move { client.start_attestation_sub(attestation_tx, chains).await });
 
     // Wait on the channel for new attestations
     while let Some(attestation) = attestation_rx.recv().await {
         // check if exists in cache
         if attestations_cache
             .digest_exists(attestation.digest())
-            .await
-            .expect("Error checking if attestation exists in cache")
+            .await?
         {
             warn!("Attestation already exists in cache, skipping");
             continue;
         }
 
-        attestations_cache
-            .insert(attestation)
-            .await
-            .expect("Error inserting attestation");
+        attestations_cache.insert(attestation).await?;
     }
+
+    sync_handle.await??;
 
     Ok(())
 }
@@ -159,7 +156,7 @@ async fn build_historical_cache_for_chain(
                     .prev_digest
                     .unwrap(),
             )
-            .expect("Error decoding digest"),
+            .map_err(|e| anyhow::anyhow!("Error decoding prev_digest: {:?}", e))?,
         );
         info!("Head of chain not found in cache, but last attestation found in cache, starting to sync from: {}", digest);
 
