@@ -1,6 +1,5 @@
 use anyhow::Result;
 use attestation_cache::AttestationCache;
-use attestor_primitives::ChainId;
 use cc_client::AccountId32;
 use eth::Client;
 use sp_core::H256;
@@ -66,17 +65,19 @@ impl Server {
         let cc3_client_clone = Arc::clone(&cc3_client);
         info!("Starting sync cache");
         tokio::spawn(async move {
-            let _ = sync_cache(config, attestations_cache, &cc3_client_clone).await;
+            attestation_cache::sync_cache(config, attestations_cache, &cc3_client_clone)
+                .await
+                .expect("Failed to sync cache");
         });
 
         // Handle claim subscription
-        // This will run in the background
-        // The server will continue to run and do other work
         let config = self.config.clone();
         let cc3_client_clone = Arc::clone(&cc3_client);
         info!("Starting claim sub");
         tokio::spawn(async move {
-            let _ = handle_claim_sub(&config, &cc3_client_clone).await;
+            handle_claim_sub(&config, &cc3_client_clone)
+                .await
+                .expect("Failed to handle claim sub");
         });
 
         Ok(())
@@ -120,168 +121,6 @@ pub async fn handle_claim_sub(config: &Config, cc3_client: &CcClientArc) -> Resu
             }
         }
     }
-
-    Ok(())
-}
-
-async fn sync_cache(
-    config: Config,
-    attestations_cache: Arc<AttestationCacheType>,
-    cc3_client: &CcClientArc,
-) -> Result<()> {
-    let chains: Vec<u64> = config
-        .chain_price_configurations
-        .chain
-        .iter()
-        .map(|c| c.chain_id)
-        .collect();
-
-    // First populate historical attestations
-    let futures = chains.clone().into_iter().map(|chain| {
-        build_historical_cache_for_chain(chain, attestations_cache.clone(), Arc::clone(cc3_client))
-    });
-
-    let _ = futures::future::join_all(futures).await;
-
-    info!("Historical attestations caches built");
-
-    // Start subscription for new attestations
-    let (attestation_tx, mut attestation_rx) = mpsc::channel(config.claim_buffer.into());
-    debug!(
-        "Created attestation buffer with size: {}",
-        config.claim_buffer
-    );
-
-    // Run sub in background and allow server to continue doing other work
-    let client = cc3_client.clone();
-    tokio::spawn(async move {
-        let _ = client.start_attestation_sub(attestation_tx, chains).await;
-    });
-
-    // Handle attestations in the main task or another spawned task
-    //
-    // This will run in the background
-    // The server will continue to run and do other work
-    let attestations_cache = attestations_cache.clone();
-    tokio::spawn(async move {
-        while let Some(attestation) = attestation_rx.recv().await {
-            // check if exists in cache
-            if attestations_cache
-                .digest_exists(attestation.digest())
-                .await
-                .expect("Error checking if attestation exists in cache")
-            {
-                warn!("Attestation already exists in cache, skipping");
-                continue;
-            }
-
-            attestations_cache
-                .insert(attestation)
-                .await
-                .expect("Error inserting attestation");
-        }
-    });
-
-    Ok(())
-}
-
-pub async fn build_historical_cache_for_chain(
-    chain: ChainId,
-    attestations_cache: Arc<AttestationCacheType>,
-    cc3_client: CcClientArc,
-) -> Result<()> {
-    info!("Building historical cache for chain: {}", chain);
-    let last_digest = cc3_client.fetch_last_digest(chain).await?;
-
-    if last_digest.is_none() {
-        error!("No historical attestations found for chain: {}", chain);
-        return Ok(());
-    }
-
-    // Get the last attestation
-    let mut last_chain_attestation = cc3_client
-        .get_attestation_by_digest(chain, last_digest.unwrap())
-        .await
-        .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
-        .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
-
-    // Check if the first digest exists (one with prev_digest = Null) (meaning the front of the chain)
-    let head_of_chain_exists = attestations_cache.first_digest_exists(chain).await?;
-
-    // Fetch the last synced attestation from the cache
-    let last_attestation_synced_in_cache =
-        attestations_cache.last_synced_attestation(chain).await?;
-
-    if !head_of_chain_exists && last_attestation_synced_in_cache.is_some() {
-        let digest = H256::from_slice(
-            &hex::decode(
-                last_attestation_synced_in_cache
-                    .unwrap()
-                    .prev_digest
-                    .unwrap(),
-            )
-            .expect("Error decoding digest"),
-        );
-        info!("Head of chain not found in cache, but last attestation found in cache, starting to sync from: {}", digest);
-
-        // fetch last attestation from cache
-        last_chain_attestation = cc3_client
-            .get_attestation_by_digest(chain, digest)
-            .await
-            .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
-            .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
-    }
-
-    let mut fetch_more = true;
-    // Fetch more historical attestations
-    while fetch_more {
-        let digest = last_chain_attestation.attestation.digest();
-
-        // Check if the digest already exists in the cache
-        let exists_in_cache = attestations_cache.digest_exists(digest).await?;
-        info!(
-            "Checking if digest {} exists in cache: {}",
-            digest, exists_in_cache
-        );
-
-        // Check if the digest already exists in the cache and the first digest exists
-        // If this digest exists in the cache and the first digest exists, we can stop fetching more
-        // because it means we have fetched all the historical attestations
-        if exists_in_cache && head_of_chain_exists {
-            info!(
-                "Digest {} already exists in cache, skipping insertion",
-                digest
-            );
-            fetch_more = false;
-        };
-
-        if !exists_in_cache {
-            // Insert the attestation into the cache
-            info!(
-                "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
-                digest,
-                last_chain_attestation.chain_id(),
-                last_chain_attestation.header_number(),
-            );
-            attestations_cache
-                .insert(last_chain_attestation.clone())
-                .await?;
-        }
-
-        // Fetch the next attestation
-        if let Some(prev_digest) = last_chain_attestation.attestation.prev_digest {
-            info!("Fetching attestation with prev_digest: {}", prev_digest);
-            last_chain_attestation = cc3_client
-                .get_attestation_by_digest(chain, prev_digest)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
-        } else {
-            info!("Reached the front of the chain, stopping fetching more historical attestations");
-            fetch_more = false;
-        }
-    }
-
-    info!("Finished building historical cache for chain: {}", chain);
 
     Ok(())
 }
