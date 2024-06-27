@@ -4,8 +4,10 @@ use either::Either;
 use prover_primitives::claim::ClaimSerializable;
 use tracing::debug;
 
-// TODO: reinstate checkpoints
-// use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
+use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+
+use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use attestation_chain::attestation_fragment::AttestationFragment;
 
 use crate::claim_prover::{build_prover, ClaimProver};
@@ -68,28 +70,37 @@ pub async fn cairo_generate_proof(
     debug!("cairo verification output:");
     debug!("{}", format!("{:?}", output).bold());
 
-    // let output_checkpoint = AttestationCheckpoint::try_from_block(
-    //     output.continuity_checkpoint_block_number,
-    //     output.continuity_checkpoint_digest,
-    // )
-    // .ok_or(anyhow!(
-    //     "expected to get a valid checkpoint from cairo verifier's output"
-    // ))?;
+    let mut checkpoints = AttestationCheckpoints::new();
+    checkpoints
+        .try_append(
+            claim_attestation_fragment
+                .checkpoint()
+                .expect("attestation fragment expected to be full"),
+        )
+        .map_err(|err| anyhow!("{:?}", err))?;
 
-    // if checkpoints.verify_claim_continuity(&output_checkpoint) {
-    //     debug!(
-    //         "{}",
-    //         format!(
-    //             "\nclaim continuity validated at checkpoint: {:?}",
-    //             output_checkpoint
-    //         )
-    //         .green()
-    //     );
-    // } else {
-    //     return Err(anyhow!(
-    //         "claim continuity not validated on attestation chain"
-    //     ));
-    // };
+    let output_checkpoint = AttestationCheckpoint::try_from_block(
+        output.continuity_checkpoint_block_number,
+        output.continuity_checkpoint_digest,
+    )
+    .ok_or(anyhow!(
+        "expected to get a valid checkpoint from cairo verifier's output"
+    ))?;
+
+    if checkpoints.verify_claim_continuity(&output_checkpoint) {
+        debug!(
+            "{}",
+            format!(
+                "\nclaim continuity validated at checkpoint: {:?}",
+                output_checkpoint
+            )
+            .green()
+        );
+    } else {
+        return Err(anyhow!(
+            "claim continuity not validated on attestation chain"
+        ));
+    };
 
     if cairo_proof_mode {
         debug!("running stone-prover, will take a while...");
