@@ -7,6 +7,7 @@ import { percentFromPerbill } from '../../lib/perbill';
 import { CcKeyring, initKeyring, isProxy, delegateAddress } from '../../lib/account/keyring';
 import { AccountBalance, getBalance, toCTCString } from '../../lib/balance';
 import { promptContinue, promptContinueOrSkip, setInteractivity } from '../../lib/interactive';
+import { getValidatorStatus } from '../../lib/staking/validatorStatus';
 import { amountOption, proxyForOption } from '../options';
 import { isProxyFor } from '../../lib/proxy';
 
@@ -99,8 +100,14 @@ export function makeWizardCommand() {
         console.log(batchResult.info);
 
         if (batchResult.status === TxStatus.ok) {
-            console.log('🧙 Validator wizard completed successfully!');
-            console.log('Your validator should appear on the waiting queue.');
+            console.log('🧙 wizard command completed successfully!');
+
+            const status = await getValidatorStatus(address, api);
+            if (status?.waiting) {
+                console.log('Your validator should appear in the Waiting queue.');
+            } else if (status?.active) {
+                console.log('Your validator should aready be on the Active list.');
+            }
         }
 
         process.exit(batchResult.status);
