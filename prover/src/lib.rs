@@ -17,8 +17,10 @@ pub mod postgres;
 use cc3::Claim;
 use config::Config;
 
-pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
+/// `AttestationCacheType` cache type
+pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
 
+/// `CcClientArc` type
 type CcClientArc = Arc<cc3::Client>;
 
 /// Prover server is configured using `Config`
@@ -34,7 +36,7 @@ impl Server {
     pub fn new(config: Config) -> Result<Self> {
         let db_pool = postgres::db::get_pool(&config.postgres_uri)?;
         let attestations_cache: AttestationCacheType =
-            attestation_cache::AttestationCache::new(db_pool);
+            Arc::new(attestation_cache::AttestationCache::new(db_pool));
 
         Ok(Server {
             config,
@@ -57,25 +59,32 @@ impl Server {
             .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
             .await?;
 
-        let attestations_cache = Arc::new(self.attestations_cache.clone());
+        let attestations_cache = self.attestations_cache.clone();
         let cc3_client = Arc::new(cc3_client);
 
-        // Sync the cache
+        // Build historical cache first before starting the subscription for new attestations & claims
         let config = self.config.clone();
-        let cc3_client_clone = Arc::clone(&cc3_client);
+        // let attestations_cache = attestations_cache.clone();
         info!("Starting sync cache");
+        attestation_cache::build_historical_cache(config, &attestations_cache, &cc3_client).await?;
+
+        // Sync the cache
+        info!("Starting cache live sync");
+        let sync_attestations_cache = attestations_cache.clone();
+        let sync_cc3_client = cc3_client.clone();
+        let sync_config = self.config.clone();
         tokio::spawn(async move {
-            attestation_cache::sync_cache(config, attestations_cache, &cc3_client_clone)
+            attestation_cache::sync_cache(&sync_config, &sync_attestations_cache, &sync_cc3_client)
                 .await
                 .expect("Failed to sync cache");
         });
 
         // Handle claim subscription
-        let config = self.config.clone();
-        let cc3_client_clone = Arc::clone(&cc3_client);
-        info!("Starting claim sub");
+        let claim_attestations_cache = attestations_cache.clone();
+        let claim_cc3_client = cc3_client.clone();
+        let claim_config = self.config.clone();
         tokio::spawn(async move {
-            handle_claim_sub(&config, &cc3_client_clone)
+            handle_claim_sub(&claim_config, &claim_cc3_client, &claim_attestations_cache)
                 .await
                 .expect("Failed to handle claim sub");
         });
@@ -84,7 +93,11 @@ impl Server {
     }
 }
 
-pub async fn handle_claim_sub(config: &Config, cc3_client: &CcClientArc) -> Result<()> {
+pub async fn handle_claim_sub(
+    config: &Config,
+    cc3_client: &CcClientArc,
+    _attestation_cache: &AttestationCacheType,
+) -> Result<()> {
     let (claim_tx, mut claim_rx) = mpsc::channel(config.claim_buffer.into());
     debug!("Created claim buffer with size: {}", config.claim_buffer);
 

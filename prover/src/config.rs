@@ -19,6 +19,17 @@ pub struct Config {
     pub postgres_uri: String,
 }
 
+impl Config {
+    #[must_use]
+    pub fn get_chains(&self) -> Vec<u64> {
+        self.chain_price_configurations
+            .chain
+            .iter()
+            .map(|chain| chain.chain_id)
+            .collect()
+    }
+}
+
 impl ChainPriceConfigurations {
     #[must_use]
     pub fn get_rpc_url(&self, chain_id: ChainId) -> Option<String> {

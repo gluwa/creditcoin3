@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::{
+    cc3,
     postgres::{
         attestation::{self, Attestation},
         db::PgPool,
@@ -66,17 +67,12 @@ where
     }
 }
 
-pub async fn sync_cache(
+pub async fn build_historical_cache(
     config: Config,
-    attestations_cache: Arc<AttestationCacheType>,
+    attestations_cache: &AttestationCacheType,
     cc3_client: &CcClientArc,
 ) -> Result<()> {
-    let chains: Vec<u64> = config
-        .chain_price_configurations
-        .chain
-        .iter()
-        .map(|c| c.chain_id)
-        .collect();
+    let chains: Vec<u64> = config.get_chains();
 
     // First populate historical attestations
     let futures = chains.clone().into_iter().map(|chain| {
@@ -87,12 +83,19 @@ pub async fn sync_cache(
 
     info!("Historical attestations caches built");
 
+    Ok(())
+}
+
+pub async fn sync_cache(
+    config: &Config,
+    attestations_cache: &AttestationCacheType,
+    cc3_client: &cc3::Client,
+) -> Result<()> {
+    let chains: Vec<u64> = config.get_chains();
+
     // Start subscription for new attestations
     let (attestation_tx, mut attestation_rx) = mpsc::channel(config.claim_buffer.into());
-    debug!(
-        "Created attestation buffer with size: {}",
-        config.claim_buffer
-    );
+    debug!("Created cache buffer with size: {}", config.claim_buffer);
 
     // Run sub in background and allow server to continue doing other work
     let client = cc3_client.clone();
@@ -100,36 +103,30 @@ pub async fn sync_cache(
         let _ = client.start_attestation_sub(attestation_tx, chains).await;
     });
 
-    // Handle attestations in the main task or another spawned task
-    //
-    // This will run in the background
-    // The server will continue to run and do other work
-    let attestations_cache = attestations_cache.clone();
-    tokio::spawn(async move {
-        while let Some(attestation) = attestation_rx.recv().await {
-            // check if exists in cache
-            if attestations_cache
-                .digest_exists(attestation.digest())
-                .await
-                .expect("Error checking if attestation exists in cache")
-            {
-                warn!("Attestation already exists in cache, skipping");
-                continue;
-            }
-
-            attestations_cache
-                .insert(attestation)
-                .await
-                .expect("Error inserting attestation");
+    // Wait on the channel for new attestations
+    while let Some(attestation) = attestation_rx.recv().await {
+        // check if exists in cache
+        if attestations_cache
+            .digest_exists(attestation.digest())
+            .await
+            .expect("Error checking if attestation exists in cache")
+        {
+            warn!("Attestation already exists in cache, skipping");
+            continue;
         }
-    });
+
+        attestations_cache
+            .insert(attestation)
+            .await
+            .expect("Error inserting attestation");
+    }
 
     Ok(())
 }
 
 async fn build_historical_cache_for_chain(
     chain: ChainId,
-    attestations_cache: Arc<AttestationCacheType>,
+    attestations_cache: AttestationCacheType,
     cc3_client: CcClientArc,
 ) -> Result<()> {
     info!("Building historical cache for chain: {}", chain);
