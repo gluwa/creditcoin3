@@ -128,7 +128,7 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         let local_offsets_hash = self.query_hash();
 //        println!("felts_offsets: {:?}", felts_offsets.iter().map(|f| f.to_string()).collect::<Vec<_>>());
         if proof_public_input.query_hash != local_offsets_hash {
-            return Err(QueryOffsetsMismatch(proof_public_input.query_hash.clone(), local_offsets_hash));
+            return Err(QueryOffsetsMismatch(proof_public_input.query_hash, local_offsets_hash));
         }
 
         let bytes_from_proof = self.proof_felts_to_bytes(&proof_public_input.claim_fields);
