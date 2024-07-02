@@ -200,13 +200,13 @@ impl Client {
             .subscribe_attestations_submissions(filter)
             .await?;
 
-        // Process claims in a loop
+        // Process attestations in a loop
         loop {
             tokio::select! {
                 attestation = subscription.next() => {
                     match attestation {
                         Some(attestation) => {
-                            // Process the claim
+                            // Process the attestation
                             info!(
                                 "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
                                 attestation.chain_id(),
