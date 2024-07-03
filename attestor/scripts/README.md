@@ -9,7 +9,7 @@ npm install
 ## Run Transfer
 
 ```bash
-node transfer.js
+node Transfer.js
 ```
 
 ## Run automatical transfers

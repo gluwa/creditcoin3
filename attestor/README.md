@@ -23,11 +23,11 @@ Document explaining how to setup and run the attestation POC
 
 ### Run Creditcoin
 
-Start the network. This will create a network of 5 nodes running on your
+Start the network. This will create a network of 6 nodes running on your
    local system (all peered with each other).
 
 ```bash
-cd zombie
+cd zombie/
 ./zombienet-macos spawn network.yaml -c 2 -l text
 ```
 
@@ -110,7 +110,7 @@ Run `anvil --block-time 6`
 This script will automatically transfer some funds between the accounts. You can run this script to simulate some transactions.
 
 ```sh
-cd scripts
+cd scripts/
 npm install
 node AutoTransfers.js
 ```
@@ -171,7 +171,7 @@ log output like
 ### Do a transfer
 
 ```sh
-cd scripts
+cd scripts/
 npm install
-node scripts/Transfer.js
+node Transfer.js
 ```

@@ -17,7 +17,7 @@ This pallet has multiple responsibilities regarding the attestation network, a s
 - (Un)Registering Attestors
 - Setting committee size (min number of attestors).
 - Setting of supported chains
-- Inherent for submitting a signed attetation (signed by the entire network)
+- Inherent for submitting a signed attestation (signed by the entire network)
 
 So it is part a registry as a provider for the attestation data on chain, the attestations are linked to eachother with a digest, this digest is calculated client side by validators.
 
@@ -29,7 +29,7 @@ It provides an inherent transaction for validators in order to create a valid at
 
 ### Client
 
-Attestor gossip client is a pacakge that provides functionality to gossip peer to peer about votes for an attestation on a source chain. This connects all the nodes in the network using the gossip protocol. It validates all incoming votes and triages them accordingly, when a vote is validated it is gossiped through the network. When enough votes (> committee size) is reached then it uses BLS to combine all the valid attestors signatures. Once that is done, the attestation is submitted to the inherent data provider and a validator will submit this inherent data.
+Attestor gossip client is a package that provides functionality to gossip peer to peer about votes for an attestation on a source chain. This connects all the nodes in the network using the gossip protocol. It validates all incoming votes and triages them accordingly, when a vote is validated it is gossiped through the network. When enough votes (> committee size) is reached then it uses BLS to combine all the valid attestors signatures. Once that is done, the attestation is submitted to the inherent data provider and a validator will submit this inherent data.
 
 ### Client RPC
 
@@ -41,7 +41,7 @@ Creditcoin3 next node, it runs the attestor gossip network alongside it's normal
 
 ### Attestor
 
-The attestor binary. This is a program that listens to a source Chain RPC endpoints and get's notified when a block is created. Once a block is created, the program will sign that data and sign the VRF output. It will calculate it's inclusion in the network and depending on the outcome will submit the signed attestation to the attestor gossip network of a creditcoin3 node. This can be a local or remote creditcoin3 node.
+The attestor binary. This is a program that listens to a source Chain RPC endpoints and gets notified when a block is created. Once a block is created, the program will sign that data and sign the VRF output. It will calculate it's inclusion in the network and depending on the outcome will submit the signed attestation to the attestor gossip network of a creditcoin3 node. This can be a local or remote creditcoin3 node.
 
 Once the binary is started, it will register itself on creditcoin3 as an attestor, based on the VRF output it can either include it's attestations or not (see research for more details about inclusion).
 

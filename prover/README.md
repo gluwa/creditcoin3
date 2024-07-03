@@ -15,8 +15,8 @@ The configuration file is a toml file that contains the following fields:
 ```toml
 [[chain]]
 rpc_url = "https://example.com"
-chain_id = 1
-price = 31337
+chain_id = 31337
+price = 1
 ```
 
 Chain can be repeated multiple times to add multiple chains.
