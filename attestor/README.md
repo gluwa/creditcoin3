@@ -150,7 +150,7 @@ Will output a new keypair, now use polkadotJS to connect to your local node and 
 #### Start a first attestor
 
 ```sh
-cargo +nightly run -- --cc3-key "your private key here" -v
+cargo run -- --cc3-key "your private key here" -v
 ```
 
 #### (Optionally) Start a second attestor
@@ -158,7 +158,7 @@ cargo +nightly run -- --cc3-key "your private key here" -v
 Also generate a new key + transfer some balance.
 
 ```sh
-cargo +nightly run -- --cc3-key "your private key here" -v
+cargo run -- --cc3-key "your private key here" -v
 ```
 
 Look at the logs to see that the other nodes received it. Expect a line in the
