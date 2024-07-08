@@ -5,6 +5,7 @@ name: llvm-cov
 on:
   pull_request:
     branches: [dev]
+  workflow_dispatch:
 
 permissions: read-all
 
