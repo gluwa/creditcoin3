@@ -68,4 +68,9 @@ std = [
     "proof-verifier/std",
     "prover-primitives/std",
 ]
-runtime-benchmarks = ["frame-benchmarking"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]

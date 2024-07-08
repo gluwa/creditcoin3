@@ -5,7 +5,7 @@ set -e
 # Example: Compile and benchmark the difficulty pallet.
 # ./scripts/bench.sh -p difficulty -cb
 
-PALLET=creditcoin
+PALLET=prover
 COMMAND=build
 BENCH=1
 BUILD=1

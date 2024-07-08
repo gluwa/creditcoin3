@@ -190,4 +190,5 @@ runtime-benchmarks = [
     "pallet-ethereum/runtime-benchmarks",
     "pallet-evm/runtime-benchmarks",
     "pallet-hotfix-sufficients/runtime-benchmarks",
+	"pallet-prover/runtime-benchmarks",
 ]

@@ -11,25 +11,23 @@ pub type FullBackend = sc_service::TFullBackend<Block>;
 pub type FullClient<RuntimeApi, Executor> =
     sc_service::TFullClient<Block, RuntimeApi, NativeElseWasmExecutor<Executor>>;
 
-pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>;
+pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, CreditcoinRuntimeExecutor>;
 
-/// Only enable the benchmarking host functions when we actually want to benchmark.
-#[cfg(feature = "runtime-benchmarks")]
-pub type HostFunctions = (
-    frame_benchmarking::benchmarking::HostFunctions,
-    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-    proof_verifier::host_api::HostFunctions,
-);
-/// Otherwise we use empty host functions for ext host functions.
-#[cfg(not(feature = "runtime-benchmarks"))]
-pub type HostFunctions = (
-    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-    proof_verifier::host_api::HostFunctions,
-);
-
-pub struct TemplateRuntimeExecutor;
-impl NativeExecutionDispatch for TemplateRuntimeExecutor {
-    type ExtendHostFunctions = HostFunctions;
+pub struct CreditcoinRuntimeExecutor;
+impl NativeExecutionDispatch for CreditcoinRuntimeExecutor {
+    /// Only enable the benchmarking host functions when we actually want to benchmark.
+    #[cfg(feature = "runtime-benchmarks")]
+    type ExtendHostFunctions = (
+        creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+        proof_verifier::host_api::HostFunctions,
+        frame_benchmarking::benchmarking::HostFunctions,
+    );
+    /// Otherwise we only use the default Substrate host functions.
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    type ExtendHostFunctions = (
+        creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+        proof_verifier::host_api::HostFunctions,
+    );
 
     fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
         creditcoin3_runtime::api::dispatch(method, data)

@@ -28,8 +28,8 @@ use crate::rpc;
 use crate::{
     cli::Sealing,
     client::{
-        BaseRuntimeApiCollection, Client, FullBackend, FullClient, RuntimeApiCollection,
-        TemplateRuntimeExecutor,
+        BaseRuntimeApiCollection, Client, CreditcoinRuntimeExecutor, FullBackend, FullClient,
+        RuntimeApiCollection,
     },
     eth::{
         db_config_dir, new_frontier_partial, spawn_frontier_tasks, BackendType,
@@ -903,7 +903,7 @@ pub async fn build_full(
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>(
+    new_full::<creditcoin3_runtime::RuntimeApi, CreditcoinRuntimeExecutor>(
         config, eth_config, sealing,
     )
     .await
@@ -930,7 +930,7 @@ pub fn new_chain_ops(
         task_manager,
         other,
         ..
-    } = new_partial::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor, _>(
+    } = new_partial::<creditcoin3_runtime::RuntimeApi, CreditcoinRuntimeExecutor, _>(
         config,
         eth_config,
         build_babe_grandpa_import_queue,

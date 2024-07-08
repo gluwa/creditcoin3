@@ -1037,7 +1037,7 @@ mod benches {
         [pallet_balances, Balances]
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
-        [pallet_evm, EVM]
+        [pallet_prover, Prover]
     );
 }
 
@@ -1486,9 +1486,8 @@ impl_runtime_apis! {
         ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
             use frame_benchmarking::{baseline, Benchmarking, BenchmarkBatch, add_benchmark};
             use frame_support::traits::TrackedStorageKey;
-
-            use pallet_evm::Pallet as PalletEvmBench;
-            use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
+            use frame_system_benchmarking::Pallet as SystemBench;
+            use baseline::Pallet as BaselineBench;
 
             impl baseline::Config for Runtime {}
             impl frame_system_benchmarking::Config for Runtime {}
@@ -1498,8 +1497,7 @@ impl_runtime_apis! {
             let mut batches = Vec::<BenchmarkBatch>::new();
             let params = (&config, &whitelist);
 
-            add_benchmark!(params, batches, pallet_evm, PalletEvmBench::<Runtime>);
-            add_benchmark!(params, batches, pallet_hotfix_sufficients, PalletHotfixSufficientsBench::<Runtime>);
+            add_benchmarks!(params, batches);
 
             if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
             Ok(batches)

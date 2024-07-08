@@ -1,12 +1,13 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use frame_benchmarking::{account, benchmarks, whitelist_account, impl_benchmark_test_suite};
 use crate::types::Prover;
+use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite, whitelist_account};
 use frame_system::RawOrigin;
+use sp_std::vec;
 // use crate::mock::ProverModule;
+// use fp_account::AccountId20;
 use prover_primitives::claim::ClaimKind;
-use fp_account::AccountId20;
 
 benchmarks! {
     register_prover {
@@ -87,9 +88,8 @@ benchmarks! {
     }
 }
 
-
-// impl_benchmark_test_suite!(
-//     ProverModule,
-// 	crate::mock::ExtBuilder::build(Default::default()),
-// 	crate::mock::Test
-// );
+impl_benchmark_test_suite!(
+    ProverModule,
+    crate::mock::ExtBuilder::build(Default::default()),
+    crate::mock::Test
+);
