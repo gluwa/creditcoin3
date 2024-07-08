@@ -11,7 +11,7 @@ Document explaining how to setup and run the attestation POC
 
 1. [Install the rust toolchain](https://www.rust-lang.org/tools/install).
 
-2. Compile creditcoin `cd .. && cargo build --features fast-runtime`
+2. Compile creditcoin `pushd ../ && cargo build --release --features fast-runtime && popd`
 
 3. Grab a zombienet binary from
   [here](https://github.com/paritytech/zombienet/releases/tag/v1.3.99) and put
@@ -123,20 +123,19 @@ atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, y
 #### Start the first prefunded attestor
 
 ```sh
-cargo run -- -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade" 
+../target/release/attestor -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade"
 ```
 
 #### (Optionally) Start the second prefunded attestor
 
 ```sh
-cargo run -- -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry" 
-
+../target/release/attestor -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry"
 ```
 
 #### (Optionally) Start the third prefunded attestor
 
 ```sh
-cargo run -- -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere" 
+../target/release/attestor -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere"
 ```
 
 Alternatively, you can generate your own keys, transfer some balance to that address in order to register an attestor and then start the attestors.
@@ -150,7 +149,7 @@ Will output a new keypair, now use polkadotJS to connect to your local node and 
 #### Start a first attestor
 
 ```sh
-cargo run -- --cc3-key "your private key here" -v
+../target/release/attestor -v --cc3-key "your private key here"
 ```
 
 #### (Optionally) Start a second attestor
@@ -158,7 +157,7 @@ cargo run -- --cc3-key "your private key here" -v
 Also generate a new key + transfer some balance.
 
 ```sh
-cargo run -- --cc3-key "your private key here" -v
+../target/release/attestor -v --cc3-key "your private key here"
 ```
 
 Look at the logs to see that the other nodes received it. Expect a line in the
