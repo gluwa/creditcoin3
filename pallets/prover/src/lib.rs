@@ -12,6 +12,9 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
 #[frame_support::pallet]
 pub mod pallet {
     use crate::types::{Claim, Prover};
@@ -38,7 +41,7 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_balances::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
-        type Address: Codec + Encode + Decode + TypeInfo + Clone + Debug + Eq + PartialEq;
+        type Address: Codec + Encode + Decode + TypeInfo + Clone + Debug + Eq + PartialEq + Default;
         type Currency: Currency<Self::AccountId>;
         type ClaimLockCurrency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>;
         type Hashing: Hash<Output = Self::Hash>;
