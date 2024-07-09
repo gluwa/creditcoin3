@@ -8,10 +8,10 @@ on:
 permissions: read-all
 
 jobs:
-  upload-coverage-info:
+  produce-coverage-info:
+    outputs:
+      uncovered_lines: ${{ steps.coverage.outputs.uncovered_lines }}
     runs-on: ubuntu-24.04
-    permissions:
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -87,17 +87,24 @@ jobs:
 
           az storage blob upload-batch --account-name staticsitellvmhtml --auth-mode key -d "\$web" --destination-path "$DESTINATION_PATH" --overwrite -s ./target/llvm-cov
 
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/llvm-cov/html/
+
+  upload-coverage-info:
+    needs:
+      - produce-coverage-info
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
       - name: Post comment to PR
         if: env.GITHUB_TOKEN
         uses: mshick/add-pr-comment@v2
         env:
           GITHUB_TOKEN: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
         with:
-          message: ${{ steps.coverage.outputs.uncovered_lines }}
+          message: ${{ needs.produce-coverage-info.outputs.uncovered_lines }}
           allow-repeats: false
-
-      - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: target/llvm-cov/html/
