@@ -4,7 +4,7 @@
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
 #![allow(clippy::new_without_default, clippy::or_fun_call)]
-#![cfg_attr(feature = "runtime-benchmarks", deny(unused_crate_dependencies))]
+// #![cfg_attr(feature = "runtime-benchmarks", deny(unused_crate_dependencies))]
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
@@ -1519,6 +1519,8 @@ impl_runtime_apis! {
     }
 
     impl creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
+
+        #[cfg(not(feature = "runtime-benchmarks"))]
         fn trace_transaction(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
@@ -1550,6 +1552,18 @@ impl_runtime_apis! {
             }
         }
 
+        #[cfg(feature = "runtime-benchmarks")]
+        fn trace_transaction(
+            extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            traced_transaction: &EthereumTransaction,
+        ) -> Result<
+            (),
+            sp_runtime::DispatchError,
+        > {
+            Ok(())
+        }
+
+        #[cfg(not(feature = "runtime-benchmarks"))]
         fn trace_block(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             known_transactions: Vec<H256>,
@@ -1583,6 +1597,17 @@ impl_runtime_apis! {
 
                 Ok(())
             }
+        }
+
+        #[cfg(feature = "runtime-benchmarks")]
+        fn trace_block(
+            extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            known_transactions: Vec<H256>,
+        ) -> Result<
+            (),
+            sp_runtime::DispatchError,
+        > {
+            Ok(())
         }
     }
 
