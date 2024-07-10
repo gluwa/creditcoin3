@@ -416,7 +416,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features=fast-runtime
+          args: --release --features=fast-runtime --features=runtime-benchmarks
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
