@@ -380,7 +380,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [devnet, ci]
+        target: [ci]
     name: build-creditcoin-node-for-testing-${{ matrix.target }}
     runs-on: ubuntu-24.04
     steps:
@@ -412,17 +412,11 @@ jobs:
         with:
           shared-key: build-creditcoin-node
 
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
-
       - name: Build SUT
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
+          args: --release --features=fast-runtime
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
