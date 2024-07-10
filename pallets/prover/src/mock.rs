@@ -87,6 +87,8 @@ impl prover_pallet::Config for Test {
     type ClaimLockCurrency = Balances;
     type Hashing = BlakeTwo256;
     type SupportedChains = SupportedChains;
+    #[cfg(feature = "runtime-benchmarks")]
+    type MinBalance = ExistentialDeposit;
 }
 
 impl pallet_supported_chains::Config for Test {
