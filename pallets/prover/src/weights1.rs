@@ -17,7 +17,7 @@
 // --repeat=30
 // --pallet
 // pallet_prover
-// --extrinsic=submit_claim
+// --extrinsic=submit_proof
 // --execution
 // wasm
 // --wasm-execution=compiled
@@ -36,18 +36,20 @@ use core::marker::PhantomData;
 /// Weight functions for `pallet_prover`.
 pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> pallet_prover::WeightInfo for WeightInfo<T> {
-	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
-	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Prover::Provers` (r:2 w:0)
+	/// Storage: `Prover::Provers` (r:1 w:0)
 	/// Proof: `Prover::Provers` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Prover::ProverClaims` (r:1 w:0)
+	/// Proof: `Prover::ProverClaims` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Prover::ClaimSourceByHash` (r:1 w:0)
+	/// Proof: `Prover::ClaimSourceByHash` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Prover::ProversChainPriceConfigurations` (r:1 w:0)
 	/// Proof: `Prover::ProversChainPriceConfigurations` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:1 w:1)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `Balances::Locks` (r:1 w:1)
 	/// Proof: `Balances::Locks` (`max_values`: None, `max_size`: Some(1299), added: 3774, mode: `MaxEncodedLen`)
 	/// Storage: `Balances::Freezes` (r:1 w:0)
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(49), added: 2524, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -56,18 +58,18 @@ impl<T: frame_system::Config> pallet_prover::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Prover::ProverClaims` (r:1 w:1)
-	/// Proof: `Prover::ProverClaims` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Prover::ClaimSourceByHash` (r:0 w:1)
-	/// Proof: `Prover::ClaimSourceByHash` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn submit_claim() -> Weight {
+	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
+	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `Prover::ClaimResultByHash` (r:0 w:1)
+	/// Proof: `Prover::ClaimResultByHash` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn submit_proof() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `835`
-		//  Estimated: `6775`
-		// Minimum execution time: 71_000_000 picoseconds.
-		Weight::from_parts(72_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 6775))
-			.saturating_add(T::DbWeight::get().reads(12))
+		//  Measured:  `1026`
+		//  Estimated: `6196`
+		// Minimum execution time: 113_000_000 picoseconds.
+		Weight::from_parts(116_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 6196))
+			.saturating_add(T::DbWeight::get().reads(13))
 			.saturating_add(T::DbWeight::get().writes(6))
 	}
 }
