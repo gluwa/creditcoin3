@@ -30,20 +30,36 @@ updates:
   - package-ecosystem: "cargo"
     directories:
       - "/"
+      - "/attestor"
+      - "/client/attestor-gossip"
+      - "/client/attestor-rpc"
       - "/client/evm-tracing"
       - "/client/rpc-core/debug"
       - "/client/rpc-core/trace"
       - "/client/rpc-core/types"
       - "/client/rpc/debug"
       - "/client/rpc/trace"
+      - "/common/bls-signatures"
+      - "/common/cc-client"
+      - "/common/eth"
+      - "/common/mmr"
+      - "/host"
       - "/node"
       - "/node/cli-opt"
+      - "/pallets/attestation-poc"
+      - "/pallets/prover"
+      - "/pallets/supported-chains"
+      - "/precompiles/claim"
       - "/precompiles/substrate-transfer"
       - "/primitives/account"
+      - "/primitives/attestor"
       - "/primitives/core"
       - "/primitives/ext"
+      - "/primitives/prover"
       - "/primitives/rpc/debug"
       - "/primitives/rpc/evm-tracing-events"
+      - "/primitives/supported-chains"
+      - "/prover"
       - "/runtime"
       - "/runtime/evm_tracer"
       - "/runtime/generate-bags"
@@ -57,9 +73,15 @@ updates:
     schedule:
       interval: "monthly"
 
+  - package-ecosystem: "cargo"
+    directory: "/runtime/generate-bags"
+    schedule:
+      interval: "monthly"
+
   # Maintain dependencies for Node.js
   - package-ecosystem: "npm"
     directories:
+      - "/attestor/scripts"
       - "/cli"
       - "/docs/smart-contract-development/with-hardhat"
       - "/docs/smart-contract-development/with-ethers.js"
@@ -71,7 +93,6 @@ updates:
       dev-dependencies:
         dependency-type: "development"
         applies-to: version-updates
-
     schedule:
       interval: "monthly"
     ignore:

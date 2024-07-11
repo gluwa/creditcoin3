@@ -94,38 +94,38 @@ jobs:
 #        run: |
 #          sudo killall -9 creditcoin3-node
 
-#  sanity-tests:
-#    runs-on: ubuntu-24.04
-#    steps:
-#      - uses: actions/checkout@v4
-#
+  sanity-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
 #      - name: Check for parity between extrinsics, benchmarks and weights
 #        run: |
 #          echo "INFO: active pallets are"
 #          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets
 #          echo "========================"
 #          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh
-#
-#      - name: Check migrations
-#        run: |
-#          ./.github/check-usage-of-log-warn.sh
-#
+
+      - name: Check migrations
+        run: |
+          ./.github/check-usage-of-log-warn.sh
+
 #      - name: Check if Cargo.toml specifies dependencies from forks
 #        run: |
 #          ./.github/check-for-used-forks.sh
 #
-#      - name: Check if all Cargo.toml files are specified inside Dependabot config
-#        run: |
-#          .github/check-for-missing-Cargo-toml-in-Dependabot-config.sh
-#
-#      - name: Check if all package.json files are specified inside Dependabot config
-#        run: |
-#          .github/check-for-missing-package-json-in-Dependabot-config.sh
-#
-#      - name: Check if chainspecs are valid and not contain bootnodes
-#        run: |
-#          ./.github/check-bootnodes.sh
-#
+      - name: Check if all Cargo.toml files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-Cargo-toml-in-Dependabot-config.sh
+
+      - name: Check if all package.json files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-package-json-in-Dependabot-config.sh
+
+      - name: Check if chainspecs are valid and not contain bootnodes
+        run: |
+          ./.github/check-bootnodes.sh
+
 #  sanity-test-cli:
 #    runs-on: ubuntu-24.04
 #    steps:
