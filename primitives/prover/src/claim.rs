@@ -1,9 +1,11 @@
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
+use attestor_primitives::ChainId;
+
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, MaxEncodedLen, Hash)]
 pub struct Claim<Address> {
-    pub chain_id: u8,
+    pub chain_id: ChainId,
     pub block_number: u64,
     pub tx_index: u8,
     pub from: Address,

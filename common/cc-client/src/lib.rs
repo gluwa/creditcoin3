@@ -515,6 +515,8 @@ pub enum Error {
     FailedToGetComitteSetSize,
     #[error("Failed to get chain price configurations")]
     FailedToGetChainPriceConfigurations,
+    #[error("Failed to get attestation interval")]
+    FailedToGetAttestationInterval,
 }
 
 /// Helper function to format a http(s) endpoint to a ws(s) endpoint

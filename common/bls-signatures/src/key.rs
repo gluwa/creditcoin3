@@ -15,6 +15,7 @@ use hkdf::Hkdf;
 #[cfg(feature = "pairing")]
 use sha2::{digest::generic_array::typenum::U48, digest::generic_array::GenericArray, Sha256};
 
+#[allow(dead_code)]
 pub(crate) struct ScalarRepr(<Scalar as PrimeFieldBits>::ReprBits);
 
 use crate::error::Error;

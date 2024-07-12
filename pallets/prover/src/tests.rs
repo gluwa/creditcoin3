@@ -6,9 +6,7 @@ use frame_support::{assert_err, assert_ok};
 use prover_primitives::claim::{Claim, ClaimKind};
 use sp_runtime::traits::Hash;
 
-use crate::mock::{
-    ExtBuilder, ProverModule, RuntimeOrigin, SupportedChains, Test, CLAIMER_1, PROVER_1,
-};
+use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, Test, CLAIMER_1, PROVER_1};
 use crate::{types::Prover, ChainPriceConfiguration};
 
 fn prover_configured_in_genesis() -> RuntimeOrigin {
@@ -95,7 +93,7 @@ fn create_claim_works() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
             block_number: 1,
-            chain_id: 42,
+            chain_id: 1,
             tx_index: 154,
             from: test_account_id20(),
             to: test_account_id20(),
@@ -106,13 +104,6 @@ fn create_claim_works() {
 
         let locked_balance = ProverModule::get_locked_balance(&CLAIMER_1);
         assert_eq!(locked_balance, 100);
-
-        // // add supported chain as chainId 1
-        assert_err!(
-            SupportedChains::register_chain(RuntimeOrigin::root(), 1, "Evm".to_string()),
-            <pallet_supported_chains::Error<Test>>::ChainAlreadyRegistered
-        );
-        assert_ok!(ProverModule::submit_claim(claimer_1(), claim, PROVER_1));
     })
 }
 
@@ -121,7 +112,7 @@ fn create_multiple_claims_works() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
             block_number: 1,
-            chain_id: 42,
+            chain_id: 1,
             tx_index: 154,
             from: test_account_id20(),
             to: test_account_id20(),
@@ -130,23 +121,12 @@ fn create_multiple_claims_works() {
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
 
-        assert_err!(
-            SupportedChains::register_chain(RuntimeOrigin::root(), 1, "Evm".to_string()),
-            <pallet_supported_chains::Error<Test>>::ChainAlreadyRegistered
-        );
-
-        assert_ok!(ProverModule::submit_claim(
-            claimer_1(),
-            claim.clone(),
-            PROVER_1
-        ));
-
         let locked_balance = ProverModule::get_locked_balance(&CLAIMER_1);
         assert_eq!(locked_balance, 100);
 
         let claim = Claim {
             block_number: 15,
-            chain_id: 42,
+            chain_id: 1,
             tx_index: 123,
             from: test_account_id20(),
             to: test_account_id20(),
@@ -165,7 +145,7 @@ fn submit_invalid_proof_fails() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
             block_number: 1,
-            chain_id: 42,
+            chain_id: 1,
             tx_index: 154,
             from: test_account_id20(),
             to: test_account_id20(),
@@ -173,17 +153,6 @@ fn submit_invalid_proof_fails() {
         };
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim.clone(),));
-
-        assert_err!(
-            SupportedChains::register_chain(RuntimeOrigin::root(), 1, "Evm".to_string()),
-            <pallet_supported_chains::Error<Test>>::ChainAlreadyRegistered
-        );
-
-        assert_ok!(ProverModule::submit_claim(
-            claimer_1(),
-            claim.clone(),
-            PROVER_1
-        ));
 
         let claim_hash = <Test as Config>::Hashing::hash_of(&claim);
 
@@ -218,7 +187,7 @@ fn submit_claim_for_unsupported_chain_fails() {
         };
 
         assert_err!(
-            ProverModule::submit_claim(claimer_1(), claim.clone(), PROVER_1),
+            ProverModule::submit_claim(claimer_1(), claim.clone()),
             Error::<Test>::ChainNotSupported
         );
     })

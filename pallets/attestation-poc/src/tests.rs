@@ -3,15 +3,16 @@ use crate::mock::{
     Attestation, ExtBuilder, RuntimeOrigin, Test, ATTESTOR_1, ATTESTOR_2, DEFAULT_COMITTEE_SET_SIZE,
 };
 use assert_matches::assert_matches;
-use attestor_primitives::{Attestation as AttestationPrimitive, SignedAttestation};
+use attestor_primitives::{Attestation as AttestationPrimitive, ChainId, SignedAttestation};
 use attestor_primitives::{BlsPublicKey, BlsSignature};
-use bls_signatures::key::Serialize;
-use bls_signatures::PrivateKey;
+use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_support::{assert_err, assert_ok};
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
+#[derive(Debug, Clone)]
 pub struct Attestor {
+    pub id: mock::AccountId,
     pub attestor: RuntimeOrigin,
     private_key: PrivateKey,
     pub public_key: BlsPublicKey,
@@ -27,9 +28,11 @@ impl Attestor {
             .try_into()
             .unwrap();
 
+        let id = attestor;
         let attestor = RuntimeOrigin::signed(attestor);
 
         Self {
+            id,
             attestor,
             private_key,
             public_key,
@@ -310,18 +313,15 @@ fn adding_a_supported_chain_works() {
 #[test]
 fn submitting_attestation_works() {
     ExtBuilder.build_and_execute(|| {
-        let attestation = SignedAttestation {
-            attestation: AttestationPrimitive {
-                chain_id: 1,
-                header_number: 1,
-                header_hash: Default::default(),
-                tx_root: [0; 32],
-                rx_root: [0; 32],
-                prev_digest: None,
-            },
-            signature: [0; 96],
-            attestors: vec![ATTESTOR_1],
-        };
+        let attestor = Attestor::new(ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -333,18 +333,15 @@ fn submitting_attestation_works() {
 #[test]
 fn submitting_duplicate_attestation_fails() {
     ExtBuilder.build_and_execute(|| {
-        let attestation = SignedAttestation {
-            attestation: AttestationPrimitive {
-                chain_id: 1,
-                header_number: 1,
-                header_hash: Default::default(),
-                tx_root: [0; 32],
-                rx_root: [0; 32],
-                prev_digest: None,
-            },
-            signature: [0; 96],
-            attestors: vec![ATTESTOR_1],
-        };
+        let attestor = Attestor::new(ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -361,18 +358,15 @@ fn submitting_duplicate_attestation_fails() {
 #[test]
 fn submitting_attestation_chain_works() {
     ExtBuilder.build_and_execute(|| {
-        let attestation = SignedAttestation {
-            attestation: AttestationPrimitive {
-                chain_id: 1,
-                header_number: 1,
-                header_hash: Default::default(),
-                tx_root: [0; 32],
-                rx_root: [0; 32],
-                prev_digest: None,
-            },
-            signature: [0; 96],
-            attestors: vec![ATTESTOR_1],
-        };
+        let attestor = Attestor::new(ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -381,20 +375,7 @@ fn submitting_attestation_chain_works() {
 
         let digest = attestation.digest();
 
-        // create new attestation with the same digest
-        let attestation = SignedAttestation {
-            attestation: AttestationPrimitive {
-                chain_id: 1,
-                // interval is 10
-                header_number: 11,
-                header_hash: Default::default(),
-                tx_root: [0; 32],
-                rx_root: [0; 32],
-                prev_digest: Some(digest),
-            },
-            signature: [0; 96],
-            attestors: vec![ATTESTOR_1],
-        };
+        let attestation = create_signed_attestation(vec![attestor], 1, 11, Some(digest));
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -406,18 +387,15 @@ fn submitting_attestation_chain_works() {
 #[test]
 fn submitting_invalid_attestation_chain_fails() {
     ExtBuilder.build_and_execute(|| {
-        let attestation = SignedAttestation {
-            attestation: AttestationPrimitive {
-                chain_id: 1,
-                header_number: 1,
-                header_hash: Default::default(),
-                tx_root: [0; 32],
-                rx_root: [0; 32],
-                prev_digest: None,
-            },
-            signature: [0; 96],
-            attestors: vec![ATTESTOR_1],
-        };
+        let attestor = Attestor::new(ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -426,20 +404,8 @@ fn submitting_invalid_attestation_chain_fails() {
 
         let fake_digest = H256::random();
 
-        // create new attestation with the same digest
-        let attestation = SignedAttestation {
-            attestation: AttestationPrimitive {
-                chain_id: 1,
-                // interval is 10
-                header_number: 11,
-                header_hash: Default::default(),
-                tx_root: [0; 32],
-                rx_root: [0; 32],
-                prev_digest: Some(fake_digest),
-            },
-            signature: [0; 96],
-            attestors: vec![ATTESTOR_1],
-        };
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], 1, 11, Some(fake_digest));
 
         assert_err!(
             Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
@@ -471,4 +437,41 @@ fn test_signing() {
             message
         ));
     })
+}
+
+fn create_signed_attestation(
+    attestors: Vec<Attestor>,
+    chain_id: ChainId,
+    header_number: u64,
+    prev_digest: Option<H256>,
+) -> SignedAttestation<H256, mock::AccountId> {
+    let attestation = AttestationPrimitive {
+        chain_id,
+        header_number,
+        header_hash: H256::random(),
+        tx_root: [0; 32],
+        rx_root: [0; 32],
+        prev_digest,
+    };
+
+    let mut signatures = Vec::new();
+    for attestor in attestors.iter() {
+        let signature = attestor.sign(&attestation.serialize());
+        let bls_sig = bls_signatures::Signature::from_bytes(&signature[..])
+            .expect("Failed to create signature");
+
+        signatures.push(bls_sig);
+    }
+    // sign
+    let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
+
+    let attestation = SignedAttestation {
+        attestation,
+        signature: aggregated_signature.as_bytes()[..]
+            .try_into()
+            .expect("Failed to convert to array"),
+        attestors: attestors.iter().map(|a| a.id).collect::<Vec<_>>(),
+    };
+
+    attestation
 }

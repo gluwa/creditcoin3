@@ -6,19 +6,17 @@ use kameo::{
     actor::Actor,
     message::{Context, Message},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sp_core::H256;
 use std::{thread, time::Duration};
 use tracing::{debug, error, info, warn};
 
 use cc_client::Client as CcClient;
+pub use cc_client::Error;
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId,
 };
-
-#[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
-pub mod cc3 {}
 
 pub type Randomness = [u8; 32];
 
@@ -149,24 +147,6 @@ impl Actor for Client {}
 // It holds the attestation data to be signed by the attestor before submitting
 pub struct AttestationSubmit<H> {
     pub attestation: Option<AttestationPrimitive<H>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Error)]
-pub enum Error {
-    #[error("Failed to submit RPC")]
-    FailedToSubmit,
-    #[error("Failed to sign Babe VRF output")]
-    FailedToSignBabeVrf,
-    #[error("Failed to check eligibility")]
-    FailedToCheckEligibility,
-    #[error("Failed to fetch latest digest")]
-    FailedToFetchDigest,
-    #[error("Invalid attestor")]
-    InvalidAttestor,
-    #[error("Invalid bls key")]
-    InvalidBlsKey,
-    #[error("Failed to get cc3 RPC client")]
-    FailedToGetRPcClient,
 }
 
 impl<H> Message<AttestationSubmit<H>> for Client

@@ -27,7 +27,7 @@ repository = "https://github.com/gluwa/creditcoin3/"
 [workspace.dependencies]
 assert_matches = "1.5.0"
 
-# Substrate Client
+# Substrate Clientassert_matches = "1.5.0"
 async-trait = "0.1"
 clap = { version = "4.5.8", features = ["derive", "deprecated"] }
 derive_more = "0.99"
@@ -66,8 +66,6 @@ primitive-types = "0.12.2"
 tiny-bip39 = { version = "1.0", default-features = false }
 url = "2.2.2"
 env_logger = "0.11"
-
-# Substrate Client
 sc-basic-authorship = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-chain-spec = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sc-cli = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }

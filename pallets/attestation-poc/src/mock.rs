@@ -8,7 +8,7 @@ use sp_runtime::{
     BuildStorage,
 };
 
-type AccountId = u64;
+pub type AccountId = u64;
 type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Test>;
 type Nonce = u32;

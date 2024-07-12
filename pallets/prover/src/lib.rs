@@ -29,10 +29,9 @@ pub mod pallet {
     use proof_verifier::host_api::verify_proof;
     pub use prover_primitives::{claim::Claim, ChainPriceConfiguration};
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
-    use sp_std::{fmt::Debug, vec::Vec};
+    use sp_std::vec::Vec;
+    use sp_std::{collections::btree_map::BTreeMap, fmt::Debug, vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
-
-    use prover_primitives::host_api::verify_proof;
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
