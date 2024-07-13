@@ -63,7 +63,8 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_prover() -> Weight;
         fn set_chain_price_config() -> Weight;
-        fn unset_chain_price_config() -> Weight;
+        fn submit_claim() -> Weight;
+        fn submit_proof() -> Weight;
     }
 
     #[pallet::storage]
@@ -217,9 +218,12 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::weight(<T as Config>::WeightInfo::submit_claim())]
+        pub fn submit_claim(
+            origin: OriginFor<T>,
+            claim: Claim<<T as Config>::Address>,
+        ) -> DispatchResult {
         #[pallet::call_index(2)]
-        #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
-        pub fn submit_claim(origin: OriginFor<T>, claim: Claim) -> DispatchResult {
             let source = ensure_signed(origin)?;
 
             ensure!(
@@ -254,7 +258,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
+        #[pallet::weight(<T as Config>::WeightInfo::submit_proof())]
         pub fn submit_proof(
             origin: OriginFor<T>,
             claim_hash: T::Hash,
