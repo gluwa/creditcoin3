@@ -274,7 +274,7 @@ pub mod pallet {
             // Need to find a way to generate a proof in test mode and verify it
             // Currently not really implemented
             
-            #[cfg(not(feature = "runtime-benchmarks"))]
+            // #[cfg(not(feature = "runtime-benchmarks"))]
             ensure!(verify_proof(proof), Error::<T>::InvalidProofSubmitted);
 
             // Check existence
