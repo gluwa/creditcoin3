@@ -3,7 +3,6 @@ use crate::*;
 use pallet_evm::{
     IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
 };
-use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 use sp_core::H160;
 use sp_std::marker::PhantomData;
 
@@ -23,7 +22,7 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 8] {
+    pub fn used_addresses() -> [H160; 9] {
         [
             hash(1),    // 0x0000000000000000000000000000000000000001
             hash(2),    // 0x0000000000000000000000000000000000000002
