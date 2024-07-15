@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::types::Prover;
-use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite, whitelist_account};
+use frame_benchmarking::{account, benchmarks};
 use frame_system::RawOrigin;
 use sp_std::vec;
 use prover_primitives::claim::ClaimKind;
@@ -38,39 +38,12 @@ benchmarks! {
         assert_eq!(ProversChainPriceConfigurations::<T>::get(&who), chain_price_config);
     }
 
-    //todo probably need to combine this with the previous one
-    // set_chain_price_config_2 {
-    //     let who: T::AccountId = account("who", 1, 1);
-    //     let prover : Prover = Prover {
-    //         nickname: vec![1, 2, 3],
-    //     };
-
-    //     let chain_price_config = vec![
-    //         ChainPriceConfiguration {
-    //             chain_id: 1,
-    //             price: 100,
-    //         }
-    //     ];
-    //     Provers::<T>::insert(&who, prover);
-    //     ProversChainPriceConfigurations::<T>::insert(&who, &chain_price_config);
-
-    // }: set_chain_price_config(RawOrigin::Signed(who.clone()), vec![])
-    // verify {
-    //     assert_eq!(ProversChainPriceConfigurations::<T>::get(&who), vec![]);
-    // }
-
     submit_claim {
         let who: T::AccountId = account("prover1", 1, 1);
         let prover : Prover = Prover {
             nickname: vec![1, 2, 3],
         };
 
-        let chain_price_config = vec![
-            ChainPriceConfiguration {
-                chain_id: 31337,
-                price: 100,
-            }
-        ];
         let claimer = account("claimer", 1, 1);
 
         let cash = T::MinBalance::get();
@@ -135,7 +108,7 @@ benchmarks! {
         let claim_hash = <T as Config>::Hashing::hash_of(&claim);
         let proof = vec![1, 2, 3];
 
-        assert_eq!(ClaimResultByHash::<T>::get(claim_hash.clone()), None);
+        assert_eq!(ClaimResultByHash::<T>::get(claim_hash), None);
         
     }: _(RawOrigin::Signed(who.clone()), claim_hash.clone(), proof)
     verify {
@@ -144,9 +117,3 @@ benchmarks! {
 
 
 }
-
-// impl_benchmark_test_suite!(
-//     ProverModule,
-//     crate::mock::ExtBuilder::build(Default::default()),
-//     crate::mock::Test
-// );

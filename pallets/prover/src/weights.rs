@@ -142,13 +142,13 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
 	/// Storage: `Prover::ClaimResultByHash` (r:0 w:1)
 	/// Proof: `Prover::ClaimResultByHash` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn submit_proof() -> Weight {
+	fn submit_proof(proof_bytes_len: u32) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1026`
 		//  Estimated: `6196`
 		// Minimum execution time: 112_000_000 picoseconds.
 		Weight::from_parts(115_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 6196))
+			.saturating_add(Weight::from_parts(0, 6196).saturating_mul(proof_bytes_len.into()))
 			.saturating_add(T::DbWeight::get().reads(13))
 			.saturating_add(T::DbWeight::get().writes(6))
 	}

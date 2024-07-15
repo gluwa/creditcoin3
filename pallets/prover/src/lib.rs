@@ -64,7 +64,7 @@ pub mod pallet {
         fn register_prover() -> Weight;
         fn set_chain_price_config() -> Weight;
         fn submit_claim() -> Weight;
-        fn submit_proof() -> Weight;
+        fn submit_proof(proof_bytes_len: u32) -> Weight;
     }
 
     #[pallet::storage]
