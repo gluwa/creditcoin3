@@ -51,7 +51,10 @@ impl Client {
         );
         let block = self
             .provider
-            .get_block(BlockId::Number(BlockNumberOrTag::Number(number)), true)
+            .get_block(
+                BlockId::Number(BlockNumberOrTag::Number(number)),
+                true.into(),
+            )
             .await
             .map_err(|e| {
                 error!("Failed to get block: {:?}", e);
