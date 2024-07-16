@@ -3,11 +3,11 @@
 use super::*;
 use crate::types::Prover;
 use frame_benchmarking::{account, benchmarks};
-use frame_system::RawOrigin;
-use sp_std::vec;
-use prover_primitives::claim::ClaimKind;
 use frame_support::traits::Currency;
 use frame_support::traits::Get;
+use frame_system::RawOrigin;
+use prover_primitives::claim::ClaimKind;
+use sp_std::vec;
 
 benchmarks! {
     register_prover {
@@ -58,7 +58,7 @@ benchmarks! {
             to: T::Address::default(),
             kind: ClaimKind::Tx,
         };
-        
+
     }: _(RawOrigin::Signed(claimer.clone()), claim.clone())
     verify {
         use sp_runtime::traits::Hash;
@@ -108,7 +108,7 @@ benchmarks! {
         let proof = vec![1, 2, 3];
 
         assert_eq!(ClaimResultByHash::<T>::get(claim_hash), None);
-        
+
     }: _(RawOrigin::Signed(who.clone()), claim_hash, proof)
     verify {
         assert_eq!(ClaimResultByHash::<T>::get(claim_hash), Some(true));

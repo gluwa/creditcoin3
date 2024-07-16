@@ -277,7 +277,7 @@ pub mod pallet {
             // Verify proof
             // Need to find a way to generate a proof in test mode and verify it
             // Currently not really implemented
-            
+
             ensure!(verify_proof(proof), Error::<T>::InvalidProofSubmitted);
 
             // Check existence
@@ -397,7 +397,7 @@ pub mod pallet {
 
             locked_balance
         }
-        
+
         pub fn prover_chain_price(
             prover: &T::AccountId,
             chain_id: ChainId,
