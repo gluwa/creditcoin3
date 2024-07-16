@@ -7,7 +7,7 @@ use sp_std::marker::PhantomData;
 
 /// Weight functions for `crate`.
 pub struct WeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
+impl<T: frame_system::Config> crate::pallet::WeightInfo for WeightInfo<T> {
 	fn register_prover() -> Weight {
 		Weight::from_parts(1, 1)
 	}

@@ -7,7 +7,7 @@ use kameo::{
 use mmr::traits::MerkleTreeTrait;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::error;
 
 //use crate::merkle;
 use utils::StarknetPedersenMmr;
@@ -104,7 +104,7 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create<H>(new_block: &NewBlock) -> AttestationData<H256> {
+pub fn create<H>(new_block: &NewBlock) -> Option<Attestation<H256>> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees();
 
     let attestation = Attestation {
@@ -117,7 +117,7 @@ pub fn create<H>(new_block: &NewBlock) -> AttestationData<H256> {
         prev_digest: None,
     };
 
-    attestation
+    Some(attestation)
 }
 
 // /// Construct a pedersen merkletree from given input

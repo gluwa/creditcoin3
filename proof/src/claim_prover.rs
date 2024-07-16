@@ -5,15 +5,12 @@ use std::io::{BufWriter, Write};
 use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::{ClaimKind, ClaimSerializable};
-use utils::json_serializable::JsonSerializable;
 use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
 
-use crate::types::{
+use prover_primitives::types::{
     CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
     StoneProof, StoneProofJson,
 };
-
-use crate::json_serializable::JsonSerializable;
 
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";

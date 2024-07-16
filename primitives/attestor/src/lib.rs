@@ -69,10 +69,6 @@ where
     pub fn digest(&self) -> Digest {
         self.attestation.digest()
     }
-
-    pub fn header_number(&self) -> u64 {
-        self.attestation_data.header_number
-    }
 }
 
 type ScaleFelt = [u8; 32];
