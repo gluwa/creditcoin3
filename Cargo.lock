@@ -1293,6 +1293,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "attestor_zombienet"
+version = "3.31.0"
+dependencies = [
+ "anyhow",
+ "cc-client",
+ "clap",
+ "futures 0.3.30",
+ "rand 0.8.5",
+ "serde",
+ "serde_yaml",
+ "subxt",
+ "subxt-signer",
+ "tempfile",
+ "tiny-bip39",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.18",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1879,9 +1899,6 @@ dependencies = [
  "bls-signatures",
  "creditcoin3-attestor-gossip",
  "hex",
- "jsonrpsee 0.23.2",
- "jsonrpsee-core 0.23.2",
- "jsonrpsee-http-client 0.23.2",
  "prover-primitives",
  "serde",
  "sp-core",
@@ -4913,25 +4930,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "h2"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa82e28a107a8cc405f0839610bdc9b15f1e25ec7d696aa5cf173edbcb1486ab"
-dependencies = [
- "atomic-waker",
- "bytes",
- "fnv",
- "futures-core",
- "futures-sink",
- "http 1.1.0",
- "indexmap 2.2.6",
- "slab",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
 name = "handlebars"
 version = "4.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5224,7 +5222,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.3.26",
+ "h2",
  "http 0.2.12",
  "http-body 0.4.6",
  "httparse",
@@ -5247,7 +5245,6 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "h2 0.4.5",
  "http 1.1.0",
  "http-body 1.0.1",
  "httparse",
@@ -5272,24 +5269,6 @@ dependencies = [
  "rustls-native-certs 0.6.3",
  "tokio",
  "tokio-rustls 0.24.1",
-]
-
-[[package]]
-name = "hyper-rustls"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ee4be2c948921a1a5320b629c4193916ed787a7f7f293fd3f7f5a6c9de74155"
-dependencies = [
- "futures-util",
- "http 1.1.0",
- "hyper 1.4.1",
- "hyper-util",
- "log",
- "rustls 0.23.11",
- "rustls-pki-types",
- "tokio",
- "tokio-rustls 0.26.0",
- "tower-service",
 ]
 
 [[package]]
@@ -5662,7 +5641,7 @@ checksum = "cfdb12a2381ea5b2e68c3469ec604a007b367778cdb14d09612c8069ebd616ad"
 dependencies = [
  "jsonrpsee-client-transport 0.22.5",
  "jsonrpsee-core 0.22.5",
- "jsonrpsee-http-client 0.22.5",
+ "jsonrpsee-http-client",
  "jsonrpsee-types 0.22.5",
 ]
 
@@ -5779,12 +5758,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "beef",
- "bytes",
  "futures-timer",
  "futures-util",
- "http 1.1.0",
- "http-body 1.0.1",
- "http-body-util",
  "jsonrpsee-types 0.23.2",
  "pin-project",
  "rustc-hash",
@@ -5804,34 +5779,9 @@ checksum = "1ccf93fc4a0bfe05d851d37d7c32b7f370fe94336b52a2f0efc5f1981895c2e5"
 dependencies = [
  "async-trait",
  "hyper 0.14.30",
- "hyper-rustls 0.24.2",
+ "hyper-rustls",
  "jsonrpsee-core 0.22.5",
  "jsonrpsee-types 0.22.5",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tower",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "jsonrpsee-http-client"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d90064e04fb9d7282b1c71044ea94d0bbc6eff5621c66f1a0bce9e9de7cf3ac"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "http-body 1.0.1",
- "hyper 1.4.1",
- "hyper-rustls 0.27.2",
- "hyper-util",
- "jsonrpsee-core 0.23.2",
- "jsonrpsee-types 0.23.2",
- "rustls 0.23.11",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "thiserror",
@@ -10280,7 +10230,7 @@ dependencies = [
  "futures 0.3.30",
  "futures-timer",
  "hyper 0.14.30",
- "hyper-rustls 0.24.2",
+ "hyper-rustls",
  "libp2p",
  "log",
  "num_cpus",
@@ -11031,6 +10981,19 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.2.6",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
 ]
 
 [[package]]
@@ -13508,6 +13471,12 @@ dependencies = [
  "crypto-common",
  "subtle",
 ]
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unsigned-varint"

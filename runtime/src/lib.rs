@@ -52,7 +52,7 @@ use pallet_grandpa::{
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
-use attestor_primitives::{api::Digest, BlsPublicKey, ChainId};
+use attestor_primitives::{api::Digest, BlsPublicKey, ChainId, SignedAttestation};
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -1353,7 +1353,7 @@ impl_runtime_apis! {
         }
     }
 
-    impl attestor_primitives::api::AttestorApi<Block, AccountId> for Runtime {
+    impl attestor_primitives::api::AttestorApi<Block, Hash, AccountId> for Runtime {
         fn is_attestor(attestor: &AccountId) -> bool {
             Attestation::is_attestor(attestor)
         }
@@ -1364,6 +1364,10 @@ impl_runtime_apis! {
 
         fn last_digest(chain_id: ChainId) -> Option<Digest> {
             Attestation::last_digest(chain_id)
+        }
+
+        fn get(chain_id: ChainId, digest: Digest) -> Option<SignedAttestation<Hash, AccountId>> {
+            Attestation::get(chain_id, digest)
         }
 
         fn contains_digest(chain_id: ChainId, digest: Digest) -> bool {

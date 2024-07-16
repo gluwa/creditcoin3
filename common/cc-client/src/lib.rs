@@ -1,13 +1,11 @@
 use alloy::primitives::Address;
 use anyhow::Result;
-use jsonrpsee_core::client::ClientT;
-use jsonrpsee_core::{params::ArrayParams, rpc_params};
-use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use serde::{Deserialize, Serialize};
 use sp_core::{H256, U256};
 use std::str::FromStr;
+use subxt::backend::rpc::{RpcClient, RpcParams};
 pub use subxt::utils::AccountId32;
-use subxt::{OnlineClient, SubstrateConfig};
+use subxt::{config::DefaultExtrinsicParamsBuilder, OnlineClient, SubstrateConfig};
 use subxt_signer::{
     sr25519::{Keypair, Signature},
     SecretUri,
@@ -43,22 +41,25 @@ use cc3::runtime_types::pallet_prover::types::Prover;
 
 pub type Randomness = [u8; 32];
 
+const FINALIZATION_DELAY: u32 = 2;
+
 #[derive(Debug, Clone)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 pub struct Client {
-    pub url: String,
+    url: String,
     pub keypair: Keypair,
     pub evm_address: Address,
+    api: OnlineClient<SubstrateConfig>,
 }
 
 impl<'a> Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
-    pub fn new(
+    pub async fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
         // private_key: &[u8; 32],
@@ -71,10 +72,14 @@ impl<'a> Client {
         let evm_address = Address::from_slice(evm_address_slice);
         info!("Substrate evm address: {:?}", evm_address);
 
+        let url = url.into();
+        let api = OnlineClient::<SubstrateConfig>::from_url(&url).await?;
+
         Ok(Self {
-            url: url.into(),
+            url,
             keypair,
             evm_address,
+            api,
         })
     }
 
@@ -88,43 +93,35 @@ impl<'a> Client {
         self.evm_address
     }
 
-    /// Get's a substrate client over websocket to the configured url
-    pub async fn get_substrate_client(&self) -> Result<OnlineClient<SubstrateConfig>> {
-        debug!("connecting to {}", replace_http_with_ws(&self.url));
-        Ok(OnlineClient::<SubstrateConfig>::from_url(replace_http_with_ws(&self.url)).await?)
-    }
-
-    /// Get's an rpc http client to the configured url
-    pub fn get_rpc_client(&self) -> Result<HttpClient> {
-        Ok(HttpClientBuilder::new().build(&self.url)?)
-    }
-
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random at that time + the current block number (where it was calculated from)
     pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, H256)> {
-        let api = self.get_substrate_client().await?;
-
         // Get epoch duration
-        let epoch_duration = api
+        let epoch_duration = self
+            .api
             .constants()
             .at(&cc3::constants().babe().epoch_duration())?;
 
         // Get current block number
-        let current_block_number = api
+        let current_block_number = self
+            .api
             .storage()
             .at_latest()
             .await?
             .fetch(&cc3::storage().system().number())
             .await?
-            .unwrap_or_default();
+            .ok_or(Error::FailedToGetBlockNumber)?;
 
         // Calculate a block number that falls into the range of 2 epoch ago
         // current block - (epoch duration in block * 2)
         let block_to_query = current_block_number
             .checked_sub(u32::try_from(epoch_duration * 2)?)
-            .unwrap_or(1);
+            // If the subtraction fails, just query the current block - 2 (finalization delay)
+            // In theory this could fail if the user requests this at block 1-2. But that's not a big deal
+            .unwrap_or(current_block_number - FINALIZATION_DELAY);
 
-        let block_hash_to_query = api
+        let block_hash_to_query = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -134,21 +131,22 @@ impl<'a> Client {
 
         info!("Getting babe randomness at block: {block_to_query}");
         // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
-        let randomness = api
+        let randomness = self
+            .api
             .storage()
             .at(block_hash_to_query)
-            .fetch(&cc3::storage().babe().randomness())
-            .await?;
+            .fetch(&cc3::storage().babe().author_vrf_randomness())
+            .await?
+            .ok_or(Error::FailedToGetBabeVrf)?;
 
         Ok((randomness, block_hash_to_query))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
-        let api = self.get_substrate_client().await?;
-
         let storage_query = cc3::storage().attestation().comittee_set_size();
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -160,11 +158,10 @@ impl<'a> Client {
     }
 
     pub async fn fetch_last_digest(&self, chain_id: ChainId) -> Result<Option<Digest>> {
-        let api = self.get_substrate_client().await?;
-
         let storage_query = cc3::storage().attestation().last_digest(chain_id);
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -176,13 +173,12 @@ impl<'a> Client {
 
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self) -> Result<bool> {
-        let api = self.get_substrate_client().await?;
-
         let storage_query = cc3::storage()
             .attestation()
             .attestors(subxt::utils::AccountId32::from(self.keypair.public_key()));
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -199,13 +195,12 @@ impl<'a> Client {
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> Result<()> {
-        let api = self.get_substrate_client().await?;
-
         let tx = cc3::tx()
             .attestation()
             .register_attestor(bls_public_key, proof_of_possession);
 
-        let ext = api
+        let ext = self
+            .api
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.keypair)
             .await?
@@ -220,8 +215,6 @@ impl<'a> Client {
 
     /// Check the clients membership in the prover pallet
     pub async fn check_provers_membership(&self, account_id: Option<AccountId32>) -> Result<bool> {
-        let api = self.get_substrate_client().await?;
-
         let account_id = if let Some(account_id) = account_id {
             account_id
         } else {
@@ -230,7 +223,8 @@ impl<'a> Client {
 
         let storage_query = cc3::storage().prover().provers(account_id);
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -243,13 +237,12 @@ impl<'a> Client {
 
     /// Register to the prover pallet
     pub async fn register_prover(&self, nickname: String) -> Result<()> {
-        let api = self.get_substrate_client().await?;
-
         let tx = cc3::tx().prover().register_prover(Prover {
             nickname: nickname.into(),
         });
 
-        let ext = api
+        let ext = self
+            .api
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.keypair)
             .await?
@@ -315,8 +308,6 @@ impl<'a> Client {
         &self,
         account_id: Option<AccountId32>,
     ) -> Result<Vec<ChainPriceConfiguration>> {
-        let api = self.get_substrate_client().await?;
-
         let account_id = if let Some(account_id) = account_id {
             account_id
         } else {
@@ -327,7 +318,8 @@ impl<'a> Client {
             .prover()
             .provers_chain_price_configurations(account_id);
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -342,12 +334,12 @@ impl<'a> Client {
         &self,
         chain_price_configurations: Vec<ChainPriceConfiguration>,
     ) -> Result<()> {
-        let api = self.get_substrate_client().await?;
         let tx = cc3::tx()
             .prover()
             .set_chain_price_config(chain_price_configurations);
 
-        let ext = api
+        let ext = self
+            .api
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.keypair)
             .await?
@@ -364,13 +356,12 @@ impl<'a> Client {
     }
 
     pub async fn chain_attestation_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
-        let api = self.get_substrate_client().await?;
-
         let storage_query = cc3::storage()
             .attestation()
             .chain_attestation_interval(chain_id);
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -385,11 +376,10 @@ impl<'a> Client {
         chain_id: ChainId,
         digest: Digest,
     ) -> Result<bool> {
-        let api = self.get_substrate_client().await?;
-
         let storage_query = cc3::storage().attestation().attestations(chain_id, digest);
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -404,11 +394,10 @@ impl<'a> Client {
         chain_id: ChainId,
         digest: Digest,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
-        let api = self.get_substrate_client().await?;
-
         let storage_query = cc3::storage().attestation().attestations(chain_id, digest);
 
-        let result = api
+        let result = self
+            .api
             .storage()
             .at_latest()
             .await?
@@ -423,14 +412,58 @@ impl<'a> Client {
         H: Serialize,
         A: Serialize,
     {
-        let rpc_client = self.get_rpc_client()?;
+        let rpc_client = RpcClient::from_url(self.url.clone()).await?;
+
+        let mut params = RpcParams::new();
+        params.push(attestation)?;
 
         rpc_client
-            .request::<(), ArrayParams>("attestor_submitAttestation", rpc_params!(attestation))
+            .request::<()>("attestor_submitAttestation", params)
             .await?;
 
         info!("Attestation submitted");
         Ok(())
+    }
+
+    pub async fn transfer(
+        &self,
+        target: AccountId32,
+        amount: u64,
+        account_nonce: Option<u64>,
+    ) -> Result<()> {
+        let tx = cc3::tx()
+            .balances()
+            .transfer(subxt::utils::MultiAddress::Id(target), amount.into());
+
+        let params = if let Some(account_nonce) = account_nonce {
+            DefaultExtrinsicParamsBuilder::new()
+                .nonce(account_nonce)
+                .build()
+        } else {
+            DefaultExtrinsicParamsBuilder::new().build()
+        };
+
+        let ext = self
+            .api
+            .tx()
+            .create_signed_offline(&tx, &self.keypair, params)?
+            .submit_and_watch()
+            .await?;
+
+        // let hash = ext.extrinsic_hash();
+        debug!("Transfer extrinsic submitted with hash: {:?}", ext);
+
+        Ok(())
+    }
+
+    pub async fn get_account_nonce(&self) -> Result<u64> {
+        let nonce = self
+            .api
+            .tx()
+            .account_nonce(&AccountId32(self.keypair.public_key().0))
+            .await?;
+
+        Ok(nonce)
     }
 }
 
@@ -495,6 +528,8 @@ pub enum Error {
     FailedToSubmit,
     #[error("Failed to get Babe VRF")]
     FailedToGetBabeVrf,
+    #[error("Failed to get block number")]
+    FailedToGetBlockNumber,
     #[error("Babe VRF output is invalid")]
     BabeVrfOuputInvalid,
     #[error("Failed to sign Babe VRF output")]
@@ -517,16 +552,4 @@ pub enum Error {
     FailedToGetChainPriceConfigurations,
     #[error("Failed to get attestation interval")]
     FailedToGetAttestationInterval,
-}
-
-/// Helper function to format a http(s) endpoint to a ws(s) endpoint
-fn replace_http_with_ws(url: &str) -> String {
-    // Check if the URL starts with "http://" or "https://"
-    if let Some(stripped) = url.strip_prefix("http://") {
-        format!("ws://{stripped}") // Replace "http://" with "ws://"
-    } else if let Some(stripped) = url.strip_prefix("https://") {
-        format!("wss://{stripped}") // Replace "https://" with "wss://"
-    } else {
-        url.to_string()
-    }
 }

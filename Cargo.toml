@@ -12,7 +12,7 @@ members = [
 	"precompiles/claim",
 	"precompiles/substrate-transfer",
 	"host",
-	"common/*",
+	"common/*", "attestor_zombienet",
 ]
 resolver = "2"
 

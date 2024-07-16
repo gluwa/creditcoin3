@@ -591,6 +591,13 @@ pub mod pallet {
             Attestors::<T>::count() < MaxAttestors::<T>::get()
         }
 
+        pub fn get(
+            chain_id: ChainId,
+            digest: Digest,
+        ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
+            Attestations::<T>::get(chain_id, digest)
+        }
+
         fn try_insert_attestor_and_emit_event(
             address: &T::AccountId,
             bls_public_key: BlsPublicKey,

@@ -53,17 +53,15 @@ pub enum Error {
 }
 
 impl Client {
-    pub async fn subscribe_attestations_submissions(
+    pub fn subscribe_attestations_submissions(
         &self,
         filter: Vec<ChainId>,
     ) -> Result<AttestationSubscription, Error> {
-        let api = self.get_substrate_client().await?;
-
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
         // Clone the api and send it on the tokio task
-        let api = api.clone();
+        let api = self.api.clone();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;

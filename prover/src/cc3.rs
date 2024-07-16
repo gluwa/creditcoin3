@@ -54,12 +54,12 @@ impl<'a> Client {
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
     /// - `nickname`: nickname for this prover
-    pub fn new(
+    pub async fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
         nickname: impl Into<String> + Clone,
     ) -> Result<Self> {
-        let cc_client = CcClient::new(url, key)?;
+        let cc_client = CcClient::new(url, key).await?;
 
         Ok(Self {
             cc_client,
@@ -167,8 +167,7 @@ impl Client {
 
         let mut subscription = self
             .cc_client
-            .subscribe_claim_submission_events(Some(account_id))
-            .await?;
+            .subscribe_claim_submission_events(Some(account_id))?;
 
         // Process claims in a loop
         loop {
@@ -195,10 +194,7 @@ impl Client {
         attestation_chan: mpsc::Sender<SignedAttestation<H256, AccountId32>>,
         filter: Vec<ChainId>,
     ) -> Result<()> {
-        let mut subscription = self
-            .cc_client
-            .subscribe_attestations_submissions(filter)
-            .await?;
+        let mut subscription = self.cc_client.subscribe_attestations_submissions(filter)?;
 
         // Process attestations in a loop
         loop {

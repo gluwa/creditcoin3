@@ -11,6 +11,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use supported_chains_primitives::api::SupportedChainsApi;
 
 use attestor_primitives::{
     api::AttestorApi,
@@ -25,7 +26,7 @@ pub struct AttestorGossipValidator<B, AccountId, RA: ProvideRuntimeApi<B>, BE>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, AccountId>,
+    RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     BE: Backend<B>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
@@ -45,7 +46,8 @@ where
     H256: From<<B as BlockT>::Hash>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, AccountId>,
+    RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
+    RA::Api: SupportedChainsApi<B>,
     BE: Backend<B>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
@@ -68,6 +70,16 @@ where
             info!(target: LOG_TARGET, "📝 Attestation signature is invalid");
             return Err(Error::InvalidAttestationDataSignature);
         };
+
+        let block_hash = self.backend.blockchain().info().best_hash;
+        let runtime = self.runtime.runtime_api();
+        let is_chain_supported =
+            runtime.is_chain_supported(block_hash, attestation.attestation_data.chain_id)?;
+
+        if !is_chain_supported {
+            info!(target: LOG_TARGET, "📝 Chain is not supported, attestation rejected");
+            return Err(Error::ChainNotSupported);
+        }
 
         info!(target: LOG_TARGET, "📝 Attestation signature is valid");
         Ok(Action::Keep(votes_topic::<B>()))
@@ -117,7 +129,8 @@ where
     H256: From<<Block as BlockT>::Hash>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
     RA: ProvideRuntimeApi<Block> + Send + Sync + 'static,
-    RA::Api: AttestorApi<Block, AccountId>,
+    RA::Api: AttestorApi<Block, HashFor<Block>, AccountId>,
+    RA::Api: SupportedChainsApi<Block>,
     BE: Backend<Block>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
@@ -144,7 +157,7 @@ where
         match action {
             Action::Keep(topic) => {
                 info!(target: LOG_TARGET, "📝 Broadcasting message for topic {:?}", topic);
-                context.broadcast_message(topic, data.to_vec(), false);
+                context.broadcast_message(topic, data.to_vec(), true);
                 ValidationResult::ProcessAndKeep(topic)
             }
             Action::Discard => ValidationResult::Discard,

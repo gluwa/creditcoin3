@@ -1,5 +1,5 @@
 use attestor_primitives::bls::{Bls, CryptoScheme};
-use attestor_primitives::{api::AttestorApi, Attestation as AttestationPrimitive};
+use attestor_primitives::{api::AttestorApi, Attestation as AttestationPrimitive, Digest};
 use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
@@ -37,9 +37,9 @@ const LOG_TARGET: &str = "attestor-gossip";
 pub(crate) struct AttestorComms<B: BlockT, AccountId, RA: ProvideRuntimeApi<B>, BE>
 where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, AccountId>,
+    RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     BE: Backend<B> + 'static,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
 {
     pub gossip_engine: GossipEngine<B>,
     #[allow(dead_code)]
@@ -118,6 +118,15 @@ pub struct Attestation<B, AccountId> {
     pub signature_bls: <Bls as CryptoScheme>::Signature,
 }
 
+impl<B, AccountId> Attestation<B, AccountId>
+where
+    B: AsRef<[u8]>,
+{
+    pub fn digest(&self) -> Digest {
+        self.attestation_data.digest()
+    }
+}
+
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VrfOutput {
     pub signature: sp_core::sr25519::Signature,
@@ -186,7 +195,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     C: Client<B, BE> + BlockBackend<B>,
     R: ProvideRuntimeApi<B> + Send + Sync + 'static,
     R::Api: BabeApi<B>,
-    R::Api: AttestorApi<B, AccountId>,
+    R::Api: AttestorApi<B, HashFor<B>, AccountId>,
     R::Api: SupportedChainsApi<B>,
     N: GossipNetwork<B> + Send + Sync + 'static,
     S: GossipSyncing<B> + 'static,
@@ -194,7 +203,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     <B as BlockT>::Hash: From<H256>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
+    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
 {
     let AttestorGossipParams {
         client,

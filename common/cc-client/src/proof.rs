@@ -183,8 +183,8 @@ impl Client {
             vec![],
         );
 
-        let api = self.get_substrate_client().await?;
-        let ext = api
+        let ext = self
+            .api
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.keypair)
             .await?

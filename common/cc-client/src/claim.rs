@@ -61,12 +61,10 @@ pub enum Error {
 }
 
 impl Client {
-    pub async fn subscribe_claim_submission_events(
+    pub fn subscribe_claim_submission_events(
         &self,
         filter: Option<AccountId32>,
     ) -> Result<ClaimSubscription, Error> {
-        let api = self.get_substrate_client().await?;
-
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
@@ -77,7 +75,7 @@ impl Client {
         };
 
         // Clone the api and send it on the tokio task
-        let api = api.clone();
+        let api = self.api.clone();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;

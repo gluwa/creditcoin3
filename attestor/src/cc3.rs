@@ -69,7 +69,7 @@ impl<'a> Client {
         chain_id: ChainId,
         // private_key: &[u8; 32],
     ) -> Result<Self> {
-        let cc_client = CcClient::new(url, key)?;
+        let cc_client = CcClient::new(url, key).await?;
 
         // Derive bls key from secret seed
         let bls_keypair = PrivateKey::new(key.as_bytes());
@@ -271,13 +271,13 @@ where
 /// - `chain_id`: Chain id
 /// - `attestation_digest`: Attestation digest
 /// Returns a boolean indicating if the attestation is included in the chain
-/// It retries 10 times with 6 seconds interval
+/// It retries 4 times with 6 seconds interval
 pub async fn check_attestation_inclusion(
     cc_client: CcClient,
     chain_id: ChainId,
     attestation_digest: H256,
 ) -> Result<bool> {
-    let retries = 10;
+    let retries = 4;
     let min = Duration::from_secs(6);
     // Retry 10 times with 6 seconds interval (blocktime is 6 seconds)
     let backoff = Backoff::new(retries, min, min);
@@ -288,7 +288,7 @@ pub async fn check_attestation_inclusion(
         let last_digest = cc_client.fetch_last_digest(chain_id).await?;
 
         if let Some(last_digest) = last_digest {
-            debug!(
+            info!(
                 "Last digest: {:?}, attestation_digest: {:?}",
                 last_digest, attestation_digest
             );

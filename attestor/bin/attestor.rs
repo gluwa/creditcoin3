@@ -22,7 +22,7 @@ pub struct Attestor {
 
     #[arg(
         long,
-        default_value = "http://localhost:9944",
+        default_value = "ws://localhost:9944",
         help = "A Creditcoin3 url to a node with rpc and websocket enabled"
     )]
     cc3_rpc_url: String,

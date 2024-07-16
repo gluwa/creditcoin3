@@ -50,7 +50,8 @@ impl Server {
             &self.config.cc3_rpc_url,
             &self.config.cc3_key,
             &self.config.nickname,
-        )?;
+        )
+        .await?;
         debug!("Creating cc3 client");
         cc3_client.init().await?;
 

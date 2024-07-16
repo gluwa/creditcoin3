@@ -27,7 +27,7 @@ impl<A, B, RA, BE> Provider<A, B, RA, BE>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, A>,
+    RA::Api: AttestorApi<B, HashFor<B>, A>,
     BE: Backend<B> + 'static,
     A: Clone + Codec,
 {
@@ -70,7 +70,7 @@ impl<A, B: BlockT, RA, BE> AsyncProvider<A, B, RA, BE>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, A>,
+    RA::Api: AttestorApi<B, HashFor<B>, A>,
     BE: Backend<B> + 'static,
     A: Clone + Codec,
 {
@@ -84,7 +84,7 @@ impl<A, B, RA, BE> sp_inherents::InherentDataProvider for AsyncProvider<A, B, RA
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, A>,
+    RA::Api: AttestorApi<B, HashFor<B>, A>,
     BE: Backend<B> + 'static,
     A: Send + Sync + Encode + Clone + Codec,
 {
@@ -102,7 +102,6 @@ where
 
         let block_hash = provider.backend.blockchain().info().best_hash;
 
-        // Get the latest attestation
         // Get the latest attestation
         while let Some(attestation) = provider.get_latest() {
             // Get the runtime and fetch the last digest
@@ -144,6 +143,7 @@ where
         let error = InherentError::decode(&mut error).ok()?;
 
         if let InherentError::Duplicate(digest) = error {
+            info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping (in try handle error)", digest);
             // prune attestation with digest from provider data so it doesnt get resubmitted
             let mut provider = self.0.lock().unwrap();
             provider.remove_by_digest(digest);

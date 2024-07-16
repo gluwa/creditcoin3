@@ -11,7 +11,7 @@ use prover::{
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
 pub struct Attestor {
-    #[arg(long, default_value = "http://localhost:9944")]
+    #[arg(long, default_value = "ws://localhost:9944")]
     cc3_rpc_url: String,
 
     #[arg(long, required = true)]

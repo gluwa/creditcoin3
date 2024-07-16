@@ -1,7 +1,7 @@
 // Substrate
 use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion};
 // Local
-use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Nonce};
+use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};
 
 use crate::eth::EthCompatRuntimeApiCollection;
 
@@ -69,7 +69,7 @@ pub trait RuntimeApiCollection:
     + sp_consensus_grandpa::GrandpaApi<Block>
     + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
     + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
-    + attestor_primitives::api::AttestorApi<Block, AccountId>
+    + attestor_primitives::api::AttestorApi<Block, Hash, AccountId>
     + supported_chains_primitives::api::SupportedChainsApi<Block>
 {
 }
@@ -81,7 +81,7 @@ impl<Api> RuntimeApiCollection for Api where
         + sp_consensus_grandpa::GrandpaApi<Block>
         + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
         + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
-        + attestor_primitives::api::AttestorApi<Block, AccountId>
+        + attestor_primitives::api::AttestorApi<Block, Hash, AccountId>
         + supported_chains_primitives::api::SupportedChainsApi<Block>
 {
 }

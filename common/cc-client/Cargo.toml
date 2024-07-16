@@ -19,9 +19,6 @@ module_name_repetitions = "allow"
 
 [dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-jsonrpsee-http-client = "0.23"
-jsonrpsee = "0.23"
-jsonrpsee-core = "0.23"
 anyhow = "1.0"
 
 # Ethereum
@@ -41,7 +38,7 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "signers",
 ] }
 
-# Substrate 
+# Substrate
 subxt = "0.37"
 subxt-signer = "0.37"
 
