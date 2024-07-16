@@ -102,7 +102,6 @@ benchmarks! {
         };
 
         crate::Pallet::<T>::submit_claim(RawOrigin::Signed(claimer.clone()).into(), claim.clone())?;
-        // assert_eq!(ProverClaims::<T>::get(&who), Some(claim.clone()));
 
         use sp_runtime::traits::Hash;
         let claim_hash = <T as Config>::Hashing::hash_of(&claim);
@@ -110,10 +109,8 @@ benchmarks! {
 
         assert_eq!(ClaimResultByHash::<T>::get(claim_hash), None);
         
-    }: _(RawOrigin::Signed(who.clone()), claim_hash.clone(), proof)
+    }: _(RawOrigin::Signed(who.clone()), claim_hash, proof)
     verify {
         assert_eq!(ClaimResultByHash::<T>::get(claim_hash), Some(true));
     }
-
-
 }
