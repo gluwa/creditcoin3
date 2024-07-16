@@ -160,7 +160,7 @@ jobs:
         run: |
           sudo add-apt-repository ppa:ethereum/ethereum
           sudo apt-get update
-          sudo apt-get install solc
+          sudo apt-get install colordiff solc
 
       - name: Generate ABI from source code
         working-directory: ./precompiles/metadata

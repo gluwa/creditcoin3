@@ -21,6 +21,8 @@ else
     echo "FROM_JSON=$SRC_FROM_JSON"
     echo "========================"
 
+    diff -u <(echo "$SRC_FROM_DISK") <(echo "$SRC_FROM_JSON") | colordiff
+
     exit 1
 fi
 
