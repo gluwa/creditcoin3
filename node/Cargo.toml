@@ -115,12 +115,12 @@ substrate-build-script-utils = { workspace = true }
 [features]
 default = ["creditcoin3-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
-    "sc-cli/rocksdb",
-    "sc-service/rocksdb",
-    "fc-cli/rocksdb",
-    "fc-db/rocksdb",
-    "fc-mapping-sync/rocksdb",
-    "fc-rpc/rocksdb",
+	"sc-cli/rocksdb",
+	"sc-service/rocksdb",
+	"fc-cli/rocksdb",
+	"fc-db/rocksdb",
+	"fc-mapping-sync/rocksdb",
+	"fc-rpc/rocksdb",
 ]
 sql = ["fc-db/sql", "fc-mapping-sync/sql"]
 txpool = ["fc-rpc/txpool"]
