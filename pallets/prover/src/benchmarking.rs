@@ -7,6 +7,7 @@ use frame_support::traits::Currency;
 use frame_support::traits::Get;
 use frame_system::RawOrigin;
 use prover_primitives::claim::ClaimKind;
+use sp_runtime::SaturatedConversion;
 use sp_std::vec;
 
 benchmarks! {
@@ -46,9 +47,9 @@ benchmarks! {
 
         let claimer = account("claimer", 1, 1);
 
-        let cash = T::MinBalance::get();
+        let cash = T::Balance::saturated_from(200u64);
 
-        <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer,cash);
+        <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer, cash);
 
         let claim = Claim {
             block_number: 1,
@@ -88,9 +89,9 @@ benchmarks! {
         crate::Pallet::<T>::set_chain_price_config(RawOrigin::Signed(who.clone()).into(), chain_price_config.clone())?;
         let claimer = account("claimer", 1, 1);
 
-        let cash = T::MinBalance::get();
-        <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer,cash);
 
+        let cash = T::Balance::saturated_from(chain_price_config[0].price);
+        <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer, cash);
 
         let claim = Claim {
             block_number: 1,

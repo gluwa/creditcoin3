@@ -46,9 +46,6 @@ pub mod pallet {
         type ClaimLockCurrency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>;
         type Hashing: Hash<Output = Self::Hash>;
         type SupportedChains: SupportedChainsProvider;
-
-        #[cfg(feature = "runtime-benchmarks")] //need this value just to set up initial balance for claimer in benchmarking
-        type MinBalance: Get<<Self as pallet_balances::Config>::Balance>;
     }
 
     const LOCK_ID: LockIdentifier = *b"claimlck";
