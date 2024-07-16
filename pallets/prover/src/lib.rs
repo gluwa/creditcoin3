@@ -301,7 +301,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn lock_for_claim(
+        fn lock_for_claim(
             source: &T::AccountId,
             claim: &Claim,
             prover: &T::AccountId,
@@ -337,7 +337,7 @@ pub mod pallet {
             Ok(())
         }
 
-        pub fn unlock_for_claim(
+        fn unlock_for_claim(
             prover: &T::AccountId,
             claim: &Claim,
             claim_hash: &T::Hash,
@@ -395,7 +395,7 @@ pub mod pallet {
             locked_balance
         }
 
-        pub fn prover_chain_price(
+        fn prover_chain_price(
             prover: &T::AccountId,
             chain_id: ChainId,
         ) -> Option<ChainPriceConfiguration> {
