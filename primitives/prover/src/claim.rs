@@ -8,6 +8,7 @@ use core::ops::Range;
 use core::cmp::max;
 use utils::{Felt, utils::{felts_to_bytes, U248_BYTE_COUNT}, pedersen_hash::pedersen_array};
 use utils::block_item_traits::BlockItemIdentifier;
+use utils::json_serializable::JsonSerializable;
 
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, MaxEncodedLen, Hash)]
 pub struct ClaimOld<Address> {
@@ -235,6 +236,5 @@ impl<Q: ClaimQuery> From<&Claim<'_, Q>> for ClaimSerializable {
     }
 }
 
-// impl JsonSerializable for ClaimSerializable {}
-// impl JsonSerializable for Vec<ClaimSerializable> {}
+impl JsonSerializable for ClaimSerializable {}
 

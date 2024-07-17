@@ -1,5 +1,4 @@
 pub mod claim_prover;
-pub mod eth;
 pub mod types;
 
 use anyhow::anyhow;
@@ -7,7 +6,7 @@ use attestor_primitives::BlockAttestation;
 use std::os::fd::AsFd;
 //use claim_prover::build_prover;
 
-use crate::claim_prover::{ClaimProver, build_verifier};
+use crate::claim_prover::{ClaimProver, build_prover};
 use utils::print_with_timestamp;
 use attestation_chain::attestation_fragment::AttestationFragment;
 use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
@@ -15,7 +14,7 @@ use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 use prover_primitives::claim::{Claim, ClaimKind, ClaimSerializable};
 use tokio::{fs::File, io::AsyncReadExt};
 use eth_common::transaction::Transaction;
-use either::Either;
+use either::Either::{self, Right};
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use colored::Colorize;
 use utils::Felt;
@@ -89,7 +88,7 @@ const SOME_FRAGMENT_SIZE: usize = 5;
 //     }
 // }
 
-pub async fn cairo_verify_claim(
+pub async fn cairo_generate_proof(
     url: &str,
     claim: ClaimSerializable,
     claim_attestation_fragment: &AttestationFragment,
@@ -111,7 +110,7 @@ pub async fn cairo_verify_claim(
     println!("claim: {:?}", claim);
     println!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_verifier(url, claim.clone(), claim_attestation_slice)
+    let mut cairo_verifier = build_prover(url, claim.clone(), claim_attestation_slice)
         .await
         .map(|claim_cairo_verifier| {
             print_with_timestamp("done".into());
@@ -133,8 +132,7 @@ pub async fn cairo_verify_claim(
                 }
             )
         })?;
-
-        
+   
     cairo_verifier
         .cairo_verify(cairo_proof_mode)
         .await
@@ -320,6 +318,92 @@ pub async fn cairo_verify_claim(
 // }
 
 #[tokio::test]
+    async fn claim_validation_test() {
+        use prover_primitives::claim_query::Eip2930TxClaimQueryField::*;
+        use eth_common::transaction::BlockItem;
+        use utils::utils::felts_from_bytes;
+        use std::collections::HashSet;
+        use prover_primitives::claim_query::TxClaimQuery;
+        use utils::block_item_traits::BlockItemIdentifier;
+        use prover_primitives::claim::ClaimIdentifier;
+        use eth_common::fetch_block_transactions;
+        use attestation_db::AttestationDB;
+        use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
+
+        let block = 19543696;
+        let index = 45;
+        let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
+        let checkpoints_path = "../data/execution-chain";
+
+        // -------------------------------------- claimer part ----------------------------------
+        let tx_asd = fetch_block_transactions(
+            url,
+            block,
+        )
+        .await
+        .unwrap();
+        // rlp-encoded tx/rx 
+        let payload_bytes = tx_asd[index].payload_bytes();
+        // create rlp instance containing payload bytes
+        let rlp = rlp::Rlp::new(&payload_bytes[..]);
+        // form claim id
+        let claim_id = ClaimIdentifier {
+            kind: ClaimKind::Tx,
+            block_item_id: BlockItemIdentifier::new(
+                block.into(),
+                index as u64
+            ),
+        };
+        // form query of fields of interest to get values from prover for
+        let claim_query = TxClaimQuery::try_from(
+            vec![
+                To,
+//                SingleDataRelativeRange(Some(24..30)),
+                Nonce,
+//                SingleDataRelativeRange(Some(33..39)),
+                AccessListItem(Some(0)),
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>()
+        )
+        .unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, rlp).unwrap();
+        // ----------------------- prover's part ------------------------------------------------
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        // internal prover's data
+        let db_url = "../data/db";
+        let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
+        let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
+
+        let mut checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path);
+        checkpoints.poll().unwrap();
+
+        let result = cairo_generate_proof(
+                url, 
+                cairo_claim, 
+                &attestation_fragment, 
+                &checkpoints.inner(),
+                false, 
+                false
+            )
+            .await;
+        let cairo_output_or_stone_proof = result.unwrap();
+
+        match cairo_output_or_stone_proof {
+            either::Left(stone_proof) => unimplemented!(),
+            either::Right(cairo_output) => {
+                claim.validate_fields(&cairo_output.claim_fields, &cairo_output.query_hash).unwrap();
+            }
+        }
+
+//        println!("{output:?}");
+
+}
+
+#[tokio::test]
     async fn tx_output_matches_rlp_test() {
         use prover_primitives::claim_query::Eip2930TxClaimQueryField::*;
         use eth_common::transaction::BlockItem;
@@ -332,15 +416,12 @@ pub async fn cairo_verify_claim(
         let block = 19543696;
         let index = 45;
 
-        let tx_asd = eth::fetch_block_transactions(
+        let tx_asd = eth_common::fetch_block_transactions(
             "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e",
             block,
         )
         .await
         .unwrap();
-        // .iter()
-        // .map(Transaction::to_bytes)
-        // .collect::<Vec<Vec<u8>>>();
 
         let payload_bytes = tx_asd[index].payload_bytes();
 
@@ -358,9 +439,9 @@ pub async fn cairo_verify_claim(
         let claim_query = TxClaimQuery::try_from(
             vec![
                 To,
-                SingleDataRelativeRange(Some(24..30)),
+//                SingleDataRelativeRange(Some(24..30)),
                 Nonce,
-                SingleDataRelativeRange(Some(33..39)),
+//                SingleDataRelativeRange(Some(33..39)),
                 AccessListItem(Some(0)),
             ]
             .into_iter()
@@ -373,5 +454,4 @@ pub async fn cairo_verify_claim(
         let felts_from_prover = rlp_felts.clone();
 
         assert!(claim.validate_fields(&felts_from_prover, &claim.query_hash()).is_ok());
-    }
-
+}

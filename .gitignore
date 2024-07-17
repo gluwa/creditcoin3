@@ -39,3 +39,12 @@ attestor/zombie/zombienet-macos
 **/typechain-types/
 **/ignition/deployments/
 precompiles/metadata/abi/*.json
+
+data
+data/attestation-chain/*
+data/block-cache/*
+data/claim-proofs/*
+data/db/*
+
+# poc config
+**/config.json

@@ -12,13 +12,10 @@ use tempfile::TempDir;
 use prover_primitives::claim::ClaimSerializable;
 use utils::json_serializable::JsonSerializable;
 use eth_common::transaction::{Transaction, Receipt, BlockItem};
+use eth_common::{fetch_block_transactions, fetch_block_receipts};
 
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";
-
-const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
-
-const STONE_PROVER_SCRIPT_SOURCE: &str = "../cairo/scripts/stone_prove_claim.sh";
 
 fn claim_proof_dir() -> String {
     format!("{}/{}", DATA_ROOT_DIR, CLAIM_PROOF_DIR)
@@ -44,8 +41,8 @@ pub struct ClaimProver<'a> {
 }
 
 impl<'a> ClaimProver<'a> {
-    const SCRIPT_SOURCE: &'static str = "../cairo-scripts/verify_merkle_proof.sh";
-    const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo-scripts/stone_prove_claim.sh";
+    const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
+    const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo/scripts/stone_prove_claim.sh";
 
     pub fn script_source() -> &'static str {
         Self::SCRIPT_SOURCE
@@ -186,7 +183,7 @@ impl<'a> ClaimProver<'a> {
     }
 }
 
-pub async fn build_verifier<'a>(
+pub async fn build_prover<'a>(
     url: &str,
     claim: ClaimSerializable,
     attestation_chain_slice: FragmentSlice<'a>,
@@ -198,13 +195,13 @@ pub async fn build_verifier<'a>(
     //     claim_block_number,
     // );
     let fetch_tx_block_fut =
-        crate::eth::fetch_block_transactions(url, claim_block_number.as_u64());
+        fetch_block_transactions(url, claim_block_number.as_u64());
 //        SortedBlock::<TypedTransaction>::try_fetch(url, Some(tx_cache), claim_block_number);
 
     // let rx_cache =
     //     &mut <Receipt as FetchFromBlock>::Cache::new(&block_cache_dir(), claim_block_number);
     let fetch_rx_block_fut =
-        crate::eth::fetch_block_receipts(url, claim_block_number.as_u64());
+        fetch_block_receipts(url, claim_block_number.as_u64());
 //    SortedBlock::<Receipt>::try_fetch(url, Some(rx_cache), claim_block_number);
 
     let (sorted_transactions_block, sorted_receipts_block) =

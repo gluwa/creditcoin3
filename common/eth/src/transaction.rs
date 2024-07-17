@@ -26,11 +26,11 @@ impl Transaction {
                 alloy::rlp::encode(tx.into_parts().0)
             }
             Some(1) => {
-                let tx: Signed<TxEip1559> = self.inner.clone().try_into().unwrap();
+                let tx: Signed<TxEip2930> = self.inner.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
             Some(2) => {
-                let tx: Signed<TxEip2930> = self.inner.clone().try_into().unwrap();
+                let tx: Signed<TxEip1559> = self.inner.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
             Some(3) => {

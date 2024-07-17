@@ -520,6 +520,22 @@ mod tests {
         }
     }
 
+    #[test]    
+    fn base_tree_claim_index_test() {
+        let input = (0..123456u32)
+            .map(|i| (0..(i % 17)).map(|i| i as u8).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        let tree =
+            BaseTree::<StdHash>::from(&input.iter().map(|d| d.as_slice()).collect::<Vec<_>>()[..]);
+        println!("tree.height(): {:?}", tree.height());
+
+        for (i, d) in input.iter().enumerate() {
+            let proof = tree.generate_proof(i);
+            assert_eq!(proof.claim_index(), i);
+        }
+
+    }
+
     #[test]
     fn empty_mmr_test() {
         let v = Vec::<&[u8]>::default();

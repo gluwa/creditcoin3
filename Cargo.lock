@@ -1275,6 +1275,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "attestation-db"
+version = "3.31.0"
+dependencies = [
+ "anyhow",
+ "attestation-chain",
+ "clap",
+ "ethereum-types",
+ "lazy_static",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "utils",
+]
+
+[[package]]
 name = "attestor"
 version = "0.1.0"
 dependencies = [
@@ -8878,6 +8894,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "attestation-chain",
+ "attestation-db",
  "attestor",
  "attestor-primitives",
  "colored",

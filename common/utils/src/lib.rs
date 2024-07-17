@@ -3,8 +3,10 @@ pub mod utils;
 pub mod json_serializable; 
 pub mod block_item_traits;
 
+use crate::block_item_traits::{BlockItem, FetchFromBlock};
 use crate::pedersen_hash::StarknetPedersenHash;
 use mmr::{Mmr, proof::Proof};
+use ethereum_types::U256;
 
 pub type Felt = starknet_crypto::FieldElement;
 
@@ -18,3 +20,4 @@ pub fn print_with_timestamp(s: colored::ColoredString) {
         s
     );
 }
+

@@ -222,6 +222,11 @@ mmr = { path = "common/mmr" }
 cc-client = { path = "common/cc-client" }
 eth = { path = "common/eth" }
 
+attestation-db = { path = "attestation-db" }
+attestation-blocks-online-builder = { path = "attestation-blocks-online-builder" }
+attestor-online-sim = { path = "attestor-online-sim" }
+prover-attestation-db-online-builder = { path = "prover-attestation-db-online-builder" }
+
 [profile.release]
 # Substrate runtime requires unwinding.
 panic = "unwind"
