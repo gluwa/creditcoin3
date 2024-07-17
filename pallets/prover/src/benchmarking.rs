@@ -4,7 +4,6 @@ use super::*;
 use crate::types::Prover;
 use frame_benchmarking::{account, benchmarks};
 use frame_support::traits::Currency;
-use frame_support::traits::Get;
 use frame_system::RawOrigin;
 use prover_primitives::claim::ClaimKind;
 use sp_runtime::SaturatedConversion;
