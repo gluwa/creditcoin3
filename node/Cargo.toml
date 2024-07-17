@@ -126,8 +126,8 @@ sql = ["fc-db/sql", "fc-mapping-sync/sql"]
 txpool = ["fc-rpc/txpool"]
 rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-benchmarking-cli/runtime-benchmarks",
-    "sc-service/runtime-benchmarks",
-    "creditcoin3-runtime/runtime-benchmarks",
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-benchmarking-cli/runtime-benchmarks",
+	"sc-service/runtime-benchmarks",
+	"creditcoin3-runtime/runtime-benchmarks",
 ]
