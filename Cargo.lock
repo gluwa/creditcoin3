@@ -1063,9 +1063,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.12.0"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8828ec6e544c02b0d6691d21ed9f9218d0384a82542855073c2a3f58304aaf0"
+checksum = "d7ebdfa2ebdab6b1760375fa7d6f382b9f486eac35fc994625a00e89280bdbb7"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -2597,7 +2597,7 @@ dependencies = [
  "creditcoin3-rpc-core-debug",
  "creditcoin3-rpc-core-types",
  "creditcoin3-rpc-primitives-debug",
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "fc-api",
  "fc-consensus",
@@ -2625,7 +2625,7 @@ name = "creditcoin3-rpc-primitives-debug"
 version = "3.31.0"
 dependencies = [
  "environmental",
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "hex",
  "parity-scale-codec",
@@ -2645,7 +2645,7 @@ dependencies = [
  "creditcoin3-rpc-core-trace",
  "creditcoin3-rpc-core-types",
  "creditcoin3-rpc-primitives-debug",
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "fc-consensus",
  "fc-rpc",
@@ -3638,6 +3638,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethereum"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e04d24d20b8ff2235cffbf242d5092de3aa45f77c5270ddbfadd2778ca13fea"
+dependencies = [
+ "bytes",
+ "ethereum-types",
+ "hash-db 0.16.0",
+ "hash256-std-hasher",
+ "parity-scale-codec",
+ "rlp",
+ "scale-info",
+ "serde",
+ "sha3",
+ "trie-root",
+]
+
+[[package]]
 name = "ethereum-types"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3697,7 +3715,7 @@ source = "git+https://github.com/rust-blockchain/evm?rev=b7b82c7e1fc57b7449d6dfa
 dependencies = [
  "auto_impl",
  "environmental",
- "ethereum",
+ "ethereum 0.14.0",
  "evm-core",
  "evm-gasometer",
  "evm-runtime",
@@ -3749,7 +3767,7 @@ name = "evm-tracing-events"
 version = "3.31.0"
 dependencies = [
  "environmental",
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "evm",
  "evm-gasometer",
@@ -3878,7 +3896,7 @@ version = "2.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
  "async-trait",
- "ethereum",
+ "ethereum 0.14.0",
  "fc-api",
  "fc-storage",
  "fp-consensus",
@@ -3931,7 +3949,7 @@ name = "fc-rpc"
 version = "2.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "evm",
  "fc-api",
@@ -3985,7 +4003,7 @@ name = "fc-rpc-core"
 version = "1.1.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "jsonrpsee 0.16.3",
  "rustc-hex",
@@ -3998,7 +4016,7 @@ name = "fc-storage"
 version = "1.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "fp-rpc",
  "fp-storage",
@@ -4219,7 +4237,7 @@ name = "fp-consensus"
 version = "2.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "parity-scale-codec",
  "sp-core",
  "sp-runtime",
@@ -4241,7 +4259,7 @@ name = "fp-ethereum"
 version = "1.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "fp-evm",
  "frame-support",
@@ -4270,7 +4288,7 @@ name = "fp-rpc"
 version = "3.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "fp-evm",
  "parity-scale-codec",
@@ -7477,7 +7495,7 @@ name = "pallet-ethereum"
 version = "4.0.0-dev"
 source = "git+https://github.com/gluwa/frontier?branch=polkadot-v1.1.0-patch#8125d3e88c575f9ae3260e81b7ba0b0eab6c94b9"
 dependencies = [
- "ethereum",
+ "ethereum 0.14.0",
  "ethereum-types",
  "evm",
  "fp-consensus",
@@ -8068,7 +8086,7 @@ checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall 0.5.2",
+ "redox_syscall 0.5.3",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -8589,6 +8607,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof"
+version = "3.31.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "ethereum 0.15.0",
+ "ethereum-types",
+ "futures 0.3.30",
+ "mmr",
+ "pallet-attestation-poc",
+ "prover-primitives",
+ "serde",
+ "serde_json",
+ "starknet-crypto",
+ "tokio",
+]
+
+[[package]]
 name = "proof-verifier"
 version = "3.31.0"
 dependencies = [
@@ -8957,9 +8993,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
+checksum = "2a908a6e00f1fdd0dfd9c0eb08ce85126f6d8bbda50017e74bc4a4b7d4a926a4"
 dependencies = [
  "bitflags 2.6.0",
 ]

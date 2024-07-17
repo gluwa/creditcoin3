@@ -1,18 +1,20 @@
 [workspace]
 members = [
-	"node",
-	"runtime",
-	"runtime/generate-bags",
-	"pallets/*",
-	"attestor",
-	"prover",
-	"primitives/attestor",
-	"primitives/prover",
-	"primitives/supported-chains",
-	"precompiles/claim",
-	"precompiles/substrate-transfer",
-	"host",
-	"common/*", "attestor_zombienet",
+    "node",
+    "runtime",
+    "runtime/generate-bags",
+    "pallets/*",
+    "attestor",
+    "prover",
+    "primitives/attestor",
+    "primitives/prover",
+    "primitives/supported-chains",
+    "precompiles/claim",
+    "precompiles/substrate-transfer",
+    "host",
+    "common/*",
+    "attestor_zombienet",
+    "proof",
 ]
 resolver = "2"
 
@@ -47,14 +49,14 @@ paste = "1.0.15"
 slices = "0.2.0"
 affix = "0.1.2"
 parity-scale-codec = { version = "3.6.12", default-features = false, features = [
-	"derive",
+    "derive",
 ] }
 scale-info = { version = "2.11.3", default-features = false, features = [
-	"derive",
+    "derive",
 ] }
 serde = { version = "1.0", default-features = false, features = [
-	"derive",
-	"alloc",
+    "derive",
+    "alloc",
 ] }
 serde_json = "1.0"
 thiserror = "1.0"

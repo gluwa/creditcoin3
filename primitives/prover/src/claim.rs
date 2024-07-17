@@ -13,7 +13,7 @@ pub struct Claim<Address> {
     pub kind: ClaimKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, MaxEncodedLen, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, MaxEncodedLen, Hash)]
 pub enum ClaimKind {
     Tx,
     Rx,
