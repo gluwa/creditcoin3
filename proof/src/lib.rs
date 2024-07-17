@@ -15,7 +15,7 @@ use crate::claim_prover::{build_prover, ClaimProver};
 pub mod claim_prover;
 //pub mod types;
 
-//pub mod json_serializable;
+pub mod json_serializable;
 
 pub async fn cairo_generate_proof(
     claim: ClaimSerializable,

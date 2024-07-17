@@ -13,5 +13,5 @@ default-features = false
 
 [features]
 default = ["std"]
-std = ["par_mmr"]
+std = ["par_mmr", "twox-hash/std"]
 par_mmr = ["rayon"]

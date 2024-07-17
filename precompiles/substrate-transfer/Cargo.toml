@@ -57,4 +57,7 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-std/std",
+	"fp-account/std",
+	"log/std",
+	"num_enum/std",
 ]

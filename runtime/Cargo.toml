@@ -168,6 +168,7 @@ std = [
 	"supported-chains-primitives/std",
 	"pallet-evm-precompile-claim/std",
 	"pallet-evm-precompile-substrate-transfer/std",
+	"log/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

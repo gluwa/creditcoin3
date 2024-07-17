@@ -18,7 +18,7 @@ sp-runtime = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
-bls-signatures = { workspace = true }
+bls-signatures = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
 serde_bytes = { version = "0.11.14", default-features = false }
 rand = { version = "0.8", default-features = false }

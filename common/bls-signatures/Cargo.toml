@@ -44,7 +44,13 @@ sp-std = { workspace = true }
 
 [features]
 default = ["pairing", "std"]
-std = []
+std = [
+    "acid_io/std",
+    "ff/std",
+    "rand_core/std",
+    "sha2/std",
+    "subtle/std",
+]
 pairing = ["bls12_381", "sha2", "hkdf"]
 
 [lints.clippy]

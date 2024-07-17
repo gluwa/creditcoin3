@@ -5,6 +5,7 @@ use std::io::{BufWriter, Write};
 use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::{ClaimKind, ClaimSerializable};
+//use utils::json_serializable::JsonSerializable;
 use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
 
 use prover_primitives::types::{

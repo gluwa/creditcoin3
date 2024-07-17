@@ -37,6 +37,7 @@ std = [
     "sp-runtime/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
+    "sp-std/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",

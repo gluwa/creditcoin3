@@ -25,7 +25,7 @@ frame-benchmarking = { workspace = true, optional = true }
 
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
-bls-signatures = { workspace = true }
+bls-signatures = { workspace = true, default-features = false }
 serde = { version = "1.0.203", default-features = false, features = ["derive"] }
 starknet-crypto = { version = "0.6.2", default-features = false }
 
@@ -34,7 +34,6 @@ assert_matches = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-supported-chains = { workspace = true }
 env_logger = { workspace = true }
-bls-signatures = { workspace = true }
 
 [features]
 default = ["std"]
