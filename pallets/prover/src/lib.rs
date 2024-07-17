@@ -27,7 +27,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
     use proof_verifier::host_api::verify_proof;
-    pub use prover_primitives::{claim::Claim, ChainPriceConfiguration};
+    pub use prover_primitives::{claim::ClaimOld, ChainPriceConfiguration};
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
     use sp_std::vec::Vec;
     use sp_std::{collections::btree_map::BTreeMap, fmt::Debug, vec};
@@ -82,7 +82,7 @@ pub mod pallet {
     pub type ProverClaims<T: Config> = StorageMap<
         Hasher = Blake2_128Concat,
         Key = T::AccountId,
-        Value = BTreeMap<T::Hash, Claim<<T as Config>::Address>>,
+        Value = BTreeMap<T::Hash, ClaimOld<<T as Config>::Address>>,
         QueryKind = ValueQuery,
     >;
 
@@ -135,7 +135,7 @@ pub mod pallet {
             T::AccountId,
             T::AccountId,
             T::Hash,
-            Claim<<T as Config>::Address>,
+            ClaimOld<<T as Config>::Address>,
         ),
 
         ///
@@ -219,7 +219,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
         pub fn submit_claim(
             origin: OriginFor<T>,
-            claim: Claim<<T as Config>::Address>,
+            claim: ClaimOld<<T as Config>::Address>,
         ) -> DispatchResult {
             let source = ensure_signed(origin)?;
 
@@ -302,7 +302,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         pub fn lock_for_claim(
             source: &T::AccountId,
-            claim: &Claim<<T as Config>::Address>,
+            claim: &ClaimOld<<T as Config>::Address>,
             prover: &T::AccountId,
         ) -> DispatchResult {
             // Get the prover price for a claim on that chain
@@ -338,7 +338,7 @@ pub mod pallet {
 
         pub fn unlock_for_claim(
             prover: &T::AccountId,
-            claim: &Claim<<T as Config>::Address>,
+            claim: &ClaimOld<<T as Config>::Address>,
             claim_hash: &T::Hash,
         ) -> DispatchResult {
             let claim_source =

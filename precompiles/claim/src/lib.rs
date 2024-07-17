@@ -9,7 +9,7 @@ use frame_support::{
 use pallet_evm::AddressMapping;
 use pallet_prover::{types::Prover, ChainPriceConfiguration};
 use precompile_utils::prelude::*;
-use prover_primitives::claim::{Claim, ClaimKind};
+use prover_primitives::claim::{ClaimOld, ClaimKind};
 use sp_core::{H160, H256};
 use sp_std::vec::Vec;
 
@@ -77,7 +77,7 @@ where
             return Err(revert("Must be either Tx or Rx"));
         };
 
-        let claim = Claim {
+        let claim = ClaimOld {
             chain_id,
             block_number,
             tx_index,
