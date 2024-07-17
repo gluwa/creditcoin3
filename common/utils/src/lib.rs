@@ -1,6 +1,7 @@
-#![no_std]
-
+#![cfg_attr(not(feature = "std"), no_std)]
 pub mod block_item_traits;
+
+#[cfg(feature = "std")]
 pub mod json_serializable;
 pub mod pedersen_hash;
 pub mod utils;

@@ -437,7 +437,6 @@ mod tests {
     use crate::attestation_checkpoints::{
         AttestationCheckpoint, AttestationCheckpointError, AttestationCheckpoints,
     };
-    use crate::CHECKPOINT_INTERVAL;
     use utils::Felt;
 
     #[test]
@@ -542,7 +541,7 @@ mod tests {
     fn checkpoints_serialize_test() {
         let mut checkpoints = AttestationCheckpoints::new();
 
-        for block_number in (5u64..17) {
+        for block_number in 5u64..17 {
             checkpoints
                 .try_append(AttestationCheckpoint {
                     digest: Felt::from(block_number),

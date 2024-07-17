@@ -182,7 +182,6 @@ impl std::fmt::Display for DenseCheckpoints {
 mod tests {
     use crate::attestation_checkpoints::AttestationCheckpoint;
     use crate::dense_checkpoints::DenseCheckpoints;
-    use crate::CHECKPOINT_INTERVAL;
 
     #[test]
     fn basic_dense_append_test4() {

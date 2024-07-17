@@ -37,6 +37,7 @@ mmr = { workspace = true, features = ["par_mmr"] }
 cc-client = { workspace = true }
 eth = { workspace = true }
 bls-signatures = { workspace = true }
+utils = { path = "../common/utils", default-features = false }
 
 # Workspace deps
 async-trait = { workspace = true }
@@ -47,4 +48,3 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
-utils = { path = "../common/utils" }

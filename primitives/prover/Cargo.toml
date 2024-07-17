@@ -20,7 +20,7 @@ serde.workspace = true
 scale-info = { workspace = true }
 attestor-primitives = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true }
-utils = { path = "../../common/utils" }
+utils = { path = "../../common/utils", default-features = false }
 anyhow = "1.0.86"
 rlp = "0.5.2"
 ethereum-types = "0.14.1"
