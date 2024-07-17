@@ -3,9 +3,10 @@ use alloy::providers::ProviderBuilder;
 use alloy::rpc::client::WsConnect;
 use alloy::rpc::types::eth::BlockNumberOrTag;
 use alloy::rpc::types::eth::BlockTransactions;
-use eth_common::transaction::{Receipt, Transaction};
+use eth_common::transaction::{Receipt, Transaction, BlockItem};
 use thiserror::Error;
 use tracing::info;
+use utils::block_item_traits::BlockItemIdentifier;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -26,7 +27,15 @@ pub async fn fetch_block_transactions(
         .ok_or(Error::FailedToFetchBlock(block_number))?;
 
     let transactions = if let BlockTransactions::Full(tx) = block.transactions {
-        tx.into_iter().map(Transaction).collect()
+        let mut txs = tx
+            .into_iter()
+            .enumerate()
+            .map(|(index, rx)| 
+                Transaction::new(rx, BlockItemIdentifier::new(block_number.into(), index as u64))
+            )
+            .collect::<Vec<_>>();
+        txs.sort_by_key(|tx| tx.id().index());
+        txs
     } else {
         info!("No full tx");
         vec![]
@@ -42,11 +51,18 @@ pub async fn fetch_block_receipts(
     let ws = WsConnect::new(url);
     let provider = ProviderBuilder::new().on_ws(ws).await?;
 
-    let receipts = provider
+    let mut receipts = provider
         .get_block_receipts(BlockNumberOrTag::Number(block_number))
-        .await?;
-
-    let receipts = receipts.into_iter().flatten().map(Receipt).collect();
+        .await?
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, rx)| 
+            Receipt::new(rx, BlockItemIdentifier::new(block_number.into(), index as u64))
+        )
+        .collect::<Vec<_>>();
+    
+    receipts.sort_by_key(|rx| rx.id().index());
 
     Ok(receipts)
 }

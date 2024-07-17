@@ -6,6 +6,7 @@ use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 
 pub mod claim;
+pub mod claim_query;
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChainPriceConfiguration {

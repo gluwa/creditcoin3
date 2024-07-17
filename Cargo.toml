@@ -209,6 +209,7 @@ creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
+attestation-chain = { path = "primitives/attestation_chain" }
 
 # Prover
 pallet-prover = { path = "pallets/prover", default_features = false }

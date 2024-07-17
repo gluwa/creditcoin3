@@ -20,6 +20,9 @@ serde = { workspace = true }
 scale-info = { workspace = true }
 attestor-primitives = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true }
+utils = { path = "../../common/utils" } 
+anyhow = "1.0.86"
+rlp = "0.5.2"
 
 [features]
 default = ["std"]

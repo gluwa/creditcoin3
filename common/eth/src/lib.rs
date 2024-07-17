@@ -10,11 +10,15 @@ use alloy::{
 use anyhow::Result;
 use thiserror::Error;
 use tracing::{error, info};
+use utils::block_item_traits::BlockItemIdentifier;
 
 pub use alloy::core::primitives::Address;
 
 pub mod subscription;
 pub mod transaction;
+
+pub type AlloyTransaction = alloy::rpc::types::eth::Transaction;
+pub type AlloyTransactionReceipt = alloy::rpc::types::eth::TransactionReceipt;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -81,7 +85,10 @@ impl Client {
         let receipts = receipts
             .into_iter()
             .flatten()
-            .map(transaction::Receipt)
+            .enumerate()
+            .map(|(index, rx)| 
+                transaction::Receipt::new(rx, BlockItemIdentifier::new(number.into(), index as u64))
+            )
             .collect();
 
         Ok(receipts)
@@ -94,7 +101,13 @@ impl Client {
         let block = self.get_block(number).await?;
 
         let transactions = if let BlockTransactions::Full(tx) = block.transactions {
-            tx.into_iter().map(transaction::Transaction).collect()
+            tx
+                .into_iter()
+                .enumerate()
+                .map(|(index, rx)| 
+                    transaction::Transaction::new(rx, BlockItemIdentifier::new(number.into(), index as u64))
+                )
+                .collect()
         } else {
             info!("No full tx");
             vec![]

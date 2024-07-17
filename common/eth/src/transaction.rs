@@ -1,66 +1,96 @@
 use alloy::consensus::{ReceiptWithBloom, Signed};
-use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy};
+use alloy::consensus::{TxEip1559, TxEip2930, TxLegacy, TxEip4844};
 use alloy::core::primitives::{Address, Log, U256};
+use utils::block_item_traits::BlockItemIdentifier;
+
+use crate::{AlloyTransaction, AlloyTransactionReceipt};
 
 pub trait BlockItem: Sized {
     fn to_bytes(&self) -> Vec<u8>;
 
-    fn chain_id(&self) -> u64;
-    fn block_number(&self) -> U256;
-    fn index(&self) -> u64;
-    fn from(&self) -> Address;
-    fn to(&self) -> Option<Address>;
+    fn id(&self) -> &BlockItemIdentifier;
+    fn tx_type(&self) -> Option<u8>;
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Transaction(pub alloy::rpc::types::eth::Transaction);
+#[derive(Debug, Clone)]
+pub struct Transaction {
+    pub inner: alloy::rpc::types::eth::Transaction,
+    id: BlockItemIdentifier,
+}
 
-impl BlockItem for Transaction {
-    fn to_bytes(&self) -> Vec<u8> {
-        match self.0.transaction_type {
-            Some(0) => {
-                let tx: Signed<TxLegacy> = self.0.clone().try_into().unwrap();
+impl Transaction {
+    pub fn payload_bytes(&self) -> Vec<u8> {
+        match self.tx_type() {
+            Some(0) => {                
+                let tx: Signed<TxLegacy> = self.inner.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
             Some(1) => {
-                let tx: Signed<TxEip1559> = self.0.clone().try_into().unwrap();
+                let tx: Signed<TxEip1559> = self.inner.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
             Some(2) => {
-                let tx: Signed<TxEip2930> = self.0.clone().try_into().unwrap();
+                let tx: Signed<TxEip2930> = self.inner.clone().try_into().unwrap();
                 alloy::rlp::encode(tx.into_parts().0)
             }
-            Some(_) | None => Vec::new(),
+            Some(3) => {
+                let tx: Signed<TxEip4844> = self.inner.clone().try_into().unwrap();
+                alloy::rlp::encode(tx.into_parts().0)                
+            },
+            _ => unimplemented!("unsupported tx type")
         }
     }
+}
 
-    fn chain_id(&self) -> u64 {
-        self.0.chain_id.unwrap_or_default()
+impl Transaction {
+    pub fn new(tx: AlloyTransaction, id: BlockItemIdentifier) -> Self {
+        Self {
+            inner: tx,
+            id
+        }
+    }
+}
+
+impl BlockItem for Transaction {
+    fn to_bytes(&self) -> Vec<u8> {
+        let tx_id = self.id().to_bytes();
+        let tx_rlp = self.payload_bytes();
+
+        let mut bytes = Vec::with_capacity(tx_id.len() + tx_rlp.len() + 1);
+
+        bytes.extend(tx_id);
+        bytes.extend(tx_rlp);
+
+        bytes
     }
 
-    fn index(&self) -> u64 {
-        self.0.transaction_index.unwrap_or_default()
+    fn id(&self) -> &BlockItemIdentifier {
+        &self.id
     }
 
-    fn block_number(&self) -> U256 {
-        U256::saturating_from(self.0.block_number.unwrap_or_default())
-    }
-
-    fn from(&self) -> Address {
-        self.0.from
-    }
-
-    fn to(&self) -> Option<Address> {
-        self.0.to
+    fn tx_type(&self) -> Option<u8> {
+        self.inner.transaction_type
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Receipt(pub alloy::rpc::types::eth::TransactionReceipt);
+pub struct Receipt {
+    pub inner: AlloyTransactionReceipt,
+    id: BlockItemIdentifier,
+}
+
+impl Receipt {
+    pub fn new(rx: AlloyTransactionReceipt, id: BlockItemIdentifier) -> Self {
+        Self {
+            inner: rx,
+            id
+        }
+    }
+}
 
 impl BlockItem for Receipt {
     fn to_bytes(&self) -> Vec<u8> {
-        let rwb = self.0.inner.as_receipt_with_bloom().unwrap();
+        let rwb = self.inner.inner.as_receipt_with_bloom().unwrap();
         let receipt = rwb.receipt.clone();
 
         let logs = receipt
@@ -82,23 +112,15 @@ impl BlockItem for Receipt {
         alloy::rlp::encode(&rwb_new)
     }
 
-    fn chain_id(&self) -> u64 {
-        0
+    fn id(&self) -> &BlockItemIdentifier {
+        &self.id
     }
 
-    fn block_number(&self) -> U256 {
-        U256::saturating_from(self.0.block_number.unwrap_or_default())
-    }
-
-    fn index(&self) -> u64 {
-        self.0.transaction_index.unwrap_or_default()
-    }
-
-    fn from(&self) -> Address {
-        self.0.from
-    }
-
-    fn to(&self) -> Option<Address> {
-        self.0.to
+    fn tx_type(&self) -> Option<u8> {
+        if 0 == self.inner.transaction_type() as u8 {
+            None
+        } else {
+            Some(self.inner.transaction_type() as u8)
+        }
     }
 }

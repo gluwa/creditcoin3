@@ -6,11 +6,12 @@ use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use sp_std::vec::Vec;
+use utils::Felt;
 
 pub mod api;
 pub mod bls;
 
-pub type Felt = [u8; 32];
+//pub type Felt = [u8; 32];
 
 pub type ChainId = u64;
 
@@ -77,6 +78,34 @@ where
     }
 }
 
+type ScaleFelt = [u8; 32];
+
+// #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+// struct WrappedScaleFelt(Felt);
+
+// impl Encode for WrappedScaleFelt {
+// }
+// impl Decode for WrappedScaleFelt {
+//     fn decode<I: parity_scale_codec::Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+//         <[u8; 32]>::decode(input)
+//             .and_then(|slice| 
+//                 Felt::from_byte_slice_be(&slice[..])
+//                     .map_err(|err| parity_scale_codec::Error::from(format!("{err:?}").as_str()))
+//             )
+//             .map(Self)
+//     }
+// }
+// impl MaxEncodedLen for WrappedScaleFelt {
+//     fn max_encoded_len() -> usize {
+//         32
+//     }
+// }
+// impl TypeInfo for WrappedScaleFelt {
+//     fn type_info() -> scale_info::Type {
+        
+//     }
+// }
+
 #[derive(
     Debug,
     Clone,
@@ -95,8 +124,8 @@ pub struct Attestation<H> {
     pub chain_id: ChainId,
     pub header_number: u64,
     pub header_hash: H,
-    pub tx_root: Felt,
-    pub rx_root: Felt,
+    pub tx_root: ScaleFelt,
+    pub rx_root: ScaleFelt,
     pub prev_digest: Option<Digest>,
 }
 

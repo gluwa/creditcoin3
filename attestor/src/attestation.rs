@@ -9,8 +9,8 @@ use sp_core::H256;
 use thiserror::Error;
 use tracing::{error, warn};
 
-use crate::merkle;
-use crate::merkle::tree::StarknetPedersenMmr;
+//use crate::merkle;
+use utils::StarknetPedersenMmr;
 
 /// Attestor is an actor that creates attestation based on a new block
 /// It will pass this attestation to the cc3 client to be submitted on chain
@@ -74,8 +74,10 @@ impl NewBlock {
         let tx_rlps = self.to_transactions_rlps();
         let rx_rlps = self.to_receipts_rlps();
 
-        let tx_tree = rlps_to_merkletree(&tx_rlps)?;
-        let rx_tree = rlps_to_merkletree(&rx_rlps)?;
+        let tx_tree = StarknetPedersenMmr::from(&tx_rlps[..]);
+        let rx_tree = StarknetPedersenMmr::from(&rx_rlps[..]);
+        // let tx_tree = rlps_to_merkletree(&tx_rlps)?;
+        // let rx_tree = rlps_to_merkletree(&rx_rlps)?;
 
         Ok((tx_tree, rx_tree))
     }
@@ -108,8 +110,8 @@ pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
         chain_id: new_block.chain_id,
         header_number: new_block.header_number,
         header_hash: new_block.header_hash,
-        tx_root: tx_tree.root().into(),
-        rx_root: rx_tree.root().into(),
+        tx_root: tx_tree.root().0.to_bytes_be(),
+        rx_root: rx_tree.root().0.to_bytes_be(),
         // We don't have a prev_digest yet, so we set it to None
         prev_digest: None,
     };
@@ -117,12 +119,11 @@ pub fn create<H>(new_block: &NewBlock) -> Result<Attestation<H256>, Error> {
     Ok(attestation)
 }
 
-/// Construct a pedersen merkletree from given input
-fn rlps_to_merkletree(rlps: &Rlps) -> Result<StarknetPedersenMmr, Error> {
-    let tree = merkle::tree::create(rlps).map_err(|e| {
-        error!("Error creating tree: {:?}", e);
-        Error::ErrorBuildingMerkleTree
-    })?;
-
-    Ok(tree)
-}
+// /// Construct a pedersen merkletree from given input
+// fn rlps_to_merkletree(rlps: &Rlps) -> Result<StarknetPedersenMmr, Error> {
+//     let tree = merkle::tree::create(rlps).map_err(|e| {
+//         error!("Error creating tree: {:?}", e);
+//         Error::ErrorBuildingMerkleTree
+//     })?;
+//     Ok(tree)
+// }

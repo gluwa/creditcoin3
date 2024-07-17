@@ -26,6 +26,7 @@ attestor = { path = "../attestor" }
 tracing = "0.1.40"
 thiserror = "1.0"
 eth-common = { path = "../common/eth", package = "eth" }
+attestation-chain = { path = "../primitives/attestation_chain" }
 alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "node-bindings",
     "providers",
@@ -39,3 +40,8 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "rlp",
 ] }
 tempfile = "3.10.1"
+utils = { path = "../common/utils"}
+either = "1.12.0"
+ethereum-types.workspace = true
+colored = "2.1.0"
+rlp = "0.5.2"
