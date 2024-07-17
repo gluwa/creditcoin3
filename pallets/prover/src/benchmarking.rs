@@ -106,7 +106,7 @@ benchmarks! {
 
         use sp_runtime::traits::Hash;
         let claim_hash = <T as Config>::Hashing::hash_of(&claim);
-        let proof = vec![1, 2, 3];
+        let proof = vec![0; 745676];
 
         assert_eq!(ClaimResultByHash::<T>::get(claim_hash), None);
 

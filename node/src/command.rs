@@ -188,7 +188,10 @@ pub fn run() -> sc_cli::Result<()> {
             let runner = cli.create_runner(cmd)?;
             match cmd {
                 BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| {
-                    cmd.run::<Block, proof_verifier::host_api::HostFunctions>(config)
+                    cmd.run::<Block, (
+                        proof_verifier::host_api::HostFunctions,
+                        proof_verifier::host_benchmark_api::HostFunctions,
+                    )>(config)
                 }),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;

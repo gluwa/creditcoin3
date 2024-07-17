@@ -30,8 +30,11 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
+    #[cfg(not(feature = "runtime-benchmarks"))]
     use proof_verifier::host_api::verify_proof;
-    pub use prover_primitives::ChainPriceConfiguration;
+    #[cfg(feature = "runtime-benchmarks")]
+    use proof_verifier::host_benchmark_api::verify_proof;
+    pub use prover_primitives::{claim::Claim, ChainPriceConfiguration};
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
     use sp_std::vec::Vec;
     use sp_std::{collections::btree_map::BTreeMap, fmt::Debug, vec};
