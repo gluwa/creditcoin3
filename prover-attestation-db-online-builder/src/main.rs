@@ -193,15 +193,15 @@ fn main() {
             ClaimStreamType::Sequencial => unimplemented!("uncomment and fix SeqClaimGenerationStream"),
                 // Box::pin(
                 //     SeqClaimGenerationStream::new(
-                //         checkpoints.clone(), 
-                //         poc_config.block_cache_url(), 
+                //         checkpoints.clone(),
+                //         poc_config.block_cache_url(),
                 //     )
                 // ),
             ClaimStreamType::Random => unimplemented!("uncomment and fix RandomClaimGenerationStream"),
                 // Box::pin(
                 //     RandomClaimGenerationStream::new(
-                //         checkpoints.clone(), 
-                //         poc_config.block_cache_url(), 
+                //         checkpoints.clone(),
+                //         poc_config.block_cache_url(),
                 //     )
                 // ),
             ClaimStreamType::Json => {
@@ -232,25 +232,23 @@ fn main() {
             .await;
 
             match res {
-                Ok(Either::Left(stone_proof)) => {
+                Ok(Either::Left(mut stone_proof)) => {
                     let fname = "../data/node-side-proofs/proof.json";
                     //let proof = stone_proof.proof();
                     //let public_input = StoneProofPublicInput::try_from(proof);
 
                     println!("saving public input to {fname}");
 
-                    stone_proof
-                        // .strip_off_annotations()
-                        // .strip_off_prover_config()
-                        // .strip_off_private_input()
-                        .to_file(fname).unwrap();
+                    // let public_input = stone_proof.public_input()
+                    let value = serde_json::to_string(stone_proof.strip_off_annotations().strip_off_prover_config().strip_off_private_input().proof()).unwrap();
+                    tokio::fs::write(fname, value).await.unwrap();
                 },
 
                 Ok(Either::Right(_output)) => {
                     // if output.claim_id.kind == ClaimKind::Tx {
                     //     let txs = TypedTransaction::fetch_all(
-                    //         &source_chain_api_server_url_cloned, 
-                    //         None, 
+                    //         &source_chain_api_server_url_cloned,
+                    //         None,
                     //         claim.id().block_item_id.block_number()
                     //     )
                     //     .await
@@ -269,8 +267,8 @@ fn main() {
                     //         Err(err) => {
                     //             println!("{}", format!("error: {:?}", err).red());
                     //         }
-                    //     }   
-                    // }          
+                    //     }
+                    // }
                 },
                 Err(err) => {
                     println!("{}", format!("error: {:?}", err).red());

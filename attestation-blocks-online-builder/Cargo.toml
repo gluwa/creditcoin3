@@ -28,4 +28,3 @@ ethereum-types = "0.14.1"
 # [[bench]]
 # name = "create_merkle_tree_benchmark"
 # harness = false
-
