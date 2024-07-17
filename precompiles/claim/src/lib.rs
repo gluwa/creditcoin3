@@ -7,7 +7,7 @@ use frame_support::{
     sp_runtime::traits::{Dispatchable, Hash},
 };
 use pallet_evm::AddressMapping;
-use pallet_prover::types::{Prover, Claim, ClaimKind, ClaimId};
+use pallet_prover::types::{Claim, ClaimId, ClaimKind, Prover};
 use precompile_utils::prelude::*;
 use prover_primitives::ChainPriceConfiguration;
 use sp_core::{H160, H256};

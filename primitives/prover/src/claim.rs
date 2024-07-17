@@ -247,8 +247,8 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
 // maybe find better name for it?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimSerializable {
-    id: ClaimIdentifier,
-    felt_ranges: Vec<Range<usize>>,
+    pub id: ClaimIdentifier,
+    pub felt_ranges: Vec<Range<usize>>,
 }
 
 impl ClaimSerializable {

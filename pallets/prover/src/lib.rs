@@ -14,9 +14,8 @@ mod tests;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{Prover, Claim};
+    use crate::types::{Claim, Prover};
 
-    
     use frame_support::{
         dispatch::DispatchResult,
         pallet_prelude::{ValueQuery, *},
@@ -28,7 +27,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use parity_scale_codec::Codec;
     use proof_verifier::host_api::verify_proof;
-    pub use prover_primitives::{ ChainPriceConfiguration};
+    pub use prover_primitives::ChainPriceConfiguration;
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
     use sp_std::vec::Vec;
     use sp_std::{collections::btree_map::BTreeMap, fmt::Debug, vec};
@@ -132,12 +131,7 @@ pub mod pallet {
         ProverChainPriceConfigurationSet(T::AccountId, Vec<ChainPriceConfiguration>),
 
         ///
-        ProverClaimSubmitted(
-            T::AccountId,
-            T::AccountId,
-            T::Hash,
-            Claim,
-        ),
+        ProverClaimSubmitted(T::AccountId, T::AccountId, T::Hash, Claim),
 
         ///
         ClaimVerified(T::Hash, T::AccountId),
@@ -218,10 +212,7 @@ pub mod pallet {
 
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
-        pub fn submit_claim(
-            origin: OriginFor<T>,
-            claim: Claim,
-        ) -> DispatchResult {
+        pub fn submit_claim(origin: OriginFor<T>, claim: Claim) -> DispatchResult {
             let source = ensure_signed(origin)?;
 
             ensure!(

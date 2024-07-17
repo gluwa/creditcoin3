@@ -1,8 +1,8 @@
+use attestor_primitives::ChainId;
 use parity_scale_codec::{Decode, Encode};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_std::vec::Vec;
-use attestor_primitives::ChainId;
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prover {

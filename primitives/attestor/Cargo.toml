@@ -23,6 +23,8 @@ sp-api = { workspace = true, default-features = false }
 serde_bytes = { version = "0.11.14", default-features = false }
 rand = { version = "0.8", default-features = false }
 utils = { path = "../../common/utils", default-features = false }
+starknet-types-core = { workspace = true, default-features = false }
+starknet-crypto = { workspace = true, default-features = false }
 
 [dev-dependencies]
 
@@ -42,4 +44,6 @@ std = [
     "rand/std",
     "bls-signatures/std",
     "utils/std",
+    "starknet-types-core/std",
+    "starknet-crypto/std"
 ]

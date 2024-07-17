@@ -104,7 +104,8 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-#[must_use] pub fn create<H>(new_block: &NewBlock) -> Attestation<H256> {
+#[must_use]
+pub fn create<H>(new_block: &NewBlock) -> Attestation<H256> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees();
 
     Attestation {

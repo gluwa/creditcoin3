@@ -4,8 +4,9 @@ use frame_support::inherent::{InherentIdentifier, IsFatalError};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
-use sp_core::H256;
+use sp_core::{H256, U256};
 use sp_std::vec::Vec;
+use starknet_types_core::felt::Felt;
 
 pub mod api;
 pub mod bls;
@@ -128,4 +129,33 @@ where
     pub fn digest(&self) -> Digest {
         H256::from(&sp_io::hashing::blake2_256(&self.serialize()))
     }
+
+    // This seems to break the attestations, they are not going through smoothly if I use pedersen hash instead of blake
+    // Need to investigate more
+    // pub fn digest(&self) -> Digest {
+    //     let (lo, hi) = u256_to_felts(&self.header_number.into());
+    //     let d1 = starknet_crypto::pedersen_hash(&lo, &hi);
+    //     let d2 = starknet_crypto::pedersen_hash(&d1, &Felt::from_bytes_be_slice(&self.tx_root));
+    //     let d3 = starknet_crypto::pedersen_hash(&d2, &Felt::from_bytes_be_slice(&self.rx_root));
+    //
+    //     starknet_crypto::pedersen_hash(
+    //         &d3,
+    //         &Felt::from_bytes_be_slice(
+    //             self.prev_digest
+    //                 .unwrap_or_else(|| [0u8; 32].into())
+    //                 .as_bytes(),
+    //         ),
+    //     )
+    //     .to_bytes_be()
+    //     .into()
+    // }
+}
+
+pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
+    let mut buf = [0u8; 32];
+    x.to_big_endian(&mut buf);
+    let lo = Felt::from_bytes_be_slice(&buf[1..32]);
+    let hi = Felt::from(buf[0]);
+
+    (lo, hi)
 }

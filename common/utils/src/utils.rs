@@ -112,9 +112,7 @@ pub fn address_from_felt(felt: &Felt) -> Address {
 pub fn felts_from_bytes(bytes: &[u8]) -> Vec<Felt> {
     let chunks = bytes.chunks(U248_BYTE_COUNT);
 
-    chunks
-        .map(Felt::from_bytes_be_slice)
-        .collect::<Vec<_>>()
+    chunks.map(Felt::from_bytes_be_slice).collect::<Vec<_>>()
 }
 
 // converts felt array to byte array

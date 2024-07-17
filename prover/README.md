@@ -29,10 +29,23 @@ Start the side services first:
 docker compose up -d
 ```
 
+Run diesel migration:
+
+```sh
+diesel migration run --database-url=postgres://prover:prover@localhost/attestations
+```
+
 Run the prover:
 
 ```sh
 cargo run -- -v --cc3-key "involve bridge disagree copy aim auction ready garlic industry flee echo era"  --nickname dylan --config-file ./config.toml
+```
+
+Check prover attestation cache:
+
+```sh
+psql postgres://prover:prover@localhost/attestations
+select * from signedattestation;
 ```
 
 ## Submitting a claim (Via polkadotJS)

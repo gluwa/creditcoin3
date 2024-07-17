@@ -49,6 +49,18 @@ where
         attestation::exists_by_digest(&mut connection, digest.encode_hex()).await
     }
 
+    pub async fn get_by_header_number(
+        &self,
+        header_number: i64,
+        chain_id: i64,
+    ) -> Result<Attestation> {
+        let mut connection = self.pool.get().await?;
+        let attestation =
+            attestation::get_by_header_number(&mut connection, header_number, chain_id).await?;
+
+        Ok(attestation)
+    }
+
     pub async fn insert(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
         attestation::insert(&mut connection, attestation.into()).await?;
