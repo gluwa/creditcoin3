@@ -71,6 +71,10 @@ where
     pub fn digest(&self) -> Digest {
         self.attestation.digest()
     }
+
+    pub fn header_number(&self) -> u64 {
+        self.attestation_data.header_number
+    }
 }
 
 #[derive(
@@ -85,6 +89,7 @@ where
     Decode,
     MaxEncodedLen,
     TypeInfo,
+    Default,
 )]
 pub struct Attestation<H> {
     pub chain_id: ChainId,
