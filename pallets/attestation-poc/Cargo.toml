@@ -54,6 +54,7 @@ std = [
     "pallet-supported-chains/std",
     "supported-chains-primitives/std",
     "bls-signatures/std",
+    "serde/std",
     "starknet-crypto/std",
 ]
 runtime-benchmarks = ["frame-benchmarking", "pallet-balances"]

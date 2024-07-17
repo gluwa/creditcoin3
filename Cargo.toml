@@ -9,19 +9,11 @@ members = [
     "primitives/attestor",
     "primitives/prover",
     "primitives/supported-chains",
-    "primitives/attestation_chain",
     "precompiles/claim",
     "precompiles/substrate-transfer",
     "host",
     "common/*",
     "attestor_zombienet",
-    "proof",
-    "proof",
-    #"attestation-db",
-    #"attestation-blocks-online-builder",
-    #"attestor-online-sim",
-    #"poc-config",
-    #"prover-attestation-db-online-builder",
 ]
 resolver = "2"
 
