@@ -13,6 +13,8 @@ use crate::claim_prover::{build_prover, ClaimProver};
 
 pub mod claim_prover;
 
+pub mod json_serializable;
+
 pub async fn cairo_generate_proof(
     claim: ClaimSerializable,
     claim_attestation_fragment: &AttestationFragment,

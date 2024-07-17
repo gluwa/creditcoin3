@@ -133,21 +133,21 @@ pub async fn handle_claim_sub(
     Ok(())
 }
 
-pub async fn process_claim(client: CcClientArc, _eth_client: Client, claim: Claim) -> Result<()> {
+pub async fn process_claim(client: CcClientArc, eth_client: Client, claim: Claim) -> Result<()> {
     info!("Processing claim with hash: {:?}", claim.hash);
 
     // Check if claim exists on source chain
-    match claim::check_claim_inclusion(eth_client, claim.claim).await {
-        Ok(true) => {
-            info!("Claim included on source chain");
-        }
-        Ok(false) => {
-            warn!("Claim not included on source chain");
-        }
-        Err(e) => {
-            error!("Error checking claim inclusion: {:?}", e);
-        }
-    };
+    // match claim::check_claim_inclusion(eth_client, claim.claim).await {
+    //     Ok(true) => {
+    //         info!("Claim included on source chain");
+    //     }
+    //     Ok(false) => {
+    //         warn!("Claim not included on source chain");
+    //     }
+    //     Err(e) => {
+    //         error!("Error checking claim inclusion: {:?}", e);
+    //     }
+    // };
 
     let tx_asd = eth_client
         .get_transactions(claim.claim.block_number)

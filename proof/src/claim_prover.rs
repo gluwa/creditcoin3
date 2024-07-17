@@ -12,6 +12,8 @@ use prover_primitives::types::{
     StoneProof, StoneProofJson,
 };
 
+use crate::json_serializable::JsonSerializable;
+
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";
 
