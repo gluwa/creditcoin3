@@ -98,13 +98,13 @@ impl Message<NewBlock> for Attestor {
         // };
 
         // Ok(attestation)
-        Ok(create::<H256>(&msg))
+        Ok(Some(create::<H256>(&msg)))
     }
 }
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create<H>(new_block: &NewBlock) -> Option<Attestation<H256>> {
+pub fn create<H>(new_block: &NewBlock) -> Attestation<H256> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees();
 
     let attestation = Attestation {
@@ -117,7 +117,7 @@ pub fn create<H>(new_block: &NewBlock) -> Option<Attestation<H256>> {
         prev_digest: None,
     };
 
-    Some(attestation)
+    attestation
 }
 
 // /// Construct a pedersen merkletree from given input

@@ -7,9 +7,9 @@ use frame_support::{
     sp_runtime::traits::{Dispatchable, Hash},
 };
 use pallet_evm::AddressMapping;
-use pallet_prover::{types::Prover, ChainPriceConfiguration};
+use pallet_prover::types::{Prover, Claim, ClaimKind, ClaimId};
 use precompile_utils::prelude::*;
-use prover_primitives::claim::{ClaimOld, ClaimKind};
+use prover_primitives::ChainPriceConfiguration;
 use sp_core::{H160, H256};
 use sp_std::vec::Vec;
 
@@ -60,7 +60,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_id: u64,
         block_number: u64,
-        tx_index: u8,
+        tx_index: u32,
         from: Address,
         to: Address,
         is_tx: bool,
@@ -77,13 +77,16 @@ where
             return Err(revert("Must be either Tx or Rx"));
         };
 
-        let claim = ClaimOld {
+        let claim = Claim {
             chain_id,
-            block_number,
-            tx_index,
-            from: <Runtime as pallet_prover::Config>::Address::from(from.into()),
-            to: <Runtime as pallet_prover::Config>::Address::from(to.into()),
-            kind,
+            id: ClaimId {
+                block_item_id: pallet_prover::types::BlockItemIdentifier {
+                    block_number,
+                    index: tx_index,
+                },
+                kind,
+            },
+            felt_ranges: Vec::new(),
         };
 
         // Hash the claim

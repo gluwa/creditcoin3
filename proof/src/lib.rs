@@ -1,19 +1,21 @@
 use anyhow::anyhow;
 use colored::Colorize;
 use either::Either;
+use prover_primitives::claim::ClaimSerializable;
 use tracing::debug;
 
-use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use attestation_chain::attestation_fragment::AttestationFragment;
 
 use crate::claim_prover::{build_prover, ClaimProver};
+//use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
 pub mod claim_prover;
+//pub mod types;
 
-pub mod json_serializable;
+//pub mod json_serializable;
 
 pub async fn cairo_generate_proof(
     claim: ClaimSerializable,
@@ -121,7 +123,7 @@ pub async fn cairo_generate_proof(
 }
 
 #[allow(dead_code)]
-async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow::Result<()> {
+pub async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow::Result<()> {
     use std::io::Write;
 
     tokio::process::Command::new("/bin/bash")

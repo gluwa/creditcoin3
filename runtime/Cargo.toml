@@ -84,7 +84,7 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 # Gluwa
 pallet-attestation-poc = { workspace = true }
 pallet-supported-chains = { workspace = true }
-pallet-prover = { workspace = true }
+pallet-prover = { workspace = true, default-features = false }
 
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }

@@ -14,29 +14,29 @@ no_effect_underscore_binding = "allow"
 type_complexity = "allow"
 
 [dependencies]
-log = { workspace = true }
+log = { workspace = true, default-features = false }
 hex = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, default-features = false }
 
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-parity-scale-codec = { workspace = true }
-scale-info = { workspace = true }
-sp-runtime = { workspace = true }
-sp-std = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
+frame-support = { workspace = true, default-features = false }
+frame-system = { workspace = true, default-features = false }
+parity-scale-codec = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false }
+sp-std = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
 
-pallet-balances = { workspace = true }
-frame-benchmarking = { workspace = true, optional = true }
+pallet-balances = { workspace = true, default-features = false }
+frame-benchmarking = { workspace = true, default-features = false, optional = true }
 
-attestor-primitives = { workspace = true }
+attestor-primitives = { workspace = true, default-features = false }
 prover-primitives = { workspace = true, default-features = false }
-supported-chains-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true, default-features = false }
 
-proof-verifier = { workspace = true }
+proof-verifier = { workspace = true, default-features = false }
 
-fp-account = { workspace = true }
+fp-account = { workspace = true, default-features = false }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
