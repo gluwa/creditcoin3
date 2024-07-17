@@ -34,16 +34,13 @@ where
 
         let digest = attestation.digest();
 
-        let tx_root = Felt::from_bytes_be(&attestation.attestation.tx_root)
-            .map_err(|_| ConversionError::InvalidDigest)?;
+        let tx_root = Felt::from_bytes_be(&attestation.attestation.tx_root);
 
-        let rx_root = Felt::from_bytes_be(&attestation.attestation.rx_root)
-            .map_err(|_| ConversionError::InvalidRxRoot)?;
+        let rx_root = Felt::from_bytes_be(&attestation.attestation.rx_root);
 
-        let prev_digest =
-            Felt::from_bytes_be(&prev_digest.0).map_err(|_| ConversionError::InvalidPrevDigest)?;
+        let prev_digest = Felt::from_bytes_be(&prev_digest.0);
 
-        let digest = Felt::from_bytes_be(&digest.0).map_err(|_| ConversionError::InvalidDigest)?;
+        let digest = Felt::from_bytes_be(&digest.0);
 
         Ok(Block {
             block_number: attestation.attestation.header_number.into(),

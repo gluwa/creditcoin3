@@ -104,10 +104,10 @@ impl Message<NewBlock> for Attestor {
 
 // Create the attestation data from a NewBlock
 // TODO: do all required verification before creating the attestation data
-pub fn create<H>(new_block: &NewBlock) -> Attestation<H256> {
+#[must_use] pub fn create<H>(new_block: &NewBlock) -> Attestation<H256> {
     let (tx_tree, rx_tree) = new_block.get_tx_rx_merkle_trees();
 
-    let attestation = Attestation {
+    Attestation {
         chain_id: new_block.chain_id,
         header_number: new_block.header_number,
         header_hash: new_block.header_hash,
@@ -115,9 +115,7 @@ pub fn create<H>(new_block: &NewBlock) -> Attestation<H256> {
         rx_root: rx_tree.root().0.to_bytes_be(),
         // We don't have a prev_digest yet, so we set it to None
         prev_digest: None,
-    };
-
-    attestation
+    }
 }
 
 // /// Construct a pedersen merkletree from given input

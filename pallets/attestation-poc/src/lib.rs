@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use pallet::*;
+
 #[allow(clippy::unnecessary_cast)]
 pub mod weights;
 

@@ -534,7 +534,7 @@ mod tests {
         let tree =
             BaseTree::<StdHash>::from(&input.iter().map(|d| d.as_slice()).collect::<Vec<_>>()[..]);
 
-        for (i, d) in input.iter().enumerate() {
+        for (i, _d) in input.iter().enumerate() {
             let proof = tree.generate_proof(i);
             assert_eq!(proof.claim_index(), i);
         }
