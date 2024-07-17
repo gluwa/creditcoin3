@@ -26,10 +26,10 @@ release = false
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 kameo = { version = "0.8" }
-starknet-crypto = "0.6"
 exponential-backoff = "1.2"
 
 # Creditcoin deps
+starknet-crypto = { workspace = true }
 creditcoin3-attestor-rpc = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }

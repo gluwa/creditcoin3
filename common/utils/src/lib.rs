@@ -10,7 +10,7 @@ pub mod utils;
 use crate::pedersen_hash::StarknetPedersenHash;
 use mmr::{proof::Proof, Mmr};
 
-pub type Felt = starknet_crypto::FieldElement;
+pub type Felt = starknet_types_core::felt::Felt;
 
 pub type StarknetPedersenMmr = Mmr<StarknetPedersenHash>;
 pub type StarknetPedersenMerkleProof = Proof<StarknetPedersenHash>;

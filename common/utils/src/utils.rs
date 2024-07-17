@@ -101,7 +101,8 @@ pub fn try_parse_u64(s: &str) -> Result<u64, core::num::ParseIntError> {
         .or_else(|_| u64::from_str_radix(s.trim_start_matches("0x"), 16))
 }
 pub fn try_parse_felt(s: &str) -> Result<Felt, starknet_ff::FromStrError> {
-    felt_from_dec_str(s).or_else(|_| Felt::from_hex_be(s))
+    felt_from_dec_str(s)
+        .or_else(|_| Felt::from_hex(s).map_err(|_| starknet_ff::FromStrError::InvalidCharacter))
 }
 
 pub fn address_from_felt(felt: &Felt) -> Address {
@@ -112,10 +113,7 @@ pub fn felts_from_bytes(bytes: &[u8]) -> Vec<Felt> {
     let chunks = bytes.chunks(U248_BYTE_COUNT);
 
     chunks
-        .map(|chunk| {
-            Felt::from_byte_slice_be(chunk)
-                .expect("chunk length doesn't exceed canonical length. qed")
-        })
+        .map(Felt::from_bytes_be_slice)
         .collect::<Vec<_>>()
 }
 
@@ -166,7 +164,7 @@ pub fn u256_from_felts(lo: &Felt, hi: &Felt) -> U256 {
 pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
     let mut buf = [0u8; 32];
     x.to_big_endian(&mut buf);
-    let lo = Felt::from_byte_slice_be(&buf[1..32]).expect("less that 256 bits");
+    let lo = Felt::from_bytes_be_slice(&buf[1..32]);
     let hi = Felt::from(buf[0]);
 
     // let mut buf_hi = [0u8; 31];
@@ -185,7 +183,7 @@ pub fn h256_from_felts(lo: &Felt, hi: &Felt) -> H256 {
 
 pub fn h256_to_felts(x: &H256) -> (Felt, Felt) {
     let buf = x.to_fixed_bytes();
-    let lo = Felt::from_byte_slice_be(&buf[1..32]).expect("less that 256 bits");
+    let lo = Felt::from_bytes_be_slice(&buf[1..32]);
     let hi = Felt::from(buf[0]);
 
     (lo, hi)
@@ -206,7 +204,7 @@ mod tests {
     #[test]
     fn felt_to_bytes_test() {
         for i in 0..3333 {
-            let v = (0..i as u8).into_iter().collect::<Vec<u8>>();
+            let v = (0..i as u8).collect::<Vec<u8>>();
             let felts = felts_from_bytes(&v[..]);
 
             let bytes = felts_to_bytes(&felts[..], Some(v.len()));
@@ -223,7 +221,7 @@ mod tests {
 
     #[test]
     fn felts_u256_conversion_test() {
-        let bytes = (33..65).into_iter().collect::<Vec<u8>>();
+        let bytes = (33..65).collect::<Vec<u8>>();
         let u256 = U256::from_big_endian(&bytes[..]);
         //        let u256: U256 = 1.into();
 
@@ -234,7 +232,7 @@ mod tests {
 
     #[test]
     fn felts_h256_conversion_test() {
-        let bytes = (33..65).into_iter().collect::<Vec<u8>>();
+        let bytes = (33..65).collect::<Vec<u8>>();
         let h256 = H256::from_slice(&bytes[..]);
         //        let u256: U256 = 1.into();
 

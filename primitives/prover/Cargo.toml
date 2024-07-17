@@ -22,7 +22,7 @@ attestor-primitives = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true, default-features = false }
 hashbrown = { version = "0.14.5", default-features = false }
 utils = { path = "../../common/utils", default-features = false }
-anyhow = { version = "1.0.86", default-features = false }
+anyhow = { version = "1", default-features = false }
 rlp = { version = "0.5.2", default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false }
 serde_json = { workspace = true, default-features = false }
@@ -43,7 +43,6 @@ std = [
     "sp-runtime-interface/std",
     "rlp/std",
     "anyhow/std",
-    "rlp/std",
     "ethereum-types/std",
     "serde/std",
     "serde_json/std",

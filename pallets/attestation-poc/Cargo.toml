@@ -26,8 +26,8 @@ frame-benchmarking = { workspace = true, optional = true }
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 bls-signatures = { workspace = true, default-features = false }
-serde = { version = "1.0.203", default-features = false, features = ["derive"] }
-starknet-crypto = { version = "0.6.2", default-features = false }
+serde = { workspace = true, default-features = false, features = ["derive"] }
+starknet-crypto = { workspace = true, default-features = false }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

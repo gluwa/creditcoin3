@@ -41,4 +41,5 @@ std = [
     "sp-api/std",
     "rand/std",
     "bls-signatures/std",
+    "utils/std",
 ]

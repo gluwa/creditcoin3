@@ -1,6 +1,7 @@
 use crate::utils::felts_from_bytes;
 use core::fmt::Debug;
-use starknet_crypto::{pedersen_hash, FieldElement};
+use starknet_crypto::pedersen_hash;
+use starknet_types_core::felt::Felt as FieldElement;
 
 #[derive(core::hash::Hash, Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct StarknetFeltWrapped(pub FieldElement);
@@ -48,8 +49,7 @@ pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
         prev = pedersen_hash(&prev, felt.as_ref());
     }
 
-    let len_felt = FieldElement::from_byte_slice_be(&u64_to_bytes_be((felts.len()) as u64))
-        .expect("length (u64) is less than field element. qed");
+    let len_felt = FieldElement::from_bytes_be_slice(&u64_to_bytes_be((felts.len()) as u64));
 
     pedersen_hash(prev.as_ref(), &len_felt)
 }
@@ -78,10 +78,10 @@ mod tests {
     #[test]
     fn pedersen2_test() {
         let bytes_be = u64_to_bytes_be(0x0000000000000001);
-        let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let a = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0x0000000000000002);
-        let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let b = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let h = pedersen_hash(&a, &b);
         assert_eq!(
@@ -95,10 +95,10 @@ mod tests {
     #[test]
     fn pedersen2_test1() {
         let bytes_be = u64_to_bytes_be(0x0807060504030201);
-        let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let a = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0x8070605040302010);
-        let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let b = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let h = pedersen_hash(&a, &b);
         assert_eq!(
@@ -112,13 +112,13 @@ mod tests {
     #[test]
     fn pedersen_array_3_elements_test() {
         let bytes_be = u64_to_bytes_be(0xa);
-        let a = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let a = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0xb);
-        let b = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let b = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0xc);
-        let c = FieldElement::from_byte_slice_be(&bytes_be).unwrap();
+        let c = FieldElement::from_bytes_be_slice(&bytes_be);
 
         let h = pedersen_array(&[a, b, c]);
 
