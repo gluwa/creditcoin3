@@ -157,7 +157,7 @@ mod tests {
     /// to create attestation db on prover's side
     #[tokio::test]
     async fn claim_validation_test() {
-        const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
+        const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
 
         let block = 19543673;
         let index = 95;
@@ -202,7 +202,7 @@ mod tests {
         let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
 
         let mut checkpoints =
-            AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path);
+            AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path);
         // simulate polling checkpoints from CC3 blockchain
         checkpoints.poll().unwrap();
 
@@ -213,7 +213,7 @@ mod tests {
             url,
             cairo_claim,
             &attestation_fragment,
-            &checkpoints.inner(),
+            checkpoints.inner(),
             generate_stone_proof,
             overwrite_existing_stone_proof,
         )
@@ -266,7 +266,7 @@ mod tests {
         let payload_bytes = tx_asd[index].payload_bytes();
 
         let rlp = rlp::Rlp::new(&payload_bytes[..]);
-        let rlp_felts = felts_from_bytes(&rlp.as_raw()[..]);
+        let rlp_felts = felts_from_bytes(rlp.as_raw());
 
         let claim_id = ClaimIdentifier {
             kind: ClaimKind::Tx,
@@ -293,7 +293,7 @@ mod tests {
             claim_id,
             continuity_checkpoint_digest: Default::default(),
             continuity_checkpoint_block_number: Default::default(),
-            query_hash: claim.query_hash().clone(),
+            query_hash: claim.query_hash(),
             claim_fields: rlp_felts,
         };
 

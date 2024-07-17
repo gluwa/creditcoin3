@@ -189,7 +189,7 @@ mod tests {
 
         for i in 2..8 {
             let cp = AttestationCheckpoint::try_from_block(i.into(), 0u64.into()).unwrap();
-            let res = dcps.try_append(cp.clone()).unwrap();
+            let res = dcps.try_append(cp).unwrap();
             if i != 4 {
                 assert!(res.is_none());
                 assert!(dcps.any(&cp));
@@ -214,15 +214,15 @@ mod tests {
         );
         for i in 9..12 {
             let cp = AttestationCheckpoint::try_from_block(i.into(), 0u64.into()).unwrap();
-            assert!(dcps.try_append(cp.clone()).unwrap().is_none());
+            assert!(dcps.try_append(cp).unwrap().is_none());
             assert!(dcps.any(&cp));
         }
         let cp = AttestationCheckpoint::try_from_block(12.into(), 0u64.into()).unwrap();
         assert_eq!(
-            dcps.try_append(cp.clone()).unwrap().map(|cp| cp.n()),
+            dcps.try_append(cp).unwrap().map(|cp| cp.n()),
             Some(12.into())
         );
-        assert!(dcps.any(&cp) == false);
+        assert!(!dcps.any(&cp));
         println!("{}", dcps);
     }
 
