@@ -215,7 +215,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(3)]
+        #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
         pub fn submit_claim(
             origin: OriginFor<T>,
@@ -254,7 +254,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(4)]
+        #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::unset_chain_price_config())]
         pub fn submit_proof(
             origin: OriginFor<T>,
