@@ -179,10 +179,10 @@ impl<'a> ClaimProver<'a> {
 }
 
 pub async fn build_prover<'a>(
-    rx_bytes: Vec<Vec<u8>>,
-    tx_bytes: Vec<Vec<u8>>,
     claim: ClaimSerializable,
     attestation_chain_slice: FragmentSlice<'a>,
+    tx_bytes: Vec<Vec<u8>>,
+    rx_bytes: Vec<Vec<u8>>,
 ) -> Result<ClaimProver<'a>, ClaimProverError> {
     let (transactions_tree, receipts_tree) =
         futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {

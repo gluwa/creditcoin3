@@ -38,9 +38,8 @@ assert_matches = "1.5.0"
 
 # Substrate Clientassert_matches = "1.5.0"
 
-
-<<<<<<< HEAD
-log = { version = "0.4.22", default-features = false }async-trait = "0.1"
+log = { version = "0.4.22", default-features = false }
+async-trait = "0.1"
 clap = { version = "4.5.8", features = ["derive", "deprecated"] }
 derive_more = "0.99"
 environmental = { version = "1.1.4", default-features = false }
@@ -224,6 +223,7 @@ attestation-chain = { path = "primitives/attestation_chain" }
 pallet-prover = { path = "pallets/prover", default_features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
 proof-verifier = { path = "host", default-features = false }
+proof = { path = "proof", default-features = false }
 
 # Common
 bls-signatures = { path = "common/bls-signatures" }

@@ -1,7 +1,9 @@
 use crate::print_with_timestamp;
 use anyhow::anyhow;
-use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
-use attestation_chain::attestation_fragment::AttestationFragment;
+use attestation_chain::{
+    attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints},
+    attestation_fragment::AttestationFragment,
+};
 use colored::Colorize;
 use either::Either;
 use eth_common::{transaction::BlockItem, Client};
@@ -17,7 +19,6 @@ pub async fn cairo_verify_claim(
     cairo_proof_mode: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<Either<StoneProof, CairoVerifierOutput>> {
-    //) -> anyhow::Result<Option<StoneProof>> {
     let block_number = claim.id().block_item_id.block_number();
     let claim_checkpoint = checkpoints.checkpoint_for(block_number).ok_or(anyhow!(
         "claim block number {} matches no checkpoints",
@@ -47,7 +48,7 @@ pub async fn cairo_verify_claim(
         .map(eth_common::transaction::Receipt::to_bytes)
         .collect::<Vec<_>>();
 
-    let mut cairo_verifier = build_prover(tx_bytes, rx_bytes, claim.clone(), claim_attestation_slice)
+    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_slice, tx_bytes, rx_bytes)
         .await
         .map(|claim_cairo_verifier| {
             print_with_timestamp("done".into());

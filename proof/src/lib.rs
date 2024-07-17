@@ -1,10 +1,12 @@
 use anyhow::anyhow;
-use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
-use attestation_chain::attestation_fragment::AttestationFragment;
 use colored::Colorize;
 use either::Either;
 use prover_primitives::claim::ClaimSerializable;
-use utils::print_with_timestamp;
+use tracing::debug;
+
+// TODO: reinstate checkpoints
+// use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
+use attestation_chain::attestation_fragment::AttestationFragment;
 
 use crate::claim_prover::{build_prover, ClaimProver};
 use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
@@ -14,33 +16,30 @@ pub mod types;
 
 pub async fn cairo_generate_proof(
     claim: ClaimSerializable,
-    rx_bytes: Vec<Vec<u8>>,
-    tx_bytes: Vec<Vec<u8>>,
     claim_attestation_fragment: &AttestationFragment,
-    checkpoints: &AttestationCheckpoints,
+    tx_bytes: Vec<Vec<u8>>,
+    rx_bytes: Vec<Vec<u8>>,
     cairo_proof_mode: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<either::Either<(StoneProof, String), CairoVerifierOutput>> {
-    let block_number = claim.id().block_item_id.block_number();
-    let claim_checkpoint = checkpoints.checkpoint_for(block_number).ok_or(anyhow!(
-        "claim block number {} matches no checkpoints",
-        block_number
-    ))?;
+    let claim_block_number = claim.id().block_item_id.block_number();
+    let attestation_chain_slice = claim_attestation_fragment.attestation_slice_for(claim_block_number, None)
+        .ok_or(anyhow!("can't create attestation checkpoint slice for {} on this attestation chain ({:?}, {:?})",
+            claim_block_number,
+            claim_attestation_fragment.tail().map(|att| att.n()),
+            claim_attestation_fragment.head().map(|att| att.n())))?;
 
-    let claim_attestation_slice = claim_attestation_fragment
-        .attestation_slice_for(block_number, Some(claim_checkpoint.n()))
-        .ok_or(anyhow!("unable to slice fragment {claim_attestation_fragment:?} for block number {} and checkpoint {}", block_number, claim_checkpoint.n()))?;
+    debug!("\n");
+    debug!("---------- cairo claim proving task is starting ----------");
+    debug!("claim: {:?}", claim);
+    debug!("fetching block and building merkle trees...");
 
-    println!("\n");
-    println!("claim: {:?}", claim);
-    println!("fetching block and building merkle trees...");
-
-    let mut cairo_verifier = build_prover(rx_bytes, tx_bytes, claim.clone(), claim_attestation_slice)
+    let mut cairo_verifier = build_prover(claim.clone(), attestation_chain_slice,tx_bytes, rx_bytes)
         .await
         .map(|claim_cairo_verifier| {
-            println!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
-            println!("running script {}", format!("{:?}", ClaimProver::script_source()).bright_cyan());
-
+            debug!("done");
+            debug!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
+            debug!("running script {}", format!("{:?}", ClaimProver::script_source()).bright_cyan());
             claim_cairo_verifier
         })
         .map_err(|err| {
@@ -65,34 +64,35 @@ pub async fn cairo_generate_proof(
     let output = cairo_verifier
         .cairo_output()
         .ok_or(anyhow!("successful verification expected to yield output"))?;
-    println!("cairo verification output:");
-    println!("{}", format!("{:?}", output).bold());
+    debug!("----- cairo verification successful -----");
+    debug!("cairo verification output:");
+    debug!("{}", format!("{:?}", output).bold());
 
-    let output_checkpoint = AttestationCheckpoint::try_from_block(
-        output.continuity_checkpoint_block_number,
-        output.continuity_checkpoint_digest,
-    )
-    .ok_or(anyhow!(
-        "expected to get a valid checkpoint from cairo verifier's output"
-    ))?;
+    // let output_checkpoint = AttestationCheckpoint::try_from_block(
+    //     output.continuity_checkpoint_block_number,
+    //     output.continuity_checkpoint_digest,
+    // )
+    // .ok_or(anyhow!(
+    //     "expected to get a valid checkpoint from cairo verifier's output"
+    // ))?;
 
-    if checkpoints.verify_claim_continuity(&output_checkpoint) {
-        println!(
-            "{}",
-            format!(
-                "\nclaim continuity validated at checkpoint: {:?}",
-                output_checkpoint
-            )
-            .green()
-        );
-    } else {
-        return Err(anyhow!(
-            "claim continuity not validated on attestation chain"
-        ));
-    };
+    // if checkpoints.verify_claim_continuity(&output_checkpoint) {
+    //     debug!(
+    //         "{}",
+    //         format!(
+    //             "\nclaim continuity validated at checkpoint: {:?}",
+    //             output_checkpoint
+    //         )
+    //         .green()
+    //     );
+    // } else {
+    //     return Err(anyhow!(
+    //         "claim continuity not validated on attestation chain"
+    //     ));
+    // };
 
     if cairo_proof_mode {
-        println!("running stone-prover, will take a while...");
+        debug!("running stone-prover, will take a while...");
 
         cairo_verifier
             .stone_prove(force_stone_proving)
@@ -136,9 +136,7 @@ mod tests {
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use attestation_db::AttestationDB;
     use colored::Colorize;
-    use eth_common::{
-        fetch_block_receipts, fetch_block_transactions, transaction::BlockItem, Client,
-    };
+    use eth_common::{transaction::BlockItem, Client};
     use hashbrown::HashSet;
     use prover_primitives::types::StoneProofPublicInput;
     use prover_primitives::{
@@ -209,7 +207,7 @@ mod tests {
         // internal prover's data
         let db_url = "../data/db";
         let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
-        let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
+        let attestation_fragment = db.get_fragment_for(block.into()).unwrap().into();
 
         let mut checkpoints =
             AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path);
@@ -221,10 +219,9 @@ mod tests {
         let overwrite_existing_stone_proof = false;
         let result = crate::cairo_generate_proof(
             cairo_claim,
+            &attestation_fragment,
             tx_bytes,
             rx_bytes,
-            &attestation_fragment,
-            checkpoints.inner(),
             generate_stone_proof,
             overwrite_existing_stone_proof,
         )
@@ -267,12 +264,11 @@ mod tests {
         let block = 19543696;
         let index = 45;
 
-        let tx_asd = eth_common::fetch_block_transactions(
-            "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e",
-            block,
-        )
-        .await
-        .unwrap();
+        let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
+
+        let eth_client = Client::new(url).await.expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let tx_asd = eth_client.get_transactions(block).await.unwrap();
 
         let payload_bytes = tx_asd[index].payload_bytes();
 

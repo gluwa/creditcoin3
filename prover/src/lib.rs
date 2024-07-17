@@ -1,7 +1,7 @@
 use anyhow::Result;
 use attestation_cache::AttestationCache;
 use cc_client::AccountId32;
-use eth::Client;
+use eth::{transaction::BlockItem, Client};
 use sp_core::H256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -132,7 +132,7 @@ pub async fn handle_claim_sub(
     Ok(())
 }
 
-pub async fn process_claim(client: CcClientArc, eth_client: Client, claim: Claim) -> Result<()> {
+pub async fn process_claim(client: CcClientArc, _eth_client: Client, claim: Claim) -> Result<()> {
     info!("Processing claim with hash: {:?}", claim.hash);
 
     // Check if claim exists on source chain
@@ -147,6 +147,34 @@ pub async fn process_claim(client: CcClientArc, eth_client: Client, claim: Claim
             error!("Error checking claim inclusion: {:?}", e);
         }
     };
+
+    let tx_asd = eth_client
+        .get_transactions(claim.claim.block_number)
+        .await
+        .unwrap();
+    let rx_asd = eth_client
+        .get_receipts(claim.claim.block_number)
+        .await
+        .unwrap();
+
+    let _tx_bytes = tx_asd
+        .iter()
+        .map(eth::transaction::Transaction::to_bytes)
+        .collect::<Vec<_>>();
+    let _rx_bytes = rx_asd
+        .iter()
+        .map(eth::transaction::Receipt::to_bytes)
+        .collect::<Vec<_>>();
+
+    // let proof_output = proof::cairo_generate_proof(
+    //     claim,
+    //     claim_attestation_fragment,
+    //     tx_bytes,
+    //     rx_bytes,
+    //     true,
+    //     true,
+    // )
+    // .await?;
 
     // Create proof (TODO: hook up prover)
     let mut proof_example = File::open("proof_example.json").await?;

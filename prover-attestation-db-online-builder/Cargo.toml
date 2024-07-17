@@ -29,7 +29,7 @@ attestation-chain = { path = "../primitives/attestation_chain" }
 attestation-db = { path = "../attestation-db" }
 attestation-blocks-online-builder = { path = "../attestation-blocks-online-builder" }
 proof = { path = "../proof" }
-prover-primitives = { path = "../primitives/prover"}
+prover-primitives = { path = "../primitives/prover" }
 eth-common = { path = "../common/eth", package = "eth" }
 poc-config = { path = "../poc-config" }
 ethereum-types = "0.14.1"
