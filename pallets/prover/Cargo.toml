@@ -37,7 +37,6 @@ supported-chains-primitives = { workspace = true }
 proof-verifier = { workspace = true }
 
 fp-account = { workspace = true }
-prover-primitives = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

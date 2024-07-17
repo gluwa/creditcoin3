@@ -11,8 +11,9 @@ use prover_primitives::types::{
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
-use utils::json_serializable::JsonSerializable;
 use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
+
+use crate::json_serializable::JsonSerializable;
 
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";

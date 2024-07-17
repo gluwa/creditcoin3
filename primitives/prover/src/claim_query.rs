@@ -3,7 +3,6 @@ use hashbrown::HashSet;
 use rlp::{Decodable, Rlp};
 use serde::{Deserialize, Serialize};
 use sp_std::vec::Vec;
-use utils::json_serializable::JsonSerializable;
 use utils::utils::U248_BYTE_COUNT;
 
 pub trait ClaimQueryField: TryFrom<usize> + Serialize {
@@ -449,8 +448,6 @@ impl TryFrom<HashSet<Eip4844TxClaimQueryField>> for TxClaimQuery {
     }
 }
 
-impl JsonSerializable for TxClaimQuery {}
-
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct TypedClaimQuery<T: ClaimQueryField>(Vec<T>);
 
@@ -498,8 +495,6 @@ impl<T: ClaimQueryField> TryFrom<HashSet<T>> for TypedClaimQuery<T> {
             .ok_or(anyhow::anyhow!("no fields in claim query"))
     }
 }
-
-impl<T: ClaimQueryField + for<'a> Deserialize<'a>> JsonSerializable for TypedClaimQuery<T> {}
 
 pub type Eip1559RxClaimQueryField = Eip658RxClaimQueryField;
 pub type Eip2930RxClaimQueryField = Eip658RxClaimQueryField;
@@ -651,5 +646,3 @@ impl TryFrom<HashSet<FrontierClaimQueryField>> for RxClaimQuery {
         >::try_from(fields)?))
     }
 }
-
-impl JsonSerializable for RxClaimQuery {}

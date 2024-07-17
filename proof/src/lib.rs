@@ -1,4 +1,5 @@
 pub mod claim_prover;
+pub mod json_serializable;
 
 use anyhow::anyhow;
 
@@ -6,9 +7,6 @@ use crate::claim_prover::{build_prover, ClaimProver};
 use attestation_chain::attestation_fragment::AttestationFragment;
 use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
-use utils::print_with_timestamp;
-//use attestor::merkle::tree::FieldElement;
-//use eth_common::transaction::Transaction;
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
 use colored::Colorize;
 use either::Either;
@@ -32,14 +30,12 @@ pub async fn cairo_generate_proof(
         .ok_or(anyhow!("unable to slice fragment {claim_attestation_fragment:?} for block number {} and checkpoint {}", block_number, claim_checkpoint.n()))?;
 
     println!("\n");
-    print_with_timestamp("---------- cairo claim proving task is starting ----------".bold());
     println!("claim: {:?}", claim);
     println!("fetching block and building merkle trees...");
 
     let mut cairo_verifier = build_prover(url, claim.clone(), claim_attestation_slice)
         .await
         .map(|claim_cairo_verifier| {
-            print_with_timestamp("done".into());
             println!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
             println!("running script {}", format!("{:?}", ClaimProver::script_source()).bright_cyan());
 
@@ -67,7 +63,6 @@ pub async fn cairo_generate_proof(
     let output = cairo_verifier
         .cairo_output()
         .ok_or(anyhow!("successful verification expected to yield output"))?;
-    print_with_timestamp("----- cairo verification successful -----".green());
     println!("cairo verification output:");
     println!("{}", format!("{:?}", output).bold());
 

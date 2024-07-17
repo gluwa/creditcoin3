@@ -9,7 +9,6 @@ use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_std::{vec, vec::Vec};
 use utils::block_item_traits::BlockItemIdentifier;
-use utils::json_serializable::JsonSerializable;
 use utils::{
     pedersen_hash::pedersen_array,
     utils::{felts_to_bytes, U248_BYTE_COUNT},
@@ -135,7 +134,7 @@ impl<'a, Q: ClaimQuery> Claim<'a, Q> {
         let local_offsets_hash = self.query_hash();
         if proof_public_input.query_hash != local_offsets_hash {
             return Err(QueryOffsetsMismatch(
-                proof_public_input.query_hash.clone(),
+                proof_public_input.query_hash,
                 local_offsets_hash,
             ));
         }
@@ -270,5 +269,3 @@ impl<Q: ClaimQuery> From<&Claim<'_, Q>> for ClaimSerializable {
         }
     }
 }
-
-impl JsonSerializable for ClaimSerializable {}

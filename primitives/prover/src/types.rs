@@ -1,16 +1,14 @@
 use crate::claim::ClaimIdentifier;
 use anyhow::anyhow;
 use ethereum_types::U256;
+use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
+use sp_std::boxed::Box;
+use sp_std::vec::Vec;
 use utils::block_item_traits::BlockItemIdentifier;
-use utils::json_serializable::JsonSerializable;
 use utils::utils::{try_parse_felt, try_parse_u64, try_parse_usize, u256_from_felts};
 use utils::Felt;
 use utils::StarknetPedersenMerkleProof;
-//pub type Felt = starknet_crypto::FieldElement;
-use scale_info::prelude::format;
-use sp_std::boxed::Box;
-use sp_std::vec::Vec;
 
 extern crate alloc;
 use alloc::borrow::ToOwned;
@@ -299,8 +297,6 @@ pub struct StoneProofJson {
     pub private_input: serde_json::value::Value,
 }
 
-impl JsonSerializable for StoneProofJson {}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StoneProof(StoneProofJson);
 
@@ -331,5 +327,3 @@ impl From<StoneProofJson> for StoneProof {
         Self(proof_json)
     }
 }
-
-impl JsonSerializable for StoneProof {}

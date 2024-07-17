@@ -8671,6 +8671,7 @@ dependencies = [
  "eth",
  "ethereum 0.15.0",
  "ethereum-types",
+ "fs2",
  "futures 0.3.30",
  "mmr",
  "pallet-attestation-poc",
