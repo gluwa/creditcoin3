@@ -23,7 +23,7 @@ Chain can be repeated multiple times to add multiple chains.
 
 ## Running
 
-Start the side services first:
+Start the side services first (there is an adminer app running on localhost:81):
 
 ```sh
 docker compose up -d
