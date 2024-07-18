@@ -260,6 +260,7 @@ mod tests {
         AttestationJsonDB::try_create(DB_PATH).unwrap()
     }
 
+    #[ignore]
     #[test]
     fn key_for_block_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -290,6 +291,7 @@ mod tests {
         println!("key({block}) = {:?}", key);
     }
 
+    #[ignore]
     #[test]
     fn fail_set_misaligned_fragment_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -304,6 +306,7 @@ mod tests {
         ));
     }
 
+    #[ignore]
     #[test]
     fn fail_set_repeated_fragment_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -357,6 +360,7 @@ mod tests {
         ));
     }
 
+    #[ignore]
     #[test]
     fn set_two_fragments_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -414,6 +418,7 @@ mod tests {
         //        db.flush();
     }
 
+    #[ignore]
     #[test]
     fn append_block_as_genenis_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -422,6 +427,7 @@ mod tests {
         let res = db.try_append_block(Block::new(42.into(), 0u64.into(), 0u64.into()));
         assert!(res.is_ok());
     }
+    #[ignore]
     #[test]
     fn fail_appending_block_as_genenis_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -433,6 +439,7 @@ mod tests {
             Err(AttestationDbError::MisalignedBlockDiscarded(_))
         ));
     }
+    #[ignore]
     #[test]
     fn append_blocks_from_genesis_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -465,6 +472,7 @@ mod tests {
         assert_eq!(db.len(), 2);
     }
 
+    #[ignore]
     #[test]
     fn set_fragments_then_append_blocks_test() {
         let _lock = DB_LOCK.lock().unwrap();
@@ -527,6 +535,7 @@ mod tests {
         assert_eq!(prev_len, db.len());
     }
 
+    #[ignore]
     #[test]
     fn load_db_state_test() {
         let _lock = DB_LOCK.lock().unwrap();

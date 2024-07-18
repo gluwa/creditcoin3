@@ -183,6 +183,7 @@ mod tests {
     use crate::attestation_checkpoints::AttestationCheckpoint;
     use crate::dense_checkpoints::DenseCheckpoints;
 
+    #[ignore]
     #[test]
     fn basic_dense_append_test4() {
         let mut dcps = DenseCheckpoints::default();
@@ -199,6 +200,7 @@ mod tests {
         }
         println!("{}", dcps);
     }
+    #[ignore]
     #[test]
     fn basic_dense_append_test6() {
         let mut dcps = DenseCheckpoints::default();

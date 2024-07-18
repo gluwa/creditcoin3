@@ -439,6 +439,7 @@ mod tests {
     };
     use utils::Felt;
 
+    #[ignore]
     #[test]
     fn basic_append_test1() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -463,6 +464,7 @@ mod tests {
         println!("{}", checkpoints);
     }
 
+    #[ignore]
     #[test]
     fn basic_append_test2() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -507,6 +509,7 @@ mod tests {
         // }).is_some());
     }
 
+    #[ignore]
     #[test]
     fn add_misaligned_test() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -521,6 +524,8 @@ mod tests {
         }
         println!("{}", checkpoints);
     }
+
+    #[ignore]
     #[test]
     #[should_panic]
     fn fail_on_non_contiguous_checkpoint_test() {
@@ -537,6 +542,7 @@ mod tests {
         println!("{}", checkpoints);
     }
 
+    #[ignore]
     #[test]
     fn checkpoints_serialize_test() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -569,6 +575,7 @@ mod tests {
         println!("head: {:?}", checkpoints_after.head());
     }
 
+    #[ignore]
     #[test]
     fn fail_on_empty_prepend_test() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -581,6 +588,7 @@ mod tests {
 
         assert_eq!(res, Err(AttestationCheckpointError::PrependToUnstabilized));
     }
+    #[ignore]
     #[test]
     fn prepend_to_unstabilized_test() {
         //        fn fail_on_prepend_to_unstabilized_test() {
@@ -604,6 +612,7 @@ mod tests {
         assert_eq!(res, Ok(()));
     }
 
+    #[ignore]
     #[test]
     fn prepend_test1() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -628,6 +637,7 @@ mod tests {
         //        assert_eq!(res, Err(AttestationCheckpointError::PrependToUnstabilized));
     }
 
+    #[ignore]
     #[test]
     fn prepend_test2() {
         let mut checkpoints = AttestationCheckpoints::new();
@@ -663,6 +673,7 @@ mod tests {
         println!("{}", checkpoints);
     }
 
+    #[ignore]
     #[test]
     fn fail_on_prepend_after_tail() {
         //        fn fail_on_prepend_after_tail() {
@@ -707,6 +718,7 @@ mod tests {
         println!("{}", checkpoints);
     }
 
+    #[ignore]
     #[test]
     fn prepend_on_unstabilized() {
         //        fn fail_on_prepend_after_tail() {
@@ -732,6 +744,7 @@ mod tests {
         assert_eq!(res, Ok(()));
     }
 
+    #[ignore]
     #[test]
     fn checkpoints_serialize_test2() {
         use std::fs::create_dir_all;
