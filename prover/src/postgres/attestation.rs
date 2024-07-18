@@ -4,13 +4,13 @@ use diesel::prelude::*;
 use diesel::result::Error as DieselError;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
+use starknet_types_core::felt::Felt as FieldElement;
+use tracing::debug;
 
 use attestor_primitives::SignedAttestation;
 
 use super::schema::signedattestation::{self, dsl::signedattestation as signedattestation_table};
 use attestation_chain::block::Block;
-use starknet_types_core::felt::Felt as FieldElement;
-use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
 #[diesel(table_name = signedattestation)]
@@ -29,9 +29,9 @@ pub struct Attestation {
 
 impl From<Attestation> for Block {
     fn from(attestation: Attestation) -> Self {
-        info!("Converting attestation to block: {:?}", attestation);
-        info!("tx_root : {:?}", attestation.tx_root);
-        info!("tx_root str: {:?}", attestation.tx_root.as_str());
+        debug!("Converting attestation to block: {:?}", attestation);
+        debug!("tx_root : {:?}", attestation.tx_root);
+        debug!("tx_root str: {:?}", attestation.tx_root.as_str());
 
         Block {
             block_number: attestation.header_number.into(),
@@ -60,8 +60,6 @@ fn hex_to_felt(hex: &str) -> Result<FieldElement, String> {
     let byte_array: [u8; 32] = bytes
         .try_into()
         .map_err(|_| "Failed to convert bytes to a 32-byte array".to_string())?;
-
-    println!("byte_array: {:?}", byte_array);
 
     Ok(FieldElement::from_bytes_be(&byte_array))
 }

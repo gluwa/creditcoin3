@@ -10,10 +10,8 @@ use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, Attestat
 use attestation_chain::attestation_fragment::AttestationFragment;
 
 use crate::claim_prover::{build_prover, ClaimProver};
-//use crate::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
 pub mod claim_prover;
-//pub mod types;
 
 pub mod json_serializable;
 

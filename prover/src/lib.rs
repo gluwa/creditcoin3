@@ -179,9 +179,14 @@ pub async fn process_claim(
         .map(eth::transaction::Receipt::to_bytes)
         .collect::<Vec<_>>();
 
+    let claim_kind = match claim.claim.id.kind {
+        cc_client::cc3::runtime_types::pallet_prover::types::ClaimKind::Tx => ClaimKind::Tx,
+        cc_client::cc3::runtime_types::pallet_prover::types::ClaimKind::Rx => ClaimKind::Rx,
+    };
+
     let claim_serializable = ClaimSerializable {
         id: ClaimIdentifier {
-            kind: ClaimKind::Tx,
+            kind: claim_kind,
             block_item_id: BlockItemIdentifier::new(
                 claim.claim.id.block_item_id.block_number.into(),
                 claim.claim.id.block_item_id.index as u64,
@@ -201,8 +206,8 @@ pub async fn process_claim(
     let block_number = claim.claim.id.block_item_id.block_number;
     let index = claim.claim.id.block_item_id.index;
 
-    info!("Claim block number: {:?}", block_number);
-    info!("Claim index number: {:?}", index);
+    debug!("Claim block number: {:?}", block_number);
+    debug!("Claim index number: {:?}", index);
 
     let client = Arc::clone(&client);
 
