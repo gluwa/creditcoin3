@@ -16,6 +16,7 @@ mod tests;
 pub mod pallet {
     use crate::types::{Claim, Prover};
 
+    use attestor_primitives::ChainId;
     use frame_support::{
         dispatch::DispatchResult,
         pallet_prelude::{ValueQuery, *},
