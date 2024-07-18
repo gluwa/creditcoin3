@@ -178,6 +178,7 @@ impl<'a> ClaimProver<'a> {
     }
 }
 
+#[allow(clippy::needless_lifetimes)]
 pub async fn build_prover<'a>(
     claim: ClaimSerializable,
     attestation_chain_slice: FragmentSlice<'a>,

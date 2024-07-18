@@ -42,6 +42,10 @@ diesel-async = { version = "0.4", features = [
     "tokio",
 ] }
 diesel_migrations = "2.1"
+futures = { workspace = true }
+either = "1.13.0"
+prover-primitives = { workspace = true }
+starknet-types-core = { workspace = true }
 
 # Substrate
 sp-core = { workspace = true, default-features = false }
@@ -55,7 +59,3 @@ eth = { workspace = true }
 attestation-chain = { workspace = true }
 utils = { workspace = true }
 proof = { workspace = true }
-futures = { workspace = true }
-either = "1.13.0"
-prover-primitives = { workspace = true }
-starknet-types-core = { workspace = true }
