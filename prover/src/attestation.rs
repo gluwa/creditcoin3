@@ -74,7 +74,7 @@ impl From<crate::postgres::attestation::Attestation> for Block {
 fn hex_to_felt(hex: &str) -> anyhow::Result<FieldElement, String> {
     let mut bytes = match hex::decode(hex) {
         Ok(b) => b,
-        Err(e) => return Err(format!("Failed to decode hex: {}", e)),
+        Err(e) => return Err(format!("Failed to decode hex: {e}")),
     };
 
     if bytes.len() > 32 {
@@ -111,6 +111,6 @@ fn test_from_attestation_to_block() {
 
     let block: Block = attestation.into();
     assert_eq!(block.block_number, 1.into());
-    assert_eq!(block.tx_root, FieldElement::from_str("0x1234").unwrap());
-    assert_eq!(block.rx_root, FieldElement::from_str("0x1234").unwrap());
+    assert_eq!(block.tx_root, FieldElement::from_hex("0x1234").unwrap());
+    assert_eq!(block.rx_root, FieldElement::from_hex("0x1234").unwrap());
 }

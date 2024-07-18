@@ -19,6 +19,7 @@ missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
 redundant_slicing = "allow"
 from_over_into = "allow"
+cast_possible_wrap = "allow"
 
 [package.metadata.release]
 release = false

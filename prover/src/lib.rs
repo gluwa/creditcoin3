@@ -30,6 +30,8 @@ pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
 /// `CcClientArc` type
 type CcClientArc = Arc<cc3::Client>;
 
+const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
+
 /// Prover server is configured using `Config`
 pub struct Server {
     #[allow(dead_code)]
@@ -189,7 +191,7 @@ pub async fn process_claim(
             kind: claim_kind,
             block_item_id: BlockItemIdentifier::new(
                 claim.claim.id.block_item_id.block_number.into(),
-                claim.claim.id.block_item_id.index as u64,
+                u64::from(claim.claim.id.block_item_id.index),
             ),
         },
         felt_ranges: claim
@@ -235,7 +237,6 @@ pub async fn process_claim(
     .await;
 
     let cairo_output_of_stone_proof = proof.unwrap();
-    const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
 
     let _output = match cairo_output_of_stone_proof {
         either::Left((mut stone_proof, stone_proof_dir)) => {

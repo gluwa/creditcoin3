@@ -1,11 +1,11 @@
 use crate::mock::{
-    Account::{Alice, Precompile},
+    Account::{Alice, Bob, Precompile},
     *,
 };
 
+use pallet_prover::types::{BlockItemIdentifier, Claim, ClaimId, ClaimKind};
 use precompile_utils::prelude::Address;
 use precompile_utils::testing::*;
-use prover_primitives::claim::{Claim, ClaimKind};
 use sp_core::{H160, H256};
 use sp_runtime::traits::Hash;
 use std::str::from_utf8;
@@ -23,12 +23,15 @@ fn submit_claim_works() {
     let bob: H160 = Bob.into();
 
     let claim = Claim {
-        block_number: 1,
         chain_id: 1,
-        tx_index: 123,
-        to: alice,
-        from: bob,
-        kind: ClaimKind::Rx,
+        id: ClaimId {
+            block_item_id: BlockItemIdentifier {
+                block_number: 1,
+                index: 1,
+            },
+            kind: ClaimKind::Tx,
+        },
+        felt_ranges: vec![],
     };
     let claim_hash = <Runtime as pallet_prover::Config>::Hashing::hash_of(&claim);
 
@@ -41,13 +44,13 @@ fn submit_claim_works() {
                     alice,
                     Precompile,
                     PCall::submit_claim {
-                        block_number: claim.block_number,
+                        block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
-                        tx_index: claim.tx_index,
-                        to: Address(claim.to),
-                        from: Address(claim.from),
-                        is_tx: claim.kind == ClaimKind::Tx,
-                        is_rx: claim.kind == ClaimKind::Rx,
+                        tx_index: claim.id.block_item_id.index,
+                        to: Address(alice),
+                        from: Address(bob),
+                        is_tx: claim.id.kind == ClaimKind::Tx,
+                        is_rx: claim.id.kind == ClaimKind::Rx,
                     },
                 )
                 .execute_returns(claim_hash);
@@ -63,7 +66,6 @@ fn submit_claim_works() {
 #[test]
 fn submit_claim_fails_without_enough_balance() {
     let alice: H160 = Alice.into();
-
     let bob: H160 = Bob.into();
 
     ExtBuilder::default()
@@ -95,18 +97,20 @@ fn submit_claim_fails_without_enough_balance() {
 
 #[test]
 fn submit_claim_and_invalid_proof_fails() {
+    let alice: H160 = Alice.into();
     let bob: H160 = Bob.into();
     let bob_account: H256 = Bob.into();
 
-    let alice: H160 = Alice.into();
-
     let claim = Claim {
-        block_number: 1,
         chain_id: 1,
-        tx_index: 123,
-        to: alice,
-        from: bob,
-        kind: ClaimKind::Rx,
+        id: ClaimId {
+            block_item_id: BlockItemIdentifier {
+                block_number: 1,
+                index: 123,
+            },
+            kind: ClaimKind::Rx,
+        },
+        felt_ranges: vec![],
     };
 
     let claim_hash = <Runtime as pallet_prover::Config>::Hashing::hash_of(&claim);
@@ -120,13 +124,13 @@ fn submit_claim_and_invalid_proof_fails() {
                     bob,
                     Precompile,
                     PCall::submit_claim {
-                        block_number: claim.block_number,
+                        block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
-                        tx_index: claim.tx_index,
-                        to: Address(claim.to),
-                        from: Address(claim.from),
-                        is_tx: claim.kind == ClaimKind::Tx,
-                        is_rx: claim.kind == ClaimKind::Rx,
+                        tx_index: claim.id.block_item_id.index,
+                        to: Address(alice),
+                        from: Address(bob),
+                        is_tx: claim.id.kind == ClaimKind::Tx,
+                        is_rx: claim.id.kind == ClaimKind::Rx,
                     },
                 )
                 .execute_returns(claim_hash);
@@ -159,16 +163,18 @@ fn submit_claim_and_invalid_proof_fails() {
 #[test]
 fn submit_invalid_claim_fails() {
     let bob: H160 = Bob.into();
-
     let alice: H160 = Alice.into();
 
     let claim = Claim {
-        block_number: 1,
         chain_id: 1,
-        tx_index: 123,
-        to: alice,
-        from: bob,
-        kind: ClaimKind::Rx,
+        id: ClaimId {
+            block_item_id: BlockItemIdentifier {
+                block_number: 1,
+                index: 123,
+            },
+            kind: ClaimKind::Rx,
+        },
+        felt_ranges: vec![],
     };
 
     ExtBuilder::default()
@@ -180,11 +186,11 @@ fn submit_invalid_claim_fails() {
                     bob,
                     Precompile,
                     PCall::submit_claim {
-                        block_number: claim.block_number,
+                        block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
-                        tx_index: claim.tx_index,
-                        to: Address(claim.to),
-                        from: Address(claim.from),
+                        tx_index: claim.id.block_item_id.index,
+                        to: Address(alice),
+                        from: Address(bob),
                         // Both false
                         is_tx: false,
                         is_rx: false,
@@ -197,16 +203,18 @@ fn submit_invalid_claim_fails() {
 #[test]
 fn submit_claim_for_unsupported_chain_fails() {
     let bob: H160 = Bob.into();
-
     let alice: H160 = Alice.into();
 
     let claim = Claim {
-        block_number: 1,
         chain_id: 11111,
-        tx_index: 123,
-        to: alice,
-        from: bob,
-        kind: ClaimKind::Rx,
+        id: ClaimId {
+            block_item_id: BlockItemIdentifier {
+                block_number: 1,
+                index: 123,
+            },
+            kind: ClaimKind::Rx,
+        },
+        felt_ranges: vec![],
     };
 
     ExtBuilder::default()
@@ -218,13 +226,13 @@ fn submit_claim_for_unsupported_chain_fails() {
                     bob,
                     Precompile,
                     PCall::submit_claim {
-                        block_number: claim.block_number,
+                        block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
-                        tx_index: claim.tx_index,
-                        to: Address(claim.to),
-                        from: Address(claim.from),
-                        is_tx: claim.kind == ClaimKind::Tx,
-                        is_rx: claim.kind == ClaimKind::Rx,
+                        tx_index: claim.id.block_item_id.index,
+                        to: Address(alice),
+                        from: Address(bob),
+                        is_tx: claim.id.kind == ClaimKind::Tx,
+                        is_rx: claim.id.kind == ClaimKind::Rx,
                     },
                 )
                 .execute_reverts(|output| {
@@ -239,7 +247,6 @@ fn submit_claim_for_unsupported_chain_fails() {
 #[test]
 fn submit_proof_for_unknown_claim_fails() {
     let bob: H160 = Bob.into();
-
     let alice: H160 = Alice.into();
 
     let claim_hash = H256::random();

@@ -1,9 +1,9 @@
 use self::mock::PROVER_3;
 
 use super::*;
-use fp_account::AccountId20;
+use crate::types::{BlockItemIdentifier, Claim, ClaimId, ClaimKind};
+
 use frame_support::{assert_err, assert_ok};
-use prover_primitives::claim::{Claim, ClaimKind};
 use sp_runtime::traits::Hash;
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, Test, CLAIMER_1, PROVER_1};
@@ -92,12 +92,15 @@ fn remove_chain_price_works() {
 fn create_claim_works() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
-            block_number: 1,
             chain_id: 1,
-            tx_index: 154,
-            from: test_account_id20(),
-            to: test_account_id20(),
-            kind: ClaimKind::Tx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 1,
+                },
+            },
+            felt_ranges: vec![],
         };
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
@@ -111,12 +114,15 @@ fn create_claim_works() {
 fn create_multiple_claims_works() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
-            block_number: 1,
             chain_id: 1,
-            tx_index: 154,
-            from: test_account_id20(),
-            to: test_account_id20(),
-            kind: ClaimKind::Tx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 1,
+                },
+            },
+            felt_ranges: vec![],
         };
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
@@ -125,12 +131,15 @@ fn create_multiple_claims_works() {
         assert_eq!(locked_balance, 100);
 
         let claim = Claim {
-            block_number: 15,
             chain_id: 1,
-            tx_index: 123,
-            from: test_account_id20(),
-            to: test_account_id20(),
-            kind: ClaimKind::Rx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 1,
+                },
+            },
+            felt_ranges: vec![],
         };
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim));
@@ -144,12 +153,15 @@ fn create_multiple_claims_works() {
 fn submit_invalid_proof_fails() {
     ExtBuilder.build_and_execute(|| {
         let claim = Claim {
-            block_number: 1,
             chain_id: 1,
-            tx_index: 154,
-            from: test_account_id20(),
-            to: test_account_id20(),
-            kind: ClaimKind::Tx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 1,
+                },
+            },
+            felt_ranges: vec![],
         };
 
         assert_ok!(ProverModule::submit_claim(claimer_1(), claim.clone(),));
@@ -178,12 +190,15 @@ fn submit_claim_for_unsupported_chain_fails() {
 
         // None of the chains are supported
         let claim = Claim {
-            block_number: 1,
             chain_id: 2,
-            tx_index: 154,
-            from: test_account_id20(),
-            to: test_account_id20(),
-            kind: ClaimKind::Tx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 1,
+                },
+            },
+            felt_ranges: vec![],
         };
 
         assert_err!(
@@ -216,13 +231,4 @@ fn add_chain_price_for_unsupported_chain_fails() {
             Error::<Test>::ChainNotSupported
         );
     })
-}
-
-fn test_account_id20() -> AccountId20 {
-    let hex_acc: [u8; 20] = hex::decode("98fa2838ee6471ae87135880f870a785318e6787")
-        .unwrap()
-        .try_into()
-        .unwrap();
-
-    AccountId20::from(hex_acc)
 }

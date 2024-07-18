@@ -217,7 +217,7 @@ mod tests {
         // internal prover's data
         let db_url = "../data/db";
         let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
-        let attestation_fragment = db.get_fragment_for(block.into()).unwrap().into();
+        let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
 
         let mut checkpoints =
             AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path);

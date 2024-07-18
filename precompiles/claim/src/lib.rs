@@ -55,7 +55,7 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_prover::Config>::Address: From<H160>,
 {
-    #[precompile::public("submit_claim(uint64,uint64,uint8,address,address,bool,bool)")]
+    #[precompile::public("submit_claim(uint64,uint64,uint32,address,address,bool,bool)")]
     fn submit_claim(
         handle: &mut impl PrecompileHandle,
         chain_id: u64,

@@ -4,13 +4,10 @@ use diesel::prelude::*;
 use diesel::result::Error as DieselError;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
-use starknet_types_core::felt::Felt as FieldElement;
-use tracing::debug;
 
 use attestor_primitives::SignedAttestation;
 
 use super::schema::signedattestation::{self, dsl::signedattestation as signedattestation_table};
-use attestation_chain::block::Block;
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
 #[diesel(table_name = signedattestation)]
