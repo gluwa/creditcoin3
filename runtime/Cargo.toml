@@ -99,6 +99,7 @@ default = ["std"]
 devnet = []
 fast-runtime = []
 runtime-benchmarks = [
+    "pallet-attestation-poc/runtime-benchmarks",
     "frame-benchmarking/runtime-benchmarks",
     "frame-system-benchmarking/runtime-benchmarks",
     "frame-system/runtime-benchmarks",

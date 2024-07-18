@@ -1038,6 +1038,7 @@ mod benches {
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
         [pallet_prover, Prover]
+        [pallet_attestation_poc, Attestation]
     );
 }
 

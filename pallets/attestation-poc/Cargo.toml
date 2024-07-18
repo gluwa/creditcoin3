@@ -36,7 +36,10 @@ pallet-supported-chains = { workspace = true }
 
 [features]
 default = ["std"]
-runtime-benchmarks = ["frame-benchmarking", "pallet-balances"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+]
 std = [
     "frame-support/std",
     "frame-system/std",
