@@ -218,6 +218,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::submit_claim())]
         pub fn submit_claim(
             origin: OriginFor<T>,
