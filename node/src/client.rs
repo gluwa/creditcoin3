@@ -19,6 +19,7 @@ impl NativeExecutionDispatch for CreditcoinRuntimeExecutor {
     #[cfg(feature = "runtime-benchmarks")]
     type ExtendHostFunctions = (
         creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+        proof_verifier::host_benchmark_api::HostFunctions,
         proof_verifier::host_api::HostFunctions,
         frame_benchmarking::benchmarking::HostFunctions,
     );
@@ -26,6 +27,7 @@ impl NativeExecutionDispatch for CreditcoinRuntimeExecutor {
     #[cfg(not(feature = "runtime-benchmarks"))]
     type ExtendHostFunctions = (
         creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+        proof_verifier::host_benchmark_api::HostFunctions,
         proof_verifier::host_api::HostFunctions,
     );
 
