@@ -5,6 +5,9 @@ pub use pallet::*;
 #[allow(clippy::unnecessary_cast)]
 pub mod weights;
 
+#[allow(clippy::unnecessary_cast)]
+pub mod weights1;
+
 #[cfg(test)]
 mod mock;
 

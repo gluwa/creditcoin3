@@ -8,7 +8,7 @@
 //! WASM-EXECUTION: `Compiled`, CHAIN: `Some("dev")`, DB CACHE: 1024
 
 // Executed Command:
-// ./target/production/creditcoin3-node
+// ./target/release/creditcoin3-node
 // benchmark
 // pallet
 // --chain
@@ -33,7 +33,7 @@ use core::marker::PhantomData;
 
 /// Weight functions for `pallet_attestation_poc`.
 pub struct WeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> pallet_attestation_poc::WeightInfo for WeightInfo<T> {
+impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Storage: `Attestation::SupportedChains` (r:1 w:1)
 	/// Proof: `Attestation::SupportedChains` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::ChainAttestationInterval` (r:0 w:1)
@@ -42,10 +42,43 @@ impl<T: frame_system::Config> pallet_attestation_poc::WeightInfo for WeightInfo<
 		// Proof Size summary in bytes:
 		//  Measured:  `218`
 		//  Estimated: `1703`
-		// Minimum execution time: 8_000_000 picoseconds.
-		Weight::from_parts(8_000_000, 0)
+		// Minimum execution time: 10_000_000 picoseconds.
+		Weight::from_parts(10_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 1703))
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(2))
+	}
+	fn unregister_attestor() -> Weight {
+		Weight::MAX
+	}
+	fn register_attestor() -> Weight {
+		Weight::MAX
+	}
+    fn set_max_attestors() -> Weight {
+		Weight::MAX
+	}
+    fn register_invulnerable() -> Weight {
+		Weight::MAX
+	}
+    fn unregister_invulnerable() -> Weight {
+		Weight::MAX
+	}
+    fn set_max_invulnerables() -> Weight {
+		Weight::MAX
+	}
+    fn attest_block() -> Weight {
+		Weight::MAX
+	}
+    fn bootstrap_chain() -> Weight {
+		Weight::MAX
+	}
+    fn commit_attestation() -> Weight {
+		Weight::MAX
+	}
+    fn set_comitte_set_size() -> Weight {
+		Weight::MAX
+	}
+    fn remove_supported_chain() -> Weight {
+		Weight::MAX
 	}
 }
