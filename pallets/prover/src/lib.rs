@@ -34,7 +34,7 @@ pub mod pallet {
     use proof_verifier::host_api::verify_proof;
     #[cfg(feature = "runtime-benchmarks")]
     use proof_verifier::host_benchmark_api::verify_proof;
-    pub use prover_primitives::{claim::Claim, ChainPriceConfiguration};
+    pub use prover_primitives::ChainPriceConfiguration;
     use sp_runtime::traits::{CheckedAdd, CheckedSub, Hash, SaturatedConversion, Zero};
     use sp_std::vec::Vec;
     use sp_std::{collections::btree_map::BTreeMap, fmt::Debug, vec};
@@ -64,7 +64,7 @@ pub mod pallet {
         fn register_prover() -> Weight;
         fn set_chain_price_config() -> Weight;
         fn submit_claim() -> Weight;
-        fn submit_proof(proof_bytes_len: u32) -> Weight;
+        fn submit_proof() -> Weight;
     }
 
     #[pallet::storage]
@@ -218,13 +218,9 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(3)]
-        #[pallet::weight(<T as Config>::WeightInfo::submit_claim())]
-        pub fn submit_claim(
-            origin: OriginFor<T>,
-            claim: Claim<<T as Config>::Address>,
-        ) -> DispatchResult {
         #[pallet::call_index(2)]
+        #[pallet::weight(<T as Config>::WeightInfo::submit_claim())]
+        pub fn submit_claim(origin: OriginFor<T>, claim: Claim) -> DispatchResult {
             let source = ensure_signed(origin)?;
 
             ensure!(

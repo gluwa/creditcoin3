@@ -1558,8 +1558,8 @@ impl_runtime_apis! {
 
         #[cfg(feature = "runtime-benchmarks")]
         fn trace_transaction(
-            extrinsics: Vec<<Block as BlockT>::Extrinsic>,
-            traced_transaction: &EthereumTransaction,
+            _extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            _traced_transaction: &EthereumTransaction,
         ) -> Result<
             (),
             sp_runtime::DispatchError,
@@ -1605,8 +1605,8 @@ impl_runtime_apis! {
 
         #[cfg(feature = "runtime-benchmarks")]
         fn trace_block(
-            extrinsics: Vec<<Block as BlockT>::Extrinsic>,
-            known_transactions: Vec<H256>,
+            _extrinsics: Vec<<Block as BlockT>::Extrinsic>,
+            _known_transactions: Vec<H256>,
         ) -> Result<
             (),
             sp_runtime::DispatchError,

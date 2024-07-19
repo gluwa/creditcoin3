@@ -1,11 +1,14 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
+use crate::types::BlockItemIdentifier;
+use crate::types::Claim;
+use crate::types::ClaimId;
+use crate::types::ClaimKind;
 use crate::types::Prover;
 use frame_benchmarking::{account, benchmarks};
 use frame_support::traits::Currency;
 use frame_system::RawOrigin;
-use prover_primitives::claim::ClaimKind;
 use sp_runtime::SaturatedConversion;
 use sp_std::vec;
 
@@ -13,7 +16,7 @@ benchmarks! {
     register_prover {
         let who: T::AccountId = account("who", 1, 1);
         let prover : Prover = Prover {
-            nickname: vec![1, 2, 3],
+            nickname: b"gluwa_prover1".to_vec(),
         };
     }: _(RawOrigin::Signed(who.clone()), prover.clone())
     verify {
@@ -23,7 +26,7 @@ benchmarks! {
     set_chain_price_config {
         let who: T::AccountId = account("who", 1, 1);
         let prover : Prover = Prover {
-            nickname: vec![1, 2, 3],
+            nickname: b"gluwa_prover1".to_vec(),
         };
 
         Provers::<T>::insert(&who, prover);
@@ -41,7 +44,7 @@ benchmarks! {
     submit_claim {
         let who: T::AccountId = account("prover1", 1, 1);
         let prover : Prover = Prover {
-            nickname: vec![1, 2, 3],
+            nickname: b"gluwa_prover1".to_vec(),
         };
 
         let claimer = account("claimer", 1, 1);
@@ -51,12 +54,15 @@ benchmarks! {
         <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer, cash);
 
         let claim = Claim {
-            block_number: 1,
             chain_id: 31337,
-            tx_index: 154,
-            from: T::Address::default(),
-            to: T::Address::default(),
-            kind: ClaimKind::Tx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 154,
+                },
+            },
+            felt_ranges: vec![]
         };
 
     }: _(RawOrigin::Signed(claimer.clone()), claim.clone())
@@ -70,7 +76,7 @@ benchmarks! {
 
         let who: T::AccountId = account("prover1", 1, 1);
         let prover : Prover = Prover {
-            nickname: vec![1, 2, 3],
+            nickname: b"gluwa_prover1".to_vec(),
         };
 
         let _ = Provers::<T>::clear(100, None);
@@ -93,12 +99,15 @@ benchmarks! {
         <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer, cash);
 
         let claim = Claim {
-            block_number: 1,
             chain_id: 31337,
-            tx_index: 154,
-            from: T::Address::default(),
-            to: T::Address::default(),
-            kind: ClaimKind::Tx,
+            id: ClaimId {
+                kind: ClaimKind::Tx,
+                block_item_id: BlockItemIdentifier {
+                    block_number: 1,
+                    index: 154,
+                },
+            },
+            felt_ranges: vec![]
         };
 
         crate::Pallet::<T>::submit_claim(RawOrigin::Signed(claimer.clone()).into(), claim.clone())?;
