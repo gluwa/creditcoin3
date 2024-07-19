@@ -62,7 +62,6 @@ fn submit_claim_works() {
 #[test]
 fn submit_claim_fails_without_enough_balance() {
     let alice: H160 = Alice.into();
-    let bob: H160 = Bob.into();
 
     ExtBuilder::default()
         .with_balances(vec![(alice.into(), 50)])
