@@ -56,6 +56,8 @@ else
     echo "FROM_JSON=$ABI_FROM_JSON"
     echo "========================"
 
+    diff -u <(echo "$ABI_FROM_DISK") <(echo "$ABI_FROM_JSON") | colordiff
+
     exit 3
 fi
 
@@ -69,6 +71,8 @@ else
     echo "FROM_DISK=$ABI_FROM_DISK"
     echo "FROM_TEST=$ABI_FROM_TEST"
     echo "========================"
+
+    diff -u <(echo "$ABI_FROM_DISK") <(echo "$ABI_FROM_TEST") | colordiff
 
     exit 4
 fi
