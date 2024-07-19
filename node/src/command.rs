@@ -191,6 +191,7 @@ pub fn run() -> sc_cli::Result<()> {
                     cmd.run::<Block, (
                         proof_verifier::host_api::HostFunctions,
                         proof_verifier::host_benchmark_api::HostFunctions,
+                        creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
                     )>(config)
                 }),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
