@@ -1487,6 +1487,7 @@ impl_runtime_apis! {
         ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
             use frame_benchmarking::{baseline, Benchmarking, BenchmarkBatch, add_benchmark};
             use pallet_evm::Pallet as PalletEvmBench;
+            use pallet_attestation_poc::Pallet as PalletAttestationBench;
             use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
             use frame_support::traits::TrackedStorageKey;
             use frame_system_benchmarking::Pallet as SystemBench;
@@ -1501,6 +1502,7 @@ impl_runtime_apis! {
             let params = (&config, &whitelist);
 
             add_benchmark!(params, batches, pallet_evm, PalletEvmBench::<Runtime>);
+            add_benchmark!(params, batches, pallet_attestation_poc, PalletAttestationBench::<Runtime>);
             add_benchmark!(params, batches, pallet_hotfix_sufficients, PalletHotfixSufficientsBench::<Runtime>);
             add_benchmarks!(params, batches);
 
