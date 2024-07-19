@@ -162,6 +162,7 @@ mod tests {
     /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
     /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
     /// to create attestation db on prover's side
+    #[ignore]
     #[tokio::test]
     async fn claim_validation_test() {
         const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
@@ -217,7 +218,9 @@ mod tests {
         // internal prover's data
         let db_url = "../data/db";
         let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
-        let attestation_fragment = db.get_fragment_for(block.into()).unwrap();
+        let attestation_fragment = db
+            .get_fragment_for(block.into())
+            .expect("fragment not found");
 
         let mut checkpoints =
             AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path);
