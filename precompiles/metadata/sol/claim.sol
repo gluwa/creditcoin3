@@ -2,7 +2,7 @@
 pragma solidity >=0.8.3;
 
 /// @dev The precompiled address of the ClaimContract on the Ethereum network.
-address constant CLAIM_CONTRACT_ADDRESS = 0x0000000000000000000000000000000000003049;
+address constant CLAIM_CONTRACT_ADDRESS = 0x0000000000000000000000000000000000000Be9;
 
 /// @dev Instance of the ClaimContract interface at the precompiled address.
 ClaimContract constant CLAIM_CONTRACT_ADRRESS = ClaimContract(CLAIM_CONTRACT_ADDRESS);
