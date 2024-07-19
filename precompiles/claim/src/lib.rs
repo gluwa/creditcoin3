@@ -7,7 +7,7 @@ use frame_support::{
     sp_runtime::traits::{Dispatchable, Hash},
 };
 use pallet_evm::AddressMapping;
-use pallet_prover::types::{Claim, ClaimId, ClaimKind, FeltRange, Prover};
+use pallet_prover::types::{self, Claim, ClaimId, ClaimKind, Prover};
 use precompile_utils::prelude::*;
 use prover_primitives::ChainPriceConfiguration;
 use sp_core::{H160, H256};
@@ -43,6 +43,12 @@ impl From<ChainPriceConfig> for ChainPriceConfiguration {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, precompile_utils::solidity::Codec)]
+pub struct FeltRange {
+    start: u32,
+    end: u32,
+}
+
 #[precompile_utils::precompile]
 impl<Runtime> ClaimPrecompile<Runtime>
 where
@@ -55,13 +61,13 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_prover::Config>::Address: From<H160>,
 {
-    #[precompile::public("submit_claim(uint64,uint64,uint32,FeltRange[],bool,bool)")]
+    #[precompile::public("submit_claim(uint64,uint64,uint32,(uint32,uint32)[],bool,bool)")]
     fn submit_claim(
         handle: &mut impl PrecompileHandle,
         chain_id: u64,
         block_number: u64,
         tx_index: u32,
-        felt_ranges: Vec<(u32, u32)>,
+        felt_ranges: Vec<FeltRange>,
         is_tx: bool,
         is_rx: bool,
     ) -> EvmResult<H256> {
@@ -79,9 +85,9 @@ where
         // Map felt ranges
         let mapped_felt_ranges = felt_ranges
             .iter()
-            .map(|range| FeltRange {
-                start: range.0,
-                end: range.1,
+            .map(|range| types::FeltRange {
+                start: range.start,
+                end: range.end,
             })
             .collect();
 
