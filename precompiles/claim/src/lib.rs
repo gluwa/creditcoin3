@@ -7,7 +7,7 @@ use frame_support::{
     sp_runtime::traits::{Dispatchable, Hash},
 };
 use pallet_evm::AddressMapping;
-use pallet_prover::types::{Claim, ClaimId, ClaimKind, Prover};
+use pallet_prover::types::{Claim, ClaimId, ClaimKind, FeltRange, Prover};
 use precompile_utils::prelude::*;
 use prover_primitives::ChainPriceConfiguration;
 use sp_core::{H160, H256};
@@ -55,14 +55,13 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_prover::Config>::Address: From<H160>,
 {
-    #[precompile::public("submit_claim(uint64,uint64,uint32,address,address,bool,bool)")]
+    #[precompile::public("submit_claim(uint64,uint64,uint32,FeltRange[],bool,bool)")]
     fn submit_claim(
         handle: &mut impl PrecompileHandle,
         chain_id: u64,
         block_number: u64,
         tx_index: u32,
-        from: Address,
-        to: Address,
+        felt_ranges: Vec<(u32, u32)>,
         is_tx: bool,
         is_rx: bool,
     ) -> EvmResult<H256> {
@@ -77,6 +76,16 @@ where
             return Err(revert("Must be either Tx or Rx"));
         };
 
+        // Map felt ranges
+        let mapped_felt_ranges = felt_ranges
+            .iter()
+            .map(|range| FeltRange {
+                start: range.0,
+                end: range.1,
+            })
+            .collect();
+
+        // Create the claim
         let claim = Claim {
             chain_id,
             id: ClaimId {
@@ -86,7 +95,7 @@ where
                 },
                 kind,
             },
-            felt_ranges: Vec::new(),
+            felt_ranges: mapped_felt_ranges,
         };
 
         // Hash the claim
@@ -109,7 +118,14 @@ where
             SELECTOR_LOG_CLAIM_SUBMITTED,
             handle.context().caller,
             claim_hash,
-            solidity::encode_event_data((chain_id, block_number, tx_index, from, to, is_tx, is_rx)),
+            solidity::encode_event_data((
+                chain_id,
+                block_number,
+                tx_index,
+                felt_ranges,
+                is_tx,
+                is_rx,
+            )),
         )
         .record(handle)?;
 

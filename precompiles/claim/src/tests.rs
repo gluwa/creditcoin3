@@ -4,7 +4,6 @@ use crate::mock::{
 };
 
 use pallet_prover::types::{BlockItemIdentifier, Claim, ClaimId, ClaimKind};
-use precompile_utils::prelude::Address;
 use precompile_utils::testing::*;
 use sp_core::{H160, H256};
 use sp_runtime::traits::Hash;
@@ -19,8 +18,6 @@ fn precompiles() -> Precompiles<Runtime> {
 fn submit_claim_works() {
     let alice: H160 = Alice.into();
     let alice_account: H256 = Alice.into();
-
-    let bob: H160 = Bob.into();
 
     let claim = Claim {
         chain_id: 1,
@@ -47,8 +44,7 @@ fn submit_claim_works() {
                         block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
                         tx_index: claim.id.block_item_id.index,
-                        to: Address(alice),
-                        from: Address(bob),
+                        felt_ranges: vec![],
                         is_tx: claim.id.kind == ClaimKind::Tx,
                         is_rx: claim.id.kind == ClaimKind::Rx,
                     },
@@ -80,8 +76,7 @@ fn submit_claim_fails_without_enough_balance() {
                         block_number: 1,
                         chain_id: 1,
                         tx_index: 123,
-                        to: Address(alice),
-                        from: Address(bob),
+                        felt_ranges: vec![],
                         is_tx: false,
                         is_rx: true,
                     },
@@ -127,8 +122,7 @@ fn submit_claim_and_invalid_proof_fails() {
                         block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
                         tx_index: claim.id.block_item_id.index,
-                        to: Address(alice),
-                        from: Address(bob),
+                        felt_ranges: vec![],
                         is_tx: claim.id.kind == ClaimKind::Tx,
                         is_rx: claim.id.kind == ClaimKind::Rx,
                     },
@@ -189,8 +183,7 @@ fn submit_invalid_claim_fails() {
                         block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
                         tx_index: claim.id.block_item_id.index,
-                        to: Address(alice),
-                        from: Address(bob),
+                        felt_ranges: vec![],
                         // Both false
                         is_tx: false,
                         is_rx: false,
@@ -229,8 +222,7 @@ fn submit_claim_for_unsupported_chain_fails() {
                         block_number: claim.id.block_item_id.block_number,
                         chain_id: claim.chain_id,
                         tx_index: claim.id.block_item_id.index,
-                        to: Address(alice),
-                        from: Address(bob),
+                        felt_ranges: vec![],
                         is_tx: claim.id.kind == ClaimKind::Tx,
                         is_rx: claim.id.kind == ClaimKind::Rx,
                     },

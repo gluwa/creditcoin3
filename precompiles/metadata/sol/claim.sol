@@ -10,21 +10,24 @@ ClaimContract constant CLAIM_CONTRACT_ADRRESS = ClaimContract(CLAIM_CONTRACT_ADD
 /// @title ClaimContract interface
 /// @notice This interface defines the functions and events for interacting with the ClaimContract.
 interface ClaimContract {
+    struct FeltRange {
+        uint32 start;
+        uint32 end;
+    }
+
     /// @notice Submit a claim to the contract.
     /// @param chain_id The ID of the blockchain where the claim originates.
     /// @param block_number The block number on the blockchain where the claim transaction is included.
     /// @param tx_index The index of the transaction within the block.
-    /// @param from The address from which the transaction was sent.
-    /// @param to The address to which the transaction was sent.
+    /// @param felt_ranges Is the range of Felt bytes of the transaction to claim for.
     /// @param is_tx Indicates whether the claim is for a transaction (true) or not (false).
     /// @param is_rx Indicates whether the claim is for a received transaction (true) or not (false).
     function submit_claim(
-        uint64 chain_id, 
-        uint64 block_number, 
-        uint8 tx_index, 
-        address from, 
-        address to, 
-        bool is_tx, 
+        uint64 chain_id,
+        uint64 block_number,
+        uint32 tx_index,
+        FeltRange[] memory felt_ranges,
+        bool is_tx,
         bool is_rx
     ) external;
 
