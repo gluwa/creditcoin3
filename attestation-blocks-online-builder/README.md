@@ -8,7 +8,7 @@ This program builds attestation chain from source chain blocks being listened to
 ## Assumptions and conditions
 - source chain blocks are listened to using a pubsub wss pipeline
 - source chain blocks are announced in-order (observed)
-- a freshly announced block's transactions are not available just yet on the source chain. In order to retrieve the block's data it is necessary to wait for a certain amount of time (the block time was chosen here) and use the API calls utilized for historical block data fetching. 
+- a freshly announced block's transactions are not available just yet on the source chain. In order to retrieve the block's data it is necessary to wait for a certain amount of time (the block time was chosen here) and use the API calls utilized for historical block data fetching.
 If the block data is attempted to be retrieved immediately an error "block is being processed" is obtained.
 A possible reason for that is that the pubsub pipeline delivers blocks gossiped by the peers and they have not been yet put on the source chain (this is just my conjecture).
 - the block data retrieval tasks deliver data out-of-order
@@ -21,7 +21,7 @@ How short managable network failures are may depend on the buffering capabilitie
 
 ## Program structure
 ### Source chain block listener
-This task listens to the subscribed channel for the announced blocks. 
+This task listens to the subscribed channel for the announced blocks.
 As described above it's necessary to store these blocks for until they're eventually available on the source chain.
 So the first stage of the block lifecycle is the purgatory queue (see below) where they stay until expulsed.
 The second branch of this task awakes at regular timeouts and checks for "blocks" in the purgatory queue that can be expulsed and further consumed.
@@ -41,7 +41,7 @@ The attestation blocks are then sent to the resiliency priority queue (see below
 Receives the "blocks" from the purgatory queue, spawns the block creation tasks and sends the crafted attestation blocks to the resiliency queue, where they wait for the previous blocks (if any) to be ready so the attestations are chained properly.
 
 ### Resiliency priority queue
-The reason for existence of this data structure is network failures and attempts for recovering. 
+The reason for existence of this data structure is network failures and attempts for recovering.
 The fact of re-attempting to retrieve blocks from the source chain invalidates the assumption of the in-order nature of task handles joining.
 The resiliency queue gathers all the crafted attestation blocks until there are one or more blocks that can be liberated observing the attestation chain ordering.
 
@@ -67,7 +67,7 @@ Even in the best case the program will need some time to stabilize after network
 The program's attestation chain building seems to be able to keep up with the source chain block production rate.
 This means that it seems to be approximately neither faster nor slower then the Ethereum's block time.
 The asynchronous runtime used is the multithreaded Tokio runtime, but it's unclear how the workloads of those threads are internally distributed.
-The possible bottlenecks of this program may be 
+The possible bottlenecks of this program may be
 - the slow network API used (one call per single transaction)
 - not totally parallelized heavy CPU workloads of building Pedersen Merkle trees (perhaps we could engage parallel rayon primitives manually)
 
