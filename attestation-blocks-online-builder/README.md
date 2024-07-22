@@ -1,7 +1,3 @@
-**Contents:**
-
-- [Context](#context)
-
 # Listen to latest source chain blocks and build attestation chain
 This program builds attestation chain from source chain blocks being listened to online.
 
@@ -61,14 +57,11 @@ When the program discovers a steady network failure it sets itself on a low gear
 ### The main wrapper
 The above tasks are encapsulated in a single object as an essay to present better ergonomics and provide hooks for handling essential events.
 
-- [Methods](#methods)
-  <!-- - [Step 1 - Install everything required to run](#step-1---install-everything-required-to-run) -->
 This crate does not provide executables.
 Checking network failures:
 There is no programmatic network failure simulation, so real internet disconnection is needed.
 Even in the best case the program will need some time to stabilize after network reconnection.
 
-- [Results](#results)
 ## Results
 The program's attestation chain building seems to be able to keep up with the source chain block production rate.
 This means that it seems to be approximately neither faster nor slower then the Ethereum's block time.
@@ -76,6 +69,4 @@ The asynchronous runtime used is the multithreaded Tokio runtime, but it's uncle
 The possible bottlenecks of this program may be
 - the slow network API used (one call per single transaction)
 - not totally parallelized heavy CPU workloads of building Pedersen Merkle trees (perhaps we could engage parallel rayon primitives manually)
-
-- [References](#references)
 
