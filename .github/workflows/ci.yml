@@ -347,7 +347,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -364,7 +364,7 @@ jobs:
           echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release ${{ steps.compiler-flags.outputs.extra }}
@@ -409,7 +409,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -420,7 +420,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release --features=fast-runtime --features=runtime-benchmarks
