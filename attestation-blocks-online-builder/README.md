@@ -8,7 +8,9 @@ This program builds attestation chain from source chain blocks being listened to
 ## Assumptions and conditions
 - source chain blocks are listened to using a pubsub wss pipeline
 - source chain blocks are announced in-order (observed)
-- a freshly announced block's transactions are not available just yet on the source chain. In order to retrieve the block's data it is necessary to wait for a certain amount of time (the block time was chosen here) and use the API calls utilized for historical block data fetching.
+- a freshly announced block's transactions are not available just yet on the source chain.
+  In order to retrieve the block's data it is necessary to wait for a certain amount of time
+  (the block time was chosen here) and use the API calls utilized for historical block data fetching.
 If the block data is attempted to be retrieved immediately an error "block is being processed" is obtained.
 A possible reason for that is that the pubsub pipeline delivers blocks gossiped by the peers and they have not been yet put on the source chain (this is just my conjecture).
 - the block data retrieval tasks deliver data out-of-order
@@ -16,8 +18,10 @@ A possible reason for that is that the pubsub pipeline delivers blocks gossiped 
 - the wss provider has certain ability of buffering blocks and delivering them later after the broken network connection is recovered (observed)
 
 ## Goals of the program
-Taking in account the above considerations we want to continuosly build an attestation chain in-order and offer certain resiliency to (reasonably short) network failures on the client side.
-How short managable network failures are may depend on the buffering capabilities of the wss provider, the latency lag between the attestation and source chains we consider acceptable (until we optimize the attestation chain creation rate) and, maybe, other factors.
+Taking in account the above considerations we want to continuosly build an attestation chain in-order and offer certain resiliency to
+(reasonably short) network failures on the client side. How short managable network failures are may depend on the buffering capabilities
+of the wss provider, the latency lag between the attestation and source chains we consider acceptable
+(until we optimize the attestation chain creation rate) and, maybe, other factors.
 
 ## Program structure
 ### Source chain block listener
@@ -28,7 +32,8 @@ The second branch of this task awakes at regular timeouts and checks for "blocks
 
 ### Purgatory queue
 Contains block numbers and timestamps of the announced blocks.
-All the "blocks" that stayed in the purgatory for more time then the purgatory period (source chain block time was tried so far) are considered to be ready on the source chain and safe for polling.
+All the "blocks" that stayed in the purgatory for more time then the purgatory period (source chain block time was tried so far)
+are considered to be ready on the source chain and safe for polling.
 These "blocks" are sent to the attestation block creation task.
 The number of these "blocks" may be conditioned by the backpressure parameter and current congestion conditions (see below)
 
@@ -38,7 +43,8 @@ Maintains a simple retrial mechanism for network failure recovering.
 The attestation blocks are then sent to the resiliency priority queue (see below).
 
 ### Build attestation chain task
-Receives the "blocks" from the purgatory queue, spawns the block creation tasks and sends the crafted attestation blocks to the resiliency queue, where they wait for the previous blocks (if any) to be ready so the attestations are chained properly.
+Receives the "blocks" from the purgatory queue, spawns the block creation tasks and sends the crafted attestation blocks to the resiliency queue,
+where they wait for the previous blocks (if any) to be ready so the attestations are chained properly.
 
 ### Resiliency priority queue
 The reason for existence of this data structure is network failures and attempts for recovering.
