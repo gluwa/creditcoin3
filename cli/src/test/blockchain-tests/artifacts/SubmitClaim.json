@@ -1,0 +1,134 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "claim_hash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ClaimSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "claim_hash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ProofSubmitted",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "nickname",
+        "type": "string"
+      }
+    ],
+    "name": "register_prover",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "chain_id",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "price",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct ClaimContract.ChainPriceConfig[]",
+        "name": "chain_price_configs",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "set_chain_price_configs",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chain_id",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "block_number",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "tx_index",
+        "type": "uint32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint32",
+            "name": "start",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "end",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct ClaimContract.FeltRange[]",
+        "name": "felt_ranges",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "bool",
+        "name": "is_tx",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "is_rx",
+        "type": "bool"
+      }
+    ],
+    "name": "submit_claim",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "claim_hash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "proof",
+        "type": "bytes"
+      }
+    ],
+    "name": "submit_proof",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

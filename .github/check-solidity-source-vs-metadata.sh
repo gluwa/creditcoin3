@@ -61,7 +61,8 @@ else
     exit 3
 fi
 
-ABI_FROM_TEST=$(cat cli/src/test/blockchain-tests/artifacts/SubstrateTransfer.json)
+# shellcheck disable=SC2046
+ABI_FROM_TEST=$(cat $(find ./cli/src/test/blockchain-tests/artifacts/*.json | grep -v SendForYou))
 if [ "$ABI_FROM_DISK" == "$ABI_FROM_TEST" ]; then
     echo "INFO: ABI on disk matches ABI in tests"
 else

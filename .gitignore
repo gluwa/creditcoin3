@@ -34,7 +34,6 @@ attestor/zombie/zombienet-macos
 **/throwaway
 
 # hardhat
-**/artifacts/
 **/cache/
 **/typechain-types/
 **/ignition/deployments/
