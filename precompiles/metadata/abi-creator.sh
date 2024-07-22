@@ -7,6 +7,6 @@ abi_directory="abi"
 
 for p in "$sol_directory"/*; do
     file=$(basename "$p")
-    file_without_extension="${file%.*}.json"
-    solc "$sol_directory/$file" --combined-json abi,devdoc,hashes --overwrite --json-indent 2 > "$abi_directory/$file_without_extension"
+    file_with_extension="${file%.*}.json"
+    solc "$sol_directory/$file" --combined-json abi,devdoc,hashes --overwrite --json-indent 2 > "$abi_directory/$file_with_extension"
 done
