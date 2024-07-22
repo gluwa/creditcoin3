@@ -168,6 +168,13 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Upload generated ABI
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: precompiles-abi
+          path: precompiles/metadata/abi/*.json
+
       - name: Prepare ENV for Devnet
         id: devnet-env
         if: github.base_ref == 'dev'
