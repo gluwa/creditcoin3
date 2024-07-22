@@ -395,7 +395,7 @@ pub mod pallet {
             ensure_root(origin)?;
 
             ensure!(
-                new_max < Invlunerables::<T>::count(),
+                new_max > Invlunerables::<T>::count(),
                 Error::<T>::MaxInvulnerablesCannotBeChanged
             );
 

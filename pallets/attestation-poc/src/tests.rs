@@ -119,6 +119,17 @@ fn set_max_attestors_should_error_with_non_root_origin() {
 }
 
 #[test]
+fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
+    ExtBuilder.build_and_execute(|| {
+        let root_origin = RuntimeOrigin::root();
+        assert_err!(
+            Attestation::set_max_invulnerables(root_origin, 1),
+            Error::<Test>::MaxInvulnerablesCannotBeChanged
+        );
+    })
+}
+
+#[test]
 fn set_max_invulnerables_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
         let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
