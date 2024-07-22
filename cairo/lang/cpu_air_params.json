@@ -9,14 +9,7 @@
   },
   "stark": {
     "fri": {
-      "fri_step_list": [
-        0,
-        4,
-        4,
-        4,
-        4,
-        2
-      ],
+      "fri_step_list": [0, 4, 4, 4, 4, 2],
       "last_layer_degree_bound": 4,
       "n_queries": 18,
       "proof_of_work_bits": 30
