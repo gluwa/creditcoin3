@@ -38,7 +38,6 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
-        // TODO: this is currently unused
         #[pallet::constant]
         type MaxAttestationNodes: Get<u32>;
         // TODO: Make this useful
@@ -105,8 +104,6 @@ pub mod pallet {
 
     #[pallet::type_value]
     pub fn MaxAttestorsDefault<T: Config>() -> u32 {
-        // TODO: figure out how to do this from the value set in the runtime config
-        // T::MaxAttestationNodes
         T::MaxAttestationNodes::get()
     }
 
