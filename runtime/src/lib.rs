@@ -1527,7 +1527,6 @@ impl_runtime_apis! {
 
     impl creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block> for Runtime {
 
-        #[cfg(not(feature = "runtime-benchmarks"))]
         fn trace_transaction(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
@@ -1559,18 +1558,6 @@ impl_runtime_apis! {
             }
         }
 
-        #[cfg(feature = "runtime-benchmarks")]
-        fn trace_transaction(
-            _extrinsics: Vec<<Block as BlockT>::Extrinsic>,
-            _traced_transaction: &EthereumTransaction,
-        ) -> Result<
-            (),
-            sp_runtime::DispatchError,
-        > {
-            Ok(())
-        }
-
-        #[cfg(not(feature = "runtime-benchmarks"))]
         fn trace_block(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             known_transactions: Vec<H256>,
@@ -1604,17 +1591,6 @@ impl_runtime_apis! {
 
                 Ok(())
             }
-        }
-
-        #[cfg(feature = "runtime-benchmarks")]
-        fn trace_block(
-            _extrinsics: Vec<<Block as BlockT>::Extrinsic>,
-            _known_transactions: Vec<H256>,
-        ) -> Result<
-            (),
-            sp_runtime::DispatchError,
-        > {
-            Ok(())
         }
     }
 
