@@ -840,7 +840,7 @@ parameter_types! {
 
 impl pallet_attestation_poc::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_attestation_poc::weights1::WeightInfo<Runtime>;
+    type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful
     type MaxAttestationNodes = MaxAttestors;
     type CommittmentInterval = CommittmentInterval;

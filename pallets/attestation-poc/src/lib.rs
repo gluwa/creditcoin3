@@ -5,9 +5,6 @@ pub use pallet::*;
 #[allow(clippy::unnecessary_cast)]
 pub mod weights;
 
-#[allow(clippy::unnecessary_cast)]
-pub mod weights1;
-
 #[cfg(test)]
 mod mock;
 
@@ -66,14 +63,10 @@ pub mod pallet {
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
-        // TODO: Implement this function or remove it from this trait
-        fn attest_block() -> Weight;
         fn bootstrap_chain() -> Weight;
         fn commit_attestation() -> Weight;
         fn set_comittee_set_size() -> Weight;
         fn add_supported_chain() -> Weight;
-        // TODO: Implement this function or remove it from this trait
-        fn remove_supported_chain() -> Weight;
     }
 
     #[pallet::storage]
