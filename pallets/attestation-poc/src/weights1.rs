@@ -75,7 +75,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
     fn commit_attestation() -> Weight {
 		Weight::MAX
 	}
-    fn set_comitte_set_size() -> Weight {
+    fn set_comittee_set_size() -> Weight {
 		Weight::MAX
 	}
     fn remove_supported_chain() -> Weight {

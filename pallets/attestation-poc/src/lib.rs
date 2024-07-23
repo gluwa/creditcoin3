@@ -69,7 +69,7 @@ pub mod pallet {
         fn attest_block() -> Weight;
         fn bootstrap_chain() -> Weight;
         fn commit_attestation() -> Weight;
-        fn set_comitte_set_size() -> Weight;
+        fn set_comittee_set_size() -> Weight;
         fn add_supported_chain() -> Weight;
         fn remove_supported_chain() -> Weight;
     }
@@ -285,7 +285,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_comitte_set_size())]
+        #[pallet::weight(<T as Config>::WeightInfo::set_comittee_set_size())]
         pub fn set_comittee_set_size(
             origin: OriginFor<T>,
             new_comittee_set_size: u32,
