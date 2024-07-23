@@ -1490,7 +1490,6 @@ impl_runtime_apis! {
             use pallet_attestation_poc::Pallet as PalletAttestationBench;
             use pallet_evm::Pallet as PalletEvmBench;
             use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
-            use frame_support::traits::TrackedStorageKey;
             use frame_system_benchmarking::Pallet as SystemBench;
             use baseline::Pallet as BaselineBench;
 
