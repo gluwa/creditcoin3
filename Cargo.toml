@@ -9,6 +9,7 @@ members = [
     "primitives/attestor",
     "primitives/prover",
     "primitives/supported-chains",
+    "primitives/randomness",
     "primitives/ext",
     "primitives/rpc/*",
     "precompiles/claim",

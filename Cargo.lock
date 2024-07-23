@@ -9043,6 +9043,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "randomness-primitives"
+version = "3.31.0"
+dependencies = [
+ "attestor-primitives",
+ "sp-api",
+ "sp-std",
+]
+
+[[package]]
 name = "rawpointer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
