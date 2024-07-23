@@ -18,18 +18,23 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
+use super::Pallet as Attestation;
 use super::*;
-use attestor_primitives::ChainId;
+use attestor_primitives::{
+    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId, SignedAttestation,
+};
+use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_benchmarking::v2::*;
+use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
+use sp_core::H256;
 use sp_std::vec;
-use attestor_primitives::{BlsPublicKey, BlsSignature};
-use bls_signatures::{PrivateKey, key::Serialize};
+use sp_std::vec::Vec;
 
 #[derive(Debug, Clone)]
 pub struct Attestor<T: frame_system::Config> {
     pub id: T::AccountId,
-    pub attestor: T::RuntimeOrigin,
+    pub origin: T::RuntimeOrigin,
     pub private_key: PrivateKey,
     pub public_key: BlsPublicKey,
     pub signature: BlsSignature,
@@ -37,7 +42,7 @@ pub struct Attestor<T: frame_system::Config> {
 
 impl<T: frame_system::Config> Attestor<T> {
     pub fn new(attestor: T::AccountId) -> Self {
-        let rng = sp_core::H256::repeat_byte(123).0;
+        let rng = H256::repeat_byte(123).0;
         let private_key = PrivateKey::new(rng);
         let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
         let signature = private_key.sign(public_key).as_bytes()[..]
@@ -45,11 +50,11 @@ impl<T: frame_system::Config> Attestor<T> {
             .unwrap();
 
         let id = attestor.clone();
-        let attestor = T::RuntimeOrigin::signed(attestor);
+        let origin = T::RuntimeOrigin::signed(attestor);
 
         Self {
             id,
-            attestor,
+            origin,
             private_key,
             public_key,
             signature,
@@ -61,6 +66,43 @@ impl<T: frame_system::Config> Attestor<T> {
             .try_into()
             .unwrap()
     }
+}
+
+fn create_signed_attestation<T: frame_system::Config>(
+    attestors: Vec<Attestor<T>>,
+    chain_id: ChainId,
+    header_number: u64,
+    prev_digest: Option<H256>,
+) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
+    let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
+        chain_id,
+        header_number,
+        header_hash: <T as frame_system::Config>::Hash::default(),
+        tx_root: [0; 32],
+        rx_root: [0; 32],
+        prev_digest,
+    };
+
+    let mut signatures = Vec::new();
+    for attestor in attestors.iter() {
+        let signature = attestor.sign(&attestation.serialize());
+        let bls_sig = bls_signatures::Signature::from_bytes(&signature[..])
+            .expect("Failed to create signature");
+
+        signatures.push(bls_sig);
+    }
+    // sign
+    let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
+
+    let attestation = SignedAttestation {
+        attestation,
+        signature: aggregated_signature.as_bytes()[..]
+            .try_into()
+            .expect("Failed to convert to array"),
+        attestors: attestors.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
+    };
+
+    attestation
 }
 
 #[benchmarks]
@@ -100,7 +142,7 @@ mod benchmarks {
         // Setup
         let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 0);
         let att = Attestor::<T>::new(attestor_id);
-        let signed_origin = att.attestor;
+        let signed_origin = att.origin;
         let bls_public_key: BlsPublicKey = att.public_key;
         let proof_of_possession: BlsSignature = att.signature;
 
@@ -117,14 +159,16 @@ mod benchmarks {
         // Setup
         let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 0);
         let att = Attestor::<T>::new(attestor_id);
-        //TODO: Might need to register attestor first to get happy path. But the storage access
-        //      count may be the same either way
-        let signed_origin = att.attestor;
+
+        Attestation::<T>::register_attestor(
+            att.origin.clone(),
+            att.public_key,
+            att.signature
+        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+        let signed_origin = att.origin;
 
         #[extrinsic_call]
-        _(
-            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-        )
+        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
     }
 
     #[benchmark]
@@ -161,11 +205,17 @@ mod benchmarks {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let attestor_id: <T as frame_system::Config>::AccountId = account("who", 3, 0);
+        let att = Attestor::<T>::new(attestor_id);
+        assert_ok!(Attestation::<T>::register_invulnerable(
+            root_origin.clone(),
+            att.id.clone(),
+            att.public_key,
+        ));
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            attestor_id,
+            att.id,
         )
     }
 
@@ -182,5 +232,67 @@ mod benchmarks {
         )
     }
 
-    // Possibly use Attestor::sign() to sign attestation
+    #[benchmark]
+    fn bootstrap_chain() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id: ChainId = 2;
+
+        // Adding new supported chain
+        let chain_attestation_interval: ChainAttestationIntervalType = 100;
+        assert_ok!(Attestation::<T>::add_supported_chain(
+            root_origin.clone(),
+            chain_attestation_interval,
+            chain_id
+        ));
+
+        // Creating attestor to attest
+        let attestor = Attestor::<T>::new(account("who", 3, 0));
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.origin.clone(),
+            attestor.public_key.clone(),
+            attestor.signature.clone()
+        ));
+
+        let attestation: SignedAttestation<
+            <T as frame_system::Config>::Hash,
+            <T as frame_system::Config>::AccountId,
+        > = create_signed_attestation::<T>(Vec::from([attestor]), chain_id, 1, None);
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_id,
+            attestation,
+        )
+    }
+
+    #[benchmark]
+    fn commit_attestation() {
+        // Setup
+        let chain_id: ChainId = 1;
+        let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
+
+        // Creating attestor to attest
+        let attestor = Attestor::<T>::new(account("who", 3, 0));
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.origin.clone(),
+            attestor.public_key.clone(),
+            attestor.signature.clone()
+        ));
+
+        // Create attestation
+        let attestation: SignedAttestation<
+            <T as frame_system::Config>::Hash,
+            <T as frame_system::Config>::AccountId,
+        > = create_signed_attestation::<T>(Vec::from([attestor]), chain_id, 1, None);
+
+        #[extrinsic_call]
+        _(
+            none_origin as <T as frame_system::Config>::RuntimeOrigin,
+            attestation
+        )
+    }
 }
