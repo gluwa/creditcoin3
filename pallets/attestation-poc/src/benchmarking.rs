@@ -292,7 +292,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             none_origin as <T as frame_system::Config>::RuntimeOrigin,
-            attestation
+            attestation,
         )
     }
 }
