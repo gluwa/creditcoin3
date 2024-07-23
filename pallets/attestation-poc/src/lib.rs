@@ -329,7 +329,7 @@ pub mod pallet {
         #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
         pub fn unregister_attestor(origin: OriginFor<T>) -> DispatchResult {
-            let who = ensure_signed(origin.clone())?;
+            let who = ensure_signed(origin)?;
 
             ensure!(Self::is_attestor(&who), Error::<T>::AddressNotAttestor);
 
