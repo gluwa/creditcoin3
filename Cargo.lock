@@ -7897,6 +7897,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-randomness"
+version = "3.31.0"
+dependencies = [
+ "attestor-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-babe",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "supported-chains-primitives",
+]
+
+[[package]]
 name = "pallet-session"
 version = "4.0.0-dev"
 source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"

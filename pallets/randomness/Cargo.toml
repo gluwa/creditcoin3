@@ -1,0 +1,46 @@
+[package]
+name = "pallet-randomness"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+parity-scale-codec = { workspace = true }
+scale-info = { workspace = true }
+
+frame-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+attestor-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
+sp-std = { workspace = true }
+sp-runtime = { workspace = true }
+pallet-babe = { workspace = true }
+
+[dev-dependencies]
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "parity-scale-codec/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "attestor-primitives/std",
+    "supported-chains-primitives/std",
+    "sp-std/std",
+    "pallet-babe/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+]
