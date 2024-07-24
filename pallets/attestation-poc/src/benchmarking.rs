@@ -109,6 +109,11 @@ fn create_signed_attestation<T: frame_system::Config>(
 mod benchmarks {
     use super::*;
 
+    /// We want to test attestations signed by varying numbers of attestors
+    const MAX_ATTESTORS: u32 = 500;
+    const MIN_ATTESTATION_INTERVAL: u32 = 10;
+    const MAX_ATTESTATION_INTERVAL: u32 = 100;
+
     #[benchmark]
     fn add_supported_chain() {
         // Setup
@@ -233,7 +238,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn bootstrap_chain() {
+    fn bootstrap_chain(a: Linear<1, MAX_ATTESTORS>) {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let chain_id: ChainId = 2;
@@ -246,19 +251,30 @@ mod benchmarks {
             chain_id
         ));
 
-        // Creating attestor to attest
-        let attestor = Attestor::<T>::new(account("who", 3, 0));
-
-        assert_ok!(Attestation::<T>::register_attestor(
-            attestor.origin.clone(),
-            attestor.public_key.clone(),
-            attestor.signature.clone()
+        // Set max attestors to accomodate benchmark
+        assert_ok!(Attestation::<T>::set_max_attestors(
+            root_origin.clone(),
+            MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
+
+        // Creating attestor to attest
+        let mut attestors: Vec<Attestor<T>> = Vec::new();
+        for j in 1..=a {
+            let attestor = Attestor::<T>::new(account("who", j, 0));
+
+            assert_ok!(Attestation::<T>::register_attestor(
+                attestor.origin.clone(),
+                attestor.public_key.clone(),
+                attestor.signature.clone()
+            ));
+
+            attestors.push(attestor);
+        }
 
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(Vec::from([attestor]), chain_id, 1, None);
+        > = create_signed_attestation::<T>(attestors, chain_id, 1, None);
 
         #[extrinsic_call]
         _(
@@ -269,25 +285,56 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn commit_attestation() {
+    fn commit_attestation(
+        a: Linear<1, MAX_ATTESTORS>,
+        i: Linear<MIN_ATTESTATION_INTERVAL, MAX_ATTESTATION_INTERVAL>,
+    ) {
         // Setup
         let chain_id: ChainId = 1;
         let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
 
-        // Creating attestor to attest
-        let attestor = Attestor::<T>::new(account("who", 3, 0));
+        // Set max attestors to accomodate benchmark
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        assert_ok!(Attestation::<T>::set_max_attestors(
+            root_origin,
+            MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
+        ));
 
-        assert_ok!(Attestation::<T>::register_attestor(
-            attestor.origin.clone(),
-            attestor.public_key.clone(),
-            attestor.signature.clone()
+        // Creating attestor to attest
+        let mut attestors: Vec<Attestor<T>> = Vec::new();
+        for j in 1..=a {
+            let attestor = Attestor::<T>::new(account("who", j, 0));
+
+            assert_ok!(Attestation::<T>::register_attestor(
+                attestor.origin.clone(),
+                attestor.public_key.clone(),
+                attestor.signature.clone()
+            ));
+
+            attestors.push(attestor);
+        }
+
+        // Create prior attestation. Needed to get most expensive code path in commit_attestation()
+        let prior_attestation: SignedAttestation<
+            <T as frame_system::Config>::Hash,
+            <T as frame_system::Config>::AccountId,
+        > = create_signed_attestation::<T>(attestors.clone(), chain_id, 1, None);
+
+        assert_ok!(Attestation::<T>::commit_attestation(
+            none_origin.clone(),
+            prior_attestation.clone()
         ));
 
         // Create attestation
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(Vec::from([attestor]), chain_id, 1, None);
+        > = create_signed_attestation::<T>(
+            attestors,
+            chain_id,
+            1 + i as u64,
+            Some(prior_attestation.digest()),
+        );
 
         #[extrinsic_call]
         _(

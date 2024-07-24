@@ -63,8 +63,8 @@ pub mod pallet {
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
-        fn bootstrap_chain() -> Weight;
-        fn commit_attestation() -> Weight;
+        fn bootstrap_chain(a: u32) -> Weight;
+        fn commit_attestation(a: u32, i: u32) -> Weight;
         fn set_comittee_set_size() -> Weight;
         fn add_supported_chain() -> Weight;
     }
@@ -399,7 +399,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(8)]
-        #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain())]
+        #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain(attestation.attestors.len() as u32))]
         pub fn bootstrap_chain(
             origin: OriginFor<T>,
             chain_id: ChainId,
@@ -423,7 +423,10 @@ pub mod pallet {
         }
 
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as Config>::WeightInfo::commit_attestation())]
+        #[pallet::weight(<T as Config>::WeightInfo::commit_attestation(
+            attestation.attestors.len() as u32, 
+            ChainAttestationInterval::<T>::get(attestation.chain_id()).unwrap_or(100) as u32
+        ))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
