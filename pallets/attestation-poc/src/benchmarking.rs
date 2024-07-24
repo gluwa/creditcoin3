@@ -110,7 +110,7 @@ mod benchmarks {
     use super::*;
 
     /// We want to test attestations signed by varying numbers of attestors
-    const MAX_ATTESTORS: u32 = 500;
+    const MAX_ATTESTORS: u32 = 100;
     const MIN_ATTESTATION_INTERVAL: u32 = 10;
     const MAX_ATTESTATION_INTERVAL: u32 = 100;
 

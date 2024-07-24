@@ -424,7 +424,7 @@ pub mod pallet {
 
         #[pallet::call_index(9)]
         #[pallet::weight(<T as Config>::WeightInfo::commit_attestation(
-            attestation.attestors.len() as u32, 
+            attestation.attestors.len() as u32,
             ChainAttestationInterval::<T>::get(attestation.chain_id()).unwrap_or(100) as u32
         ))]
         pub fn commit_attestation(
