@@ -8,6 +8,10 @@ on:
     branches: [testnet, dev]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
 permissions: read-all
 
 jobs:
