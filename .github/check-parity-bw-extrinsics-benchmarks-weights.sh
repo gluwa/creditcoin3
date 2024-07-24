@@ -40,7 +40,7 @@ for EXTRINSIC in $EXTRINSICS; do
     grep -B1 "pub fn $EXTRINSIC" pallets/*/src/lib.rs | grep "WeightInfo::$EXTRINSIC"
 
     echo "----- Searching benchmarks for $EXTRINSIC -----"
-    grep "$EXTRINSIC {" pallets/*/src/benchmarking.rs
+    grep -E "$EXTRINSIC {|fn $EXTRINSIC" pallets/*/src/benchmarking.rs
 done
 
 echo "----- DONE - ALL PASS -----"
