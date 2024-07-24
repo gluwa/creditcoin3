@@ -23,11 +23,11 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
-    use supported_chains_primitives::provider::SupportedChainsProvider;
+    use randomness_primitives::provider::RandomnessPalletProvider;
 
     pub const RANDOMNESS_LENGTH: usize = 32;
 
-/// Randomness type required by BABE operations.
+    /// Randomness type required by BABE operations.
     pub type Randomness = [u8; RANDOMNESS_LENGTH];
 
     #[pallet::pallet]
@@ -72,16 +72,12 @@ pub mod pallet {
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T> {
-        pub supported_chains: Vec<(ChainId, Vec<u8>)>,
         pub _phantom: PhantomData<T>,
     }
 
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            for (chain_id, chain_name) in &self.supported_chains {
-                SupportedChains::<T>::insert(chain_id, chain_name);
-            }
         }
     }
 
@@ -118,5 +114,11 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
        
+    }
+
+    impl<T: Config> RandomnessPalletProvider for Pallet<T> {
+        fn randomness_by_epoch_id(epoch_id: u64) -> Option<[u8; 32]> {
+            RandomnessByEpochIndex::<T>::get(epoch_id)
+        }
     }
 }

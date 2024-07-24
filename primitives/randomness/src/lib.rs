@@ -2,7 +2,7 @@
 pub mod api;
 pub mod provider;
 
-pub const RANDOMNESS_LENGTH: usize = 32;
+// pub const RANDOMNESS_LENGTH: usize = 32;
 
-/// Randomness type required by BABE operations.
-pub type Randomness = [u8; RANDOMNESS_LENGTH];
+// /// Randomness type required by BABE operations.
+// pub type Randomness = [u8; RANDOMNESS_LENGTH];

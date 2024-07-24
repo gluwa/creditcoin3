@@ -84,8 +84,12 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 pallet-attestation-poc = { workspace = true }
 pallet-prover = { workspace = true }
 pallet-supported-chains = { workspace = true }
+pallet-prover = { workspace = true }
+pallet-randomness = { workspace = true }
 
 attestor-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
+randomness-primitives = { workspace = true }
 pallet-evm-precompile-claim = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 supported-chains-primitives = { workspace = true }
@@ -167,6 +171,7 @@ std = [
     "pallet-nomination-pools-runtime-api/std",
     "pallet-offences/std",
     "pallet-prover/std",
+    "pallet-randomness/std",
     "pallet-proxy/std",
     "pallet-session/std",
     "pallet-staking/std",
@@ -195,6 +200,7 @@ std = [
     "creditcoin3-rpc-primitives-debug/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
+    "randomness-primitives/std",
     "pallet-evm-precompile-claim/std",
     "pallet-evm-precompile-substrate-transfer/std",
     "log/std",

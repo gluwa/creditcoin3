@@ -71,6 +71,7 @@ pub trait RuntimeApiCollection:
     + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
     + attestor_primitives::api::AttestorApi<Block, Hash, AccountId>
     + supported_chains_primitives::api::SupportedChainsApi<Block>
+    + randomness_primitives::api::RandomnessPalletApi<Block>
 {
 }
 
@@ -83,5 +84,6 @@ impl<Api> RuntimeApiCollection for Api where
         + pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance>
         + attestor_primitives::api::AttestorApi<Block, Hash, AccountId>
         + supported_chains_primitives::api::SupportedChainsApi<Block>
+        + randomness_primitives::api::RandomnessPalletApi<Block>
 {
 }

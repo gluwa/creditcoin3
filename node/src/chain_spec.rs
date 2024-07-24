@@ -503,5 +503,6 @@ fn testnet_genesis(
             _phantom: Default::default(),
         },
         prover: ProverConfig { provers },
+        randomness: Default::default(),
     }
 }

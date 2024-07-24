@@ -220,12 +220,16 @@ attestor-primitives = { path = "primitives/attestor", default-features = false }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
+randomness-primitives = { path = "primitives/randomness", default-features = false }
+attestation-chain = { path = "primitives/attestation_chain" }
 
 # Prover
 pallet-prover = { path = "pallets/prover", default_features = false }
 proof = { path = "proof", default-features = false }
 proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
+
+pallet-randomness = { path = "pallets/randomness", default-features = false }
 
 # Common
 bls-signatures = { path = "common/bls-signatures", default-features = false, features = [

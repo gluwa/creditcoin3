@@ -11,6 +11,8 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
 
+
+
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
@@ -18,6 +20,7 @@ use sp_core::{
     crypto::{ByteArray, KeyTypeId},
     OpaqueMetadata, H160, H256, U256,
 };
+
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
@@ -73,6 +76,7 @@ pub use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::Multiplier;
+use randomness_primitives::provider::RandomnessPalletProvider;
 
 mod precompiles;
 use precompiles::GluwaPrecompiles;
@@ -853,6 +857,11 @@ impl pallet_supported_chains::Config for Runtime {
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
 }
 
+impl pallet_randomness::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_randomness::weights::WeightInfo<Runtime>;
+}
+
 impl pallet_prover::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
@@ -900,6 +909,8 @@ construct_runtime!(
         Attestation: pallet_attestation_poc,
         SupportedChains: pallet_supported_chains,
         Prover: pallet_prover,
+
+        Randomness: pallet_randomness,
     }
 );
 
@@ -1393,6 +1404,12 @@ impl_runtime_apis! {
 
         fn supported_chains() -> Option<Vec<ChainId>> {
             SupportedChains::supported_chains()
+        }
+    }
+
+    impl randomness_primitives::api::RandomnessPalletApi<Block> for Runtime {
+        fn randomness_by_epoch_id(epoch_id: u64) -> Option<[u8; 32]>{
+            Randomness::randomness_by_epoch_id(epoch_id)
         }
     }
 

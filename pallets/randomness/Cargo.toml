@@ -17,6 +17,7 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
+randomness-primitives = { workspace = true }
 sp-std = { workspace = true }
 sp-runtime = { workspace = true }
 pallet-babe = { workspace = true }
@@ -38,6 +39,7 @@ std = [
     "sp-runtime/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
+    "randomness-primitives/std",
     "sp-std/std",
     "pallet-babe/std",
 ]
