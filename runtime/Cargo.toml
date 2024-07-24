@@ -1,6 +1,6 @@
 [package]
-name = "creditcoin3-runtime"
 description = "Creditcoin3 Runtime"
+name = "creditcoin3-runtime"
 
 authors = { workspace = true }
 edition = { workspace = true }
@@ -8,7 +8,6 @@ license = { workspace = true }
 publish = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
-
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -61,10 +60,10 @@ pallet-utility = { workspace = true }
 
 log = { workspace = true }
 # Frontier
+fp-account = { workspace = true }
 fp-evm = { workspace = true, features = ["serde"] }
 fp-rpc = { workspace = true }
 fp-self-contained = { workspace = true, features = ["serde"] }
-fp-account = { workspace = true }
 
 # Frontier FRAME
 pallet-base-fee = { workspace = true }
@@ -83,13 +82,13 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 
 # Gluwa
 pallet-attestation-poc = { workspace = true }
-pallet-supported-chains = { workspace = true }
 pallet-prover = { workspace = true }
+pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
-supported-chains-primitives = { workspace = true }
 pallet-evm-precompile-claim = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
+supported-chains-primitives = { workspace = true }
 #rlp = "0.5.2"
 
 [build-dependencies]
@@ -97,8 +96,31 @@ substrate-wasm-builder = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
-fast-runtime = []
 devnet = []
+fast-runtime = []
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-system-benchmarking/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-babe/runtime-benchmarks",
+    "pallet-bags-list/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-fast-unstake/runtime-benchmarks",
+    "pallet-grandpa/runtime-benchmarks",
+    "pallet-identity/runtime-benchmarks",
+    "pallet-im-online/runtime-benchmarks",
+    "pallet-nomination-pools/runtime-benchmarks",
+    "pallet-offences/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "pallet-staking/runtime-benchmarks",
+    "pallet-sudo/runtime-benchmarks",
+    "pallet-utility/runtime-benchmarks",
+    "pallet-proxy/runtime-benchmarks",
+    "pallet-ethereum/runtime-benchmarks",
+    "pallet-evm/runtime-benchmarks",
+    "pallet-hotfix-sufficients/runtime-benchmarks",
+    "pallet-prover/runtime-benchmarks",
+]
 std = [
     "parity-scale-codec/std",
     "scale-info/std",
@@ -168,27 +190,4 @@ std = [
     "pallet-evm-precompile-claim/std",
     "pallet-evm-precompile-substrate-transfer/std",
     "log/std",
-]
-runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-system-benchmarking/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
-    "pallet-babe/runtime-benchmarks",
-    "pallet-bags-list/runtime-benchmarks",
-    "pallet-balances/runtime-benchmarks",
-    "pallet-fast-unstake/runtime-benchmarks",
-    "pallet-grandpa/runtime-benchmarks",
-    "pallet-identity/runtime-benchmarks",
-    "pallet-im-online/runtime-benchmarks",
-    "pallet-nomination-pools/runtime-benchmarks",
-    "pallet-offences/runtime-benchmarks",
-    "pallet-timestamp/runtime-benchmarks",
-    "pallet-staking/runtime-benchmarks",
-    "pallet-sudo/runtime-benchmarks",
-    "pallet-utility/runtime-benchmarks",
-    "pallet-proxy/runtime-benchmarks",
-    "pallet-ethereum/runtime-benchmarks",
-    "pallet-evm/runtime-benchmarks",
-    "pallet-hotfix-sufficients/runtime-benchmarks",
-    "pallet-prover/runtime-benchmarks",
 ]

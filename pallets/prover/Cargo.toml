@@ -1,11 +1,11 @@
 [package]
-name = "pallet-prover"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "pallet-prover"
 publish.workspace = true
 repository.workspace = true
+version.workspace = true
 
 [lints.clippy]
 missing_errors_doc = "allow"
@@ -14,21 +14,21 @@ no_effect_underscore_binding = "allow"
 type_complexity = "allow"
 
 [dependencies]
-log = { workspace = true, default-features = false }
 hex = { workspace = true }
+log = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false }
 
 frame-support = { workspace = true, default-features = false }
 frame-system = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
-sp-runtime = { workspace = true, default-features = false }
-sp-std = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false }
+sp-std = { workspace = true, default-features = false }
 
-pallet-balances = { workspace = true, default-features = false }
 frame-benchmarking = { workspace = true, default-features = false, optional = true }
+pallet-balances = { workspace = true, default-features = false }
 
 attestor-primitives = { workspace = true, default-features = false }
 prover-primitives = { workspace = true, default-features = false }
@@ -40,12 +40,18 @@ fp-account = { workspace = true, default-features = false }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
+env_logger = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-supported-chains = { workspace = true }
-env_logger = { workspace = true }
 
 [features]
 default = ["std"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
 std = [
     "frame-support/std",
     "frame-system/std",
@@ -67,10 +73,4 @@ std = [
     "supported-chains-primitives/std",
     "proof-verifier/std",
     "prover-primitives/std",
-]
-runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
-    "sp-runtime/runtime-benchmarks",
 ]

@@ -1,44 +1,44 @@
 [package]
-name = "creditcoin3-attestor-gossip"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "creditcoin3-attestor-gossip"
 publish.workspace = true
 repository.workspace = true
+version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lints.clippy]
+iter_next_slice = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
 type_complexity = "allow"
-iter_next_slice = "allow"
 
 [dependencies]
+anyhow = "1"
 async-trait = { workspace = true }
-sc-network = { workspace = true }
-sc-network-gossip = { workspace = true }
-sc-network-common = { workspace = true }
-sc-client-api = { workspace = true }
-sc-utils = { workspace = true, features = ["default"] }
-sp-runtime = { workspace = true, features = ["std"] }
-sp-core = { workspace = true, features = ["std"] }
-sp-api = { workspace = true, features = ["default"] }
-sp-consensus-babe = { workspace = true, features = ["std"] }
-sp-inherents = { workspace = true, features = ["std"] }
+futures = { workspace = true }
 log = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, default-features = true }
-substrate-prometheus-endpoint = { workspace = true }
 parking_lot = { workspace = true }
-futures = { workspace = true }
-thiserror = { workspace = true }
-starknet-crypto = { workspace = true }
+sc-client-api = { workspace = true }
+sc-network = { workspace = true }
+sc-network-common = { workspace = true }
+sc-network-gossip = { workspace = true }
+sc-utils = { workspace = true, features = ["default"] }
 serde = { workspace = true, features = ["derive"] }
-anyhow = "1"
+sp-api = { workspace = true, features = ["default"] }
+sp-consensus-babe = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-inherents = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+starknet-crypto = { workspace = true }
+substrate-prometheus-endpoint = { workspace = true }
+thiserror = { workspace = true }
 
 # Workspace
 attestor-primitives = { workspace = true }
-supported-chains-primitives = { workspace = true, features = ["std"] }
 bls-signatures = { workspace = true, features = ["std", "default"] }
+supported-chains-primitives = { workspace = true, features = ["std"] }

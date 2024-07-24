@@ -1,30 +1,30 @@
 [package]
-name = "attestor-primitives"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "attestor-primitives"
 publish.workspace = true
 repository.workspace = true
+version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sp-core = { workspace = true, default-features = false }
-sp-std = { workspace = true, default-features = false }
-parity-scale-codec = { workspace = true, default-features = false }
-frame-support = { workspace = true, default-features = false }
-sp-runtime = { workspace = true, default-features = false }
-sp-io = { workspace = true, default-features = false }
-serde = { workspace = true, default-features = false }
-scale-info = { workspace = true, default-features = false }
 bls-signatures = { workspace = true, default-features = false }
-sp-api = { workspace = true, default-features = false }
-serde_bytes = { version = "0.11.14", default-features = false }
+frame-support = { workspace = true, default-features = false }
+parity-scale-codec = { workspace = true, default-features = false }
 rand = { version = "0.8", default-features = false }
-utils = { path = "../../common/utils", default-features = false }
-starknet-types-core = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false }
+serde_bytes = { version = "0.11.14", default-features = false }
+sp-api = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
+sp-runtime = { workspace = true, default-features = false }
+sp-std = { workspace = true, default-features = false }
 starknet-crypto = { workspace = true, default-features = false }
+starknet-types-core = { workspace = true, default-features = false }
+utils = { path = "../../common/utils", default-features = false }
 
 [dev-dependencies]
 
@@ -45,5 +45,5 @@ std = [
     "bls-signatures/std",
     "utils/std",
     "starknet-types-core/std",
-    "starknet-crypto/std"
+    "starknet-crypto/std",
 ]

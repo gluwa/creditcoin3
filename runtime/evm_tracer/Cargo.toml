@@ -1,17 +1,17 @@
 [package]
-name = "creditcoin3-evm-tracer"
 authors = { workspace = true }
 edition = { workspace = true }
+license = "GPL-3.0-only"
+name = "creditcoin3-evm-tracer"
 publish = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
-license = "GPL-3.0-only"
 
 [dependencies]
 
 # Tracing
-evm-tracing-events = { workspace = true }
 creditcoin3-primitives-ext = { workspace = true }
+evm-tracing-events = { workspace = true }
 
 # Substrate
 parity-scale-codec = { workspace = true }
@@ -26,25 +26,25 @@ evm = { workspace = true }
 evm-gasometer = { workspace = true }
 evm-runtime = { workspace = true }
 fp-evm = { workspace = true }
-pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 log = { workspace = true }
+pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
 [features]
 default = ["std"]
 std = [
-	"ethereum-types/std",
-	"evm-gasometer/std",
-	"evm-runtime/std",
-	"evm-tracing-events/std",
-	"evm/std",
-	"evm/with-serde",
-	"fp-evm/std",
-	"creditcoin3-primitives-ext/std",
-	"pallet-evm/std",
-	"parity-scale-codec/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-std/std",
-	"log/std",
+    "ethereum-types/std",
+    "evm-gasometer/std",
+    "evm-runtime/std",
+    "evm-tracing-events/std",
+    "evm/std",
+    "evm/with-serde",
+    "fp-evm/std",
+    "creditcoin3-primitives-ext/std",
+    "pallet-evm/std",
+    "parity-scale-codec/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "log/std",
 ]

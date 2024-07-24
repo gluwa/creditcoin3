@@ -1,50 +1,50 @@
 [package]
-name = "attestor"
-version = "0.1.0"
 edition = "2021"
-publish = false
 license = "MIT"
+name = "attestor"
+publish = false
+version = "0.1.0"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-path = "bin/attestor.rs"
 name = "attestor"
+path = "bin/attestor.rs"
 
 [lints.clippy]
-pedantic = "warn"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
+pedantic = "warn"
 redundant_slicing = "allow"
 
 [package.metadata.release]
 release = false
 
 [dependencies]
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
-kameo = { version = "0.8" }
 exponential-backoff = "1.2"
+kameo = { version = "0.8" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Creditcoin deps
-starknet-crypto = { workspace = true }
-creditcoin3-attestor-rpc = { workspace = true }
-creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }
-mmr = { workspace = true, features = ["par_mmr"] }
-cc-client = { workspace = true }
-eth = { workspace = true }
 bls-signatures = { workspace = true }
+cc-client = { workspace = true }
+creditcoin3-attestor-gossip = { workspace = true }
+creditcoin3-attestor-rpc = { workspace = true }
+eth = { workspace = true }
+mmr = { workspace = true, features = ["par_mmr"] }
+starknet-crypto = { workspace = true }
 utils = { path = "../common/utils", default-features = false }
 
 # Workspace deps
 async-trait = { workspace = true }
-sp-core = { workspace = true }
-serde = { workspace = true }
+clap = { workspace = true }
 hex = { workspace = true }
+serde = { workspace = true }
+sp-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-clap = { workspace = true }
 tracing = { workspace = true }

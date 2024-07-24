@@ -1,28 +1,28 @@
 [package]
-name = "attestor_zombienet"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "attestor_zombienet"
 publish.workspace = true
 repository.workspace = true
+version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde_yaml = "0.9"
-subxt-signer = "0.37"
-subxt = "0.37"
-tiny-bip39 = "1.0.0"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tempfile = "3"
 anyhow = "1"
 rand = "0.8.5"
+serde_yaml = "0.9"
+subxt = "0.37"
+subxt-signer = "0.37"
+tempfile = "3"
+tiny-bip39 = "1.0.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Common
 cc-client = { workspace = true }
+clap = { workspace = true }
 futures.workspace = true
-tracing = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["signal", "fs", "process"] }
-clap = { workspace = true }
+tracing = { workspace = true }

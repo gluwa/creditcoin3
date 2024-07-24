@@ -1,39 +1,31 @@
 [package]
-name = "prover"
-version = "0.1.0"
 edition = "2021"
-publish = false
 license = "MIT"
+name = "prover"
+publish = false
+version = "0.1.0"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-path = "bin/prover.rs"
 name = "prover"
+path = "bin/prover.rs"
 
 [lints.clippy]
-pedantic = "warn"
+cast_possible_wrap = "allow"
+from_over_into = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
+pedantic = "warn"
 redundant_slicing = "allow"
-from_over_into = "allow"
-cast_possible_wrap = "allow"
 
 [package.metadata.release]
 release = false
 
 [dependencies]
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing = "0.1"
-serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
-thiserror = "1.0"
-hex = { version = "0.4", default-features = false, features = ["alloc"] }
-rand = "0.8"
-toml = "0.8"
-tokio = { version = "1.37", features = ["signal", "fs"] }
 clap = { version = "4.4", features = ["derive", "deprecated"] }
 diesel = { version = "2.1", features = ["postgres"] }
 diesel-async = { version = "0.4", features = [
@@ -43,20 +35,28 @@ diesel-async = { version = "0.4", features = [
     "tokio",
 ] }
 diesel_migrations = "2.1"
-futures = { workspace = true }
 either = "1.13.0"
+futures = { workspace = true }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
 prover-primitives = { workspace = true }
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
 starknet-types-core = { workspace = true }
+thiserror = "1.0"
+tokio = { version = "1.37", features = ["signal", "fs"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Substrate
-sp-core = { workspace = true, default-features = false }
 pallet-evm = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
 
 # Creditcoin deps
+attestation-chain = { workspace = true }
 attestor-primitives = { path = "../primitives/attestor" }
 cc-client = { workspace = true }
 eth = { workspace = true }
-attestation-chain = { workspace = true }
-utils = { workspace = true }
 proof = { workspace = true }
+utils = { workspace = true }

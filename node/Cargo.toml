@@ -1,6 +1,6 @@
 [package]
-name = "creditcoin3-node"
 description = "Creditcoin3"
+name = "creditcoin3-node"
 
 authors = { workspace = true }
 edition = { workspace = true }
@@ -26,7 +26,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync"] }
 
 # Substrate
-substrate-prometheus-endpoint = { workspace = true }
 sc-basic-authorship = { workspace = true }
 sc-chain-spec = { workspace = true }
 sc-cli = { workspace = true }
@@ -63,6 +62,7 @@ sp-session = { workspace = true, features = ["default"] }
 sp-state-machine = { workspace = true, features = ["default"] }
 sp-timestamp = { workspace = true, features = ["default"] }
 sp-transaction-pool = { workspace = true, features = ["default"] }
+substrate-prometheus-endpoint = { workspace = true }
 
 # These dependencies are used for RPC
 frame-system-rpc-runtime-api = { workspace = true }
@@ -101,9 +101,9 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 creditcoin3-rpc-trace = { workspace = true }
 
 # Attestation
-creditcoin3-attestor-rpc = { workspace = true }
-creditcoin3-attestor-gossip = { workspace = true }
 attestor-primitives = { workspace = true }
+creditcoin3-attestor-gossip = { workspace = true }
+creditcoin3-attestor-rpc = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
 # Prover
@@ -115,19 +115,19 @@ substrate-build-script-utils = { workspace = true }
 [features]
 default = ["creditcoin3-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
-	"sc-cli/rocksdb",
-	"sc-service/rocksdb",
-	"fc-cli/rocksdb",
-	"fc-db/rocksdb",
-	"fc-mapping-sync/rocksdb",
-	"fc-rpc/rocksdb",
+    "sc-cli/rocksdb",
+    "sc-service/rocksdb",
+    "fc-cli/rocksdb",
+    "fc-db/rocksdb",
+    "fc-mapping-sync/rocksdb",
+    "fc-rpc/rocksdb",
+]
+rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-benchmarking-cli/runtime-benchmarks",
+    "sc-service/runtime-benchmarks",
+    "creditcoin3-runtime/runtime-benchmarks",
 ]
 sql = ["fc-db/sql", "fc-mapping-sync/sql"]
 txpool = ["fc-rpc/txpool"]
-rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
-runtime-benchmarks = [
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-benchmarking-cli/runtime-benchmarks",
-	"sc-service/runtime-benchmarks",
-	"creditcoin3-runtime/runtime-benchmarks",
-]

@@ -1,9 +1,9 @@
 [package]
-name = "core-primitives"
 authors = { workspace = true }
 edition = "2021"
 homepage = "https://moonbeam.network"
 license = "GPL-3.0-only"
+name = "core-primitives"
 repository = { workspace = true }
 version = "0.1.1"
 

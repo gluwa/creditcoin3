@@ -1,11 +1,11 @@
 [package]
-name = "creditcoin3-rpc-trace"
 authors = { workspace = true }
 edition = { workspace = true }
+license = "GPL-3.0-only"
+name = "creditcoin3-rpc-trace"
 publish = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
-license = "GPL-3.0-only"
 
 [dependencies]
 ethereum = { workspace = true, features = ["with-codec"] }

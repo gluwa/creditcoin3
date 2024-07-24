@@ -1,11 +1,11 @@
 [package]
-name = "creditcoin3-rpc-debug"
 authors = { workspace = true }
 edition = { workspace = true }
+license = "GPL-3.0-only"
+name = "creditcoin3-rpc-debug"
 publish = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
-license = "GPL-3.0-only"
 
 [dependencies]
 futures = { workspace = true, features = ["compat"] }
@@ -32,9 +32,9 @@ sp-runtime = { workspace = true, features = ["std"] }
 # Frontier
 ethereum = { workspace = true, features = ["std", "with-codec"] }
 ethereum-types = { workspace = true, features = ["std"] }
+fc-api = { workspace = true }
 fc-consensus = { workspace = true }
 fc-db = { workspace = true }
-fc-api = { workspace = true }
 fc-rpc = { workspace = true, features = ["rpc-binary-search-estimate"] }
 fc-storage = { workspace = true }
 fp-rpc = { workspace = true, features = ["std"] }

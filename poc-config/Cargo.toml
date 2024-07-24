@@ -1,11 +1,11 @@
 [package]
-name = "poc-config"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "poc-config"
 publish.workspace = true
 repository.workspace = true
+version.workspace = true
 
 [dependencies]
 anyhow = "1.0.86"

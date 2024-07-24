@@ -1,11 +1,11 @@
 [package]
-name = "evm-tracing-events"
 authors = { workspace = true }
 edition = { workspace = true }
+license = "GPL-3.0-only"
+name = "evm-tracing-events"
 publish = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
-license = "GPL-3.0-only"
 
 [dependencies]
 environmental = { workspace = true }
@@ -24,12 +24,12 @@ evm-runtime = { workspace = true }
 [features]
 default = ["std"]
 std = [
-	"environmental/std",
-	"ethereum-types/std",
-	"ethereum/std",
-	"evm-gasometer/tracing",
-	"evm-runtime/tracing",
-	"evm/tracing",
-	"parity-scale-codec/std",
-	"sp-runtime-interface/std",
+    "environmental/std",
+    "ethereum-types/std",
+    "ethereum/std",
+    "evm-gasometer/tracing",
+    "evm-runtime/tracing",
+    "evm/tracing",
+    "parity-scale-codec/std",
+    "sp-runtime-interface/std",
 ]

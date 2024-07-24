@@ -1,16 +1,16 @@
 [package]
-name = "pallet-evm-precompile-claim"
 authors = { workspace = true }
 description = "A Precompile to expose allow claim submission"
 edition = "2021"
+name = "pallet-evm-precompile-claim"
 version = "0.1.0"
 
 [lints.clippy]
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
-type_complexity = "allow"
 too_many_arguments = "allow"
+type_complexity = "allow"
 
 [dependencies]
 log = { workspace = true }
@@ -30,49 +30,49 @@ frame-system = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["max-encoded-len"] }
+scale-info = { workspace = true, features = ["derive"] }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
-scale-info = { workspace = true, features = ["derive"] }
 
 # Frontier
+fp-account = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
-fp-account = { workspace = true }
 
 [dev-dependencies]
 derive_more = { workspace = true }
 hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
+prover-primitives = { workspace = true, default-features = false }
 serde = { workspace = true }
 sha3 = { workspace = true }
-prover-primitives = { workspace = true, default-features = false }
 # Moonbeam
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 
-pallet-supported-chains = { workspace = true }
 env_logger = { workspace = true }
+pallet-supported-chains = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
-	"log/std",
-	"precompile-utils/std",
-	"prover-primitives/std",
-	"fp-account/std",
-	"fp-evm/std",
-	"frame-support/std",
-	"frame-system/std",
-	"pallet-balances/std",
-	"pallet-timestamp/std",
-	"pallet-evm/std",
-	"pallet-prover/std",
-	"parity-scale-codec/std",
-	"scale-info/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-std/std",
-	"pallet-supported-chains/std",
+    "log/std",
+    "precompile-utils/std",
+    "prover-primitives/std",
+    "fp-account/std",
+    "fp-evm/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "pallet-timestamp/std",
+    "pallet-evm/std",
+    "pallet-prover/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "pallet-supported-chains/std",
 ]

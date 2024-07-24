@@ -4,6 +4,5 @@
 [print_schema]
 file = "src/postgres/schema.rs"
 
-
 [migrations_directory]
 dir = "migrations"
