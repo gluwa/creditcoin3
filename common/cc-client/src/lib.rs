@@ -15,7 +15,6 @@ use tracing::{debug, error, info};
 
 use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 use cc3::{
-    babe::storage::types::randomness,
     runtime_types::attestor_primitives::{
         Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
     },
