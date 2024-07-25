@@ -225,7 +225,7 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-clippy"]
     steps:
       - uses: actions/checkout@v4
 
@@ -256,8 +256,7 @@ jobs:
           args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
 
   check:
-    # The type of runner that the job will run on
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-check"]
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -292,7 +291,12 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   unit-test-creditcoin:
-    runs-on: ubuntu-24.04
+    runs-on:
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "proxy-unit-test-creditcoin",
+      ]
     steps:
       - uses: actions/checkout@v4
 
@@ -327,7 +331,12 @@ jobs:
       matrix:
         target: [devnet, testnet]
     name: build-creditcoin-node-for-${{ matrix.target }}
-    runs-on: ubuntu-24.04
+    runs-on:
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "proxy-build-creditcoin-node-for-${{ matrix.target }}",
+      ]
     steps:
       - uses: actions/checkout@v4
 
@@ -389,7 +398,12 @@ jobs:
       matrix:
         target: [devnet, ci]
     name: build-creditcoin-node-for-testing-${{ matrix.target }}
-    runs-on: ubuntu-24.04
+    runs-on:
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "proxy-build-creditcoin-node-for-testing-${{ matrix.target }}",
+      ]
     steps:
       - uses: actions/checkout@v4
 
@@ -557,6 +571,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # runners for other jobs (repurpose existing labels)
+          - proxy: build-creditcoin-node-for-devnet
+          - proxy: build-creditcoin-node-for-testnet
+          - proxy: build-creditcoin-node-for-testing-devnet
+          - proxy: build-creditcoin-node-for-testing-ci
+          - proxy: clippy
+          - proxy: check
+          - proxy: unit-test-creditcoin
+
+          # runners for integration-test-cli-jobs
           - proxy: no
 
           - proxy: yes
@@ -614,7 +638,12 @@ jobs:
   remove-github-runner:
     runs-on: ubuntu-24.04
     needs:
+      - build-creditcoin-node
+      - build-creditcoin-node-for-testing
       - integration-test-cli
+      - clippy
+      - check
+      - unit-test-creditcoin
     if: ${{ always() }}
 
     # WARNING: same matrix as integration-test-cli job
@@ -622,6 +651,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # runners for other jobs (repurpose existing labels)
+          - proxy: build-creditcoin-node-for-devnet
+          - proxy: build-creditcoin-node-for-testnet
+          - proxy: build-creditcoin-node-for-testing-devnet
+          - proxy: build-creditcoin-node-for-testing-ci
+          - proxy: clippy
+          - proxy: check
+          - proxy: unit-test-creditcoin
+
+          # runners for integration-test-cli-jobs
           - proxy: no
 
           - proxy: yes
@@ -695,7 +734,6 @@ jobs:
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing
-      - deploy-github-runner
     runs-on:
       [
         self-hosted,
