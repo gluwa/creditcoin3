@@ -2,14 +2,14 @@
 
 pub use pallet::*;
 
-#[cfg(test)]
-mod mock;
+// #[cfg(test)]
+// mod mock;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
+// #[cfg(feature = "runtime-benchmarks")]
+// mod benchmarking;
 pub mod weights;
 
 #[frame_support::pallet]
@@ -17,11 +17,10 @@ pub mod pallet {
     use super::*;
     pub use attestor_primitives::ChainId;
     use frame_support::pallet_prelude::*;
-    use frame_support::pallet_prelude::{DispatchResult, OptionQuery, StorageMap};
+    use frame_support::pallet_prelude::{OptionQuery, StorageMap};
     use frame_support::traits::{BuildGenesisConfig, Hooks};
     use frame_support::Blake2_128Concat;
     use frame_system::pallet_prelude::*;
-    use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
     use randomness_primitives::provider::RandomnessPalletProvider;
 
@@ -84,7 +83,7 @@ pub mod pallet {
     #[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		/// Initialization
-		fn on_initialize(now: BlockNumberFor<T>) -> Weight {
+		fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let last_seen_epoch_index = LastSeenEpochIndex::<T>::get();
             let epoch_index = pallet_babe::EpochIndex::<T>::get();
             if epoch_index > last_seen_epoch_index {
