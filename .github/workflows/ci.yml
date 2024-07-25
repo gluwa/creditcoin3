@@ -660,18 +660,12 @@ jobs:
 
           echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
-      - name: Install linode-cli
-        run: |
-          python3 --version
-          pipx install linode-cli
-          linode-cli --version
-
       - name: Remove VM
         run: |
-          VM_ID=$(linode-cli linodes list --json --label "${{ steps.get-env.outputs.runner_vm_name }}" | jq -r '.[0].id')
-          linode-cli linodes delete "$VM_ID"
+          .github/remove-linode-vm.sh
         env:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
 
   integration-test-cli:
     strategy:
