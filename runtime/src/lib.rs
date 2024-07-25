@@ -11,8 +11,6 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
 
-
-
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;

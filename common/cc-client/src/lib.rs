@@ -13,10 +13,13 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use cc3::{babe::storage::types::randomness, runtime_types::attestor_primitives::{
-    Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
-}};
 use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
+use cc3::{
+    babe::storage::types::randomness,
+    runtime_types::attestor_primitives::{
+        Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
+    },
+};
 
 use attestor_primitives::{
     Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
@@ -111,7 +114,9 @@ impl<'a> Client {
             .await?
             .ok_or(Error::FailedToGetBlockNumber)?;
 
-        let intrested_epoch_index = epoch_index.checked_sub(2).expect("current epoch is less than 2");
+        let intrested_epoch_index = epoch_index
+            .checked_sub(2)
+            .expect("current epoch is less than 2");
 
         // Get current block number
         let current_block_number = self
@@ -150,15 +155,17 @@ impl<'a> Client {
         //     .await?
         //     .ok_or(Error::FailedToGetBabeVrf)?;
 
-        let randomness  = self
+        let randomness = self
             .api
             .storage()
             .at(block_hash_to_query)
-            .fetch(&cc3::storage().randomness().randomness_by_epoch_index(intrested_epoch_index))
+            .fetch(
+                &cc3::storage()
+                    .randomness()
+                    .randomness_by_epoch_index(intrested_epoch_index),
+            )
             .await?
             .ok_or(Error::FailedToGetBabeVrf)?;
-
-        
 
         // let randomness = randomness.expect("randomness is none");
 
@@ -281,10 +288,11 @@ impl<'a> Client {
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
-        let (randomness, block_hash, epoch_index) = self.fetch_babe_randomness().await.map_err(|e| {
-            error!("Error getting babe vrf output: {:?}", e);
-            Error::FailedToGetBabeVrf
-        })?;
+        let (randomness, block_hash, epoch_index) =
+            self.fetch_babe_randomness().await.map_err(|e| {
+                error!("Error getting babe vrf output: {:?}", e);
+                Error::FailedToGetBabeVrf
+            })?;
 
         let randomness = if let Some(r) = randomness {
             r

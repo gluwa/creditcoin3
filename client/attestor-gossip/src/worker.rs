@@ -286,9 +286,7 @@ where
         let runtime = self.runtime.runtime_api();
         let _config = runtime.configuration(blockchain_info.best_hash)?;
 
-        let target_epoch_block: u64 = blockchain_info
-            .best_number
-            .into();
+        let target_epoch_block: u64 = blockchain_info.best_number.into();
 
         debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", target_epoch_block);
 
@@ -301,12 +299,19 @@ where
 
         let runtime = self.runtime.runtime_api();
         let current_epoch = runtime.current_epoch(target_epoch_hash)?;
-        
-        let vrf_target_epoch = runtime.randomness_by_epoch_id(target_epoch_hash, current_epoch.epoch_index)?.ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
+
+        let vrf_target_epoch = runtime
+            .randomness_by_epoch_id(target_epoch_hash, current_epoch.epoch_index)?
+            .ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
 
         // Get the vrf for the attestation that was submitted
         let runtime = self.runtime.runtime_api();
-        let vrf_epoch = runtime.randomness_by_epoch_id(attestation.vrf_output.block_hash.into(), attestation.vrf_output.epoch)?.ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
+        let vrf_epoch = runtime
+            .randomness_by_epoch_id(
+                attestation.vrf_output.block_hash.into(),
+                attestation.vrf_output.epoch,
+            )?
+            .ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
 
         // Format the randomness as a number
         let randomness_u256 = U256::from_little_endian(&vrf_epoch);

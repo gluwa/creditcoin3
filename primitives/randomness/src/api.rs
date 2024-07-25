@@ -1,4 +1,3 @@
-
 sp_api::decl_runtime_apis! {
     pub trait RandomnessPalletApi
     {

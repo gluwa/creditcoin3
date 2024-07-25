@@ -1,6 +1,7 @@
 use log::{error, info};
 use parity_scale_codec::Codec;
 use parity_scale_codec::Decode;
+use randomness_primitives::api::RandomnessPalletApi;
 use sc_client_api::{Backend, HeaderBackend};
 use sc_network::PeerId;
 use sc_network_gossip::{ValidationResult, Validator, ValidatorContext};
@@ -12,7 +13,6 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use supported_chains_primitives::api::SupportedChainsApi;
-use randomness_primitives::api::RandomnessPalletApi;
 
 use attestor_primitives::{
     api::AttestorApi,

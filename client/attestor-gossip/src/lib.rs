@@ -1,6 +1,7 @@
 use attestor_primitives::bls::{Bls, CryptoScheme};
 use attestor_primitives::{api::AttestorApi, Attestation as AttestationPrimitive, Digest};
 use parity_scale_codec::{Codec, Decode, Encode};
+use randomness_primitives::api::RandomnessPalletApi;
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
@@ -19,7 +20,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
 use supported_chains_primitives::api::SupportedChainsApi;
-use randomness_primitives::api::RandomnessPalletApi;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
 
