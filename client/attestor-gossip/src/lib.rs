@@ -19,6 +19,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
 use supported_chains_primitives::api::SupportedChainsApi;
+use randomness_primitives::api::RandomnessPalletApi;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
 
@@ -132,6 +133,7 @@ pub struct VrfOutput {
     pub signature: sp_core::sr25519::Signature,
     pub vrf_number: U256,
     pub block_hash: H256,
+    pub epoch: u64,
 }
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,6 +199,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     R::Api: BabeApi<B>,
     R::Api: AttestorApi<B, HashFor<B>, AccountId>,
     R::Api: SupportedChainsApi<B>,
+    R::Api: RandomnessPalletApi<B>,
     N: GossipNetwork<B> + Send + Sync + 'static,
     S: GossipSyncing<B> + 'static,
     H256: From<<B as BlockT>::Hash>,

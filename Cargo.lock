@@ -2425,6 +2425,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "parking_lot 0.12.3",
+ "randomness-primitives",
  "sc-client-api",
  "sc-network",
  "sc-network-common",

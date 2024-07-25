@@ -12,6 +12,7 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use supported_chains_primitives::api::SupportedChainsApi;
+use randomness_primitives::api::RandomnessPalletApi;
 
 use attestor_primitives::{
     api::AttestorApi,
@@ -48,6 +49,7 @@ where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     RA::Api: SupportedChainsApi<B>,
+    RA::Api: RandomnessPalletApi<B>,
     BE: Backend<B>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {
@@ -131,6 +133,7 @@ where
     RA: ProvideRuntimeApi<Block> + Send + Sync + 'static,
     RA::Api: AttestorApi<Block, HashFor<Block>, AccountId>,
     RA::Api: SupportedChainsApi<Block>,
+    RA::Api: RandomnessPalletApi<Block>,
     BE: Backend<Block>,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
 {

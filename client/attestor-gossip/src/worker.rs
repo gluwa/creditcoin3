@@ -4,6 +4,7 @@ use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
 use log::{debug, error, info};
 use parity_scale_codec::{Codec, Decode, Encode};
+use randomness_primitives::api::RandomnessPalletApi;
 use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
@@ -38,6 +39,7 @@ where
     RuntimeApi::Api: BabeApi<B>,
     RuntimeApi::Api: AttestorApi<B, HashFor<B>, AccountId>,
     RuntimeApi::Api: SupportedChainsApi<B>,
+    RuntimeApi::Api: RandomnessPalletApi<B>,
     BE: Backend<B> + 'static,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
 {
@@ -73,6 +75,7 @@ where
     RuntimeApi::Api: BabeApi<B>,
     RuntimeApi::Api: AttestorApi<B, HashFor<B>, AccountId>,
     RuntimeApi::Api: SupportedChainsApi<B>,
+    RuntimeApi::Api: RandomnessPalletApi<B>,
     BE: Backend<B> + 'static,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
 {
@@ -103,6 +106,7 @@ where
     RA::Api: BabeApi<B>,
     RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     RA::Api: SupportedChainsApi<B>,
+    RA::Api: RandomnessPalletApi<B>,
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
