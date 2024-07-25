@@ -13,9 +13,9 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use cc3::runtime_types::attestor_primitives::{
+use cc3::{babe::storage::types::randomness, runtime_types::attestor_primitives::{
     Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
-};
+}};
 use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 
 use attestor_primitives::{
@@ -102,6 +102,17 @@ impl<'a> Client {
             .constants()
             .at(&cc3::constants().babe().epoch_duration())?;
 
+        let epoch_index = self
+            .api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&cc3::storage().babe().epoch_index())
+            .await?
+            .ok_or(Error::FailedToGetBlockNumber)?;
+
+        let intrested_epoch_index = epoch_index.checked_sub(2).expect("current epoch is less than 2");
+
         // Get current block number
         let current_block_number = self
             .api
@@ -131,15 +142,27 @@ impl<'a> Client {
 
         info!("Getting babe randomness at block: {block_to_query}");
         // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
-        let randomness = self
+        // let randomness = self
+        //     .api
+        //     .storage()
+        //     .at(block_hash_to_query)
+        //     .fetch(&cc3::storage().babe().author_vrf_randomness())
+        //     .await?
+        //     .ok_or(Error::FailedToGetBabeVrf)?;
+
+        let randomness  = self
             .api
             .storage()
             .at(block_hash_to_query)
-            .fetch(&cc3::storage().babe().author_vrf_randomness())
+            .fetch(&cc3::storage().randomness().randomness_by_epoch_index(intrested_epoch_index))
             .await?
             .ok_or(Error::FailedToGetBabeVrf)?;
 
-        Ok((randomness, block_hash_to_query))
+        
+
+        // let randomness = randomness.expect("randomness is none");
+
+        Ok((Some(randomness), block_hash_to_query))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
