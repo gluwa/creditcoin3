@@ -95,7 +95,7 @@ impl<'a> Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random at that time + the current block number (where it was calculated from)
-    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, H256)> {
+    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, H256, u64)> {
         // Get epoch duration
         let epoch_duration = self
             .api
@@ -162,7 +162,7 @@ impl<'a> Client {
 
         // let randomness = randomness.expect("randomness is none");
 
-        Ok((Some(randomness), block_hash_to_query))
+        Ok((Some(randomness), block_hash_to_query, intrested_epoch_index))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
@@ -281,7 +281,7 @@ impl<'a> Client {
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
-        let (randomness, block_hash) = self.fetch_babe_randomness().await.map_err(|e| {
+        let (randomness, block_hash, epoch_index) = self.fetch_babe_randomness().await.map_err(|e| {
             error!("Error getting babe vrf output: {:?}", e);
             Error::FailedToGetBabeVrf
         })?;
@@ -290,8 +290,8 @@ impl<'a> Client {
             r
         } else {
             info!(
-                "Randomness is not initialised at {:?}, making default hash",
-                block_hash
+                "Randomness is not initialised at {:?}, epoch_index {}, making default hash",
+                block_hash, epoch_index
             );
             H256::zero().0
         };
@@ -319,6 +319,7 @@ impl<'a> Client {
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             vrf_number: sp_core::U256::from_little_endian(&s_component_array),
             block_hash,
+            epoch: epoch_index,
         })
     }
 

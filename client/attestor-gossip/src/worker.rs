@@ -284,19 +284,11 @@ where
         // Get the vrf at 2 epochs ago
         // If not 2 epochs have passed, return an error
         let runtime = self.runtime.runtime_api();
-        let config = runtime.configuration(blockchain_info.best_hash)?;
+        let _config = runtime.configuration(blockchain_info.best_hash)?;
 
-        let target_epoch_block: u64 = match blockchain_info
+        let target_epoch_block: u64 = blockchain_info
             .best_number
-            .into()
-            .checked_sub(config.epoch_length * 2)
-        {
-            Some(result) => result,
-            None => {
-                info!("We cannot go back 2 epoch yet, that means we just need to fetch the randomness from current epoch");
-                blockchain_info.best_number.into()
-            }
-        };
+            .into();
 
         debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", target_epoch_block);
 
@@ -308,16 +300,16 @@ where
             .expect("Target block exists; qed");
 
         let runtime = self.runtime.runtime_api();
-        let vrf_target_epoch: sp_consensus_babe::Epoch =
-            runtime.current_epoch(target_epoch_hash)?;
+        let current_epoch = runtime.current_epoch(target_epoch_hash)?;
+        
+        let vrf_target_epoch = runtime.randomness_by_epoch_id(target_epoch_hash, current_epoch.epoch_index)?.ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
 
         // Get the vrf for the attestation that was submitted
         let runtime = self.runtime.runtime_api();
-        let vrf_epoch: sp_consensus_babe::Epoch =
-            runtime.current_epoch(attestation.vrf_output.block_hash.into())?;
+        let vrf_epoch = runtime.randomness_by_epoch_id(attestation.vrf_output.block_hash.into(), attestation.vrf_output.epoch)?.ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
 
         // Format the randomness as a number
-        let randomness_u256 = U256::from_little_endian(&vrf_epoch.randomness);
+        let randomness_u256 = U256::from_little_endian(&vrf_epoch);
 
         if attestation.vrf_output.vrf_number >= randomness_u256 {
             debug!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
@@ -329,7 +321,7 @@ where
 
             let is_valid = sp_core::sr25519::Pair::verify(
                 &attestation.vrf_output.signature,
-                vrf_target_epoch.randomness,
+                vrf_target_epoch,
                 &public_key,
             );
 
