@@ -582,18 +582,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install linode-cli
-        run: |
-          python3 --version
-          pipx install linode-cli
-          linode-cli --version
-
-      - name: Authorize hosted-runner
-        run: |
-          mkdir -p ~/.ssh/
-          ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa
-          cat ~/.ssh/id_rsa.pub >> .github/authorized_keys
-
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
         run: |
@@ -612,45 +600,15 @@ jobs:
       - name: Provision VM
         if: env.LC_GITHUB_REPO_ADMIN_TOKEN
         run: |
-          echo "INFO: From ENVs: RUNNER_VM_NAME=${{ env.RUNNER_VM_NAME }}"
-          echo "INFO: From Step: RUNNER_VM_NAME=${{ steps.get-env.outputs.runner_vm_name }}"
-
-          # inject authorized keys into cloud-init for the `ubuntu@` user
-          while read -r LINE; do
-            echo "      - $LINE" >> .github/linode-cloud-init.template
-          done < .github/authorized_keys
-
-          # WARNING: we do not specify --authorized_keys for root b/c
-          # linode-cli expects each key as a separate argument and iteratively constructing
-          # the argument list hits issues with quoting the jey values b/c of white-space.
-          # All SSH logins should be via the `ubuntu@` user. For more info see:
-          # https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
-          linode-cli linodes create --json \
-                --image 'linode/ubuntu24.04' --region ${{ env.LINODE_REGION }} \
-                --type ${{ env.LINODE_VM_SIZE }} --label "${{ steps.get-env.outputs.runner_vm_name }}" \
-                --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
-                --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
-
-          # provision the GitHub Runner binary on the VM
-          # passing additional ENV values
-          IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
-          SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
-          echo "INFO: $SSH_USER_AT_HOSTNAME"
-
-          export LC_RUNNER_VM_NAME="${{ steps.get-env.outputs.runner_vm_name }}"
-          export LC_WORKFLOW_ID="$GITHUB_RUN_ID"
-          until ssh -i ~/.ssh/id_rsa \
-              -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
-              -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh; do
-            echo "DEBUG: retrying ssh connection ..."
-            sleep 30
-          done
+          .github/provision-linode-vm.sh
         env:
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
           LC_RUNNER_EPHEMERAL: false
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
           LC_PROXY_ENABLED: ${{ matrix.proxy }}
           LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           LC_PROXY_TYPE: ${{ matrix.proxy_type }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
   remove-github-runner:
