@@ -56,6 +56,13 @@ jobs:
           docker exec creditcoin-validator which creditcoin
           docker exec creditcoin-validator creditcoin wizard --help
 
+      - name: Sanity check for chainspecs inside the container
+        run: |
+          for f in chainspecs/*.json; do
+              spec=$(basename "$f")
+              docker exec creditcoin-validator  ls -l "/$spec"
+          done
+
       - name: Collect docker logs
         if: always()
         run: |
