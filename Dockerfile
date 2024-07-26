@@ -44,8 +44,9 @@ EXPOSE 30333/udp
 EXPOSE 9944 9933 9615
 ENTRYPOINT [ "/bin/creditcoin3-node" ]
 
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
