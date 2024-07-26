@@ -11,14 +11,12 @@ use subxt_signer::{
     SecretUri,
 };
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
-use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
-use cc3::{
-    runtime_types::attestor_primitives::{
-        Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
-    },
+use cc3::runtime_types::attestor_primitives::{
+    Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
 };
+use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 
 use attestor_primitives::{
     Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
@@ -113,9 +111,13 @@ impl<'a> Client {
             .await?
             .ok_or(Error::FailedToGetBlockNumber)?;
 
-        let intrested_epoch_index = epoch_index
-            .checked_sub(2)
-            .expect("current epoch is less than 2");
+        let Some(intrested_epoch_index) = epoch_index.checked_sub(2) else {
+            warn!(
+                "Epoch index is less than 2, returning error, epoch index: {} epoch_duration: {}",
+                epoch_index, epoch_duration
+            );
+            return Err(Error::FailedToGetBabeVrf.into());
+        };
 
         // Get current block number
         let current_block_number = self
@@ -165,8 +167,6 @@ impl<'a> Client {
             )
             .await?
             .ok_or(Error::FailedToGetBabeVrf)?;
-
-        // let randomness = randomness.expect("randomness is none");
 
         Ok((Some(randomness), block_hash_to_query, intrested_epoch_index))
     }

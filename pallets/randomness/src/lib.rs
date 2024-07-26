@@ -21,8 +21,8 @@ pub mod pallet {
     use frame_support::traits::{BuildGenesisConfig, Hooks};
     use frame_support::Blake2_128Concat;
     use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
     use randomness_primitives::provider::RandomnessPalletProvider;
+    use sp_std::vec::Vec;
 
     pub const RANDOMNESS_LENGTH: usize = 32;
 
@@ -47,8 +47,8 @@ pub mod pallet {
     }
 
     #[pallet::storage]
-	#[pallet::getter(fn epoch_index)]
-	pub type LastSeenEpochIndex<T> = StorageValue<_, u64, ValueQuery>;
+    #[pallet::getter(fn epoch_index)]
+    pub type LastSeenEpochIndex<T> = StorageValue<_, u64, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn randomness_by_epoch_index)]
@@ -76,44 +76,43 @@ pub mod pallet {
 
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-        fn build(&self) {
-        }
+        fn build(&self) {}
     }
 
     #[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		/// Initialization
-		fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        /// Initialization
+        fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let last_seen_epoch_index = LastSeenEpochIndex::<T>::get();
             let epoch_index = pallet_babe::EpochIndex::<T>::get();
             if epoch_index > last_seen_epoch_index {
                 LastSeenEpochIndex::<T>::put(epoch_index);
                 let randomness = pallet_babe::Randomness::<T>::get();
                 RandomnessByEpochIndex::<T>::insert(epoch_index, randomness);
-                Self::deposit_event(Event::StoreRandomnessForEpoch{ epoch_index, randomness });
+                Self::deposit_event(Event::StoreRandomnessForEpoch {
+                    epoch_index,
+                    randomness,
+                });
             }
-            
-			Weight::zero()
-		}
+
+            Weight::zero()
+        }
     }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub (super) fn deposit_event)]
     pub enum Event<T: Config> {
-        StoreRandomnessForEpoch{
-            epoch_index: u64, 
-            randomness: Randomness
-        }
+        StoreRandomnessForEpoch {
+            epoch_index: u64,
+            randomness: Randomness,
+        },
     }
 
     #[pallet::error]
-    pub enum Error<T> {
-    }
+    pub enum Error<T> {}
 
     #[pallet::call]
-    impl<T: Config> Pallet<T> {
-       
-    }
+    impl<T: Config> Pallet<T> {}
 
     impl<T: Config> RandomnessPalletProvider for Pallet<T> {
         fn randomness_by_epoch_id(epoch_id: u64) -> Option<[u8; 32]> {
