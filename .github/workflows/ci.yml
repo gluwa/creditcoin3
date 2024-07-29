@@ -255,6 +255,15 @@ jobs:
           command: clippy
           args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
 
+      # keep this always as the last step
+      - name: Remove self-hosted
+        if: always()
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ runner.name }}
+
   check:
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-check"]
 
@@ -290,6 +299,15 @@ jobs:
         run: |
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
+      # keep this always as the last step
+      - name: Remove self-hosted
+        if: always()
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ runner.name }}
+
   unit-test-creditcoin:
     runs-on:
       [
@@ -324,6 +342,15 @@ jobs:
         with:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
+
+      # keep this always as the last step
+      - name: Remove self-hosted
+        if: always()
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ runner.name }}
 
   build-creditcoin-node:
     strategy:
@@ -389,6 +416,15 @@ jobs:
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+      # keep this always as the last step
+      - name: Remove self-hosted
+        if: always()
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ runner.name }}
 
   build-creditcoin-node-for-testing:
     needs:
@@ -456,6 +492,15 @@ jobs:
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+      # keep this always as the last step
+      - name: Remove self-hosted
+        if: always()
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ runner.name }}
 
   integration-test-smart-contract:
     needs:
@@ -700,6 +745,7 @@ jobs:
           echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
       - name: Remove VM
+        continue-on-error: true
         run: |
           .github/remove-linode-vm.sh
         env:
@@ -875,6 +921,15 @@ jobs:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
           verbose: true
+
+      # keep this always as the last step
+      - name: Remove self-hosted
+        if: always()
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ runner.name }}
 
   integration-test-blockchain:
     needs:

@@ -8,7 +8,7 @@ curl -L https://github.com/actions/runner/releases/download/v2.317.0/actions-run
 tar xzf ./runner.tar.gz
 sudo ./bin/installdependencies.sh
 # for 3rd party dependencies and building the code
-sudo apt install -y build-essential clang curl gcc jq libssl-dev pkg-config protobuf-compiler unzip
+sudo apt install -y build-essential clang curl gcc jq libssl-dev pipx pkg-config protobuf-compiler unzip
 
 OWNER_REPO_SLUG="gluwa/creditcoin3"
 REPOSITORY_URL="https://github.com/$OWNER_REPO_SLUG"
