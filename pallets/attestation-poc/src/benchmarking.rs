@@ -111,8 +111,6 @@ mod benchmarks {
 
     /// We want to test attestations signed by varying numbers of attestors
     const MAX_ATTESTORS: u32 = 100;
-    const MIN_ATTESTATION_INTERVAL: u32 = 10;
-    const MAX_ATTESTATION_INTERVAL: u32 = 100;
 
     #[benchmark]
     fn add_supported_chain() {
@@ -287,7 +285,6 @@ mod benchmarks {
     #[benchmark]
     fn commit_attestation(
         a: Linear<1, MAX_ATTESTORS>,
-        i: Linear<MIN_ATTESTATION_INTERVAL, MAX_ATTESTATION_INTERVAL>,
     ) {
         // Setup
         let chain_id: ChainId = 1;
@@ -332,7 +329,7 @@ mod benchmarks {
         > = create_signed_attestation::<T>(
             attestors,
             chain_id,
-            1 + i as u64,
+            11 as u64,
             Some(prior_attestation.digest()),
         );
 

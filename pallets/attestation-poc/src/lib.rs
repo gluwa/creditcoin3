@@ -64,7 +64,7 @@ pub mod pallet {
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
         fn bootstrap_chain(a: u32) -> Weight;
-        fn commit_attestation(a: u32, i: u32) -> Weight;
+        fn commit_attestation(a: u32) -> Weight;
         fn set_comittee_set_size() -> Weight;
         fn add_supported_chain() -> Weight;
     }
@@ -424,8 +424,7 @@ pub mod pallet {
 
         #[pallet::call_index(9)]
         #[pallet::weight(<T as Config>::WeightInfo::commit_attestation(
-            attestation.attestors.len() as u32,
-            ChainAttestationInterval::<T>::get(attestation.chain_id()).unwrap_or(100) as u32
+            attestation.attestors.len() as u32
         ))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
@@ -570,7 +569,7 @@ pub mod pallet {
             Attestors::<T>::contains_key(address)
         }
 
-        pub fn address_is_not_attestor(address: &T::AccountId) -> bool {
+        fn address_is_not_attestor(address: &T::AccountId) -> bool {
             !Self::is_attestor(address)
         }
 
@@ -586,7 +585,7 @@ pub mod pallet {
             Attestors::<T>::get(address)
         }
 
-        pub fn attestor_list_has_space() -> bool {
+        fn attestor_list_has_space() -> bool {
             Attestors::<T>::count() < MaxAttestors::<T>::get()
         }
 
