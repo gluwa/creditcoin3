@@ -111,8 +111,12 @@ pub fn testnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/testnetSpecRaw.json")[..])
 }
 
-pub fn dry_run_config() -> Result<ChainSpec, String> {
+/*pub fn dry_run_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/dryRunSpecRaw.json")[..])
+}*/
+
+pub fn dry_run_3_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/dryRun3SpecRaw.json")[..])
 }
 
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
