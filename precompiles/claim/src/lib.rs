@@ -49,6 +49,8 @@ pub struct FeltRange {
     end: u32,
 }
 
+type ConstU50MB = sp_core::ConstU32<52428800>;
+
 #[precompile_utils::precompile]
 impl<Runtime> ClaimPrecompile<Runtime>
 where
@@ -196,7 +198,7 @@ where
     fn submit_proof(
         handle: &mut impl PrecompileHandle,
         claim_hash: H256,
-        proof: UnboundedBytes,
+        proof: BoundedBytes<ConstU50MB>,
     ) -> EvmResult<bool> {
         handle.record_log_costs_manual(3, 32)?;
 

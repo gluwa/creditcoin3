@@ -263,3 +263,31 @@ fn submit_proof_for_unknown_claim_fails() {
                 });
         });
 }
+
+#[test]
+fn submit_proof_fails_proof_more_then_50_mb() {
+    let bob: H160 = Bob.into();
+    let alice: H160 = Alice.into();
+
+    let claim_hash = H256::random();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300), (bob.into(), 101)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::submit_proof {
+                        claim_hash,
+                        proof: [0; 52428801].to_vec().into(), //52428801 is 50MB + 1 byte
+                    },
+                )
+                .execute_reverts(|output| {
+                    from_utf8(output)
+                        .unwrap()
+                        .contains("Value is too large for length")
+                });
+        });
+}
