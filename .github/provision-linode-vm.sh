@@ -21,20 +21,30 @@ while read -r LINE; do
   echo "      - $LINE" >> .github/linode-cloud-init.template
 done < .github/authorized_keys
 
-# WARNING: we do not specify --authorized_keys for root b/c
-# linode-cli expects each key as a separate argument and iteratively constructing
-# the argument list hits issues with quoting the jey values b/c of white-space.
-# All SSH logins should be via the `ubuntu@` user. For more info see:
-# https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
-linode-cli linodes create --json \
-    --image 'linode/ubuntu24.04' --region "$LINODE_REGION" \
-    --type "$LINODE_VM_SIZE" --label "$LC_RUNNER_VM_NAME" \
-    --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
-    --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
+# retry until we get a VM
+IP_ADDRESS=""
+while [ -z "$IP_ADDRESS" ]; do
+    # if all jobs retry rate-limited queries at the same time they still hit the limit
+    # and subsequently fail. Max number of retries is hard-coded to 3 in linodecli
+    # use up to 60 sec random delay to avoid everything being scheduled at once!
+    sleep $((RANDOM % 60))
+
+    # WARNING: we do not specify --authorized_keys for root b/c
+    # linode-cli expects each key as a separate argument and iteratively constructing
+    # the argument list hits issues with quoting the jey values b/c of white-space.
+    # All SSH logins should be via the `ubuntu@` user. For more info see:
+    # https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
+    linode-cli linodes create --json \
+        --image 'linode/ubuntu24.04' --region "$LINODE_REGION" \
+        --type "$LINODE_VM_SIZE" --label "$LC_RUNNER_VM_NAME" \
+        --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
+        --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
+
+    IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
+done
 
 # provision the GitHub Runner binary on the VM
 # passing additional ENV values
-IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
 SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
