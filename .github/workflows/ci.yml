@@ -256,13 +256,11 @@ jobs:
           args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
 
       # keep this always as the last step
-      - name: Remove self-hosted
+      - name: Schedule self-hosted shutdown
         if: always()
         run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ runner.name }}
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   check:
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-check"]
@@ -300,13 +298,11 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
       # keep this always as the last step
-      - name: Remove self-hosted
+      - name: Schedule self-hosted shutdown
         if: always()
         run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ runner.name }}
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   unit-test-creditcoin:
     runs-on:
@@ -344,13 +340,11 @@ jobs:
           args: --features=runtime-benchmarks -- --test-threads 1
 
       # keep this always as the last step
-      - name: Remove self-hosted
+      - name: Schedule self-hosted shutdown
         if: always()
         run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ runner.name }}
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   build-creditcoin-node:
     strategy:
@@ -418,13 +412,11 @@ jobs:
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
       # keep this always as the last step
-      - name: Remove self-hosted
+      - name: Schedule self-hosted shutdown
         if: always()
         run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ runner.name }}
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   build-creditcoin-node-for-testing:
     needs:
@@ -494,13 +486,11 @@ jobs:
           path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
       # keep this always as the last step
-      - name: Remove self-hosted
+      - name: Schedule self-hosted shutdown
         if: always()
         run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ runner.name }}
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   integration-test-smart-contract:
     needs:
@@ -923,13 +913,11 @@ jobs:
           verbose: true
 
       # keep this always as the last step
-      - name: Remove self-hosted
+      - name: Schedule self-hosted shutdown
         if: always()
         run: |
-          .github/remove-linode-vm.sh
-        env:
-          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
-          LC_RUNNER_VM_NAME: ${{ runner.name }}
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   integration-test-blockchain:
     needs:
