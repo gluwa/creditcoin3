@@ -661,6 +661,7 @@ jobs:
         run: |
           .github/provision-linode-vm.sh
         env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
           LC_RUNNER_EPHEMERAL: false
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}

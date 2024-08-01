@@ -10,7 +10,7 @@ sudo ./bin/installdependencies.sh
 # for 3rd party dependencies and building the code
 sudo apt install -y build-essential clang curl gcc jq libssl-dev pipx pkg-config protobuf-compiler unzip
 
-OWNER_REPO_SLUG="gluwa/creditcoin3"
+OWNER_REPO_SLUG="${LC_OWNER_REPO_SLUG}"
 REPOSITORY_URL="https://github.com/$OWNER_REPO_SLUG"
 EPHEMERAL=${LC_RUNNER_EPHEMERAL:-true}
 
