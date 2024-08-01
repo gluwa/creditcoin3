@@ -121,6 +121,7 @@ runtime-benchmarks = [
     "pallet-evm/runtime-benchmarks",
     "pallet-hotfix-sufficients/runtime-benchmarks",
     "pallet-prover/runtime-benchmarks",
+    "pallet-supported-chains/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",

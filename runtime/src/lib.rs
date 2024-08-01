@@ -1034,6 +1034,7 @@ mod benches {
         [frame_benchmarking, BaselineBench::<Runtime>]
         [frame_system, SystemBench::<Runtime>]
         [pallet_attestation_poc, Attestation]
+        [pallet_supported_chains, SupportedChains]
         [pallet_balances, Balances]
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
@@ -1487,7 +1488,8 @@ impl_runtime_apis! {
             config: frame_benchmarking::BenchmarkConfig
         ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
             use frame_benchmarking::{baseline, Benchmarking, BenchmarkBatch, add_benchmark};
-            use pallet_attestation_poc::Pallet as PalletAttestationBench;
+            use frame_support::traits::TrackedStorageKey;
+
             use pallet_evm::Pallet as PalletEvmBench;
             use pallet_hotfix_sufficients::Pallet as PalletHotfixSufficientsBench;
             use frame_system_benchmarking::Pallet as SystemBench;
