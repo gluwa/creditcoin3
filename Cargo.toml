@@ -60,7 +60,7 @@ tokio = "1.39.2"
 sha3 = { version = "0.10", default-features = false }
 tracing = "0.1.40"
 tracing-core = "0.1.29"
-bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
+bip32 = { version = "0.5.2", default-features = false, features = ["bip39"] }
 primitive-types = "0.12.2"
 tiny-bip39 = { version = "1.0", default-features = false }
 url = "2.2.2"
