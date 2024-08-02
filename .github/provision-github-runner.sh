@@ -8,7 +8,13 @@ curl -L https://github.com/actions/runner/releases/download/v2.317.0/actions-run
 tar xzf ./runner.tar.gz
 sudo ./bin/installdependencies.sh
 # for 3rd party dependencies and building the code
-sudo apt install -y build-essential clang curl gcc jq libssl-dev pipx pkg-config protobuf-compiler unzip
+sudo apt install curl gnupg -y
+curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+sudo apt-get update
+sudo apt install -y build-essential clang curl gcc jq \
+    libpq-dev libssl-dev pipx pkg-config protobuf-compiler \
+    unzip yarn
 
 OWNER_REPO_SLUG="${LC_OWNER_REPO_SLUG}"
 REPOSITORY_URL="https://github.com/$OWNER_REPO_SLUG"
