@@ -582,6 +582,7 @@ jobs:
             metadata-cmp-with-testnet.txt
 
   unit-test-cli:
+    if: github.base_ref == 'dev'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -748,6 +749,7 @@ jobs:
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
 
   integration-test-cli:
+    if: github.base_ref == 'dev'
     strategy:
       fail-fast: false
       matrix:
