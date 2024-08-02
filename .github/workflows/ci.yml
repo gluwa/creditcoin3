@@ -499,7 +499,7 @@ jobs:
   integration-test-smart-contract:
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
     steps:
       - uses: actions/checkout@v4
 
@@ -539,6 +539,13 @@ jobs:
         working-directory: ./testing
         run: |
           ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
+
+      # keep this always as the last step
+      - name: Schedule self-hosted shutdown
+        if: always()
+        run: |
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   integration-test-check-extrinsics:
     needs:
@@ -612,12 +619,14 @@ jobs:
       matrix:
         include:
           # runners for other jobs (repurpose existing labels)
+          - proxy: benchmark
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
           - proxy: build-creditcoin-node-for-testing-devnet
           - proxy: build-creditcoin-node-for-testing-ci
           - proxy: clippy
           - proxy: check
+          - proxy: smart-contract
           - proxy: unit-test-creditcoin
 
           # runners for integration-test-cli-jobs
@@ -679,12 +688,14 @@ jobs:
   remove-github-runner:
     runs-on: ubuntu-24.04
     needs:
+      - benchmark
       - build-creditcoin-node
       - build-creditcoin-node-for-testing
       - integration-test-cli
       - clippy
       - check
       - unit-test-creditcoin
+      - integration-test-smart-contract
     if: ${{ always() }}
 
     # WARNING: same matrix as integration-test-cli job
@@ -693,12 +704,14 @@ jobs:
       matrix:
         include:
           # runners for other jobs (repurpose existing labels)
+          - proxy: benchmark
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
           - proxy: build-creditcoin-node-for-testing-devnet
           - proxy: build-creditcoin-node-for-testing-ci
           - proxy: clippy
           - proxy: check
+          - proxy: smart-contract
           - proxy: unit-test-creditcoin
 
           # runners for integration-test-cli-jobs
@@ -1241,7 +1254,7 @@ jobs:
     needs:
       # because of the shared cache
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
     steps:
       - uses: actions/checkout@v4
 
@@ -1311,3 +1324,10 @@ jobs:
         with:
           command: build
           args: --release
+
+      # keep this always as the last step
+      - name: Schedule self-hosted shutdown
+        if: always()
+        run: |
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown

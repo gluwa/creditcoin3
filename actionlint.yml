@@ -1,5 +1,7 @@
 self-hosted-runner:
   labels:
+    - proxy-benchmark
     - proxy-clippy
     - proxy-check
+    - proxy-smart-contract
     - proxy-unit-test-creditcoin
