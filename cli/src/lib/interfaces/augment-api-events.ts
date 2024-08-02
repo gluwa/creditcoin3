@@ -23,6 +23,7 @@ import type {
 import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeProxyFilter,
     EthereumLog,
     EvmCoreErrorExitReason,
@@ -31,9 +32,11 @@ import type {
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsPoolState,
+    PalletProverClaim,
     PalletStakingExposure,
     PalletStakingForcing,
     PalletStakingValidatorPrefs,
+    ProverPrimitivesChainPriceConfiguration,
     SpConsensusGrandpaAppPublic,
     SpRuntimeDispatchError,
 } from '@polkadot/types/lookup';
@@ -42,6 +45,26 @@ export type __AugmentedEvent<ApiType extends ApiTypes> = AugmentedEvent<ApiType>
 
 declare module '@polkadot/api-base/types/events' {
     interface AugmentedEvents<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * Emitted when an attestor is properly registered with the attestation system
+             **/
+            AttestorRegistered: AugmentedEvent<ApiType, [AccountId32]>;
+            AttestorUnregistered: AugmentedEvent<ApiType, [AccountId32]>;
+            BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
+            ChainBootstrapped: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
+            CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
+            ComitteeSetSizeChanged: AugmentedEvent<ApiType, [u32]>;
+            /**
+             * Emitted when an invulnerable is properly registered with the attestation system
+             **/
+            InvulnerableRegistered: AugmentedEvent<ApiType, [AccountId32]>;
+            InvulnerableUnregistered: AugmentedEvent<ApiType, [AccountId32]>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         balances: {
             /**
              * A balance was set by root.
@@ -517,6 +540,31 @@ declare module '@polkadot/api-base/types/events' {
              **/
             [key: string]: AugmentedEvent<ApiType>;
         };
+        prover: {
+            /**
+             *
+             **/
+            ClaimVerified: AugmentedEvent<ApiType, [H256, AccountId32]>;
+            /**
+             *
+             **/
+            ProverChainPriceConfigurationSet: AugmentedEvent<
+                ApiType,
+                [AccountId32, Vec<ProverPrimitivesChainPriceConfiguration>]
+            >;
+            /**
+             *
+             **/
+            ProverClaimSubmitted: AugmentedEvent<ApiType, [AccountId32, AccountId32, H256, PalletProverClaim]>;
+            /**
+             * Emitted when an prover is properly registered with the prover system
+             **/
+            ProverRegistered: AugmentedEvent<ApiType, [AccountId32]>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         proxy: {
             /**
              * An announcement was placed to make a call in the future.
@@ -715,6 +763,20 @@ declare module '@polkadot/api-base/types/events' {
                 [sudoResult: Result<Null, SpRuntimeDispatchError>],
                 { sudoResult: Result<Null, SpRuntimeDispatchError> }
             >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * A chain has been registered with a given ID
+             **/
+            ChainRegistered: AugmentedEvent<ApiType, [u64]>;
+            /**
+             * A chain has been removed with a given ID
+             **/
+            ChainRemoved: AugmentedEvent<ApiType, [u64]>;
             /**
              * Generic event
              **/

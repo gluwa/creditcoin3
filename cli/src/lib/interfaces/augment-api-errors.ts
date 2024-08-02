@@ -11,6 +11,70 @@ export type __AugmentedError<ApiType extends ApiTypes> = AugmentedError<ApiType>
 
 declare module '@polkadot/api-base/types/errors' {
     interface AugmentedErrors<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * The call to unregister_attestor failed because the address is invulnerable
+             **/
+            AddressIsInvulnerable: AugmentedError<ApiType>;
+            /**
+             * The call the urnegister_invulnerable failed because the address is not invulnerable
+             **/
+            AddressIsNotInvulnerable: AugmentedError<ApiType>;
+            /**
+             * the address supplied is not currently registered as an attestor
+             **/
+            AddressNotAttestor: AugmentedError<ApiType>;
+            /**
+             * The AccountId supplied has already been registered
+             **/
+            AlreadyAttestor: AugmentedError<ApiType>;
+            AttestationExists: AugmentedError<ApiType>;
+            /**
+             * The attestor list is at the max size allowed by the current configuration
+             **/
+            AttestorListFull: AugmentedError<ApiType>;
+            CannotAddChain: AugmentedError<ApiType>;
+            /**
+             * The call to bootstrap_chain failed, the chain has previously been bootstrapped
+             **/
+            ChainAlreadyBootstrapped: AugmentedError<ApiType>;
+            /**
+             * The chain has not been bootstrapped and cannot be attested to
+             **/
+            ChainIsNotBootstrapped: AugmentedError<ApiType>;
+            /**
+             * The chain is not supported
+             **/
+            ChainNotSupported: AugmentedError<ApiType>;
+            /**
+             * The call to attest_block failed, the block's cryptographic committments were invalid
+             **/
+            InvalidAttestation: AugmentedError<ApiType>;
+            InvalidBlsPublicKey: AugmentedError<ApiType>;
+            InvalidBlsSignature: AugmentedError<ApiType>;
+            InvalidProofOfPossession: AugmentedError<ApiType>;
+            /**
+             * The invulnerable list is full
+             **/
+            InvulnerableListFull: AugmentedError<ApiType>;
+            /**
+             * The call to set_max_attestor_failed, most likely because the current list is longer than the new requested maximum
+             **/
+            MaxAttestorsCannotBeChanged: AugmentedError<ApiType>;
+            /**
+             * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
+             **/
+            MaxInvulnerablesCannotBeChanged: AugmentedError<ApiType>;
+            NoPreviousDigest: AugmentedError<ApiType>;
+            /**
+             * The call to attest_block failed, the attestor is not eligible at this time
+             **/
+            NotEligible: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
         babe: {
             /**
              * A given equivocation report is valid but already previously reported.
@@ -451,6 +515,27 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             [key: string]: AugmentedError<ApiType>;
         };
+        prover: {
+            BalanceToLow: AugmentedError<ApiType>;
+            ChainNotSupported: AugmentedError<ApiType>;
+            ChainPriceConfigurationNotFound: AugmentedError<ApiType>;
+            ClaimNotExists: AugmentedError<ApiType>;
+            InvalidProofSubmitted: AugmentedError<ApiType>;
+            ProverAlreadyExists: AugmentedError<ApiType>;
+            /**
+             * Prover already registered
+             **/
+            ProverAlreadyRegistered: AugmentedError<ApiType>;
+            /**
+             * Prover not exists
+             **/
+            ProverNotExists: AugmentedError<ApiType>;
+            WrongClaimHash: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
         proxy: {
             /**
              * Account is already a proxy.
@@ -630,6 +715,20 @@ declare module '@polkadot/api-base/types/errors' {
              * Sender must be the Sudo account
              **/
             RequireSudo: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * The chain is already registered
+             **/
+            ChainAlreadyRegistered: AugmentedError<ApiType>;
+            /**
+             * The chain is not supported
+             **/
+            ChainNotSupported: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

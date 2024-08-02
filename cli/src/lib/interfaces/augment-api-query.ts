@@ -7,10 +7,11 @@ import '@polkadot/api-base/types/storage';
 
 import type { ApiTypes, AugmentedQuery, QueryableStorageEntry } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Null, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
+import type { BTreeMap, Bytes, Null, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
     EthereumReceiptReceiptV3,
@@ -39,6 +40,8 @@ import type {
     PalletNominationPoolsPoolMember,
     PalletNominationPoolsRewardPool,
     PalletNominationPoolsSubPools,
+    PalletProverClaim,
+    PalletProverProver,
     PalletProxyAnnouncement,
     PalletProxyProxyDefinition,
     PalletStakingActiveEraInfo,
@@ -53,6 +56,7 @@ import type {
     PalletStakingUnappliedSlash,
     PalletStakingValidatorPrefs,
     PalletTransactionPaymentReleases,
+    ProverPrimitivesChainPriceConfiguration,
     SpConsensusBabeAppPublic,
     SpConsensusBabeBabeEpochConfiguration,
     SpConsensusBabeDigestsNextConfigDescriptor,
@@ -68,6 +72,60 @@ export type __QueryableStorageEntry<ApiType extends ApiTypes> = QueryableStorage
 
 declare module '@polkadot/api-base/types/storage' {
     interface AugmentedQueries<ApiType extends ApiTypes> {
+        attestation: {
+            attestations: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: H256 | string | Uint8Array,
+                ) => Observable<Option<AttestorPrimitivesSignedAttestation>>,
+                [u64, H256]
+            > &
+                QueryableStorageEntry<ApiType, [u64, H256]>;
+            attestors: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<U8aFixed>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            chainAttestationInterval: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            comitteeSetSize: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
+            /**
+             * Counter for the related counted storage map
+             **/
+            counterForAttestors: AugmentedQuery<ApiType, () => Observable<u32>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Counter for the related counted storage map
+             **/
+            counterForInvlunerables: AugmentedQuery<ApiType, () => Observable<u32>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            invlunerables: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<bool>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            lastDigest: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H256>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            maxAttestors: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
+            maxInvulnerables: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
+            supportedChains: AugmentedQuery<ApiType, () => Observable<Vec<u64>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         authorship: {
             /**
              * Author of current block.
@@ -760,6 +818,46 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             [key: string]: QueryableStorageEntry<ApiType>;
         };
+        prover: {
+            claimResultByHash: AugmentedQuery<
+                ApiType,
+                (arg: H256 | string | Uint8Array) => Observable<Option<bool>>,
+                [H256]
+            > &
+                QueryableStorageEntry<ApiType, [H256]>;
+            claimSourceByHash: AugmentedQuery<
+                ApiType,
+                (arg: H256 | string | Uint8Array) => Observable<Option<AccountId32>>,
+                [H256]
+            > &
+                QueryableStorageEntry<ApiType, [H256]>;
+            /**
+             * Counter for the related counted storage map
+             **/
+            counterForProvers: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
+            proverClaims: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<BTreeMap<H256, PalletProverClaim>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            provers: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletProverProver>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            proversChainPriceConfigurations: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Vec<ProverPrimitivesChainPriceConfiguration>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         proxy: {
             /**
              * The announcements made by the proxy (key).
@@ -1203,6 +1301,18 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             key: AugmentedQuery<ApiType, () => Observable<Option<AccountId32>>, []> &
                 QueryableStorageEntry<ApiType, []>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
+        supportedChains: {
+            supportedChains: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<Bytes>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Generic query
              **/

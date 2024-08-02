@@ -12,7 +12,20 @@ import type {
     SubmittableExtrinsicFunction,
 } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Compact, Option, U256, Vec, bool, u128, u16, u32, u64 } from '@polkadot/types-codec';
+import type {
+    Bytes,
+    Compact,
+    Option,
+    Text,
+    U256,
+    U8aFixed,
+    Vec,
+    bool,
+    u128,
+    u16,
+    u32,
+    u64,
+} from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
 import type {
     AccountId32,
@@ -25,6 +38,7 @@ import type {
     Permill,
 } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
@@ -42,12 +56,15 @@ import type {
     PalletNominationPoolsConfigOpU128,
     PalletNominationPoolsConfigOpU32,
     PalletNominationPoolsPoolState,
+    PalletProverClaim,
+    PalletProverProver,
     PalletStakingPalletConfigOpPerbill,
     PalletStakingPalletConfigOpPercent,
     PalletStakingPalletConfigOpU128,
     PalletStakingPalletConfigOpU32,
     PalletStakingRewardDestination,
     PalletStakingValidatorPrefs,
+    ProverPrimitivesChainPriceConfiguration,
     SpConsensusBabeDigestsNextConfigDescriptor,
     SpConsensusGrandpaEquivocationProof,
     SpConsensusSlotsEquivocationProof,
@@ -61,6 +78,101 @@ export type __SubmittableExtrinsicFunction<ApiType extends ApiTypes> = Submittab
 
 declare module '@polkadot/api-base/types/submittable' {
     interface AugmentedSubmittables<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * See [`Pallet::add_supported_chain`].
+             **/
+            addSupportedChain: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainAttestationInterval: u64 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u64]
+            >;
+            /**
+             * See [`Pallet::bootstrap_chain`].
+             **/
+            bootstrapChain: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    attestation:
+                        | AttestorPrimitivesSignedAttestation
+                        | { attestation?: any; signature?: any; attestors?: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AttestorPrimitivesSignedAttestation]
+            >;
+            /**
+             * See [`Pallet::commit_attestation`].
+             **/
+            commitAttestation: AugmentedSubmittable<
+                (
+                    attestation:
+                        | AttestorPrimitivesSignedAttestation
+                        | { attestation?: any; signature?: any; attestors?: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [AttestorPrimitivesSignedAttestation]
+            >;
+            /**
+             * See [`Pallet::register_attestor`].
+             **/
+            registerAttestor: AugmentedSubmittable<
+                (
+                    blsPublicKey: U8aFixed | string | Uint8Array,
+                    proofOfPossession: U8aFixed | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [U8aFixed, U8aFixed]
+            >;
+            /**
+             * See [`Pallet::register_invulnerable`].
+             **/
+            registerInvulnerable: AugmentedSubmittable<
+                (
+                    attestor: AccountId32 | string | Uint8Array,
+                    blsPublicKey: U8aFixed | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [AccountId32, U8aFixed]
+            >;
+            /**
+             * See [`Pallet::set_comittee_set_size`].
+             **/
+            setComitteeSetSize: AugmentedSubmittable<
+                (newComitteeSetSize: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u32]
+            >;
+            /**
+             * See [`Pallet::set_max_attestors`].
+             **/
+            setMaxAttestors: AugmentedSubmittable<
+                (newMax: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u32]
+            >;
+            /**
+             * See [`Pallet::set_max_invulnerables`].
+             **/
+            setMaxInvulnerables: AugmentedSubmittable<
+                (newMax: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u32]
+            >;
+            /**
+             * See [`Pallet::unregister_attestor`].
+             **/
+            unregisterAttestor: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            /**
+             * See [`Pallet::unregister_invulnerable`].
+             **/
+            unregisterInvulnerable: AugmentedSubmittable<
+                (attestor: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [AccountId32]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         babe: {
             /**
              * See [`Pallet::plan_config_change`].
@@ -1133,6 +1245,56 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
+        prover: {
+            /**
+             * See [`Pallet::register_prover`].
+             **/
+            registerProver: AugmentedSubmittable<
+                (
+                    prover: PalletProverProver | { nickname?: any } | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [PalletProverProver]
+            >;
+            /**
+             * See [`Pallet::set_chain_price_config`].
+             **/
+            setChainPriceConfig: AugmentedSubmittable<
+                (
+                    chainPriceConfigs:
+                        | Vec<ProverPrimitivesChainPriceConfiguration>
+                        | (
+                              | ProverPrimitivesChainPriceConfiguration
+                              | { chainId?: any; price?: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [Vec<ProverPrimitivesChainPriceConfiguration>]
+            >;
+            /**
+             * See [`Pallet::submit_claim`].
+             **/
+            submitClaim: AugmentedSubmittable<
+                (
+                    claim: PalletProverClaim | { chainId?: any; id?: any; feltRanges?: any } | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [PalletProverClaim]
+            >;
+            /**
+             * See [`Pallet::submit_proof`].
+             **/
+            submitProof: AugmentedSubmittable<
+                (
+                    claimHash: H256 | string | Uint8Array,
+                    proof: Bytes | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [H256, Bytes]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         proxy: {
             /**
              * See [`Pallet::add_proxy`].
@@ -1692,6 +1854,26 @@ declare module '@polkadot/api-base/types/submittable' {
                     weight: SpWeightsWeightV2Weight | { refTime?: any; proofSize?: any } | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [Call, SpWeightsWeightV2Weight]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * See [`Pallet::register_chain`].
+             **/
+            registerChain: AugmentedSubmittable<
+                (chainId: u64 | AnyNumber | Uint8Array, chainName: Text | string) => SubmittableExtrinsic<ApiType>,
+                [u64, Text]
+            >;
+            /**
+             * See [`Pallet::remove_chain`].
+             **/
+            removeChain: AugmentedSubmittable<
+                (chainId: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u64]
             >;
             /**
              * Generic tx

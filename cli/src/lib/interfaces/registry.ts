@@ -6,6 +6,8 @@
 import '@polkadot/types/types/registry';
 
 import type {
+    AttestorPrimitivesAttestation,
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
@@ -59,6 +61,9 @@ import type {
     FrameSystemLimitsBlockWeights,
     FrameSystemLimitsWeightsPerClass,
     FrameSystemPhase,
+    PalletAttestationPocCall,
+    PalletAttestationPocError,
+    PalletAttestationPocEvent,
     PalletBabeCall,
     PalletBabeError,
     PalletBagsListCall,
@@ -132,6 +137,15 @@ import type {
     PalletNominationPoolsSubPools,
     PalletNominationPoolsUnbondPool,
     PalletOffencesEvent,
+    PalletProverBlockItemIdentifier,
+    PalletProverCall,
+    PalletProverClaim,
+    PalletProverClaimId,
+    PalletProverClaimKind,
+    PalletProverError,
+    PalletProverEvent,
+    PalletProverFeltRange,
+    PalletProverProver,
     PalletProxyAnnouncement,
     PalletProxyCall,
     PalletProxyError,
@@ -163,6 +177,9 @@ import type {
     PalletSudoCall,
     PalletSudoError,
     PalletSudoEvent,
+    PalletSupportedChainsCall,
+    PalletSupportedChainsError,
+    PalletSupportedChainsEvent,
     PalletTimestampCall,
     PalletTransactionPaymentChargeTransactionPayment,
     PalletTransactionPaymentEvent,
@@ -170,6 +187,7 @@ import type {
     PalletUtilityCall,
     PalletUtilityError,
     PalletUtilityEvent,
+    ProverPrimitivesChainPriceConfiguration,
     SpArithmeticArithmeticError,
     SpConsensusBabeAllowedSlots,
     SpConsensusBabeAppPublic,
@@ -209,6 +227,8 @@ import type {
 
 declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
+        AttestorPrimitivesAttestation: AttestorPrimitivesAttestation;
+        AttestorPrimitivesSignedAttestation: AttestorPrimitivesSignedAttestation;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;
         Creditcoin3RuntimeProxyFilter: Creditcoin3RuntimeProxyFilter;
@@ -262,6 +282,9 @@ declare module '@polkadot/types/types/registry' {
         FrameSystemLimitsBlockWeights: FrameSystemLimitsBlockWeights;
         FrameSystemLimitsWeightsPerClass: FrameSystemLimitsWeightsPerClass;
         FrameSystemPhase: FrameSystemPhase;
+        PalletAttestationPocCall: PalletAttestationPocCall;
+        PalletAttestationPocError: PalletAttestationPocError;
+        PalletAttestationPocEvent: PalletAttestationPocEvent;
         PalletBabeCall: PalletBabeCall;
         PalletBabeError: PalletBabeError;
         PalletBagsListCall: PalletBagsListCall;
@@ -335,6 +358,15 @@ declare module '@polkadot/types/types/registry' {
         PalletNominationPoolsSubPools: PalletNominationPoolsSubPools;
         PalletNominationPoolsUnbondPool: PalletNominationPoolsUnbondPool;
         PalletOffencesEvent: PalletOffencesEvent;
+        PalletProverBlockItemIdentifier: PalletProverBlockItemIdentifier;
+        PalletProverCall: PalletProverCall;
+        PalletProverClaim: PalletProverClaim;
+        PalletProverClaimId: PalletProverClaimId;
+        PalletProverClaimKind: PalletProverClaimKind;
+        PalletProverError: PalletProverError;
+        PalletProverEvent: PalletProverEvent;
+        PalletProverFeltRange: PalletProverFeltRange;
+        PalletProverProver: PalletProverProver;
         PalletProxyAnnouncement: PalletProxyAnnouncement;
         PalletProxyCall: PalletProxyCall;
         PalletProxyError: PalletProxyError;
@@ -366,6 +398,9 @@ declare module '@polkadot/types/types/registry' {
         PalletSudoCall: PalletSudoCall;
         PalletSudoError: PalletSudoError;
         PalletSudoEvent: PalletSudoEvent;
+        PalletSupportedChainsCall: PalletSupportedChainsCall;
+        PalletSupportedChainsError: PalletSupportedChainsError;
+        PalletSupportedChainsEvent: PalletSupportedChainsEvent;
         PalletTimestampCall: PalletTimestampCall;
         PalletTransactionPaymentChargeTransactionPayment: PalletTransactionPaymentChargeTransactionPayment;
         PalletTransactionPaymentEvent: PalletTransactionPaymentEvent;
@@ -373,6 +408,7 @@ declare module '@polkadot/types/types/registry' {
         PalletUtilityCall: PalletUtilityCall;
         PalletUtilityError: PalletUtilityError;
         PalletUtilityEvent: PalletUtilityEvent;
+        ProverPrimitivesChainPriceConfiguration: ProverPrimitivesChainPriceConfiguration;
         SpArithmeticArithmeticError: SpArithmeticArithmeticError;
         SpConsensusBabeAllowedSlots: SpConsensusBabeAllowedSlots;
         SpConsensusBabeAppPublic: SpConsensusBabeAppPublic;
