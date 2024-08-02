@@ -122,8 +122,10 @@ fn set_max_attestors_should_error_with_non_root_origin() {
 fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
     ExtBuilder.build_and_execute(|| {
         let root_origin = RuntimeOrigin::root();
+        // There should be at least one invulnerable set in mock.rs
+        // We set the max number of invulnerables to 0, less than the current number.
         assert_err!(
-            Attestation::set_max_invulnerables(root_origin, 1),
+            Attestation::set_max_invulnerables(root_origin, 0),
             Error::<Test>::MaxInvulnerablesCannotBeChanged
         );
     })
