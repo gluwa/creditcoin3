@@ -246,8 +246,8 @@ mod benchmarks {
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.origin.clone(),
-                attestor.public_key.clone(),
-                attestor.signature.clone()
+                attestor.public_key,
+                attestor.signature
             ));
 
             attestors.push(attestor);
@@ -286,8 +286,8 @@ mod benchmarks {
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.origin.clone(),
-                attestor.public_key.clone(),
-                attestor.signature.clone()
+                attestor.public_key,
+                attestor.signature
             ));
 
             attestors.push(attestor);
@@ -311,7 +311,7 @@ mod benchmarks {
         > = create_signed_attestation::<T>(
             attestors,
             chain_id,
-            11 as u64,
+            11_u64,
             Some(prior_attestation.digest()),
         );
 
