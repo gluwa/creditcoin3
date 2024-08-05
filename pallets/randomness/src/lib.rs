@@ -11,6 +11,7 @@ pub use pallet::*;
 // #[cfg(feature = "runtime-benchmarks")]
 // mod benchmarking;
 pub mod weights;
+use randomness_primitives::Randomness;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -18,16 +19,14 @@ pub mod pallet {
     pub use attestor_primitives::ChainId;
     use frame_support::pallet_prelude::*;
     use frame_support::pallet_prelude::{OptionQuery, StorageMap};
-    use frame_support::traits::{BuildGenesisConfig, Hooks};
     use frame_support::Blake2_128Concat;
     use frame_system::pallet_prelude::*;
     use randomness_primitives::provider::RandomnessPalletProvider;
-    use sp_std::vec::Vec;
 
     pub const RANDOMNESS_LENGTH: usize = 32;
 
     /// Randomness type required by BABE operations.
-    pub type Randomness = [u8; RANDOMNESS_LENGTH];
+    // pub type Randomness = [u8; RANDOMNESS_LENGTH];
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -95,7 +94,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {}
 
     impl<T: Config> RandomnessPalletProvider for Pallet<T> {
-        fn randomness_by_epoch_id(epoch_id: u64) -> Option<[u8; 32]> {
+        fn randomness_by_epoch_id(epoch_id: u64) -> Option<Randomness> {
             RandomnessByEpochIndex::<T>::get(epoch_id)
         }
     }
