@@ -30,7 +30,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 # shellcheck source=/dev/null
 RUN source ~/.cargo/env && \
-    cargo build --release ${BUILD_ARGS}
+    cargo build --profile=production ${BUILD_ARGS}
 
 
 FROM devel-base AS cli-builder
@@ -45,7 +45,7 @@ EXPOSE 9944 9933 9615
 ENTRYPOINT [ "/bin/creditcoin3-node" ]
 
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/production/creditcoin3-node /bin/creditcoin3-node
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
 
 USER 0
