@@ -58,17 +58,6 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
-    #[pallet::genesis_config]
-    #[derive(frame_support::DefaultNoBound)]
-    pub struct GenesisConfig<T> {
-        pub _phantom: PhantomData<T>,
-    }
-
-    #[pallet::genesis_build]
-    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-        fn build(&self) {}
-    }
-
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
