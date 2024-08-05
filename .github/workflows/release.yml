@@ -110,20 +110,20 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release ${{ needs.setup.outputs.build_options}}
+          args: --profile=production ${{ needs.setup.outputs.build_options}}
 
       - name: Build MacOS aarch64 target
         if: matrix.operating-system == 'macos-11'
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target aarch64-apple-darwin
+          args: --profile=production --target aarch64-apple-darwin
 
       - name: Compress
         uses: thedoctor0/zip-release@0.7.6
         with:
           type: "zip"
-          directory: "target/release/"
+          directory: "target/production/"
           path: "creditcoin3-node*"
           filename: "../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-${{ env.PLATFORM }}.zip"
           exclusions: "creditcoin3-node.d"
@@ -133,7 +133,7 @@ jobs:
         uses: thedoctor0/zip-release@0.7.6
         with:
           type: "zip"
-          directory: "target/aarch64-apple-darwin/release/"
+          directory: "target/aarch64-apple-darwin/production/"
           path: "creditcoin3-node*"
           filename: "../../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-aarch64-apple-darwin.zip"
           exclusions: "creditcoin3-node.d"
@@ -163,7 +163,7 @@ jobs:
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
         env:
-          BUILD_OPTS: "--release ${{ needs.setup.outputs.build_options }}"
+          BUILD_OPTS: "--profile=production ${{ needs.setup.outputs.build_options }}"
         with:
           chain: "creditcoin"
           runtime_dir: runtime
