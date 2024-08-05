@@ -32,11 +32,11 @@ mkdir -p "pallets/$PALLET/src"
 
 if [[ $BUILD -eq 0 ]]
 then
-    cargo $COMMAND --release --features runtime-benchmarks || exit 1;
+    cargo $COMMAND --profile=production --features runtime-benchmarks || exit 1;
 fi
 
 if [[ $BENCH -eq 0 ]]
 then
-    ./target/release/creditcoin3-node benchmark pallet --chain dev --steps="$STEPS" --repeat="$REPEAT" --pallet "pallet_$PALLET" --extrinsic='*' --wasm-execution=compiled --heap-pages=10000 --output "$OUTPUT"
+    ./target/production/creditcoin3-node benchmark pallet --chain dev --steps="$STEPS" --repeat="$REPEAT" --pallet "pallet_$PALLET" --extrinsic='*' --wasm-execution=compiled --heap-pages=10000 --output "$OUTPUT"
     sed -i "s/pallet_$PALLET/crate/" "$OUTPUT"
 fi
