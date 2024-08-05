@@ -286,13 +286,13 @@ where
         let runtime = self.runtime.runtime_api();
         let _config = runtime.configuration(blockchain_info.best_hash)?;
 
-        let target_epoch_block: u64 = blockchain_info.best_number.into();
+        let current_block_number: u64 = blockchain_info.best_number.into();
 
-        debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", target_epoch_block);
+        debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", current_block_number);
 
         let target_epoch_hash = self
             .client
-            .block_hash((target_epoch_block as u32).into())
+            .block_hash((current_block_number as u32).into())
             .ok()
             .flatten()
             .expect("Target block exists; qed");

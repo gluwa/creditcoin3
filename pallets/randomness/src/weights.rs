@@ -8,11 +8,7 @@ use sp_std::marker::PhantomData;
 /// Weight functions for `crate`.
 pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
-    fn register_chain() -> Weight {
+    fn on_initialize() -> Weight {
         Weight::from_parts(1, 1)
-    }
-
-    fn remove_chain() -> Weight {
-        Weight::from_parts(1,1)
     }
 }

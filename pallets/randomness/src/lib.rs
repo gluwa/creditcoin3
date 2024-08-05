@@ -42,8 +42,7 @@ pub mod pallet {
     }
 
     pub trait WeightInfo {
-        fn register_chain() -> Weight;
-        fn remove_chain() -> Weight;
+        fn on_initialize() -> Weight;
     }
 
     #[pallet::storage]
@@ -56,15 +55,6 @@ pub mod pallet {
         Hasher = Blake2_128Concat,
         Key = u64,
         Value = Randomness,
-        QueryKind = OptionQuery,
-    >;
-
-    #[pallet::storage]
-    #[pallet::getter(fn list_supported_chains)]
-    pub type SupportedChains<T: Config> = StorageMap<
-        Hasher = Blake2_128Concat,
-        Key = ChainId,
-        Value = Vec<u8>,
         QueryKind = OptionQuery,
     >;
 
@@ -85,6 +75,7 @@ pub mod pallet {
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let last_seen_epoch_index = LastSeenEpochIndex::<T>::get();
             let epoch_index = pallet_babe::EpochIndex::<T>::get();
+
             if epoch_index > last_seen_epoch_index {
                 LastSeenEpochIndex::<T>::put(epoch_index);
                 let randomness = pallet_babe::Randomness::<T>::get();

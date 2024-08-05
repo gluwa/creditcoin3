@@ -148,18 +148,11 @@ impl<'a> Client {
 
         info!("Getting babe randomness at block: {block_to_query}");
         // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
-        // let randomness = self
-        //     .api
-        //     .storage()
-        //     .at(block_hash_to_query)
-        //     .fetch(&cc3::storage().babe().author_vrf_randomness())
-        //     .await?
-        //     .ok_or(Error::FailedToGetBabeVrf)?;
-
         let randomness = self
             .api
             .storage()
-            .at(block_hash_to_query)
+            .at_latest()
+            .await?
             .fetch(
                 &cc3::storage()
                     .randomness()
