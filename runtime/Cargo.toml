@@ -101,8 +101,11 @@ fast-runtime = []
 runtime-benchmarks = [
     "pallet-attestation-poc/runtime-benchmarks",
     "frame-benchmarking/runtime-benchmarks",
+    "frame-election-provider-support/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
     "frame-system-benchmarking/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
+    "pallet-attestation-poc/runtime-benchmarks",
     "pallet-babe/runtime-benchmarks",
     "pallet-bags-list/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
@@ -112,9 +115,10 @@ runtime-benchmarks = [
     "pallet-im-online/runtime-benchmarks",
     "pallet-nomination-pools/runtime-benchmarks",
     "pallet-offences/runtime-benchmarks",
-    "pallet-timestamp/runtime-benchmarks",
     "pallet-staking/runtime-benchmarks",
     "pallet-sudo/runtime-benchmarks",
+    "pallet-supported-chains/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
     "pallet-utility/runtime-benchmarks",
     "pallet-proxy/runtime-benchmarks",
     "pallet-ethereum/runtime-benchmarks",
@@ -122,6 +126,8 @@ runtime-benchmarks = [
     "pallet-hotfix-sufficients/runtime-benchmarks",
     "pallet-prover/runtime-benchmarks",
     "pallet-supported-chains/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "sp-staking/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",
