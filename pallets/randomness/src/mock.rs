@@ -1,5 +1,5 @@
 use crate as randomness_pallet;
-use frame_support::traits::{ConstU16, ConstU64};
+use frame_support::traits::{ConstU16, ConstU64, ConstU32};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -13,7 +13,10 @@ frame_support::construct_runtime!(
     pub enum Test
     {
         System: frame_system,
-        SupportedChain: randomness_pallet,
+        // SupportedChain: randomness_pallet,
+        Babe: pallet_babe,
+        Timestamp: pallet_timestamp,
+        RandomnessPallet: randomness_pallet,
     }
 );
 
@@ -41,6 +44,31 @@ impl frame_system::Config for Test {
     type SS58Prefix = ConstU16<42>;
     type OnSetCode = ();
     type MaxConsumers = frame_support::traits::ConstU32<16>;
+}
+
+
+use frame_support::parameter_types;
+parameter_types! {
+    pub const EpochDuration: u64 = 3;
+}   
+
+impl pallet_timestamp::Config for Test {
+	type Moment = u64;
+	type OnTimestampSet = Babe;
+	type MinimumPeriod = ConstU64<1>;
+	type WeightInfo = ();
+}
+
+impl pallet_babe::Config for Test {
+    type EpochDuration = EpochDuration;
+    type ExpectedBlockTime = ConstU64<1>;
+    type EpochChangeTrigger = pallet_babe::ExternalTrigger;
+    type KeyOwnerProof = sp_session::MembershipProof;
+    type EquivocationReportSystem =();
+    type WeightInfo = ();
+    type MaxAuthorities = ConstU32<10>;
+	type MaxNominators = ConstU32<100>;
+    type DisabledValidators = ();
 }
 
 impl randomness_pallet::Config for Test {

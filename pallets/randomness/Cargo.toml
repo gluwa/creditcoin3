@@ -25,6 +25,8 @@ pallet-babe = { workspace = true }
 [dev-dependencies]
 sp-core = { workspace = true }
 sp-io = { workspace = true }
+sp-session = { workspace = true }
+pallet-timestamp = { workspace = true }
 
 [features]
 default = ["std"]
