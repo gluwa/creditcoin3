@@ -123,6 +123,7 @@ sp-timestamp = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot
 sp-transaction-pool = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-version = { version = "22.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-weights = { version = "20.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+sp-application-crypto = { git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 # Substrate FRAME
 frame-benchmarking = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 frame-election-provider-support = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
