@@ -103,6 +103,7 @@ sc-transaction-pool-api = { version = "4.0.0-dev", git = "https://github.com/glu
 sc-utils = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 # Substrate Primitive
 sp-api = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+sp-application-crypto = { git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-block-builder = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-blockchain = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
 sp-consensus = { version = "0.10.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }
@@ -123,7 +124,6 @@ sp-timestamp = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot
 sp-transaction-pool = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-version = { version = "22.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 sp-weights = { version = "20.0.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
-sp-application-crypto = { git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 # Substrate FRAME
 frame-benchmarking = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 frame-election-provider-support = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
@@ -221,6 +221,8 @@ attestor-primitives = { path = "primitives/attestor", default-features = false }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
+
+# Randomness
 randomness-primitives = { path = "primitives/randomness", default-features = false }
 
 # Prover

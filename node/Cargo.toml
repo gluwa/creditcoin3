@@ -104,8 +104,8 @@ creditcoin3-rpc-trace = { workspace = true }
 attestor-primitives = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 creditcoin3-attestor-rpc = { workspace = true }
-supported-chains-primitives = { workspace = true }
 randomness-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 # Prover
 prover-primitives = { workspace = true }

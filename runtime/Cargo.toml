@@ -83,14 +83,14 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 # Gluwa
 pallet-attestation-poc = { workspace = true }
 pallet-prover = { workspace = true }
-pallet-supported-chains = { workspace = true }
 pallet-randomness = { workspace = true }
+pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
-supported-chains-primitives = { workspace = true }
-randomness-primitives = { workspace = true }
 pallet-evm-precompile-claim = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
+randomness-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
 #rlp = "0.5.2"
 
 [build-dependencies]
@@ -130,6 +130,7 @@ runtime-benchmarks = [
     "pallet-supported-chains/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
+    "pallet-randomness/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",

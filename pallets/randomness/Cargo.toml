@@ -1,44 +1,55 @@
 [package]
-name = "pallet-randomness"
-version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "pallet-randomness"
 publish.workspace = true
 repository.workspace = true
-
+version.workspace = true
 
 [dependencies]
-parity-scale-codec = { workspace = true, default-features = false, features = ["derive"] }
-scale-info = { workspace = true, default-features = false, features = ["derive", "serde"] }
+parity-scale-codec = { workspace = true, default-features = false, features = [
+    "derive",
+] }
+scale-info = { workspace = true, default-features = false, features = [
+    "derive",
+    "serde",
+] }
 
+attestor-primitives = { workspace = true }
 frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
-attestor-primitives = { workspace = true }
-supported-chains-primitives = { workspace = true }
-randomness-primitives = { workspace = true }
-sp-std = { workspace = true }
-sp-runtime = { workspace = true, default-features = false, features = ["serde"] }
-pallet-babe = { workspace = true }
 pallet-authorship = { workspace = true }
+pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
-sp-application-crypto = { workspace = true, default-features = false, features = ["serde"] }
-sp-consensus-babe = { workspace = true, default-features = false, features = ["serde"] }
+randomness-primitives = { workspace = true }
+sp-application-crypto = { workspace = true, default-features = false, features = [
+    "serde",
+] }
+sp-consensus-babe = { workspace = true, default-features = false, features = [
+    "serde",
+] }
+sp-runtime = { workspace = true, default-features = false, features = [
+    "serde",
+] }
 sp-session = { workspace = true }
-
+sp-std = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
+frame-election-provider-support = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-offences = { workspace = true }
+pallet-staking = { workspace = true }
+pallet-staking-reward-curve = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+pallet-timestamp = { workspace = true }
 sp-core = { workspace = true, default-features = false, features = ["serde"] }
 sp-io = { workspace = true }
 sp-session = { workspace = true }
-pallet-timestamp = { workspace = true }
-pallet-balances = { workspace = true }
-pallet-offences = { workspace = true }
-sp-staking = { workspace = true, default-features = false, features = ["serde"] }
-pallet-staking = { workspace = true }
-frame-election-provider-support = { workspace = true }
-pallet-staking-reward-curve = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+sp-staking = { workspace = true, default-features = false, features = [
+    "serde",
+] }
 
 [features]
 default = ["std"]
@@ -62,6 +73,8 @@ std = [
     "pallet-staking/std",
     "sp-staking/std",
     "pallet-balances/std",
+    "sp-application-crypto/std",
+    "sp-consensus-babe/std",
 ]
 
 runtime-benchmarks = [
@@ -69,4 +82,5 @@ runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
+    "pallet-babe/runtime-benchmarks",
 ]

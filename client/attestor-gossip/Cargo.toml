@@ -40,6 +40,6 @@ thiserror = { workspace = true }
 
 # Workspace
 attestor-primitives = { workspace = true }
-supported-chains-primitives = { workspace = true, features = ["std"] }
-randomness-primitives = { workspace = true, features = ["std"] }
 bls-signatures = { workspace = true, features = ["std", "default"] }
+randomness-primitives = { workspace = true, features = ["std"] }
+supported-chains-primitives = { workspace = true, features = ["std"] }
