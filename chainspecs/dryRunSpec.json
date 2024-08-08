@@ -37603,7 +37603,7 @@
         ]
       },
       "staking": {
-        "validatorCount": 1,
+        "validatorCount": 4,
         "minimumValidatorCount": 1,
         "invulnerables": [
           "5CVFradS6bugZ1yZvC9zCYRt3o8XJWpNgBJ8UiEPgxMRC8qx"
@@ -37615,6 +37615,24 @@
           [
             "5CVFradS6bugZ1yZvC9zCYRt3o8XJWpNgBJ8UiEPgxMRC8qx",
             "5CVFradS6bugZ1yZvC9zCYRt3o8XJWpNgBJ8UiEPgxMRC8qx",
+            500000000000000000,
+            "Validator"
+          ],
+          [
+            "5Fbkfqt5sas1RDJJDakTkH7JA8TrwkDr3A2S9jyV15SHG8Es",
+            "5Fbkfqt5sas1RDJJDakTkH7JA8TrwkDr3A2S9jyV15SHG8Es",
+            500000000000000000,
+            "Validator"
+          ],
+          [
+            "5ECmKk2BxCaGpimotYpQ6DPvRNHvdJF5wrcKjevCQPGdkHwZ",
+            "5ECmKk2BxCaGpimotYpQ6DPvRNHvdJF5wrcKjevCQPGdkHwZ",
+            500000000000000000,
+            "Validator"
+          ],
+          [
+            "5GvL5QridQCPKSPpVrjspK4za15tnDJ5UgB5nR3WvL2K7bMJ",
+            "5GvL5QridQCPKSPpVrjspK4za15tnDJ5UgB5nR3WvL2K7bMJ",
             500000000000000000,
             "Validator"
           ]
@@ -37633,6 +37651,33 @@
               "grandpa": "5E1ab4WzBS52enwnjPvVVk4PESkb9yHCmRVDPxT71L6YJNtb",
               "babe": "5CVFradS6bugZ1yZvC9zCYRt3o8XJWpNgBJ8UiEPgxMRC8qx",
               "im_online": "5CVFradS6bugZ1yZvC9zCYRt3o8XJWpNgBJ8UiEPgxMRC8qx"
+            }
+          ],
+          [
+            "5Fbkfqt5sas1RDJJDakTkH7JA8TrwkDr3A2S9jyV15SHG8Es",
+            "5Fbkfqt5sas1RDJJDakTkH7JA8TrwkDr3A2S9jyV15SHG8Es",
+            {
+              "grandpa": "5CEUi7cFWK4GvwTcBY87sYBXWMaYzb1k7cPsRY6tDckDfJTk",
+              "babe": "5Fbkfqt5sas1RDJJDakTkH7JA8TrwkDr3A2S9jyV15SHG8Es",
+              "im_online": "5Fbkfqt5sas1RDJJDakTkH7JA8TrwkDr3A2S9jyV15SHG8Es"
+            }
+          ],
+          [
+            "5ECmKk2BxCaGpimotYpQ6DPvRNHvdJF5wrcKjevCQPGdkHwZ",
+            "5ECmKk2BxCaGpimotYpQ6DPvRNHvdJF5wrcKjevCQPGdkHwZ",
+            {
+              "grandpa": "5FLMW1oPvadoDMf9G3xoxr7npBhVgJaAqx8FBJzKLWR34UU3",
+              "babe": "5ECmKk2BxCaGpimotYpQ6DPvRNHvdJF5wrcKjevCQPGdkHwZ",
+              "im_online": "5ECmKk2BxCaGpimotYpQ6DPvRNHvdJF5wrcKjevCQPGdkHwZ"
+            }
+          ],
+          [
+            "5GvL5QridQCPKSPpVrjspK4za15tnDJ5UgB5nR3WvL2K7bMJ",
+            "5GvL5QridQCPKSPpVrjspK4za15tnDJ5UgB5nR3WvL2K7bMJ",
+            {
+              "grandpa": "5CysjMkj57QhWSb6dbF2Gj7qWsLBf3Ng4WToYT4Doc1HghG2",
+              "babe": "5GvL5QridQCPKSPpVrjspK4za15tnDJ5UgB5nR3WvL2K7bMJ",
+              "im_online": "5GvL5QridQCPKSPpVrjspK4za15tnDJ5UgB5nR3WvL2K7bMJ"
             }
           ]
         ]
@@ -37660,14 +37705,6 @@
       "ethereum": {},
       "evm": {
         "accounts": {
-          "0x1000000000000000000000000000000000000001": {
-            "nonce": "0x1",
-            "balance": "0xd3c21bcecceda1000000",
-            "storage": {},
-            "code": [
-              0
-            ]
-          },
           "0x1fcbdf381a8dfe89bc1281ba89c9d2b7f0962c73": {
             "nonce": "0x0",
             "balance": "0x1c6a52e59dc067709980000",
