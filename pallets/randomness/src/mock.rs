@@ -1,7 +1,7 @@
 use crate as randomness_pallet;
 use frame_election_provider_support::{
     bounds::{ElectionBounds, ElectionBoundsBuilder},
-    onchain, SequentialPhragmen, Weight,
+    onchain, SequentialPhragmen,
 };
 
 use parity_scale_codec::Encode;
@@ -13,18 +13,16 @@ use frame_support::{
 
 use pallet_session::historical as pallet_session_historical;
 use pallet_staking::FixedNominationsQuota;
-use sp_consensus_babe::{AuthorityId, AuthorityPair, Randomness, Slot, VrfSignature};
+use sp_consensus_babe::{AuthorityId, AuthorityPair};
 use sp_core::{
-    crypto::{KeyTypeId, Pair, VrfSecret},
+    crypto::{KeyTypeId, Pair},
     H256, U256,
 };
-
-use sp_io;
 use sp_runtime::{
     curve::PiecewiseLinear,
     impl_opaque_keys,
-    testing::{Digest, DigestItem, Header, TestXt},
-    traits::{Header as _, IdentityLookup, OpaqueKeys},
+    testing::{Digest, DigestItem, TestXt},
+    traits::{IdentityLookup, OpaqueKeys},
     BuildStorage, Perbill,
 };
 
@@ -219,16 +217,10 @@ impl pallet_babe::Config for Test {
     type EquivocationReportSystem =
         pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
 }
-pub struct RandomnessWeight;
-impl crate::WeightInfo for RandomnessWeight {
-    fn on_initialize() -> Weight {
-        Weight::zero()
-    }
-}
 
 impl randomness_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = RandomnessWeight;
+    type WeightInfo = crate::weights::WeightInfo<Test>;
 }
 
 pub fn go_to_block(n: u64, s: u64) {
@@ -266,34 +258,6 @@ pub fn progress_to_block(n: u64) {
     }
 }
 
-/// Progress to the first block at the given session
-pub fn start_session(session_index: SessionIndex) {
-    let missing = (session_index - Session::current_index()) * 3;
-    progress_to_block(System::block_number() + missing as u64 + 1);
-    assert_eq!(Session::current_index(), session_index);
-}
-
-/// Progress to the first block at the given era
-pub fn start_era(era_index: EraIndex) {
-    start_session((era_index * 3).into());
-    assert_eq!(Staking::current_era(), Some(era_index));
-}
-
-pub fn make_primary_pre_digest(
-    authority_index: sp_consensus_babe::AuthorityIndex,
-    slot: sp_consensus_babe::Slot,
-    vrf_signature: VrfSignature,
-) -> Digest {
-    let digest_data = sp_consensus_babe::digests::PreDigest::Primary(
-        sp_consensus_babe::digests::PrimaryPreDigest {
-            authority_index,
-            slot,
-            vrf_signature,
-        },
-    );
-    let log = DigestItem::PreRuntime(sp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
-    Digest { logs: vec![log] }
-}
 
 pub fn make_secondary_plain_pre_digest(
     authority_index: sp_consensus_babe::AuthorityIndex,
@@ -307,37 +271,6 @@ pub fn make_secondary_plain_pre_digest(
     );
     let log = DigestItem::PreRuntime(sp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
     Digest { logs: vec![log] }
-}
-
-pub fn make_secondary_vrf_pre_digest(
-    authority_index: sp_consensus_babe::AuthorityIndex,
-    slot: sp_consensus_babe::Slot,
-    vrf_signature: VrfSignature,
-) -> Digest {
-    let digest_data = sp_consensus_babe::digests::PreDigest::SecondaryVRF(
-        sp_consensus_babe::digests::SecondaryVRFPreDigest {
-            authority_index,
-            slot,
-            vrf_signature,
-        },
-    );
-    let log = DigestItem::PreRuntime(sp_consensus_babe::BABE_ENGINE_ID, digest_data.encode());
-    Digest { logs: vec![log] }
-}
-
-pub fn make_vrf_signature_and_randomness(
-    slot: Slot,
-    pair: &sp_consensus_babe::AuthorityPair,
-) -> (VrfSignature, Randomness) {
-    let transcript = sp_consensus_babe::make_vrf_transcript(&Babe::randomness(), slot, 0);
-
-    let randomness = pair
-        .as_ref()
-        .make_bytes(sp_consensus_babe::RANDOMNESS_VRF_CONTEXT, &transcript);
-
-    let signature = pair.as_ref().vrf_sign(&transcript.into());
-
-    (signature, randomness)
 }
 
 pub fn new_test_ext(authorities_len: usize) -> sp_io::TestExternalities {
@@ -414,53 +347,4 @@ pub fn new_test_ext_raw_authorities(authorities: Vec<AuthorityId>) -> sp_io::Tes
     staking_config.assimilate_storage(&mut t).unwrap();
 
     t.into()
-}
-
-/// Creates an equivocation at the current block, by generating two headers.
-pub fn generate_equivocation_proof(
-    offender_authority_index: u32,
-    offender_authority_pair: &AuthorityPair,
-    slot: Slot,
-) -> sp_consensus_babe::EquivocationProof<Header> {
-    use sp_consensus_babe::digests::CompatibleDigestItem;
-
-    let current_block = System::block_number();
-    let current_slot = pallet_babe::CurrentSlot::<Test>::get();
-
-    let make_header = || {
-        let parent_hash = System::parent_hash();
-        let pre_digest = make_secondary_plain_pre_digest(offender_authority_index, slot);
-        System::reset_events();
-        System::initialize(&current_block, &parent_hash, &pre_digest);
-        System::set_block_number(current_block);
-        Timestamp::set_timestamp(*current_slot * Babe::slot_duration());
-        System::finalize()
-    };
-
-    // sign the header prehash and sign it, adding it to the block as the seal
-    // digest item
-    let seal_header = |header: &mut Header| {
-        let prehash = header.hash();
-        let seal = <DigestItem as CompatibleDigestItem>::babe_seal(
-            offender_authority_pair.sign(prehash.as_ref()),
-        );
-        header.digest_mut().push(seal);
-    };
-
-    // generate two headers at the current block
-    let mut h1 = make_header();
-    let mut h2 = make_header();
-
-    seal_header(&mut h1);
-    seal_header(&mut h2);
-
-    // restore previous runtime state
-    go_to_block(current_block, *current_slot);
-
-    sp_consensus_babe::EquivocationProof {
-        slot,
-        offender: offender_authority_pair.public(),
-        first_header: h1,
-        second_header: h2,
-    }
 }
