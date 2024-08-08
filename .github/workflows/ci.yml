@@ -238,11 +238,11 @@ jobs:
 
       - name: Check Build
         run: |
-          SKIP_WASM_BUILD=1 cargo check --release
+          SKIP_WASM_BUILD=1 cargo check --profile=production
 
       - name: Check Build for Benchmarking
         run: |
-          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
+          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --profile=production
 
   unit-test-creditcoin:
     runs-on: ubuntu-24.04
@@ -320,19 +320,19 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release ${{ steps.compiler-flags.outputs.extra }}
+          args: --profile=production ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
         with:
           name: creditcoin-node-${{ matrix.target }}
-          path: target/release/creditcoin3-node
+          path: target/production/creditcoin3-node
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v4
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+          path: target/production/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
   build-creditcoin-node-for-testing:
     needs:
@@ -382,19 +382,19 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
+          args: --profile=production --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
         with:
           name: creditcoin-node-for-testing-${{ matrix.target }}
-          path: target/release/creditcoin3-node
+          path: target/production/creditcoin3-node
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v4
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+          path: target/production/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
 
   integration-test-smart-contract:
     needs:
@@ -407,7 +407,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-for-testing-ci
-          path: target/release
+          path: target/production
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -416,8 +416,8 @@ jobs:
 
       - name: Start Node 1 - Alice
         run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
+          chmod a+x ./target/production/creditcoin3-node
+          ./target/production/creditcoin3-node \
             --dev --validator --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data &
@@ -456,12 +456,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-for-testing-ci
-          path: target/release
+          path: target/production
 
       - name: Run Extrinsics Ordering
         shell: bash
         run: |
-          chmod a+x ./target/release/creditcoin3-node
+          chmod a+x ./target/production/creditcoin3-node
           ./.github/check-extrinsics.sh
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
@@ -717,7 +717,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-for-testing-ci
-          path: target/release
+          path: target/production
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -727,8 +727,8 @@ jobs:
 
       - name: Start creditcoin3-node in order to update typedefs
         run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
+          chmod a+x ./target/production/creditcoin3-node
+          ./target/production/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
@@ -850,7 +850,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-for-testing-ci
-          path: target/release
+          path: target/production
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -860,8 +860,8 @@ jobs:
 
       - name: Start Node 1
         run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
+          chmod a+x ./target/production/creditcoin3-node
+          ./target/production/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
@@ -907,7 +907,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-${{ matrix.chainspec }}
-          path: target/release
+          path: target/production
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -917,8 +917,8 @@ jobs:
 
       - name: Start Node 1
         run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
+          chmod a+x ./target/production/creditcoin3-node
+          ./target/production/creditcoin3-node \
             --chain ${{ matrix.chainspec }} \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
@@ -1038,7 +1038,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-for-testing-ci
-          path: target/release
+          path: target/production
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -1082,8 +1082,8 @@ jobs:
 
       - name: Start Creditcoin Node 1 - Alice
         run: |
-          chmod a+x ./target/release/creditcoin3-node
-          ./target/release/creditcoin3-node \
+          chmod a+x ./target/production/creditcoin3-node
+          ./target/production/creditcoin3-node \
             --dev --validator --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data &
