@@ -1,6 +1,6 @@
 [[chain]]
 chain_id = 31337
-price = 100
+price = 1000
 rpc_url = "ws://localhost:8545"
 
 # [[chain]]

@@ -10,28 +10,31 @@ version.workspace = true
 [dependencies]
 acid_io = { version = "0.1.0", git = "https://github.com/dataphract/acid_io", default-features = false }
 anyhow = { version = "1.0.68", default-features = false }
+chrono = { version = "0.4.38", default-features = false }
+colored = { version = "2.1.0", default-features = false }
 ethereum = { version = "0.15.0", default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false, features = [
     "serialize",
 ] }
 fs2 = { version = "0.4.3", optional = true, default-features = false }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
-mmr = { path = "../mmr", default-features = false }
 rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
-serde = { version = "1.0.193", features = [
+starknet-ff = { version = "0.3.7", default-features = false }
+
+# Workspace dependencies
+serde = { workspace = true, features = [
     "derive",
     "alloc",
 ], default-features = false }
-serde_json = { version = "1.0.108", features = [
+serde_json = { workspace = true, features = [
     "alloc",
 ], default-features = false }
+sp-std = { workspace = true, default-features = false }
 starknet-crypto = { workspace = true }
 starknet-types-core = { workspace = true }
 
-chrono = { version = "0.4.38", default-features = false }
-colored = { version = "2.1.0", default-features = false }
-sp-std = { workspace = true, default-features = false }
-starknet-ff = { version = "0.3.7", default-features = false }
+# Can't use workspace, I don't know why
+mmr = { path = "../mmr", default-features = false }
 
 [features]
 default = ["std"]

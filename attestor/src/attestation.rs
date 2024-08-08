@@ -88,16 +88,6 @@ impl Message<NewBlock> for Attestor {
     type Reply = Result<Option<Attestation<H256>>, Error>;
 
     async fn handle(&mut self, msg: NewBlock, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
-        // handle the new block
-        // let attestation: Option<Attestation<H256>> = match create::<H256>(&msg) {
-        //     Ok(attestation) => Some(attestation),
-        //     Err(e) => {
-        //         warn!("Error creating attestation: {:?}", e);
-        //         None
-        //     }
-        // };
-
-        // Ok(attestation)
         Ok(Some(create::<H256>(&msg)))
     }
 }

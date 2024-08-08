@@ -50,7 +50,7 @@ impl ClaimSubscription {
 // See pallets/prover/lib.rs
 const PROVER_MODULE: &str = "Prover";
 const CLAIM_SUBMITTED_EVENT: &str = "ProverClaimSubmitted";
-const CLAIM_SUBMISSION_EXT_INDEX: u8 = 3;
+const CLAIM_SUBMISSION_EXT_INDEX: u8 = 2;
 
 #[derive(Error, Debug)]
 pub enum Error {

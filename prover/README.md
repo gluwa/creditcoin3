@@ -37,6 +37,15 @@ diesel migration run --database-url=postgres://prover:prover@localhost/attestati
 
 Run the prover:
 
+First setup the cairo env:
+
+```sh
+python3.10 -m venv ~/cairo_venv
+pip install -r requirements.txt
+```
+
+Then run the prover:
+
 ```sh
 cargo run -- -v --cc3-key "involve bridge disagree copy aim auction ready garlic industry flee echo era"  --nickname dylan --config-file ./config.toml
 ```
@@ -58,3 +67,7 @@ select * from signedattestation;
 See example:
 
 [alt_submit_claim](./assets/submit_claim.png)
+
+## Claims
+
+Claims that are proven are stored as JSON in `claims` folder.

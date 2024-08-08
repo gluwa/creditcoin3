@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         postgres_uri: args.postgres_uri,
     };
 
-    let mut server = Server::new(config)?;
+    let mut server = Server::new(config).await?;
     server.run().await?;
 
     // Wait for Ctrl+C signal

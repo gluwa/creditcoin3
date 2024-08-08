@@ -24,10 +24,14 @@ alloy = { git = "https://github.com/alloy-rs/alloy", features = [
     "contract",
     "sol-types",
 ] }
-anyhow = "1.0"
-async-trait.workspace = true
-futures-util = "0.3"
-thiserror = "1.0"
-tokio = { version = "1.0" }
-tracing = "0.1"
-utils = { path = "../../common/utils" }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures-util = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+# Local dependencies
+mmr = { workspace = true }
+utils = { workspace = true }

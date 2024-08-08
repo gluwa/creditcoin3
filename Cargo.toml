@@ -33,6 +33,7 @@ assert_matches = "1.5.0"
 # Substrate Clientassert_matches = "1.5.0"
 
 affix = "0.1.2"
+anyhow = { version = "1.0", default-features = false }
 async-trait = "0.1"
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 clap = { version = "4.5.8", features = ["derive", "deprecated"] }
@@ -43,6 +44,7 @@ ethereum = { version = "0.14.0", default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false }
 evm = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1fc57b7449d6dfa6826600de37cc1e65", default-features = false }
 futures = "0.3.30"
+futures-util = { version = "0.3", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 hex-literal = "0.4.1"
 jsonrpsee = "0.16.3"

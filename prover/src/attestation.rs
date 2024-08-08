@@ -1,13 +1,10 @@
+use anyhow::Result;
 use attestation_chain::block::Block;
-use parity_scale_codec::{Decode, Encode};
-use sp_core::H256;
 use starknet_types_core::felt::Felt as FieldElement;
 use tracing::debug;
 use utils::Felt;
 
-use attestor_primitives::SignedAttestation;
-
-pub struct Attestation<H, A>(SignedAttestation<H, A>);
+use crate::postgres;
 
 pub enum ConversionError {
     InvalidTxRoot,
@@ -16,46 +13,33 @@ pub enum ConversionError {
     InvalidDigest,
 }
 
-// Implement into Block for SignedAttestation
-// To facilitate conversion from runtime attestation to block type which is used by the prover library
-impl<H, A> TryInto<Block> for Attestation<H, A>
-where
-    H: Into<H256> + AsRef<[u8]>,
-    A: Encode + Decode,
-{
-    type Error = ConversionError;
+pub fn create_block_attestation(
+    attestation: &postgres::attestation::Attestation,
+    prev_digest: &str,
+) -> Result<Block> {
+    let tx_root = Felt::from_hex(&attestation.tx_root)?;
+    debug!("created tx_root: {:?}", tx_root);
 
-    fn try_into(self) -> Result<Block, Self::Error> {
-        let attestation = self.0;
+    let rx_root = Felt::from_hex(&attestation.rx_root)?;
+    debug!("created rx_root: {:?}", rx_root);
 
-        let prev_digest = if let Some(prev_digest) = attestation.attestation.prev_digest {
-            prev_digest
-        } else {
-            H256::default()
-        };
+    let prev_digest = Felt::from_hex(prev_digest)?;
+    debug!("created prev_digest: {:?}", prev_digest);
 
-        let digest = attestation.digest();
+    let digest = Felt::from_hex(&format!("0x{0}", attestation.digest))?;
+    debug!("digest: {:?}", digest);
 
-        let tx_root = Felt::from_bytes_be(&attestation.attestation.tx_root);
-
-        let rx_root = Felt::from_bytes_be(&attestation.attestation.rx_root);
-
-        let prev_digest = Felt::from_bytes_be(&prev_digest.0);
-
-        let digest = Felt::from_bytes_be(&digest.0);
-
-        Ok(Block {
-            block_number: attestation.attestation.header_number.into(),
-            tx_root,
-            rx_root,
-            prev_digest,
-            digest,
-        })
-    }
+    Ok(Block {
+        block_number: attestation.header_number.into(),
+        tx_root,
+        rx_root,
+        prev_digest,
+        digest,
+    })
 }
 
-impl From<crate::postgres::attestation::Attestation> for Block {
-    fn from(attestation: crate::postgres::attestation::Attestation) -> Self {
+impl From<crate::postgres::checkpoints::AttestationCheckpoint> for Block {
+    fn from(attestation: crate::postgres::checkpoints::AttestationCheckpoint) -> Self {
         debug!("Converting attestation to block: {:?}", attestation);
         debug!("tx_root : {:?}", attestation.tx_root);
         debug!("tx_root str: {:?}", attestation.tx_root.as_str());
@@ -93,7 +77,7 @@ fn hex_to_felt(hex: &str) -> anyhow::Result<FieldElement, String> {
 
 #[test]
 fn test_from_attestation_to_block() {
-    let attestation = crate::postgres::attestation::Attestation {
+    let attestation = crate::postgres::checkpoints::AttestationCheckpoint {
         chain_id: 1,
         header_number: 1,
         header_hash: "1234".to_string(),

@@ -78,20 +78,19 @@ else
   echo "parameter_file: $AIR_PARAMS"
   echo "generating proof (will take a while)..."
 
-  /usr/bin/time -f "%e" "$STONE_PROVER/cpu_air_prover" \
+  "$STONE_PROVER/cpu_air_prover" \
     --out_file="$PROOF_FILE" \
     --private_input_file="$PRIVATE_INPUT" \
     --public_input_file="$PUBLIC_INPUT" \
     --prover_config_file="$AIR_PROVER_CONFIG" \
     --parameter_file="$AIR_PARAMS" \
     -generate_annotations \
-    >/dev/null 2>/tmp/elapsed.txt
+    >/dev/null
   if ! "$STONE_PROVER/cpu_air_prover"; then
     message=$(cat /tmp/elapsed.txt)
     echo "cpu_air_prover failed: $message"
     exit 44
   fi
-  ELAPSED=$(cat /tmp/elapsed.txt)
 
-  echo "proof generated. Elapsed: $ELAPSED s"
+  echo "proof generated"
 fi

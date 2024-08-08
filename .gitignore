@@ -25,6 +25,13 @@ polkadot.*
 attestor/zombie/zombienet-linux-x64
 attestor/zombie/zombienet-macos
 
+# Cairo
+cairo/scripts/verify_merkle_proof_compiled.json
+cario/lang/cpu_air_params.json
+
+# Prover
+prover/claims/*.json
+
 # Added by cargo
 /target
 

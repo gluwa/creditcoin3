@@ -17,6 +17,7 @@ cast_possible_wrap = "allow"
 from_over_into = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+module_name_repetitions = "allow"
 no_effect_underscore_binding = "allow"
 pedantic = "warn"
 redundant_slicing = "allow"
@@ -58,5 +59,7 @@ attestation-chain = { workspace = true }
 attestor-primitives = { path = "../primitives/attestor" }
 cc-client = { workspace = true }
 eth = { workspace = true }
+mmr = { workspace = true }
 proof = { workspace = true }
+serde_json.workspace = true
 utils = { workspace = true }

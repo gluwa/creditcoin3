@@ -95,8 +95,6 @@ impl<'a> Client {
     /// - `claim_hash`: hash of the claim
     /// - `proof`: proof bytes
     pub async fn submit_proof(&self, claim_hash: H256, proof: Vec<u8>) -> Result<()> {
-        info!("Submitting proof len: {}", proof.len());
-
         self.cc_client.submit_proof(claim_hash, proof).await
     }
 
@@ -158,6 +156,10 @@ impl<'a> Client {
         self.cc_client
             .get_attestation_by_digest(chain_id, digest)
             .await
+    }
+
+    pub async fn get_attestation_chain_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
+        self.cc_client.chain_attestation_interval(chain_id).await
     }
 }
 

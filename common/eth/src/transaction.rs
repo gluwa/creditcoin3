@@ -1,7 +1,7 @@
 use alloy::consensus::{ReceiptWithBloom, Signed};
 use alloy::consensus::{TxEip1559, TxEip2930, TxEip4844, TxLegacy};
 use alloy::core::primitives::Log;
-use utils::block_item_traits::BlockItemIdentifier;
+use utils::{block_item_traits::BlockItemIdentifier, StarknetPedersenMmr};
 
 use crate::{AlloyTransaction, AlloyTransactionReceipt};
 
@@ -117,4 +117,25 @@ impl BlockItem for Receipt {
             Some(self.inner.transaction_type() as u8)
         }
     }
+}
+
+pub fn starknet_pedersen_mmr(
+    transactions: Vec<Transaction>,
+    receipts: Vec<Receipt>,
+) -> (StarknetPedersenMmr, StarknetPedersenMmr) {
+    // Create rlp's for all transactions
+    let tx_rlps = transactions
+        .iter()
+        .map(BlockItem::to_bytes)
+        .collect::<Vec<Vec<u8>>>();
+
+    let rx_rlps = receipts
+        .iter()
+        .map(BlockItem::to_bytes)
+        .collect::<Vec<Vec<u8>>>();
+
+    let tx_tree = StarknetPedersenMmr::from(&tx_rlps[..]);
+    let rx_tree = StarknetPedersenMmr::from(&rx_rlps[..]);
+
+    (tx_tree, rx_tree)
 }

@@ -1,36 +1,28 @@
 use anyhow::Result;
-use attestation_cache::AttestationCache;
-use attestation_chain::attestation_fragment::AttestationFragment;
 use cc_client::AccountId32;
-use eth::{transaction::BlockItem, Client};
-use prover_primitives::claim::{ClaimIdentifier, ClaimKind, ClaimSerializable};
-use prover_primitives::types::StoneProofPublicInput;
 use sp_core::H256;
-use std::ops::Range;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, info};
+
+use attestation_cache::AttestationCache;
 
 pub mod attestation;
 pub mod attestation_cache;
 pub mod cc3;
 pub mod claim;
 pub mod config;
+mod fragment;
 pub mod postgres;
 
 use cc3::Claim;
 use config::Config;
-use proof::cairo_generate_proof;
-use utils::block_item_traits::BlockItemIdentifier;
 
 /// `AttestationCacheType` cache type
 pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
 
 /// `CcClientArc` type
-type CcClientArc = Arc<cc3::Client>;
-
-const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
+pub type CcClientArc = Arc<cc3::Client>;
 
 /// Prover server is configured using `Config`
 pub struct Server {
@@ -42,8 +34,10 @@ pub struct Server {
 
 impl Server {
     /// Create a new server based on `Config`
-    pub fn new(config: Config) -> Result<Self> {
+    pub async fn new(config: Config) -> Result<Self> {
         let db_pool = postgres::db::get_pool(&config.postgres_uri)?;
+        postgres::db::run_migrations(config.postgres_uri.clone()).await?;
+
         let attestations_cache: AttestationCacheType =
             Arc::new(attestation_cache::AttestationCache::new(db_pool));
 
@@ -133,136 +127,11 @@ pub async fn handle_claim_sub(
         let eth_client = eth::Client::new(eth_client_rpc_url).await?;
 
         // Process the claim
-        process_claim(client.clone(), eth_client, claim, attestation_cache).await?;
+        claim::process(client.clone(), eth_client, claim, attestation_cache).await?;
     }
 
     // Wait for the claim subscription task to finish and handle its result
     claim_sub_handle.await??;
-
-    Ok(())
-}
-
-pub async fn process_claim(
-    client: CcClientArc,
-    eth_client: Client,
-    claim: Claim,
-    attestation_cache: &AttestationCacheType,
-) -> Result<()> {
-    info!("Processing claim with hash: {:?}", claim.hash);
-
-    // Check if claim exists on source chain
-    // match claim::check_claim_inclusion(eth_client, claim.claim).await {
-    //     Ok(true) => {
-    //         info!("Claim included on source chain");
-    //     }
-    //     Ok(false) => {
-    //         warn!("Claim not included on source chain");
-    //     }
-    //     Err(e) => {
-    //         error!("Error checking claim inclusion: {:?}", e);
-    //     }
-    // };
-
-    let tx = eth_client
-        .get_transactions(claim.claim.id.block_item_id.block_number)
-        .await
-        .unwrap();
-    let rx = eth_client
-        .get_receipts(claim.claim.id.block_item_id.block_number)
-        .await
-        .unwrap();
-
-    let tx_bytes = tx
-        .iter()
-        .map(eth::transaction::Transaction::to_bytes)
-        .collect::<Vec<_>>();
-    let rx_bytes = rx
-        .iter()
-        .map(eth::transaction::Receipt::to_bytes)
-        .collect::<Vec<_>>();
-
-    let claim_kind = match claim.claim.id.kind {
-        cc_client::cc3::runtime_types::pallet_prover::types::ClaimKind::Tx => ClaimKind::Tx,
-        cc_client::cc3::runtime_types::pallet_prover::types::ClaimKind::Rx => ClaimKind::Rx,
-    };
-
-    let claim_serializable = ClaimSerializable {
-        id: ClaimIdentifier {
-            kind: claim_kind,
-            block_item_id: BlockItemIdentifier::new(
-                claim.claim.id.block_item_id.block_number.into(),
-                u64::from(claim.claim.id.block_item_id.index),
-            ),
-        },
-        felt_ranges: claim
-            .claim
-            .felt_ranges
-            .into_iter()
-            .map(|f| Range {
-                start: f.start as usize,
-                end: f.end as usize,
-            })
-            .collect(),
-    };
-
-    let block_number = claim.claim.id.block_item_id.block_number;
-    let index = claim.claim.id.block_item_id.index;
-
-    debug!("Claim block number: {:?}", block_number);
-    debug!("Claim index number: {:?}", index);
-
-    let client = Arc::clone(&client);
-
-    let mut attestation_fragment = AttestationFragment::new();
-
-    for i in 0..5 {
-        let attestation = attestation_cache
-            .get_by_header_number((block_number + i) as i64, 31337)
-            .await
-            .unwrap();
-
-        attestation_fragment
-            .try_append_block(attestation.into())
-            .unwrap();
-    }
-
-    let proof = cairo_generate_proof(
-        claim_serializable,
-        &attestation_fragment,
-        tx_bytes,
-        rx_bytes,
-        true,
-        false,
-    )
-    .await;
-
-    let cairo_output_of_stone_proof = proof.unwrap();
-
-    let _output = match cairo_output_of_stone_proof {
-        either::Left((mut stone_proof, stone_proof_dir)) => {
-            proof::run_stone_verify_script(SCRIPT_SOURCE, &stone_proof_dir)
-                .await
-                .unwrap();
-            stone_proof
-                .strip_off_annotations()
-                .strip_off_prover_config()
-                .strip_off_private_input();
-            StoneProofPublicInput::try_from(stone_proof.proof()).unwrap()
-        }
-        either::Right(cairo_output) => cairo_output,
-    };
-
-    // Create proof (TODO: hook up prover)
-    let mut proof_example = File::open("proof_example.json").await?;
-
-    // Create a buffer to read the file
-    let mut proof = Vec::new();
-
-    // read the whole proof file into the buffer
-    proof_example.read_to_end(&mut proof).await?;
-
-    // Submit result to cc3
-    client.submit_proof(claim.hash, proof).await?;
 
     Ok(())
 }
