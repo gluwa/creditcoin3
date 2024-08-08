@@ -258,7 +258,6 @@ pub fn progress_to_block(n: u64) {
     }
 }
 
-
 pub fn make_secondary_plain_pre_digest(
     authority_index: sp_consensus_babe::AuthorityIndex,
     slot: sp_consensus_babe::Slot,
