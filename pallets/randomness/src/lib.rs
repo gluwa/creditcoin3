@@ -25,9 +25,6 @@ pub mod pallet {
 
     pub const RANDOMNESS_LENGTH: usize = 32;
 
-    /// Randomness type required by BABE operations.
-    // pub type Randomness = [u8; RANDOMNESS_LENGTH];
-
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
