@@ -6,4 +6,4 @@ cat /proc/cpuinfo
 free -m
 cat /proc/meminfo
 
-./target/release/creditcoin3-node benchmark machine --chain dev
+./target/production/creditcoin3-node benchmark machine --chain dev

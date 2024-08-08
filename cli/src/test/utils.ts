@@ -75,7 +75,7 @@ function runNode(name: string, extraArgs: string) {
 
     // warning: do NOT await, runs in background
     void execa(
-        '../target/release/creditcoin3-node',
+        '../target/production/creditcoin3-node',
         `--chain dev --validator --pruning archive ${extraArgs}`.split(' '),
         {
             detached: true,

@@ -21,13 +21,13 @@ can find more information on features on this template there, and more detailed 
 To build the chain, execute the following commands from the project root:
 
 ```bash
-cargo build --release
+cargo build --profile=production
 ```
 
 To execute the chain, run:
 
 ```bash
-./target/release/creditcoin3-node --dev
+./target/production/creditcoin3-node --dev
 ```
 
 _WARNING: running natively on Windows [is unsupported](https://github.com/gluwa/creditcoin/security/advisories/GHSA-cx5c-xwcv-vhmq)._
@@ -36,9 +36,9 @@ The node also supports to use manual seal (to produce block manually through RPC
 This is also used by the ts-tests:
 
 ```bash
-$ ./target/release/creditcoin3-node --dev --sealing=manual
+$ ./target/production/creditcoin3-node --dev --sealing=manual
 # Or
-$ ./target/release/creditcoin3-node --dev --sealing=instant
+$ ./target/production/creditcoin3-node --dev --sealing=instant
 ```
 
 ### Docker Based Development

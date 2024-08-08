@@ -8,7 +8,7 @@
 
 set -ex
 
-HEAD_BIN=./target/release/creditcoin3-node
+HEAD_BIN=./target/production/creditcoin3-node
 HEAD_WS=ws://localhost:9944
 RELEASE_WS=ws://localhost:9955
 
