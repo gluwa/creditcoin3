@@ -18,12 +18,10 @@
 // --pallet
 // pallet_randomness
 // --extrinsic=*
-// --execution
-// wasm
 // --wasm-execution=compiled
 // --heap-pages=10000
 // --output
-// ./pallets/randomness/src/weights1.rs
+// ./pallets/randomness/src/weights.rs
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(unused_parens)]
@@ -36,15 +34,19 @@ use core::marker::PhantomData;
 /// Weight functions for `pallet_randomness`.
 pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
-	
+	/// Storage: `Randomness::LastSeenEpochIndex` (r:1 w:1)
+	/// Proof: `Randomness::LastSeenEpochIndex` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Babe::EpochIndex` (r:1 w:1)
+	/// Proof: `Babe::EpochIndex` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	fn on_initialize() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `165`
-		//  Estimated: `1517`
-		// Minimum execution time: 6_100_000 picoseconds.
-		Weight::from_parts(6_600_000, 0)
-            .saturating_add(Weight::from_parts(0, 1517))
+		//  Measured:  `316`
+		//  Estimated: `1801`
+		// Minimum execution time: 6_000_000 picoseconds.
+		Weight::from_parts(6_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 1801))
 			.saturating_add(T::DbWeight::get().reads(3))
-			.saturating_add(T::DbWeight::get().writes(2))
+            .saturating_add(T::DbWeight::get().writes(2))
+
 	}
 }

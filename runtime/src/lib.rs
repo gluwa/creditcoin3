@@ -1050,6 +1050,7 @@ mod benches {
         [pallet_evm, EVM]
         [pallet_prover, Prover]
         [pallet_attestation_poc, Attestation]
+        [pallet_randomness, Randomness]
     );
 }
 
@@ -1406,7 +1407,7 @@ impl_runtime_apis! {
     }
 
     impl randomness_primitives::api::RandomnessPalletApi<Block> for Runtime {
-        fn randomness_by_epoch_id(epoch_id: u64) -> Option<[u8; 32]>{
+        fn randomness_by_epoch_id(epoch_id: u64) -> Option<randomness_primitives::Randomness>{
             Randomness::randomness_by_epoch_id(epoch_id)
         }
     }

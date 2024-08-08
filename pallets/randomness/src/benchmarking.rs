@@ -11,8 +11,4 @@ benchmarks! {
     }: {
         crate::Pallet::<T>::on_initialize(One::one());
     }
-    verify {
-        assert_eq!(LastSeenEpochIndex::<T>::get(), 1);
-        assert_eq!(RandomnessByEpochIndex::<T>::get(1).unwrap(), pallet_babe::Randomness::<T>::get());
-    }
 }

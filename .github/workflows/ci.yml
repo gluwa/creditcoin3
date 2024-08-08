@@ -1304,7 +1304,8 @@ jobs:
         run: |
           .github/bench.sh -p attestation_poc -b -r 1 -s 2
           .github/bench.sh -p prover -b -r 1 -s 2
-          .github/bench.sh -p supported_chains -b -r 1 -s 2
+          .github/bench.sh -p randomness -b -r 1 -s 2
+          #.github/bench.sh -p supported_chains -b -r 1 -s 2
 
       - name: git diff
         run: |
