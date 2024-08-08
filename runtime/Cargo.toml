@@ -84,7 +84,6 @@ creditcoin3-rpc-primitives-debug = { workspace = true }
 pallet-attestation-poc = { workspace = true }
 pallet-prover = { workspace = true }
 pallet-supported-chains = { workspace = true }
-pallet-prover = { workspace = true }
 pallet-randomness = { workspace = true }
 
 attestor-primitives = { workspace = true }
@@ -92,7 +91,6 @@ supported-chains-primitives = { workspace = true }
 randomness-primitives = { workspace = true }
 pallet-evm-precompile-claim = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
-supported-chains-primitives = { workspace = true }
 #rlp = "0.5.2"
 
 [build-dependencies]

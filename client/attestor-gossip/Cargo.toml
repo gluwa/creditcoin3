@@ -43,4 +43,3 @@ attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true, features = ["std"] }
 randomness-primitives = { workspace = true, features = ["std"] }
 bls-signatures = { workspace = true, features = ["std", "default"] }
-supported-chains-primitives = { workspace = true, features = ["std"] }
