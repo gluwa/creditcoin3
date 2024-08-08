@@ -167,8 +167,9 @@ jobs:
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
         env:
-          BUILD_OPTS: "--profile=production ${{ needs.setup.outputs.build_options }}"
+          BUILD_OPTS: "${{ needs.setup.outputs.build_options }}"
         with:
+          profile: production
           chain: "creditcoin"
           runtime_dir: runtime
           package: creditcoin3-runtime
