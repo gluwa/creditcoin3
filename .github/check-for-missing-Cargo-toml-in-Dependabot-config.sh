@@ -7,7 +7,10 @@
 
 DEPENDABOT_YAML=".github/dependabot.yml"
 
-CARGO_FILES_IN_SOURCE_CODE=$(find ./ -name Cargo.toml | grep -v "./target/" | grep -v "/node_modules/" | sort)
+# NOTE: whitelisted locations at the end, reference
+# https://github.com/gluwa/creditcoin3-next/pull/141#discussion_r1706575677
+# https://github.com/gluwa/creditcoin3-next/pull/141#discussion_r1711057964
+CARGO_FILES_IN_SOURCE_CODE=$(find ./ -name Cargo.toml | grep -v "./target/" | grep -v "/node_modules/" | sort | grep -v -E "attestation-blocks-online-builder|attestation-db|attestor-online-sim|prover-attestation-db-online-builder|poc-config")
 echo "INFO: Cargo.toml files found in source code"
 echo "$CARGO_FILES_IN_SOURCE_CODE"
 echo "----- END -----"
