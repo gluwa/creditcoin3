@@ -64,14 +64,16 @@ pub mod pallet {
             if epoch_index > last_seen_epoch_index {
                 LastSeenEpochIndex::<T>::put(epoch_index);
                 let randomness = pallet_babe::Randomness::<T>::get();
+
                 RandomnessByEpochIndex::<T>::insert(epoch_index, randomness);
+
                 Self::deposit_event(Event::StoreRandomnessForEpoch {
                     epoch_index,
                     randomness,
                 });
             }
 
-            Weight::zero()
+            <T as pallet::Config>::WeightInfo::on_initialize()
         }
     }
 
