@@ -281,13 +281,13 @@ where
             return Err(Error::DigestMissMatch);
         }
 
-        let current_block_number: u64 = blockchain_info.best_number.into();
+        let current_epoch_hash: u64 = blockchain_info.best_number.into();
 
-        debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", current_block_number);
+        debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", current_epoch_hash);
 
         let target_epoch_hash = self
             .client
-            .block_hash((current_block_number as u32).into())
+            .block_hash((current_epoch_hash as u32).into())
             .ok()
             .flatten()
             .expect("Target block exists; qed");
