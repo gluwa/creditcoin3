@@ -295,10 +295,9 @@ where
         let runtime = self.runtime.runtime_api();
         let current_epoch = runtime.current_epoch(target_epoch_hash)?;
 
-        if attestation.vrf_output.epoch + 2 != current_epoch.epoch_index {
-            debug!(target: LOG_TARGET, "current epoch - attestation epoch should be equal 2. attestation epoch: {:?}, current epoch: {:?}", attestation.vrf_output.epoch, current_epoch.epoch_index);
-            return Err(Error::InvalidAttestationVrfOuput);
-        }
+        let vrf_target_epoch = runtime
+            .randomness_by_epoch_id(target_epoch_hash, current_epoch.epoch_index)?
+            .ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
 
         // Get the vrf for the attestation that was submitted
         let runtime = self.runtime.runtime_api();
@@ -319,7 +318,7 @@ where
 
             let is_valid = sp_core::sr25519::Pair::verify(
                 &attestation.vrf_output.signature,
-                randomness_at_attestation_output_epoch,
+                vrf_target_epoch,
                 &public_key,
             );
 
