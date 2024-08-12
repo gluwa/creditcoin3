@@ -13,14 +13,10 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
-use cc3::{
-    babe::storage::types::randomness,
-    identity::calls::types::RequestJudgement,
-    runtime_types::attestor_primitives::{
-        Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
-    },
+use cc3::runtime_types::attestor_primitives::{
+    Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
 };
+use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 
 use attestor_primitives::{
     Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
@@ -125,11 +121,12 @@ impl<'a> Client {
             .await?;
 
         //when epoch is 0 then fetch &cc3::storage().babe().epoch_index() returns None
-        let epoch_index = if epoch_index.is_none() && current_block_number as u64 > epoch_duration {
-            epoch_index.ok_or(Error::FailedToGetBabeVrf)?
-        } else {
-            0
-        };
+        let epoch_index =
+            if epoch_index.is_none() && u64::from(current_block_number) > epoch_duration {
+                epoch_index.ok_or(Error::FailedToGetBabeVrf)?
+            } else {
+                0
+            };
 
         println!(
             "epoch_index: {:? }Epoch index: {:?}",
