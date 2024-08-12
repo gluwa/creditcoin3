@@ -13,10 +13,14 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use cc3::runtime_types::attestor_primitives::{
-    Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
-};
 use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
+use cc3::{
+    babe::storage::types::randomness,
+    identity::calls::types::RequestJudgement,
+    runtime_types::attestor_primitives::{
+        Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
+    },
+};
 
 use attestor_primitives::{
     Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
@@ -113,10 +117,11 @@ impl<'a> Client {
 
         let Some(intrested_epoch_index) = epoch_index.checked_sub(2) else {
             warn!(
-                "Epoch index is less than 2, returning error, epoch index: {} epoch_duration: {}",
+                "Epoch index is less than 2, returning zero randomness, zero hash and zero epoch index, epoch index: {} epoch_duration: {}",
                 epoch_index, epoch_duration
             );
-            return Err(Error::FailedToGetBabeVrf.into());
+            //zero randomness, zero block hash, zero epoch index
+            return Ok((Some([0u8; 32]), H256::zero(), 0));
         };
 
         // Get current block number
