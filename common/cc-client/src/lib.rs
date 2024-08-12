@@ -106,24 +106,6 @@ impl<'a> Client {
             .constants()
             .at(&cc3::constants().babe().epoch_duration())?;
 
-        let epoch_index = self
-            .api
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&cc3::storage().babe().epoch_index())
-            .await?
-            .ok_or(Error::FailedToGetBlockNumber)?;
-
-        let Some(intrested_epoch_index) = epoch_index.checked_sub(2) else {
-            warn!(
-                "Epoch index is less than 2, returning zero randomness, zero hash and zero epoch index, epoch index: {} epoch_duration: {}",
-                epoch_index, epoch_duration
-            );
-            //zero randomness, zero block hash, zero epoch index
-            return Ok((Some([0u8; 32]), H256::zero(), 0));
-        };
-
         // Get current block number
         let current_block_number = self
             .api
@@ -133,6 +115,36 @@ impl<'a> Client {
             .fetch(&cc3::storage().system().number())
             .await?
             .ok_or(Error::FailedToGetBlockNumber)?;
+
+        let epoch_index = self
+            .api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&cc3::storage().babe().epoch_index())
+            .await?;
+
+        //when epoch is 0 then fetch &cc3::storage().babe().epoch_index() returns None
+        let epoch_index = if epoch_index.is_none() && current_block_number as u64 > epoch_duration {
+            epoch_index.ok_or(Error::FailedToGetBabeVrf)?
+        } else {
+            0
+        };
+
+        println!(
+            "epoch_index: {:? }Epoch index: {:?}",
+            epoch_index,
+            epoch_index.checked_sub(2)
+        );
+
+        let Some(intrested_epoch_index) = epoch_index.checked_sub(2) else {
+            warn!(
+                "Epoch index is less than 2, returning zero randomness, zero hash and zero epoch index, epoch index: {} epoch_duration: {}",
+                epoch_index, epoch_duration
+            );
+            //zero randomness, zero block hash, zero epoch index
+            return Ok((Some([0u8; 32]), H256::zero(), 0));
+        };
 
         // Calculate a block number that falls into the range of 2 epoch ago
         // current block - (epoch duration in block * 2)
