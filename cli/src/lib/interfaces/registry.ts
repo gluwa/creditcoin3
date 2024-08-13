@@ -151,6 +151,9 @@ import type {
     PalletProxyError,
     PalletProxyEvent,
     PalletProxyProxyDefinition,
+    PalletRandomnessCall,
+    PalletRandomnessError,
+    PalletRandomnessEvent,
     PalletSessionCall,
     PalletSessionError,
     PalletSessionEvent,
@@ -372,6 +375,9 @@ declare module '@polkadot/types/types/registry' {
         PalletProxyError: PalletProxyError;
         PalletProxyEvent: PalletProxyEvent;
         PalletProxyProxyDefinition: PalletProxyProxyDefinition;
+        PalletRandomnessCall: PalletRandomnessCall;
+        PalletRandomnessError: PalletRandomnessError;
+        PalletRandomnessEvent: PalletRandomnessEvent;
         PalletSessionCall: PalletSessionCall;
         PalletSessionError: PalletSessionError;
         PalletSessionEvent: PalletSessionEvent;

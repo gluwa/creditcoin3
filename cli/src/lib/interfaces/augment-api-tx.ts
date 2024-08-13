@@ -1492,6 +1492,12 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
+        randomness: {
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         session: {
             /**
              * See [`Pallet::purge_keys`].

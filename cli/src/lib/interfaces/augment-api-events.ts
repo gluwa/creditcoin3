@@ -622,6 +622,17 @@ declare module '@polkadot/api-base/types/events' {
              **/
             [key: string]: AugmentedEvent<ApiType>;
         };
+        randomness: {
+            StoreRandomnessForEpoch: AugmentedEvent<
+                ApiType,
+                [epochIndex: u64, randomness: U8aFixed],
+                { epochIndex: u64; randomness: U8aFixed }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         session: {
             /**
              * New session has happened. Note that the argument is the session index, not the

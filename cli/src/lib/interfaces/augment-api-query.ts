@@ -883,6 +883,19 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             [key: string]: QueryableStorageEntry<ApiType>;
         };
+        randomness: {
+            lastSeenEpochIndex: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            randomnessByEpochIndex: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<U8aFixed>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         session: {
             /**
              * Current index of the session.
