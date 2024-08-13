@@ -1,7 +1,7 @@
 settings:
   provider: native
 relaychain:
-  default_command: ../../target/debug/creditcoin3-node
+  default_command: ../../target/release/creditcoin3-node
   default_args:
     # - "-lpeerset=trace"
   chain: local

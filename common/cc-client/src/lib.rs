@@ -120,12 +120,12 @@ impl<'a> Client {
             .fetch(&cc3::storage().babe().epoch_index())
             .await?;
 
-        //when epoch is 0 then fetch &cc3::storage().babe().epoch_index() returns None
+        // when epoch is 0 then fetch &cc3::storage().babe().epoch_index() returns None
         let epoch_index =
-            if epoch_index.is_none() && u64::from(current_block_number) > epoch_duration {
-                epoch_index.ok_or(Error::FailedToGetBabeVrf)?
-            } else {
+            if epoch_index.is_none() && u64::from(current_block_number) <= epoch_duration * 2 {
                 0
+            } else {
+                epoch_index.expect("Epoch index is None")
             };
 
         println!(
@@ -160,9 +160,10 @@ impl<'a> Client {
             .await?
             .ok_or(Error::FailedToGetBabeVrf)?;
 
+
         info!("Getting babe randomness at block: {block_to_query}");
         // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
-        let randomness = self
+        let randomness = if intrested_epoch_index > 2 { self
             .api
             .storage()
             .at_latest()
@@ -173,7 +174,10 @@ impl<'a> Client {
                     .randomness_by_epoch_index(intrested_epoch_index),
             )
             .await?
-            .ok_or(Error::FailedToGetBabeVrf)?;
+            .expect(format!("asdsadadas {}", intrested_epoch_index).as_str())
+            } else { 
+                [0u8; 32]
+            };
 
         Ok((Some(randomness), block_hash_to_query, intrested_epoch_index))
     }
