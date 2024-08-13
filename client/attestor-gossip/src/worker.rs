@@ -295,8 +295,16 @@ where
         let runtime = self.runtime.runtime_api();
         let current_epoch = runtime.current_epoch(target_epoch_hash)?;
 
+        let target_epoch = match current_epoch.epoch_index.checked_sub(2) {
+            Some(result) => result,
+            None => {
+                info!("We cannot go back 2 epoch yet, that means we just need to fetch the randomness from current epoch");
+                current_epoch.epoch_index
+            }
+        };
+
         let vrf_target_epoch = runtime
-            .randomness_by_epoch_id(target_epoch_hash, current_epoch.epoch_index)?
+            .randomness_by_epoch_id(target_epoch_hash, target_epoch)?
             .ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
 
         // Get the vrf for the attestation that was submitted
