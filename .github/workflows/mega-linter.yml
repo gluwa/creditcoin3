@@ -41,6 +41,7 @@ jobs:
           # All available variables are described at https://megalinter.io/latest/configuration/
           # and configured in .mega-linter.yml
           VALIDATE_ALL_CODEBASE: true
+          JSON_JSONLINT_FILTER_REGEX_EXCLUDE: (chainspecs/dryRun*)
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save auto-updates
