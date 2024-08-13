@@ -173,7 +173,7 @@ impl<'a> Client {
                         .randomness_by_epoch_index(intrested_epoch_index),
                 )
                 .await?
-                .expect(format!("asdsadadas {}", intrested_epoch_index).as_str())
+                .ok_or(Error::FailedToGetBabeVrf)?
         } else {
             [0u8; 32]
         };
