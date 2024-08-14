@@ -355,11 +355,7 @@ fn bootstrapping_unsupported_chain_fails() {
         let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
 
         assert_err!(
-            Attestation::bootstrap_chain(
-                RuntimeOrigin::root(),
-                chain_id,
-                attestation,
-            ),
+            Attestation::bootstrap_chain(RuntimeOrigin::root(), chain_id, attestation,),
             Error::<Test>::ChainNotSupported
         )
     })
