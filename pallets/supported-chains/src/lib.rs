@@ -24,6 +24,7 @@ pub mod pallet {
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
     use supported_chains_primitives::provider::SupportedChainsProvider;
+    use supported_chains_primitives::SupportedChain;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -47,9 +48,25 @@ pub mod pallet {
     pub type SupportedChains<T: Config> = StorageMap<
         Hasher = Blake2_128Concat,
         Key = ChainId,
-        Value = Vec<u8>,
+        Value = SupportedChain,
         QueryKind = OptionQuery,
     >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn chain_id_and_name_to_uniq_key)]
+    pub type ChainIdAndNameToUniqKey<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainId,
+        Blake2_128Concat,
+        Vec<u8>,
+        ChainId,
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn incremental_key)]
+    pub type IncrementalKey<T> = StorageValue<_, ChainId, ValueQuery>;
 
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
@@ -61,9 +78,26 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
+            let mut index = 0;
             for (chain_id, chain_name) in &self.supported_chains {
-                SupportedChains::<T>::insert(chain_id, chain_name);
+                SupportedChains::<T>::insert(
+                    *chain_id,
+                    SupportedChain {
+                        chain_id: *chain_id,
+                        chain_name: chain_name.clone(),
+                    },
+                );
+                //check that no dublicate chain name is added
+                if ChainIdAndNameToUniqKey::<T>::contains_key(*chain_id, chain_name.clone()) {
+                    panic!("Duplicate chain name found in genesis config. Chain ID: {:?}, Chain Name: {:?}", chain_id, chain_name);
+                }
+                ChainIdAndNameToUniqKey::<T>::insert(*chain_id, chain_name.clone(), index);
+                index = index
+                    .checked_add(1)
+                    .ok_or(Error::<T>::Arithmetic)
+                    .expect("Error incrementing index");
             }
+            IncrementalKey::<T>::put(index);
         }
     }
 
@@ -71,10 +105,18 @@ pub mod pallet {
     #[pallet::generate_deposit(pub (super) fn deposit_event)]
     pub enum Event<T: Config> {
         ///  A chain has been registered with a given ID
-        ChainRegistered(ChainId),
+        ChainRegistered {
+            generated_key: ChainId,
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+        },
 
         /// A chain has been removed with a given ID
-        ChainRemoved(ChainId),
+        ChainRemoved {
+            generated_key: ChainId,
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+        },
     }
 
     #[pallet::error]
@@ -84,6 +126,9 @@ pub mod pallet {
 
         /// The chain is not supported
         ChainNotSupported,
+
+        /// Math overflow/underflow
+        Arithmetic,
     }
 
     #[pallet::call]
@@ -98,38 +143,64 @@ pub mod pallet {
             ensure_root(origin)?;
 
             ensure!(
-                !SupportedChains::<T>::contains_key(chain_id),
+                !ChainIdAndNameToUniqKey::<T>::contains_key(chain_id, chain_name.as_bytes()),
                 Error::<T>::ChainAlreadyRegistered
             );
 
-            SupportedChains::<T>::insert(chain_id, chain_name.as_bytes());
+            let incremental_key = IncrementalKey::<T>::get();
+            SupportedChains::<T>::insert(
+                chain_id,
+                SupportedChain {
+                    chain_id,
+                    chain_name: chain_name.as_bytes().to_vec(),
+                },
+            );
+            ChainIdAndNameToUniqKey::<T>::insert(
+                chain_id,
+                chain_name.as_bytes().to_vec(),
+                incremental_key,
+            );
 
-            Self::deposit_event(Event::ChainRegistered(chain_id));
+            IncrementalKey::<T>::put(
+                incremental_key
+                    .checked_add(1)
+                    .ok_or(Error::<T>::Arithmetic)?,
+            );
+
+            Self::deposit_event(Event::ChainRegistered {
+                generated_key: incremental_key,
+                chain_id: chain_id,
+                chain_name: chain_name.as_bytes().to_vec(),
+            });
 
             Ok(())
         }
 
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::remove_chain())]
-        pub fn remove_chain(origin: OriginFor<T>, chain_id: ChainId) -> DispatchResult {
+        pub fn remove_chain(origin: OriginFor<T>, generated_key: ChainId) -> DispatchResult {
             ensure_root(origin)?;
 
-            ensure!(
-                SupportedChains::<T>::contains_key(chain_id),
-                Error::<T>::ChainNotSupported
-            );
+            let item =
+                SupportedChains::<T>::get(generated_key).ok_or(Error::<T>::ChainNotSupported)?;
 
-            SupportedChains::<T>::remove(chain_id);
+            ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
 
-            Self::deposit_event(Event::ChainRemoved(chain_id));
+            SupportedChains::<T>::remove(generated_key);
+
+            Self::deposit_event(Event::ChainRemoved {
+                generated_key,
+                chain_id: item.chain_id,
+                chain_name: item.chain_name.clone(),
+            });
 
             Ok(())
         }
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn is_chain_supported(chain_id: ChainId) -> bool {
-            SupportedChains::<T>::contains_key(chain_id)
+        pub fn is_chain_supported(generated_key: ChainId) -> bool {
+            SupportedChains::<T>::contains_key(generated_key)
         }
 
         pub fn supported_chains() -> Option<Vec<ChainId>> {
