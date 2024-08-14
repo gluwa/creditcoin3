@@ -27,6 +27,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -99,6 +101,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -165,6 +169,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -252,6 +258,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -318,6 +326,8 @@ jobs:
       [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v4
@@ -438,6 +448,8 @@ jobs:
       [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v4
@@ -569,6 +581,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install azure-cli
         run: |
@@ -639,6 +653,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Evaluate env vars
         id: get-env
