@@ -212,6 +212,13 @@ pub mod pallet {
                 false => Some(chains),
             }
         }
+
+        pub fn generated_key_by_chain_id_and_name(
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+        ) -> Option<ChainId> {
+            ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name)
+        }
     }
 
     impl<T: Config> SupportedChainsProvider for Pallet<T> {
@@ -221,6 +228,13 @@ pub mod pallet {
 
         fn supported_chains() -> Option<Vec<ChainId>> {
             Self::supported_chains()
+        }
+
+        fn generated_key_by_chain_id_and_name(
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+        ) -> Option<ChainId> {
+            ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name)
         }
     }
 }
