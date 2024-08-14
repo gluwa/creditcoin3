@@ -97,11 +97,11 @@ mod benchmarks {
     const MAX_ATTESTORS: u32 = 100;
 
     #[benchmark]
-    fn add_supported_chain() {
+    fn set_chain_attestation_interval() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id: ChainId = 1; // Using initial supported chain from mock
         let chain_attestation_interval: ChainAttestationIntervalType = 100;
-        let chain_id: ChainId = 2;
 
         #[extrinsic_call]
         _(
@@ -223,15 +223,7 @@ mod benchmarks {
     fn bootstrap_chain(a: Linear<1, MAX_ATTESTORS>) {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_id: ChainId = 2;
-
-        // Adding new supported chain
-        let chain_attestation_interval: ChainAttestationIntervalType = 100;
-        assert_ok!(Attestation::<T>::add_supported_chain(
-            root_origin.clone(),
-            chain_attestation_interval,
-            chain_id
-        ));
+        let chain_id: ChainId = 1; // Using initial supported chain from mock
 
         // Set max attestors to accomodate benchmark
         assert_ok!(Attestation::<T>::set_max_attestors(

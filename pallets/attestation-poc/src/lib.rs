@@ -36,6 +36,8 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         #[pallet::constant]
+        type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        #[pallet::constant]
         type MaxAttestationNodes: Get<u32>;
         // TODO: Make this useful
         #[pallet::constant]
@@ -66,7 +68,7 @@ pub mod pallet {
         fn bootstrap_chain(a: u32) -> Weight;
         fn commit_attestation(a: u32) -> Weight;
         fn set_comittee_set_size() -> Weight;
-        fn add_supported_chain() -> Weight;
+        fn set_chain_attestation_interval() -> Weight;
     }
 
     #[pallet::storage]
@@ -127,16 +129,21 @@ pub mod pallet {
     #[pallet::getter(fn comittee_set_size)]
     pub type ComitteeSetSize<T: Config> = StorageValue<_, u32, ValueQuery>;
 
-    pub type SupportedChainsVec = BoundedVec<ChainId, ConstU32<256>>;
-
-    #[pallet::storage]
-    #[pallet::getter(fn supported_chains)]
-    pub type SupportedChains<T: Config> = StorageValue<_, SupportedChainsVec, ValueQuery>;
-
     #[pallet::storage]
     #[pallet::getter(fn chain_attestation_interval)]
-    pub type ChainAttestationInterval<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainId, ChainAttestationIntervalType>;
+    pub type ChainAttestationInterval<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainId,
+        ChainAttestationIntervalType,
+        ValueQuery,
+        AttestationIntervalDefault<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn AttestationIntervalDefault<T: Config>() -> ChainAttestationIntervalType {
+        T::DefaultAttestationInterval::get()
+    }
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -162,14 +169,11 @@ pub mod pallet {
                 Attestors::<T>::insert(invulnerable.0.clone(), invulnerable.1 .0);
             }
 
-            let mut chains: SupportedChainsVec = BoundedVec::new();
             for (chain_id, chain_attestation_interval) in
                 self.attestation_chains_interval.clone().into_iter()
             {
-                chains.try_push(chain_id).unwrap();
                 ChainAttestationInterval::<T>::insert(chain_id, chain_attestation_interval);
             }
-            SupportedChains::<T>::set(chains);
         }
     }
 
@@ -258,24 +262,20 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as Config>::WeightInfo::add_supported_chain())]
-        pub fn add_supported_chain(
+        #[pallet::weight(<T as Config>::WeightInfo::set_chain_attestation_interval())]
+        pub fn set_chain_attestation_interval(
             origin: OriginFor<T>,
             chain_id: ChainId,
             chain_attestation_interval: ChainAttestationIntervalType,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            let mut chains = SupportedChains::<T>::get();
-            chains
-                .try_push(chain_id)
-                .map_err(|_| Error::<T>::CannotAddChain)?;
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_id),
+                Error::<T>::ChainNotSupported
+            );
 
-            SupportedChains::<T>::set(chains);
-
-            // Set the chain attestation interval
-            ChainAttestationInterval::<T>::set(chain_id, Some(chain_attestation_interval));
-
+            ChainAttestationInterval::<T>::set(chain_id, chain_attestation_interval);
             Ok(())
         }
 
@@ -408,7 +408,7 @@ pub mod pallet {
             ensure_root(origin)?;
 
             ensure!(
-                !T::SupportedChains::is_chain_supported(chain_id),
+                T::SupportedChains::is_chain_supported(chain_id),
                 Error::<T>::ChainNotSupported
             );
 
@@ -456,23 +456,22 @@ pub mod pallet {
                     Attestations::<T>::get(attestation.chain_id(), previous_digest)
                         .ok_or(Error::<T>::NoPreviousDigest)?;
 
-                if let Some(interval) = ChainAttestationInterval::<T>::get(attestation.chain_id()) {
-                    let prev_block_number = previous_attestation.attestation.header_number;
+                let interval = ChainAttestationInterval::<T>::get(attestation.chain_id());
+                let prev_block_number = previous_attestation.attestation.header_number;
 
+                debug!(
+                    "Checking if block number is at the interval, expected: {:?}, got: {:?}",
+                    prev_block_number + interval,
+                    attestation.attestation.header_number
+                );
+
+                if attestation.attestation.header_number < prev_block_number + interval {
                     debug!(
-                        "Checking if block number is at the interval, expected: {:?}, got: {:?}",
+                        "Block number is not at the interval, expected: {:?}, got: {:?}",
                         prev_block_number + interval,
                         attestation.attestation.header_number
                     );
-
-                    if attestation.attestation.header_number < prev_block_number + interval {
-                        debug!(
-                            "Block number is not at the interval, expected: {:?}, got: {:?}",
-                            prev_block_number + interval,
-                            attestation.attestation.header_number
-                        );
-                        return Err(Error::<T>::InvalidAttestation.into());
-                    }
+                    return Err(Error::<T>::InvalidAttestation.into());
                 }
             }
 

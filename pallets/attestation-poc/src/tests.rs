@@ -305,21 +305,63 @@ fn remove_invulnerable_that_is_not_attestor_works() {
 }
 
 #[test]
-fn adding_a_supported_chain_works() {
+fn setting_attestation_interval_works() {
     ExtBuilder.build_and_execute(|| {
-        let supported_chains = Attestation::supported_chains();
-        assert_eq!(supported_chains.len(), 1);
+        let attestation_interval = Attestation::chain_attestation_interval(1);
+        assert_eq!(attestation_interval, 10); // Interval set in mock genesis
 
-        let chain_id = 2;
-        let chain_attestation_interval = 10;
-        assert_ok!(Attestation::add_supported_chain(
+        let chain_id = 1;
+        let chain_attestation_interval = 101;
+        assert_ok!(Attestation::set_chain_attestation_interval(
             RuntimeOrigin::root(),
             chain_id,
             chain_attestation_interval
         ));
 
-        let supported_chains = Attestation::supported_chains();
-        assert_eq!(supported_chains.len(), 2);
+        let attestation_interval = Attestation::chain_attestation_interval(1);
+        assert_eq!(attestation_interval, 101);
+    })
+}
+
+#[test]
+fn setting_attestation_interval_for_unsupported_chain_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+        let chain_attestation_interval = 101;
+        assert_err!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                chain_id,
+                chain_attestation_interval
+            ),
+            Error::<Test>::ChainNotSupported
+        )
+    })
+}
+
+#[test]
+fn bootstrapping_unsupported_chain_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+
+        let attestor = Attestor::new(ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+
+        assert_err!(
+            Attestation::bootstrap_chain(
+                RuntimeOrigin::root(),
+                chain_id,
+                attestation,
+            ),
+            Error::<Test>::ChainNotSupported
+        )
     })
 }
 

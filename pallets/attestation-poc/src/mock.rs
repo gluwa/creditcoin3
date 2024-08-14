@@ -1,6 +1,9 @@
 use crate::{self as attestation_poc, tests::Attestor};
 use attestor_primitives::BlsPublicKeyWrapper;
-use frame_support::{parameter_types, traits::ConstU32};
+use frame_support::{
+    parameter_types,
+    traits::{ConstU32, ConstU64},
+};
 use frame_system as system;
 use sp_core::H256;
 use sp_runtime::{
@@ -78,6 +81,7 @@ impl pallet_balances::Config for Test {
 }
 
 impl attestation_poc::Config for Test {
+    type DefaultAttestationInterval = ConstU64<10>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;

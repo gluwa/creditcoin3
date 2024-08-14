@@ -39,8 +39,8 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
-        OnTimestampSet,
+        ConstU128, ConstU32, ConstU64, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem,
+        OnFinalize, OnTimestampSet,
     },
     weights::{
         constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
@@ -841,6 +841,7 @@ parameter_types! {
 }
 
 impl pallet_attestation_poc::Config for Runtime {
+    type DefaultAttestationInterval = ConstU64<10>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful
@@ -1392,7 +1393,7 @@ impl_runtime_apis! {
         }
 
         fn chain_attestation_interval(chain_id: ChainId) -> Option<u64> {
-            Attestation::chain_attestation_interval(chain_id)
+            Some(Attestation::chain_attestation_interval(chain_id))
         }
     }
 
