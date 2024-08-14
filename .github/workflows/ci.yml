@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Build docker image
         run: |
@@ -105,6 +107,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Check for parity between extrinsics, benchmarks and weights
         run: |
@@ -137,6 +141,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -162,6 +168,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Solidity compiler
         run: |
@@ -203,6 +211,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Configure rustc version
         run: |
@@ -228,6 +238,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -263,6 +275,8 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -295,6 +309,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -330,6 +346,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -392,6 +410,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -449,6 +469,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
@@ -493,6 +515,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Install Node Dependencies
         uses: actions/setup-node@v4
         with:
@@ -532,6 +556,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -581,6 +607,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -647,6 +675,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -710,6 +740,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          lfs: true
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
@@ -845,6 +876,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
@@ -902,6 +935,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
@@ -955,6 +990,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -999,6 +1036,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         env:
@@ -1014,6 +1053,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -1033,6 +1074,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4

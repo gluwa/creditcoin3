@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          lfs: true
           fetch-depth: 0
 
       - name: Figure out tag name
@@ -64,6 +65,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -157,6 +160,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Configure rustc version
         run: |
@@ -199,6 +204,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Figure out tag name
         shell: bash
@@ -232,6 +239,8 @@ jobs:
       - build-wasm-runtime
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download binaries
         uses: actions/download-artifact@v4
