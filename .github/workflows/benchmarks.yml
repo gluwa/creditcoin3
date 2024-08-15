@@ -202,6 +202,7 @@ jobs:
           message: "Auto-update pallet weights"
 
       - name: Prepare commit for PR against dev
+        id: prepare-commit
         run: |
           LAST_COMMIT=$(git rev-parse HEAD)
           BRANCH_NAME=auto-update-weights-for-dev-${{ github.sha }}
@@ -210,6 +211,9 @@ jobs:
           git cherry-pick "$LAST_COMMIT"
           git push origin "$BRANCH_NAME"
 
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -f2 -d"/")
+          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Open PR against dev
         id: open_pr
         uses: rematocorp/open-pull-request-action@v1
@@ -217,8 +221,8 @@ jobs:
           github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
           from-branch: auto-update-weights-for-dev-${{ github.sha }}
           to-branch: dev
-          repository-owner: gluwa
-          repository: creditcoin3
+          repository-owner: ${{ github.repository_owner }}
+          repository: ${{ steps.prepare-commit.outputs.repo_name }}
 
       - name: PR number against dev
         run: echo ${{ steps.open_pr.outputs.pull_number }}
