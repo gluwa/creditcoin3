@@ -181,11 +181,14 @@ jobs:
         run: |
           ./.github/check-hardware.sh
 
-      - name: Bridge
+      - name: Regenerate weights
         shell: bash
         continue-on-error: false
         run: |
-          ./.github/bench.sh -p bridge -b
+          .github/bench.sh -p attestation_poc -b
+          .github/bench.sh -p prover -b
+          .github/bench.sh -p randomness -b
+          .github/bench.sh -p supported_chains -b
 
       - name: Commit changes to current branch
         uses: EndBug/add-and-commit@v9
