@@ -169,7 +169,7 @@ pub mod pallet {
 
             Self::deposit_event(Event::ChainRegistered {
                 chain_key: incremental_key,
-                chain_id: chain_id,
+                chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
             });
 
