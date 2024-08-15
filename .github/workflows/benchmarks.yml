@@ -40,7 +40,7 @@ jobs:
         run: |
           # WARNING: Command below may differ depending on which workflow config file
           # your job is defined in !!! Don't copy&paste it blindly !!!
-          PALLETS_IN_CI_CONFIG=$(grep "./.github/bench.sh -p" .github/workflows/benchmarks.yml | grep -v PALLETS_IN_CI_CONFIG | tr -s ' ' | cut -d' ' -f4 | sort | xargs)
+          PALLETS_IN_CI_CONFIG=$(grep " .github/bench.sh -p" .github/workflows/benchmarks.yml | grep -v PALLETS_IN_CI_CONFIG | tr -s ' ' | cut -d' ' -f4 | sort | xargs)
 
           PALLETS_IN_SOURCE=$(./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets)
           if [ "$PALLETS_IN_CI_CONFIG" != "$PALLETS_IN_SOURCE" ]; then
