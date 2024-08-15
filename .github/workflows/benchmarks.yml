@@ -20,7 +20,7 @@ jobs:
     outputs:
       needs-bench: ${{ steps.version-check.outputs.needs_bench }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -34,7 +34,7 @@ jobs:
     needs: check-if-needed
     if: needs.check-if-needed.outputs.needs-bench == 1
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Inspect benchmark CI config
         run: |
@@ -155,7 +155,7 @@ jobs:
     needs:
       - deploy-github-runner
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 10
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -167,7 +167,7 @@ jobs:
           echo "HOME=/home/actions" >> "$GITHUB_ENV"
 
       - name: Download benchmark binary
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: creditcoin3-node
           path: target/release
