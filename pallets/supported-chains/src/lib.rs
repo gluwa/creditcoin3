@@ -106,14 +106,14 @@ pub mod pallet {
     pub enum Event<T: Config> {
         ///  A chain has been registered with a given ID
         ChainRegistered {
-            generated_key: ChainId,
+            chain_key: ChainId,
             chain_id: ChainId,
             chain_name: Vec<u8>,
         },
 
         /// A chain has been removed with a given ID
         ChainRemoved {
-            generated_key: ChainId,
+            chain_key: ChainId,
             chain_id: ChainId,
             chain_name: Vec<u8>,
         },
@@ -168,7 +168,7 @@ pub mod pallet {
             );
 
             Self::deposit_event(Event::ChainRegistered {
-                generated_key: incremental_key,
+                chain_key: incremental_key,
                 chain_id: chain_id,
                 chain_name: chain_name.as_bytes().to_vec(),
             });
@@ -178,18 +178,17 @@ pub mod pallet {
 
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::remove_chain())]
-        pub fn remove_chain(origin: OriginFor<T>, generated_key: ChainId) -> DispatchResult {
+        pub fn remove_chain(origin: OriginFor<T>, chain_key: ChainId) -> DispatchResult {
             ensure_root(origin)?;
 
-            let item =
-                SupportedChains::<T>::get(generated_key).ok_or(Error::<T>::ChainNotSupported)?;
+            let item = SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
 
             ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
 
-            SupportedChains::<T>::remove(generated_key);
+            SupportedChains::<T>::remove(chain_key);
 
             Self::deposit_event(Event::ChainRemoved {
-                generated_key,
+                chain_key,
                 chain_id: item.chain_id,
                 chain_name: item.chain_name.clone(),
             });
@@ -199,8 +198,8 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn is_chain_supported(generated_key: ChainId) -> bool {
-            SupportedChains::<T>::contains_key(generated_key)
+        pub fn is_chain_supported(chain_key: ChainId) -> bool {
+            SupportedChains::<T>::contains_key(chain_key)
         }
 
         pub fn supported_chains() -> Option<Vec<ChainId>> {
