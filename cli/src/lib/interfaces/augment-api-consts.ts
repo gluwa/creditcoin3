@@ -22,6 +22,7 @@ declare module '@polkadot/api-base/types/consts' {
     interface AugmentedConsts<ApiType extends ApiTypes> {
         attestation: {
             committmentInterval: u64 & AugmentedConst<ApiType>;
+            defaultAttestationInterval: u64 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const

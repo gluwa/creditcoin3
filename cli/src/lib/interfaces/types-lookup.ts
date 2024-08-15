@@ -2678,8 +2678,8 @@ declare module '@polkadot/types/lookup' {
 
     /** @name PalletAttestationPocCall (320) */
     interface PalletAttestationPocCall extends Enum {
-        readonly isAddSupportedChain: boolean;
-        readonly asAddSupportedChain: {
+        readonly isSetChainAttestationInterval: boolean;
+        readonly asSetChainAttestationInterval: {
             readonly chainId: u64;
             readonly chainAttestationInterval: u64;
         } & Struct;
@@ -2720,7 +2720,7 @@ declare module '@polkadot/types/lookup' {
             readonly attestation: AttestorPrimitivesSignedAttestation;
         } & Struct;
         readonly type:
-            | 'AddSupportedChain'
+            | 'SetChainAttestationInterval'
             | 'SetComitteeSetSize'
             | 'RegisterAttestor'
             | 'UnregisterAttestor'
@@ -3149,7 +3149,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'MaxAddressCountExceeded';
     }
 
-    /** @name PalletAttestationPocError (396) */
+    /** @name PalletAttestationPocError (395) */
     interface PalletAttestationPocError extends Enum {
         readonly isCannotAddChain: boolean;
         readonly isAlreadyAttestor: boolean;
@@ -3192,14 +3192,14 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidProofOfPossession';
     }
 
-    /** @name PalletSupportedChainsError (397) */
+    /** @name PalletSupportedChainsError (396) */
     interface PalletSupportedChainsError extends Enum {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;
         readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported';
     }
 
-    /** @name PalletProverError (401) */
+    /** @name PalletProverError (400) */
     interface PalletProverError extends Enum {
         readonly isProverAlreadyRegistered: boolean;
         readonly isProverNotExists: boolean;
@@ -3222,10 +3222,10 @@ declare module '@polkadot/types/lookup' {
             | 'ChainNotSupported';
     }
 
-    /** @name PalletRandomnessError (402) */
+    /** @name PalletRandomnessError (401) */
     type PalletRandomnessError = Null;
 
-    /** @name SpRuntimeMultiSignature (404) */
+    /** @name SpRuntimeMultiSignature (403) */
     interface SpRuntimeMultiSignature extends Enum {
         readonly isEd25519: boolean;
         readonly asEd25519: SpCoreEd25519Signature;
@@ -3236,30 +3236,30 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Ed25519' | 'Sr25519' | 'Ecdsa';
     }
 
-    /** @name SpCoreEcdsaSignature (405) */
+    /** @name SpCoreEcdsaSignature (404) */
     interface SpCoreEcdsaSignature extends U8aFixed {}
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (408) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (407) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (409) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (408) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (410) */
+    /** @name FrameSystemExtensionsCheckTxVersion (409) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (411) */
+    /** @name FrameSystemExtensionsCheckGenesis (410) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (414) */
+    /** @name FrameSystemExtensionsCheckNonce (413) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (415) */
+    /** @name FrameSystemExtensionsCheckWeight (414) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (416) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (415) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (418) */
+    /** @name Creditcoin3RuntimeRuntime (417) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module

@@ -80,16 +80,6 @@ declare module '@polkadot/api-base/types/submittable' {
     interface AugmentedSubmittables<ApiType extends ApiTypes> {
         attestation: {
             /**
-             * See [`Pallet::add_supported_chain`].
-             **/
-            addSupportedChain: AugmentedSubmittable<
-                (
-                    chainId: u64 | AnyNumber | Uint8Array,
-                    chainAttestationInterval: u64 | AnyNumber | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u64, u64]
-            >;
-            /**
              * See [`Pallet::bootstrap_chain`].
              **/
             bootstrapChain: AugmentedSubmittable<
@@ -135,6 +125,16 @@ declare module '@polkadot/api-base/types/submittable' {
                     blsPublicKey: U8aFixed | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [AccountId32, U8aFixed]
+            >;
+            /**
+             * See [`Pallet::set_chain_attestation_interval`].
+             **/
+            setChainAttestationInterval: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainAttestationInterval: u64 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u64]
             >;
             /**
              * See [`Pallet::set_comittee_set_size`].

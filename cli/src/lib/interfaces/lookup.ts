@@ -2475,7 +2475,7 @@ export default {
      **/
     PalletAttestationPocCall: {
         _enum: {
-            add_supported_chain: {
+            set_chain_attestation_interval: {
                 chainId: 'u64',
                 chainAttestationInterval: 'u64',
             },
@@ -2874,7 +2874,7 @@ export default {
         _enum: ['MaxAddressCountExceeded'],
     },
     /**
-     * Lookup396: pallet_attestation_poc::pallet::Error<T>
+     * Lookup395: pallet_attestation_poc::pallet::Error<T>
      **/
     PalletAttestationPocError: {
         _enum: [
@@ -2900,13 +2900,13 @@ export default {
         ],
     },
     /**
-     * Lookup397: pallet_supported_chains::pallet::Error<T>
+     * Lookup396: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported'],
     },
     /**
-     * Lookup401: pallet_prover::pallet::Error<T>
+     * Lookup400: pallet_prover::pallet::Error<T>
      **/
     PalletProverError: {
         _enum: [
@@ -2922,11 +2922,11 @@ export default {
         ],
     },
     /**
-     * Lookup402: pallet_randomness::pallet::Error<T>
+     * Lookup401: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup404: sp_runtime::MultiSignature
+     * Lookup403: sp_runtime::MultiSignature
      **/
     SpRuntimeMultiSignature: {
         _enum: {
@@ -2936,39 +2936,39 @@ export default {
         },
     },
     /**
-     * Lookup405: sp_core::ecdsa::Signature
+     * Lookup404: sp_core::ecdsa::Signature
      **/
     SpCoreEcdsaSignature: '[u8;65]',
     /**
-     * Lookup408: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup407: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup409: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup408: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup410: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup409: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup411: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup410: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup414: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup413: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup415: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup414: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup416: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup415: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup418: creditcoin3_runtime::Runtime
+     * Lookup417: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };

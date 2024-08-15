@@ -90,7 +90,7 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             chainAttestationInterval: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -119,8 +119,6 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64]>;
             maxAttestors: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
             maxInvulnerables: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
-            supportedChains: AugmentedQuery<ApiType, () => Observable<Vec<u64>>, []> &
-                QueryableStorageEntry<ApiType, []>;
             /**
              * Generic query
              **/
