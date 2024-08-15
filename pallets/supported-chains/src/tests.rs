@@ -14,9 +14,18 @@ fn register_chain_works() {
             chain_id,
             chain_name.clone()
         ));
+
+        let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
+            chain_id,
+            chain_name.as_bytes().to_vec(),
+        );
+        assert!(chain_key.is_some());
         assert_eq!(
-            SupportedChains::<Test>::get(chain_id),
-            Some(chain_name.as_bytes().to_vec())
+            SupportedChains::<Test>::get(chain_key.expect("Should have a chain key")),
+            Some(supported_chains_primitives::SupportedChain {
+                chain_id,
+                chain_name: chain_name.as_bytes().to_vec()
+            })
         );
     });
 }
@@ -76,8 +85,17 @@ fn test_method_supported_chains() {
             chain_name.clone()
         ));
 
+        let chain_key = SupportedChain::chain_key_by_chain_id_and_name(
+            chain_id,
+            chain_name.as_bytes().to_vec(),
+        );
+        assert!(chain_key.is_some(), "Chain key should be present");
+
         let supported_chains = SupportedChain::supported_chains();
-        assert_eq!(supported_chains, Some(vec![chain_id]));
+        assert_eq!(
+            supported_chains,
+            Some(vec![chain_key.expect("Should have a chain key")])
+        );
     });
 }
 

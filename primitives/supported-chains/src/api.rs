@@ -9,6 +9,6 @@ sp_api::decl_runtime_apis! {
 
         fn supported_chains() -> Option<Vec<ChainId>>;
 
-        fn generated_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainId>;
+        fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainId>;
     }
 }

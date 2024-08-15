@@ -149,7 +149,7 @@ pub mod pallet {
 
             let incremental_key = IncrementalKey::<T>::get();
             SupportedChains::<T>::insert(
-                chain_id,
+                incremental_key,
                 SupportedChain {
                     chain_id,
                     chain_name: chain_name.as_bytes().to_vec(),
@@ -212,7 +212,7 @@ pub mod pallet {
             }
         }
 
-        pub fn generated_key_by_chain_id_and_name(
+        pub fn chain_key_by_chain_id_and_name(
             chain_id: ChainId,
             chain_name: Vec<u8>,
         ) -> Option<ChainId> {
@@ -229,7 +229,7 @@ pub mod pallet {
             Self::supported_chains()
         }
 
-        fn generated_key_by_chain_id_and_name(
+        fn chain_key_by_chain_id_and_name(
             chain_id: ChainId,
             chain_name: Vec<u8>,
         ) -> Option<ChainId> {

@@ -1406,8 +1406,8 @@ impl_runtime_apis! {
             SupportedChains::supported_chains()
         }
 
-        fn generated_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainId>{
-            SupportedChains::generated_key_by_chain_id_and_name(chain_id, chain_name)
+        fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainId>{
+            SupportedChains::chain_key_by_chain_id_and_name(chain_id, chain_name)
         }
     }
 
