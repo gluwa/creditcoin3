@@ -8,8 +8,7 @@ on:
 
 env:
   RUNNER_VM_NAME: "github-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  RESOURCE_GROUP: "github-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  AZ_LOCATION: "westus3"
+  LINODE_REGION: "nl-ams"
 
 jobs:
   check-if-needed:
@@ -88,23 +87,9 @@ jobs:
     if: needs.check-if-needed.outputs.needs-bench == 1
     outputs:
       runner_vm_name: ${{ steps.get-env.outputs.runner_vm_name }}
-      resource_group: ${{ steps.get-env.outputs.resource_group }}
 
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Install azure-cli
-        run: |
-          sudo apt remove azure-cli -y && sudo apt autoremove -y
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          sudo apt install -y jq
-          az version
-
-      - name: Authorize hosted-runner
-        run: |
-          mkdir -p ~/.ssh/
-          ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa
-          cat ~/.ssh/id_rsa.pub >> .github/authorized_keys
+      - uses: actions/checkout@v4
 
       - name: Evaluate env vars
         id: get-env
@@ -112,42 +97,20 @@ jobs:
           # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
           # doesn't evaluate the $GITHUB_RUN_ID reference
           echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "resource_group=${{ env.RESOURCE_GROUP }}" >> "$GITHUB_OUTPUT"
 
       - name: Provision VM
         if: env.LC_GITHUB_REPO_ADMIN_TOKEN
         run: |
-          echo "INFO: From ENVs: RUNNER_VM_NAME=${{ env.RUNNER_VM_NAME }}"
-          echo "INFO: From Step: RUNNER_VM_NAME=${{ steps.get-env.outputs.runner_vm_name }}"
-
-          az login --service-principal --username "${{ secrets.AZURE_APP_ID }}" --password "${{ secrets.AZURE_APP_PASSWORD }}" --tenant "${{ secrets.AZURE_TENANT_ID }}"
-          az account set --subscription "Playground Subscription"
-          ## az account set -s "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-
-
-          # create resource group
-          echo "INFO: ${{ steps.get-env.outputs.resource_group }}"
-          az group create -n "${{ steps.get-env.outputs.resource_group }}" --location "${{ env.AZ_LOCATION }}"
-
-          # RG Creditcoin-Test is in WestUS and the CPU quota is already full
-          # that's why specify a different region here
-          az deployment group create -g "${{ steps.get-env.outputs.resource_group }}" -f .github/runner.bicep \
-              --parameters location="${{ env.AZ_LOCATION }}" \
-              --parameters vmName="${{ steps.get-env.outputs.runner_vm_name }}" \
-              --parameters adminPasswordOrKey="$(cat .github/authorized_keys)" > output.json
-
-          # provision the GitHub Runner binary on the VM
-          # passing additional ENV values
-          SSH_USER_AT_HOSTNAME=$(jq -r '.properties.outputs.sshUserAtHostname.value' < output.json)
-          echo "INFO: $SSH_USER_AT_HOSTNAME"
-
-          export LC_RUNNER_VM_NAME="${{ env.RUNNER_VM_NAME }}"
-          ssh -i ~/.ssh/id_rsa \
-              -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME \
-              -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < ./.github/provision-github-runner.sh
+          .github/provision-linode-vm.sh
         env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
           LC_RUNNER_EPHEMERAL: false
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          # Shared CPU, Linode 16 GB, 6 vCPU, 96 $/mo
+          LINODE_VM_SIZE: "g6-standard-6"
 
   hardware-benchmarks:
     # see https://gist.github.com/jonico/a94d03cac7a858e0613926d9f1bc7f2b
@@ -239,32 +202,12 @@ jobs:
     if: ${{ always() && needs.deploy-github-runner.result != 'skipped' }}
 
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Evaluate env vars
-        id: get-env
-        run: |
-          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
-          # doesn't evaluate the $GITHUB_RUN_ID reference
-          echo "resource_group=${{ env.RESOURCE_GROUP }}" >> "$GITHUB_OUTPUT"
-
-      - name: Install azure-cli
-        run: |
-          sudo apt remove azure-cli -y && sudo apt autoremove -y
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          az version
+      - uses: actions/checkout@v4
 
       - name: Remove VM
+        continue-on-error: true
         run: |
-          echo "INFO: RUNNER_VM_NAME=${{ env.RUNNER_VM_NAME }}"
-
-          az login --service-principal --username "${{ secrets.AZURE_APP_ID }}" --password "${{ secrets.AZURE_APP_PASSWORD }}" --tenant "${{ secrets.AZURE_TENANT_ID }}"
-          az account set --subscription "Playground Subscription"
-          az group delete --yes -n "${{ steps.get-env.outputs.resource_group }}"
-
-      - name: Upload logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Azure resources"
-          path: azure_resource_list.json
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ needs.deploy-github-runner.outputs.runner_vm_name }}
