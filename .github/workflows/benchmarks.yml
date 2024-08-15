@@ -30,9 +30,10 @@ jobs:
           ./.github/check-spec-increase.sh "remotes/origin/$GITHUB_BASE_REF" "HEAD"
 
   build-benchmarks:
-    runs-on: ubuntu-24.04
-    needs: check-if-needed
-    if: needs.check-if-needed.outputs.needs-bench == 1
+    runs-on:
+      [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
+    needs:
+      - deploy-github-runner
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +84,8 @@ jobs:
 
   deploy-github-runner:
     runs-on: ubuntu-24.04
-    needs: build-benchmarks
+    needs: check-if-needed
+    if: needs.check-if-needed.outputs.needs-bench == 1
     outputs:
       runner_vm_name: ${{ steps.get-env.outputs.runner_vm_name }}
       resource_group: ${{ steps.get-env.outputs.resource_group }}
@@ -145,6 +147,7 @@ jobs:
               -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < ./.github/provision-github-runner.sh
         env:
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_EPHEMERAL: false
 
   hardware-benchmarks:
     # see https://gist.github.com/jonico/a94d03cac7a858e0613926d9f1bc7f2b
@@ -154,6 +157,7 @@ jobs:
     permissions: write-all
     needs:
       - deploy-github-runner
+      - build-benchmarks
     steps:
       - uses: actions/checkout@v4
         with:
