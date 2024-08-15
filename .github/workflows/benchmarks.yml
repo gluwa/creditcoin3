@@ -190,6 +190,10 @@ jobs:
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 
+      - name: git diff
+        run: |
+          git diff
+
       - name: Commit changes to current branch
         uses: EndBug/add-and-commit@v9
         with:
