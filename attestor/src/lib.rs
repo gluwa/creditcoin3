@@ -9,10 +9,10 @@ pub mod eth_sub;
 pub mod merkle;
 use cc_client::Client as CcClient;
 
-const CHAIN_ID_TO_CHAIN_NAME: [(u64, &'static [u8]); 3] = [
+const CHAIN_ID_TO_CHAIN_NAME: [(u64, &[u8]); 3] = [
     (1, "Ethereum".as_bytes()),
     (31337, "Local anvil".as_bytes()),
-    (11155111, "Sepolia ethereum".as_bytes()),
+    (11_155_111, "Sepolia ethereum".as_bytes()),
 ];
 
 #[derive(Debug, Clone)]
@@ -59,13 +59,12 @@ impl Server {
         let chain_key =
             CcClient::get_chain_key(&self.config.cc3_rpc_url, chain_id, chain_name.1.to_vec())
                 .await?
-                .expect(
-                    format!(
+                .unwrap_or_else(|| {
+                    panic!(
                         "Failed to get chain key for chain id {:?} and chain name {:?}",
                         chain_id, chain_name.1
                     )
-                    .as_str(),
-                );
+                });
 
         debug!("Chain key: {:?}", chain_key);
 

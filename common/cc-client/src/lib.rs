@@ -111,7 +111,7 @@ impl<'a> Client {
             )
             .await?;
 
-        return Ok(chain_key);
+        Ok(chain_key)
     }
 
     /// Fetches the babe randomness from 2 epochs ago
