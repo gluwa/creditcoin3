@@ -372,7 +372,7 @@ fn submitting_attestation_works() {
             attestor.signature
         ));
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], 0, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -392,7 +392,7 @@ fn submitting_duplicate_attestation_fails() {
             attestor.signature
         ));
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], 0, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -417,7 +417,7 @@ fn submitting_attestation_chain_works() {
             attestor.signature
         ));
 
-        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor.clone()], 0, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -426,7 +426,7 @@ fn submitting_attestation_chain_works() {
 
         let digest = attestation.digest();
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 11, Some(digest));
+        let attestation = create_signed_attestation(vec![attestor], 0, 11, Some(digest));
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -446,7 +446,7 @@ fn submitting_invalid_attestation_chain_fails() {
             attestor.signature
         ));
 
-        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor.clone()], 0, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -456,7 +456,7 @@ fn submitting_invalid_attestation_chain_fails() {
         let fake_digest = H256::random();
 
         let attestation =
-            create_signed_attestation(vec![attestor.clone()], 1, 11, Some(fake_digest));
+            create_signed_attestation(vec![attestor.clone()], 0, 11, Some(fake_digest));
 
         assert_err!(
             Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
