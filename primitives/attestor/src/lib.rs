@@ -13,6 +13,8 @@ pub mod bls;
 
 pub type ChainId = u64;
 
+pub type ChainKey = u64;
+
 /// BLS public keys as bytes
 pub type BlsPublicKey = [u8; 48];
 

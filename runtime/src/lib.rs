@@ -52,7 +52,7 @@ use pallet_grandpa::{
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
-use attestor_primitives::{api::Digest, BlsPublicKey, ChainId, SignedAttestation};
+use attestor_primitives::{api::Digest, BlsPublicKey, ChainId, ChainKey, SignedAttestation};
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -1398,15 +1398,15 @@ impl_runtime_apis! {
     }
 
     impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {
-        fn is_chain_supported(chain_id: ChainId) -> bool {
+        fn is_chain_supported(chain_id: ChainKey) -> bool {
             SupportedChains::is_chain_supported(chain_id)
         }
 
-        fn supported_chains() -> Option<Vec<ChainId>> {
+        fn supported_chains() -> Option<Vec<ChainKey>> {
             SupportedChains::supported_chains()
         }
 
-        fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainId>{
+        fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainKey>{
             SupportedChains::chain_key_by_chain_id_and_name(chain_id, chain_name)
         }
     }
