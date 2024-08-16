@@ -9,7 +9,7 @@ PALLET=bridge
 COMMAND=build
 BENCH=1
 BUILD=1
-REPEAT=30
+REPEAT=20
 STEPS=50
 
 while getopts "fcbp:r:s:" opt;do
