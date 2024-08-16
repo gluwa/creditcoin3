@@ -54,7 +54,8 @@ benchmarks! {
         <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer, cash);
 
         let claim = Claim {
-            chain_id: 31337,
+            chain_id: 1,
+            // chain_id: 31337,
             id: ClaimId {
                 kind: ClaimKind::Tx,
                 block_item_id: BlockItemIdentifier {
@@ -86,7 +87,8 @@ benchmarks! {
 
         let chain_price_config = vec![
             ChainPriceConfiguration {
-                chain_id: 31337,
+                // chain_id: 31337,
+                chain_id: 1,
                 price: 100,
             }
         ];
@@ -99,7 +101,8 @@ benchmarks! {
         <pallet_balances::Pallet<T> as Currency<T::AccountId>>::make_free_balance_be(&claimer, cash);
 
         let claim = Claim {
-            chain_id: 31337,
+            // chain_id: 31337,
+            chain_id: 1,
             id: ClaimId {
                 kind: ClaimKind::Tx,
                 block_item_id: BlockItemIdentifier {

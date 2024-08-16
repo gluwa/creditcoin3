@@ -219,12 +219,13 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                             ]),
                         ),
                     ],
-                    vec![(31337, 10), (11155111, 1000)],
+                    vec![(1, 10), (2, 1000)],
+                    // vec![(31337, 10), (11155111, 1000)],
                     vec![(
                         eth_acct(hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3")),
                         vec![ChainPriceConfiguration {
                             price: 100,
-                            chain_id: 31337,
+                            chain_id: 1,
                         }],
                     )],
                 ),
@@ -332,12 +333,13 @@ pub fn local_testnet_config() -> ChainSpec {
                         ]),
                     ),
                 ],
-                vec![(31337, 10), (11155111, 1000)],
+                // vec![(31337, 10), (11155111, 1000)],
+                vec![(1, 10), (2, 1000)],
                 vec![(
                     eth_acct(hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3")),
                     vec![ChainPriceConfiguration {
                         price: 100,
-                        chain_id: 31337,
+                        chain_id: 1,
                     }],
                 )],
             )
