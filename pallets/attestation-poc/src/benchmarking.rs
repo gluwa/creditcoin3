@@ -5,7 +5,8 @@
 use super::Pallet as Attestation;
 use super::*;
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId, SignedAttestation,
+    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId, ChainKey,
+    SignedAttestation,
 };
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_benchmarking::v2::*;
@@ -223,7 +224,7 @@ mod benchmarks {
     fn bootstrap_chain(a: Linear<1, MAX_ATTESTORS>) {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_id: ChainId = 1; // Using initial supported chain from mock
+        let chain_key: ChainKey = 1;
 
         // Set max attestors to accomodate benchmark
         assert_ok!(Attestation::<T>::set_max_attestors(
@@ -248,12 +249,12 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, chain_id, 1, None);
+        > = create_signed_attestation::<T>(attestors, chain_key, 1, None);
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_id,
+            chain_key,
             attestation,
         )
     }
