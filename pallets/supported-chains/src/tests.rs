@@ -47,13 +47,13 @@ fn register_duplicate_chain_returns_error() {
 #[test]
 fn remove_chain_works() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 1;
+        let chain_key = 0;
 
         assert_ok!(SupportedChain::remove_chain(
             RuntimeOrigin::root(),
-            chain_id
+            chain_key
         ));
-        assert_eq!(SupportedChains::<Test>::get(chain_id), None);
+        assert_eq!(SupportedChains::<Test>::get(chain_key), None);
     });
 }
 
@@ -104,13 +104,13 @@ fn test_function_is_chain_supported() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let chain_id = 1;
+        let chain_key = 0;
 
-        let is_supported = SupportedChain::is_chain_supported(chain_id);
+        let is_supported = SupportedChain::is_chain_supported(chain_key);
         assert!(is_supported);
 
-        let bad_chain_id = 2;
-        let is_supported = SupportedChain::is_chain_supported(bad_chain_id);
+        let bad_chain_key = 2;
+        let is_supported = SupportedChain::is_chain_supported(bad_chain_key);
         assert!(!is_supported);
     });
 }
