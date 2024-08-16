@@ -93,6 +93,27 @@ impl<'a> Client {
         self.evm_address
     }
 
+    pub async fn get_chain_key(
+        url: impl Into<String> + Clone,
+        chain_id: u64,
+        name: Vec<u8>,
+    ) -> Result<Option<ChainId>> {
+        let url = url.into();
+        let api = OnlineClient::<SubstrateConfig>::from_url(&url).await?;
+        let chain_key = api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(
+                &cc3::storage()
+                    .supported_chains()
+                    .chain_id_and_name_to_uniq_key(chain_id, name),
+            )
+            .await?;
+
+        return Ok(chain_key);
+    }
+
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random at that time + the current block number (where it was calculated from)
     pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, H256, u64)> {

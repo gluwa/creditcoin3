@@ -7,6 +7,13 @@ pub mod attestation;
 pub mod cc3;
 pub mod eth_sub;
 pub mod merkle;
+use cc_client::Client as CcClient;
+
+const CHAIN_ID_TO_CHAIN_NAME: [(u64, &'static [u8]); 3] = [
+    (1, "Ethereum".as_bytes()),
+    (31337, "Local anvil".as_bytes()),
+    (11155111, "Sepolia ethereum".as_bytes()),
+];
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
@@ -42,10 +49,30 @@ impl Server {
         let chain_id = eth_client.get_chain_id().await?;
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
+        let chain_name = CHAIN_ID_TO_CHAIN_NAME
+            .iter()
+            .find(|(id, _)| *id == chain_id)
+            .expect("Unknown chain id");
+
+        debug!("Chain name: {:?}", chain_name);
+
+        let chain_key =
+            CcClient::get_chain_key(&self.config.cc3_rpc_url, chain_id, chain_name.1.to_vec())
+                .await?
+                .expect(
+                    format!(
+                        "Failed to get chain key for chain id {:?} and chain name {:?}",
+                        chain_id, chain_name.1
+                    )
+                    .as_str(),
+                );
+
+        debug!("Chain key: {:?}", chain_key);
+
         let cc3_client = cc3::Client::new(
             &self.config.cc3_rpc_url,
             &self.config.cc3_key,
-            chain_id,
+            chain_key,
             //&self.config.bls_key,
         )
         .await?;
@@ -66,6 +93,7 @@ impl Server {
             cc3_client,
             self.config.eth_start_block,
             attestation_interval,
+            chain_key,
         )
         .await?;
 

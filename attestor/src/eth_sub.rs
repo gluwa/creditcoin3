@@ -32,6 +32,7 @@ pub async fn subscribe_to_new_heads(
     cc3_client: ActorRef<Client>,
     eth_start_block: Option<u64>,
     attestation_interval: u64,
+    chain_key: u64,
 ) -> Result<(), Error> {
     // Only create a subscription config if we have a start block
     let config = eth_start_block.map(|eth_start_block| SubscriptionConfig {
@@ -55,14 +56,12 @@ pub async fn subscribe_to_new_heads(
                 .get_transactions(block.header.number.unwrap_or_default())
                 .await?;
 
-            let chain_id = eth_client.get_chain_id().await?;
-
             // let last_digest = cc3_client.send(GetLastDigest { chain_id }).await?;
 
             // Notify the attestor with a new block
             let attestation = attestor
                 .send(NewBlock {
-                    chain_id,
+                    chain_id: chain_key,
                     header_number: block.header.number.unwrap(),
                     header_hash: sp_core::H256(block.header.hash.unwrap().0),
                     transactions,
