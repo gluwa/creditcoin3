@@ -1,0 +1,25 @@
+#!/usr/bin/sh
+
+# Redirect output to stderr.
+exec 1>&2
+echo "INFO: pre-commit: checking if sources are formatted correctly"
+
+cargo fmt --check --
+RESULT=$?
+
+if [ "$RESULT" != "0" ]; then
+    echo "INFO: pre-commit: cargo fmt failed"
+    echo "FAIL: pre-commit: aborting the commit"
+    exit $RESULT
+fi
+
+taplo format --check
+RESULT=$?
+if [ "$RESULT" != "0" ]; then
+    echo "INFO: pre-commit: taplo format failed"
+    echo "FAIL: pre-commit: aborting the commit"
+    exit $RESULT
+fi
+
+
+exit $RESULT
