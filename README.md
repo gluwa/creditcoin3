@@ -29,6 +29,7 @@ from the root directory of this repository execute:
 
 ```bash
 ln -s ../../.github/hooks/pre-commit .git/hooks/pre-commit
+ln -s ../../.github/hooks/pre-push .git/hooks/pre-push
 ```
 
 ## Build & Run
