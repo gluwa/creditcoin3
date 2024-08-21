@@ -16,6 +16,21 @@ This template was originally forked from the
 can find more information on features on this template there, and more detailed usage on the
 [Substrate Developer Hub Tutorials](https://docs.substrate.io/tutorials/v3/) that use this heavily.
 
+## Dev environment setup
+
+To install tools & binaries used during development execute:
+
+```bash
+cargo install taplo-cli --locked
+```
+
+To install git hooks, which will stop you from committing common mistakes,
+from the root directory of this repository execute:
+
+```bash
+ln -s ../../.github/hooks/pre-commit .git/hooks/pre-commit
+```
+
 ## Build & Run
 
 To build the chain, execute the following commands from the project root:
