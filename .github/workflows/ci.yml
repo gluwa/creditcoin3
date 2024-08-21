@@ -98,10 +98,40 @@ jobs:
 #        run: |
 #          sudo killall -9 creditcoin3-node
 
+  git-sanity:
+    # note: github.{base_ref|head_ref} only available on pull requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # checks out the branch of the PR, not in a detached state,
+          ref: ${{ github.head_ref }}
+          lfs: true
+
+      - name: Setup
+        run: |
+          # checks out the base branch so it is a known reference
+          git checkout "$GITHUB_BASE_REF"
+
+          # switch back to the branch of the PR
+          git checkout "$GITHUB_HEAD_REF"
+
+      - name: Check for Merge commit(s)
+        run: |
+          commits=$(git log "$GITHUB_BASE_REF".."$GITHUB_HEAD_REF" | grep "Merge: " || echo -n)
+          if [ -n "$commits" ]; then
+              echo "FAIL: found Merge: commit(s)"
+              exit 1
+          fi
+
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Check for parity between extrinsics, benchmarks and weights
         run: |
