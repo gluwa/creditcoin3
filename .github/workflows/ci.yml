@@ -858,6 +858,26 @@ jobs:
           name: creditcoin-node-for-testing-ci
           path: target/release
 
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          profile: minimal
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: subxt-cli
+
+      - name: Install subxt-cli
+        run: |
+          cargo install subxt-cli --locked
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -887,6 +907,8 @@ jobs:
         working-directory: ./cli
         run: |
           ./get-metadata.sh
+          subxt metadata -f bytes > ../common/cc-client/artifacts/metadata.scale
+
           # kill the node b/c the tests will launch their own processes
           killall -9 creditcoin3-node
 
@@ -965,10 +987,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
         with:
-          add: "cli/creditcoin.json cli/src/lib/interfaces/"
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
-          message: "Auto-update TypeScript type definitions"
+          message: "Auto-update metadata & TypeScript type definitions"
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload code coverage

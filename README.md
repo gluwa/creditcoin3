@@ -21,6 +21,7 @@ can find more information on features on this template there, and more detailed 
 To install tools & binaries used during development execute:
 
 ```bash
+cargo install subxt-cli --locked
 cargo install taplo-cli --locked
 ```
 
