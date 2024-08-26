@@ -3,7 +3,9 @@ use crate::mock::{
     Attestation, ExtBuilder, RuntimeOrigin, Test, ATTESTOR_1, ATTESTOR_2, DEFAULT_COMITTEE_SET_SIZE,
 };
 use assert_matches::assert_matches;
-use attestor_primitives::{Attestation as AttestationPrimitive, ChainId, SignedAttestation};
+use attestor_primitives::{
+    Attestation as AttestationPrimitive, AttestationCheckpoint, ChainId, SignedAttestation,
+};
 use attestor_primitives::{BlsPublicKey, BlsSignature};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_support::{assert_noop, assert_ok};
@@ -340,6 +342,41 @@ fn setting_attestation_interval_for_unsupported_chain_fails() {
 }
 
 #[test]
+fn setting_attestations_per_checkpoint_works() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+        let att_per_check = 101;
+        assert_err!(
+            Attestation::set_attestations_per_checkpoint(
+                RuntimeOrigin::root(),
+                chain_id,
+                att_per_check
+            ),
+            Error::<Test>::ChainNotSupported
+        )
+    })
+}
+
+#[test]
+fn setting_attestations_per_checkpoint_on_unsupported_chain_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 1;
+        let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id);
+        assert_eq!(att_per_check, 10); // Checkpoint frequencty set in mock genesis
+
+        let new_att_per_check = 101;
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::root(),
+            chain_id,
+            new_att_per_check
+        ));
+
+        let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id);
+        assert_eq!(att_per_check, 101);
+    })
+}
+
+#[test]
 fn bootstrapping_unsupported_chain_fails() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
@@ -365,6 +402,8 @@ fn bootstrapping_unsupported_chain_fails() {
 fn submitting_attestation_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(ATTESTOR_1);
+        let chain_id = 1;
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 0);
 
         assert_ok!(Attestation::register_attestor(
             attestor.attestor.clone(),
@@ -372,12 +411,18 @@ fn submitting_attestation_works() {
             attestor.signature
         ));
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], chain_id, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation
+            attestation.clone()
         ));
+
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 1);
+        assert_eq!(
+            Attestation::attestations(chain_id, attestation.digest()),
+            Some(attestation)
+        );
     })
 }
 
@@ -410,6 +455,8 @@ fn submitting_duplicate_attestation_fails() {
 fn submitting_attestation_chain_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(ATTESTOR_1);
+        let chain_id = 1;
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 0);
 
         assert_ok!(Attestation::register_attestor(
             attestor.attestor.clone(),
@@ -417,21 +464,39 @@ fn submitting_attestation_chain_works() {
             attestor.signature
         ));
 
-        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
+        let attestation_1 = create_signed_attestation(vec![attestor.clone()], chain_id, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            attestation_1.clone()
         ));
 
-        let digest = attestation.digest();
+        let digest = attestation_1.digest();
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 11, Some(digest));
+        let attestation_2 = create_signed_attestation(vec![attestor], chain_id, 11, Some(digest));
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation
+            attestation_2.clone()
         ));
+
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 2);
+        assert_eq!(
+            Attestation::checkpointing_queues(chain_id).front(),
+            Some(&attestation_1.digest())
+        );
+        assert_eq!(
+            Attestation::checkpointing_queues(chain_id).back(),
+            Some(&attestation_2.digest())
+        );
+        assert_eq!(
+            Attestation::attestations(chain_id, attestation_1.digest()),
+            Some(attestation_1)
+        );
+        assert_eq!(
+            Attestation::attestations(chain_id, attestation_2.digest()),
+            Some(attestation_2)
+        );
     })
 }
 
@@ -487,6 +552,104 @@ fn test_signing() {
             bls_signatures::Signature::from_bytes(&signature[..]).unwrap(),
             message
         ));
+    })
+}
+
+#[test]
+fn creating_checkpoint_works() {
+    ExtBuilder.build_and_execute(|| {
+        // Setup almost two full checkpoints of attestations, so that
+        // the next attestation submitted triggers checkpoint creation.
+        let attestor = Attestor::new(ATTESTOR_1);
+        let chain_id = 1;
+        let att_interval = Attestation::chain_attestation_interval(chain_id);
+        let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let mut last_digest: Option<H256> = None;
+        let mut removed_by_checkpoint: Vec<H256> = Vec::new();
+        let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
+        let mut checkpoint_attestation: Option<SignedAttestation<H256, u64>> = None;
+        for i in 0..((att_per_check * 2) - 1) as usize {
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                chain_id,
+                (att_interval * i as u64) + 1,
+                last_digest,
+            );
+            last_digest = Some(attestation.digest());
+
+            assert_ok!(Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                attestation.clone()
+            ));
+
+            match i {
+                i if i < (att_per_check - 1) as usize => {
+                    removed_by_checkpoint.push(attestation.digest());
+                }
+                i if i == (att_per_check - 1) as usize => {
+                    // End of first checkpoint interval
+                    removed_by_checkpoint.push(attestation.digest());
+                    checkpoint_attestation = Some(attestation);
+                }
+                _ => {
+                    kept_after_checkpoint.push(attestation);
+                }
+            }
+        }
+
+        assert_eq!(
+            Attestation::checkpointing_queues(chain_id).len(),
+            ((att_per_check * 2) - 1) as usize
+        );
+
+        // Submit final attestation, triggering checkpointing
+        let last_att_block_number = (att_per_check as u64 * 2 * att_interval) + 1;
+        let final_attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            chain_id,
+            last_att_block_number,
+            last_digest,
+        );
+        kept_after_checkpoint.push(final_attestation.clone());
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            final_attestation
+        ));
+
+        assert_eq!(
+            Attestation::checkpointing_queues(chain_id).len(),
+            att_per_check as usize
+        );
+
+        for removed_digest in removed_by_checkpoint {
+            assert_eq!(Attestation::attestations(chain_id, removed_digest), None);
+        }
+
+        for kept_attestation in kept_after_checkpoint {
+            assert_eq!(
+                Attestation::attestations(chain_id, kept_attestation.digest()),
+                Some(kept_attestation)
+            )
+        }
+
+        let unwrapped_att =
+            checkpoint_attestation.expect("Should have been filled to Some in loop.");
+        let resulting_checkpoint = AttestationCheckpoint {
+            digest: unwrapped_att.digest(),
+            block_number: unwrapped_att.header_number(),
+        };
+        assert_eq!(
+            Attestation::checkpoints(chain_id, resulting_checkpoint.digest),
+            Some(resulting_checkpoint)
+        )
     })
 }
 
