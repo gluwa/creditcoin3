@@ -57,6 +57,7 @@ struct Process {
     default_command: String,
     default_args: Option<Vec<String>>,
     num_attestors: u64,
+    single_node: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cc_client
                     .transfer(
                         key.keypair.public_key().into(),
-                        1_000_000_000_000_000_000,
+                        10_000_000_000_000_000_000,
                         Some(nonce),
                     )
                     .await
@@ -171,8 +172,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             attestor_args.push(format!("--cc3-key={}", attestor_key.secret));
 
             // get random number out of args.port_ranges
-            let random_number = args.port_ranges.choose(&mut rng).unwrap();
-            attestor_args.push(format!("--cc3-rpc-url=ws://localhost:{}", random_number));
+            // if single_node is true, use 9944
+            let port = match config.single_node {
+                true => 9944,
+                false => *args.port_ranges.choose(&mut rng).unwrap(),
+            };
+
+            attestor_args.push(format!("--cc3-rpc-url=ws://localhost:{}", port));
 
             let attestor = AccountId32(attestor_key.keypair.public_key().0);
 
