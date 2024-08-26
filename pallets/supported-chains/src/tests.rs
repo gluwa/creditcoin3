@@ -1,5 +1,6 @@
 use crate::{mock::SupportedChain, mock::*, Error, SupportedChains};
 use frame_support::{assert_noop, assert_ok};
+use supported_chains_primitives::provider::SupportedChainsProvider;
 
 #[test]
 fn register_chain_works() {

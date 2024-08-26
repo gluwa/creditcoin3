@@ -75,6 +75,7 @@ pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::Multiplier;
 use randomness_primitives::provider::RandomnessPalletProvider;
+use supported_chains_primitives::provider::SupportedChainsProvider;
 
 mod precompiles;
 use precompiles::GluwaPrecompiles;

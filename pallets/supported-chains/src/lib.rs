@@ -195,12 +195,12 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config> Pallet<T> {
-        pub fn is_chain_supported(chain_key: ChainKey) -> bool {
-            SupportedChains::<T>::contains_key(chain_key)
+    impl<T: Config> SupportedChainsProvider for Pallet<T> {
+        fn is_chain_supported(chain_id: ChainKey) -> bool {
+            SupportedChains::<T>::contains_key(chain_id)
         }
 
-        pub fn supported_chains() -> Option<Vec<ChainKey>> {
+        fn supported_chains() -> Option<Vec<ChainKey>> {
             let chains: Vec<ChainKey> = SupportedChains::<T>::iter()
                 .map(|(chain_id, _)| chain_id)
                 .collect();
@@ -210,28 +210,11 @@ pub mod pallet {
             }
         }
 
-        pub fn chain_key_by_chain_id_and_name(
-            chain_id: ChainId,
-            chain_name: Vec<u8>,
-        ) -> Option<ChainKey> {
-            ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name)
-        }
-    }
-
-    impl<T: Config> SupportedChainsProvider for Pallet<T> {
-        fn is_chain_supported(chain_id: ChainKey) -> bool {
-            Self::is_chain_supported(chain_id)
-        }
-
-        fn supported_chains() -> Option<Vec<ChainKey>> {
-            Self::supported_chains()
-        }
-
         fn chain_key_by_chain_id_and_name(
             chain_id: ChainId,
             chain_name: Vec<u8>,
         ) -> Option<ChainId> {
-            Self::chain_key_by_chain_id_and_name(chain_id, chain_name)
+            ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name)
         }
     }
 }
