@@ -47,7 +47,7 @@ fn register_duplicate_chain_returns_error() {
 #[test]
 fn remove_chain_works() {
     ExtBuilder.build_and_execute(|| {
-        let chain_key = 0;
+        let chain_key = 1;
 
         assert_ok!(SupportedChain::remove_chain(
             RuntimeOrigin::root(),
@@ -104,7 +104,7 @@ fn test_function_is_chain_supported() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let chain_key = 0;
+        let chain_key = 1;
 
         let is_supported = SupportedChain::is_chain_supported(chain_key);
         assert!(is_supported);

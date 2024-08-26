@@ -16,15 +16,15 @@ pub mod weights;
 pub mod pallet {
     use super::*;
     pub use attestor_primitives::{ChainId, ChainKey};
-    use frame_support::pallet_prelude::*;
-    use frame_support::pallet_prelude::{DispatchResult, OptionQuery, StorageMap};
-    use frame_support::traits::BuildGenesisConfig;
-    use frame_support::Blake2_128Concat;
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{BuildGenesisConfig, ConstU64},
+        Blake2_128Concat,
+    };
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
-    use supported_chains_primitives::provider::SupportedChainsProvider;
-    use supported_chains_primitives::SupportedChain;
+    use supported_chains_primitives::{provider::SupportedChainsProvider, SupportedChain};
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -64,9 +64,11 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    pub const GENESIS_CHAIN_KEY: ChainKey = 1;
+
     #[pallet::storage]
     #[pallet::getter(fn chain_key_value)]
-    pub type ChainKeyValue<T> = StorageValue<_, ChainKey, ValueQuery>;
+    pub type ChainKeyValue<T> = StorageValue<_, ChainKey, ValueQuery, ConstU64<GENESIS_CHAIN_KEY>>;
 
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
@@ -78,7 +80,7 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            let mut chain_key = 0;
+            let mut chain_key = 1;
             for (chain_id, chain_name) in &self.supported_chains {
                 SupportedChains::<T>::insert(
                     chain_key,
