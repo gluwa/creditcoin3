@@ -112,6 +112,21 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_attestations_per_checkpoint() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id: ChainId = 1; // Using initial supported chain from mock
+        let attestations_per_checkpoint: u32 = 100;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_id,
+            attestations_per_checkpoint,
+        )
+    }
+
+    #[benchmark]
     fn set_comittee_set_size() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();

@@ -19,9 +19,8 @@ pub mod pallet {
         InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
-    use frame_support::pallet_prelude::{
-        CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
-    };
+    use frame_support::dispatch::DispatchResult;
+    use frame_support::pallet_prelude::{CountedStorageMap, OptionQuery, ValueQuery};
     use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use log::debug;
@@ -72,6 +71,7 @@ pub mod pallet {
         fn commit_attestation(a: u32) -> Weight;
         fn set_comittee_set_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
+        fn set_attestations_per_checkpoint() -> Weight;
     }
 
     #[pallet::storage]
@@ -320,6 +320,24 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestations_per_checkpoint())]
+        pub fn set_attestations_per_checkpoint(
+            origin: OriginFor<T>,
+            chain_id: ChainId,
+            attestations_per_checkpoint: u32,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_id),
+                Error::<T>::ChainNotSupported
+            );
+
+            ChainAttestationsPerCheckpoint::<T>::set(chain_id, attestations_per_checkpoint);
+            Ok(())
+        }
+
+        #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::set_comittee_set_size())]
         pub fn set_comittee_set_size(
             origin: OriginFor<T>,
@@ -334,7 +352,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(2)]
+        #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::register_attestor())]
         pub fn register_attestor(
             origin: OriginFor<T>,
@@ -366,7 +384,7 @@ pub mod pallet {
             Self::try_insert_attestor_and_emit_event(&who, bls_public_key)
         }
 
-        #[pallet::call_index(3)]
+        #[pallet::call_index(4)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
         pub fn unregister_attestor(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -378,7 +396,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(4)]
+        #[pallet::call_index(5)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
         pub fn set_max_attestors(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
             ensure_root(origin)?;
@@ -396,7 +414,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(5)]
+        #[pallet::call_index(6)]
         #[pallet::weight(<T as Config>::WeightInfo::register_invulnerable())]
         pub fn register_invulnerable(
             origin: OriginFor<T>,
@@ -408,7 +426,7 @@ pub mod pallet {
             Self::try_insert_invulnerable_and_emit_event(&attestor, bls_public_key)
         }
 
-        #[pallet::call_index(6)]
+        #[pallet::call_index(7)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_invulnerable())]
         pub fn unregister_invulnerable(
             origin: OriginFor<T>,
@@ -424,7 +442,7 @@ pub mod pallet {
             Self::remove_invulnerable_and_emit_event(&attestor)
         }
 
-        #[pallet::call_index(7)]
+        #[pallet::call_index(8)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_invulnerables())]
         pub fn set_max_invulnerables(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
             ensure_root(origin)?;
@@ -438,7 +456,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(8)]
+        #[pallet::call_index(9)]
         #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain(attestation.attestors.len() as u32))]
         pub fn bootstrap_chain(
             origin: OriginFor<T>,
@@ -462,7 +480,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(9)]
+        #[pallet::call_index(10)]
         #[pallet::weight(<T as Config>::WeightInfo::commit_attestation(attestation.attestors.len() as u32))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
