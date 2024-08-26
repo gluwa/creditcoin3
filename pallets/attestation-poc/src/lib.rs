@@ -478,6 +478,14 @@ pub mod pallet {
             Attestations::<T>::insert(chain_id, digest, &attestation);
 
             Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation));
+
+            // Store checkpointing queue entry
+            let mut queue = CheckpointingQueues::<T>::get(chain_id);
+            queue.push_back(digest);
+
+            // Make checkpoint if necessary.
+            Self::try_make_checkpoint(&mut queue, chain_id)?;
+
             Ok(())
         }
 
