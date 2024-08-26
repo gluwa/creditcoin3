@@ -61,6 +61,12 @@ else
         echo "INFO: Cargo.lock references to dependencies via GitHub have been modified"
         check_version "${FROM}" "${TO}"
     else
-        greenprint "INFO: Cargo.lock references to Substrate did not change"
+        greenprint "INFO: Cargo.lock references to Substrate did not change. Will inspect precompiles/"
+        if git --no-pager diff --name-only "${FROM}"..."${TO}" | grep -e '^precompiles/'; then
+            greenprint "INFO: precompiles/ has been modified"
+            check_version "${FROM}" "${TO}"
+        else
+            greenprint "INFO: precompiles/ did not change."
+        fi
     fi
 fi

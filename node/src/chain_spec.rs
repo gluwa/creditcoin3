@@ -97,6 +97,7 @@ fn properties() -> Properties {
     let mut properties = Properties::new();
     properties.insert("tokenDecimals".into(), 18.into());
     properties.insert("ss58Format".into(), SS58Prefix::get().into());
+    properties.insert("tokenSymbol".into(), "CTC".into());
     properties
 }
 
@@ -108,6 +109,10 @@ pub fn devnet_config() -> Result<ChainSpec, String> {
 
 pub fn testnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/testnetSpecRaw.json")[..])
+}
+
+pub fn dry_run_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/dryRunSpecRaw.json")[..])
 }
 
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {

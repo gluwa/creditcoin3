@@ -27,6 +27,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -99,6 +101,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -116,7 +120,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -125,7 +129,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release
@@ -165,6 +169,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -252,6 +258,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -318,6 +326,8 @@ jobs:
       [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v4
@@ -364,14 +374,14 @@ jobs:
           sudo apt install -y gcc
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
           override: true
 
       - name: Install Subwasm
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: install
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
@@ -438,6 +448,8 @@ jobs:
       [self-hosted, "${{ needs.deploy-github-runner.outputs.runner_vm_name }}"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v4
@@ -488,14 +500,14 @@ jobs:
           sudo apt install -y gcc
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
           override: true
 
       - name: Install Subwasm
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: install
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
@@ -569,6 +581,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install azure-cli
         run: |
@@ -639,6 +653,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Evaluate env vars
         id: get-env

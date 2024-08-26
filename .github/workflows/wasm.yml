@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Configure rustc version
         run: |
@@ -51,6 +53,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Configure rustc version
         run: |
@@ -58,14 +62,14 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
           override: true
 
       - name: Install Subwasm
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: install
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
@@ -76,6 +80,8 @@ jobs:
     if: github.ref == 'refs/heads/dev'
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/download-artifact@v4
         with:
           name: creditcoin-runtime-${{ github.sha }}
@@ -87,14 +93,14 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
           override: true
 
       - name: Install Subwasm
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: install
           args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
@@ -117,4 +123,4 @@ jobs:
           SUDO_SEED: ${{ secrets.DEVNET_SUDO_SEED }}
         run: |
           node dist/scripts/runtimeUpgrade.js "$DEVNET_URL" \
-          ../wasm/runtime/target/srtool/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm "$SUDO_SEED" 5
+          ../wasm/runtime/target/srtool/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm "$SUDO_SEED" 0

@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Build docker image
         run: |
@@ -55,6 +57,13 @@ jobs:
         run: |
           docker exec creditcoin-validator which creditcoin
           docker exec creditcoin-validator creditcoin wizard --help
+
+      - name: Sanity check for chainspecs inside the container
+        run: |
+          for f in chainspecs/*.json; do
+              spec=$(basename "$f")
+              docker exec creditcoin-validator  ls -l "/$spec"
+          done
 
       - name: Collect docker logs
         if: always()
@@ -98,6 +107,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Check for parity between extrinsics, benchmarks and weights
         run: |
@@ -130,6 +141,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -151,11 +164,55 @@ jobs:
           creditcoin help
           creditcoin wizard --help
 
+  sanity-test-precompiles:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Prepare ENV for Devnet
+        id: devnet-env
+        if: github.base_ref == 'dev'
+        run: |
+          echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare ENV for Testnet
+        id: testnet-env
+        if: github.base_ref == 'testnet'
+        run: |
+          echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare ENV for Mainnnet
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
+
+      - name: Check
+        run: |
+          export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
+          .github/check-solidity-source-vs-metadata.sh
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Configure rustc version
         run: |
@@ -163,7 +220,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           profile: minimal
@@ -171,7 +228,7 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: fmt
           args: -- --check
@@ -181,6 +238,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -193,7 +252,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -203,7 +262,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run Clippy
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: clippy
           args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
@@ -216,6 +275,8 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -228,7 +289,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -248,6 +309,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -260,7 +323,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -269,7 +332,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
@@ -283,6 +346,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -300,7 +365,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -317,7 +382,7 @@ jobs:
           echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release ${{ steps.compiler-flags.outputs.extra }}
@@ -345,6 +410,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set-Up
         run: |
@@ -362,7 +429,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -379,7 +446,7 @@ jobs:
           echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
-        uses: actions-rs/cargo@v1
+        uses: gluwa/cargo@dev
         with:
           command: build
           args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
@@ -402,6 +469,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
@@ -446,6 +515,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Install Node Dependencies
         uses: actions/setup-node@v4
         with:
@@ -485,6 +556,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -534,18 +607,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install linode-cli
-        run: |
-          python3 --version
-          pipx install linode-cli
-          linode-cli --version
-
-      - name: Authorize hosted-runner
-        run: |
-          mkdir -p ~/.ssh/
-          ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa
-          cat ~/.ssh/id_rsa.pub >> .github/authorized_keys
+        with:
+          lfs: true
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -565,45 +628,16 @@ jobs:
       - name: Provision VM
         if: env.LC_GITHUB_REPO_ADMIN_TOKEN
         run: |
-          echo "INFO: From ENVs: RUNNER_VM_NAME=${{ env.RUNNER_VM_NAME }}"
-          echo "INFO: From Step: RUNNER_VM_NAME=${{ steps.get-env.outputs.runner_vm_name }}"
-
-          # inject authorized keys into cloud-init for the `ubuntu@` user
-          while read -r LINE; do
-            echo "      - $LINE" >> .github/linode-cloud-init.template
-          done < .github/authorized_keys
-
-          # WARNING: we do not specify --authorized_keys for root b/c
-          # linode-cli expects each key as a separate argument and iteratively constructing
-          # the argument list hits issues with quoting the jey values b/c of white-space.
-          # All SSH logins should be via the `ubuntu@` user. For more info see:
-          # https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
-          linode-cli linodes create --json \
-                --image 'linode/ubuntu24.04' --region ${{ env.LINODE_REGION }} \
-                --type ${{ env.LINODE_VM_SIZE }} --label "${{ steps.get-env.outputs.runner_vm_name }}" \
-                --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
-                --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
-
-          # provision the GitHub Runner binary on the VM
-          # passing additional ENV values
-          IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
-          SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
-          echo "INFO: $SSH_USER_AT_HOSTNAME"
-
-          export LC_RUNNER_VM_NAME="${{ steps.get-env.outputs.runner_vm_name }}"
-          export LC_WORKFLOW_ID="$GITHUB_RUN_ID"
-          until ssh -i ~/.ssh/id_rsa \
-              -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
-              -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh; do
-            echo "DEBUG: retrying ssh connection ..."
-            sleep 30
-          done
+          .github/provision-linode-vm.sh
         env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
           LC_RUNNER_EPHEMERAL: false
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
           LC_PROXY_ENABLED: ${{ matrix.proxy }}
           LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           LC_PROXY_TYPE: ${{ matrix.proxy_type }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
   remove-github-runner:
@@ -641,6 +675,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -655,18 +691,12 @@ jobs:
 
           echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
-      - name: Install linode-cli
-        run: |
-          python3 --version
-          pipx install linode-cli
-          linode-cli --version
-
       - name: Remove VM
         run: |
-          VM_ID=$(linode-cli linodes list --json --label "${{ steps.get-env.outputs.runner_vm_name }}" | jq -r '.[0].id')
-          linode-cli linodes delete "$VM_ID"
+          .github/remove-linode-vm.sh
         env:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
 
   integration-test-cli:
     strategy:
@@ -710,6 +740,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          lfs: true
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
@@ -845,6 +876,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
@@ -902,6 +935,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
@@ -955,6 +990,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -967,7 +1004,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           target: wasm32-unknown-unknown
@@ -999,6 +1036,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         env:
@@ -1014,6 +1053,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -1033,6 +1074,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
