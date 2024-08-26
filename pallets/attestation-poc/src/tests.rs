@@ -344,22 +344,6 @@ fn setting_attestation_interval_for_unsupported_chain_fails() {
 #[test]
 fn setting_attestations_per_checkpoint_works() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 2;
-        let att_per_check = 101;
-        assert_err!(
-            Attestation::set_attestations_per_checkpoint(
-                RuntimeOrigin::root(),
-                chain_id,
-                att_per_check
-            ),
-            Error::<Test>::ChainNotSupported
-        )
-    })
-}
-
-#[test]
-fn setting_attestations_per_checkpoint_on_unsupported_chain_fails() {
-    ExtBuilder.build_and_execute(|| {
         let chain_id = 1;
         let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id);
         assert_eq!(att_per_check, 10); // Checkpoint frequencty set in mock genesis
@@ -373,6 +357,22 @@ fn setting_attestations_per_checkpoint_on_unsupported_chain_fails() {
 
         let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id);
         assert_eq!(att_per_check, 101);
+    })
+}
+
+#[test]
+fn setting_attestations_per_checkpoint_on_unsupported_chain_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+        let att_per_check = 101;
+        assert_err!(
+            Attestation::set_attestations_per_checkpoint(
+                RuntimeOrigin::root(),
+                chain_id,
+                att_per_check
+            ),
+            Error::<Test>::ChainNotSupported
+        )
     })
 }
 

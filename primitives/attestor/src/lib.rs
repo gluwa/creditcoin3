@@ -175,16 +175,6 @@ pub struct AttestationCheckpoint {
     pub digest: Digest,
 }
 
-impl AttestationCheckpoint {
-    pub fn block_number(&self) -> u64 {
-        self.block_number
-    }
-
-    pub fn digest(&self) -> Digest {
-        self.digest
-    }
-}
-
 pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
     let mut buf = [0u8; 32];
     x.to_big_endian(&mut buf);
