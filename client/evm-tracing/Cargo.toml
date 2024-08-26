@@ -1,0 +1,23 @@
+[package]
+name = "creditcoin3-client-evm-tracing"
+authors = { workspace = true }
+edition = { workspace = true }
+publish = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+license = "GPL-3.0-only"
+
+[dependencies]
+ethereum-types = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json = { workspace = true }
+log = { workspace = true }
+# Tracing
+evm-tracing-events = { workspace = true, features = ["std"] }
+creditcoin3-rpc-primitives-debug = { workspace = true, features = ["std"] }
+
+# Substrate
+parity-scale-codec = { workspace = true, features = ["std"] }
+sp-std = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }

@@ -1,0 +1,33 @@
+---
+name: Check runtime changes
+
+on:
+  pull_request:
+    branches: [dev, testnet, main]
+
+permissions: read-all
+
+jobs:
+  check-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Check if version.rs was modified
+        run: |
+          ./.github/check-version.sh "remotes/origin/$GITHUB_BASE_REF" "$GITHUB_SHA"
+  # dangerous conditions that will brick the blockchain
+  danger-will-brick-the-blockchain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Check for changes in Proof-of-Stake EPOCH duration
+        run: |
+          ./.github/check-for-changes-in-epoch-duration.sh "remotes/origin/$GITHUB_BASE_REF" "$GITHUB_SHA"

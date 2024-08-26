@@ -1,3 +1,4 @@
+**/dist/
 **/target/
 **/node_modules/
 **/*.rs.bk
@@ -24,3 +25,12 @@ polkadot.*
 
 # NixOS development environment
 .envrc
+
+**/throwaway
+
+# hardhat
+**/artifacts/
+**/cache/
+**/typechain-types/
+**/ignition/deployments/
+precompiles/metadata/abi/*.json

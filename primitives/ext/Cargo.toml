@@ -1,0 +1,29 @@
+[package]
+name = "creditcoin3-primitives-ext"
+authors = { workspace = true }
+edition = { workspace = true }
+publish = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+license = "GPL-3.0-only"
+
+[dependencies]
+ethereum-types = { workspace = true }
+
+# Tracing
+evm-tracing-events = { workspace = true }
+
+# Substrate
+parity-scale-codec = { workspace = true }
+sp-runtime-interface = { workspace = true }
+sp-std = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"ethereum-types/std",
+	"evm-tracing-events/std",
+	"parity-scale-codec/std",
+	"sp-runtime-interface/std",
+	"sp-std/std",
+]

@@ -1,0 +1,126 @@
+---
+name: Build WASM Runtime
+
+on:
+  push:
+    branches: [main, testnet, dev]
+  pull_request:
+    branches: [testnet, dev]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Srtool build
+        id: srtool_build
+        uses: chevdor/srtool-actions@v0.8.0
+        with:
+          chain: "creditcoin"
+          runtime_dir: runtime
+          package: creditcoin3-runtime
+          workdir: ${{ github.workspace }}
+          tag: ${{ env.RUSTC_VERSION }}
+        env:
+          BUILD_OPTS: "--release --features fast-runtime --features devnet"
+      - name: Summary
+        run: |
+          echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
+          cat creditcoin-srtool-digest.json
+          echo "Runtime location: ${{ steps.srtool_build.outputs.wasm }}"
+      - name: Archive Runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin-runtime-${{ github.sha }}
+          path: |
+            ${{ steps.srtool_build.outputs.wasm_compressed }}
+            creditcoin-srtool-digest.json
+
+  # try installing subwasm b/c we use this version in multiple places
+  # and need to know whether it builds with current rustc
+  dry-run-install-subwasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          profile: minimal
+          override: true
+
+      - name: Install Subwasm
+        uses: gluwa/cargo@dev
+        with:
+          command: install
+          args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
+
+  upgrade-devnet:
+    runs-on: ubuntu-24.04
+    needs: build
+    if: github.ref == 'refs/heads/dev'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-runtime-${{ github.sha }}
+          path: wasm
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          profile: minimal
+          override: true
+
+      - name: Install Subwasm
+        uses: gluwa/cargo@dev
+        with:
+          command: install
+          args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
+
+      - name: Install JS Dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - working-directory: cli
+        run: |
+          npm install -g yarn
+          npm install -g node-gyp
+          yarn install
+          yarn build
+
+      - name: Upgrade WASM
+        working-directory: cli
+        env:
+          DEVNET_URL: wss://rpc.cc3-devnet.creditcoin.network/ws
+          SUDO_SEED: ${{ secrets.DEVNET_SUDO_SEED }}
+        run: |
+          node dist/scripts/runtimeUpgrade.js "$DEVNET_URL" \
+          ../wasm/runtime/target/srtool/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm "$SUDO_SEED" 0

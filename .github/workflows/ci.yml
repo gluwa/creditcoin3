@@ -1,0 +1,1194 @@
+---
+name: CI
+
+# Controls when the action will run.
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  push:
+    branches: [main, testnet, dev]
+  pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+env:
+  RUNNER_VM_NAME: "gh-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+  LINODE_REGION: "nl-ams"
+  # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
+  LINODE_VM_SIZE: "g6-standard-4"
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  docker-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Build docker image
+        run: |
+          docker build -t gluwa/creditcoin3 .
+
+      - name: Start a container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain testnet                                   \
+              --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --prometheus-external \
+              --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
+              --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+              --bootnodes "/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" \
+              --port 30333 --unsafe-rpc-external
+
+      - name: Healtcheck
+        run: |
+          sleep 60
+          .github/check-health.sh
+
+      - name: Sanity test creditcoin-cli inside the container
+        run: |
+          docker exec creditcoin-validator which creditcoin
+          docker exec creditcoin-validator creditcoin wizard --help
+
+      - name: Sanity check for chainspecs inside the container
+        run: |
+          for f in chainspecs/*.json; do
+              spec=$(basename "$f")
+              docker exec creditcoin-validator  ls -l "/$spec"
+          done
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start container via compose
+        run: |
+          docker compose up -d
+
+      - name: Sanity check for persistently mounted directory
+        run: |
+          sleep 60
+          docker exec creditcoin-validator ls -ld /creditcoin-node/data
+          docker exec creditcoin-validator ls -la /creditcoin-node/data
+
+      - name: Collect compose logs
+        if: always()
+        run: |
+          docker compose logs --no-color > docker-compose.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: docker-*.log
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+
+  sanity-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Check for parity between extrinsics, benchmarks and weights
+        run: |
+          echo "INFO: active pallets are"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets
+          echo "========================"
+          ./.github/check-parity-bw-extrinsics-benchmarks-weights.sh
+
+      - name: Check migrations
+        run: |
+          ./.github/check-usage-of-log-warn.sh
+
+      - name: Check if Cargo.toml specifies dependencies from forks
+        run: |
+          ./.github/check-for-used-forks.sh
+
+      - name: Check if all Cargo.toml files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-Cargo-toml-in-Dependabot-config.sh
+
+      - name: Check if all package.json files are specified inside Dependabot config
+        run: |
+          .github/check-for-missing-package-json-in-Dependabot-config.sh
+
+      - name: Check if chainspecs are valid and not contain bootnodes
+        run: |
+          ./.github/check-bootnodes.sh
+
+  sanity-test-cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Execute creditcoin cli command
+        run: |
+          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
+          which creditcoin
+          creditcoin help
+          creditcoin wizard --help
+
+  sanity-test-precompiles:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Prepare ENV for Devnet
+        id: devnet-env
+        if: github.base_ref == 'dev'
+        run: |
+          echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare ENV for Testnet
+        id: testnet-env
+        if: github.base_ref == 'testnet'
+        run: |
+          echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare ENV for Mainnnet
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
+
+      - name: Check
+        run: |
+          export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
+          .github/check-solidity-source-vs-metadata.sh
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          profile: minimal
+          override: true
+          components: rustfmt
+
+      - name: Check formatting
+        uses: gluwa/cargo@dev
+        with:
+          command: fmt
+          args: -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy
+        uses: gluwa/cargo@dev
+        with:
+          command: clippy
+          args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
+
+  check:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-24.04
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check Build
+        run: |
+          SKIP_WASM_BUILD=1 cargo check --release
+
+      - name: Check Build for Benchmarking
+        run: |
+          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
+
+  unit-test-creditcoin:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        uses: gluwa/cargo@dev
+        with:
+          command: test
+          args: --features=runtime-benchmarks -- --test-threads 1
+
+  build-creditcoin-node:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [devnet, testnet]
+    name: build-creditcoin-node-for-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y curl
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Extra compiler flags
+        if: matrix.target == 'devnet'
+        id: compiler-flags
+        run: |
+          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
+
+      - name: Build SUT
+        uses: gluwa/cargo@dev
+        with:
+          command: build
+          args: --release ${{ steps.compiler-flags.outputs.extra }}
+
+      - name: Upload creditcoin-node binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin-node-${{ matrix.target }}
+          path: target/release/creditcoin3-node
+
+      - name: Upload WASM runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+  build-creditcoin-node-for-testing:
+    needs:
+      - build-creditcoin-node
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [devnet, ci]
+    name: build-creditcoin-node-for-testing-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y curl
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Extra compiler flags
+        if: matrix.target == 'devnet'
+        id: compiler-flags
+        run: |
+          echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
+
+      - name: Build SUT
+        uses: gluwa/cargo@dev
+        with:
+          command: build
+          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
+
+      - name: Upload creditcoin-node binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-${{ matrix.target }}
+          path: target/release/creditcoin3-node
+
+      - name: Upload WASM runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+
+  integration-test-smart-contract:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Start Node 1 - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s) to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Configure testing environment
+        id: test-env
+        working-directory: ./cli
+        run: |
+          yarn install
+          EVM_PRIVATE_KEY=$(node dist/test/blockchainSetup.js)
+          echo "url=http://127.0.0.1:9944" >> "$GITHUB_OUTPUT"
+          echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Execute smart contract test tool
+        working-directory: ./testing
+        run: |
+          ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
+
+  integration-test-check-extrinsics:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Install Node Dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Run Extrinsics Ordering
+        shell: bash
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./.github/check-extrinsics.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      #Upload logs if nodes are not connecting.
+      #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          if-no-files-found: warn
+          name: "extrinsic-logs"
+          path: |
+            head-node.log
+            release-node.log
+            # disabled until we have mainnet and testnet
+            # metadata-cmp-with-mainnet.txt
+            # metadata-cmp-with-testnet.txt
+
+  unit-test-cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Execute tests
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:unit
+
+      - uses: codecov/codecov-action@v4
+        with:
+          files: cli/coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+
+  deploy-github-runner:
+    # WARNING: same matrix as integration-test-cli job
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: deploy-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
+          # doesn't evaluate the $GITHUB_RUN_ID reference
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Provision VM
+        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
+        run: |
+          .github/provision-linode-vm.sh
+        env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
+          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_EPHEMERAL: false
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+          LC_PROXY_ENABLED: ${{ matrix.proxy }}
+          LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          LC_PROXY_TYPE: ${{ matrix.proxy_type }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+
+  remove-github-runner:
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-test-cli
+    if: ${{ always() }}
+
+    # WARNING: same matrix as integration-test-cli job
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: remove-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  integration-test-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    needs:
+      - build-creditcoin-node-for-testing
+      - deploy-github-runner
+    runs-on:
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "proxy-${{ matrix.proxy }}",
+        "secret-${{ matrix.secret }}",
+        "type-${{ matrix.proxy_type }}",
+      ]
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start creditcoin3-node in order to update typedefs
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for nodes to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Auto-update typedefs
+        id: update_typedefs
+        working-directory: ./cli
+        run: |
+          ./get-metadata.sh
+          # kill the node b/c the tests will launch their own processes
+          killall -9 creditcoin3-node
+
+          yarn build:types
+          yarn format
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff
+          echo "======================================="
+
+          # do not update if only creditcoin.json has changed,
+          # usually happens on version bump without any real metadata change
+          # shellcheck disable=SC2143
+          if [ -n "$(git status --short --untracked-files=no | grep -v yarn.lock | grep -v creditcoin.json)" ]; then
+              git diff
+              echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "git_diff=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extra ENV for PRs towards dev branch
+        if: github.base_ref == 'dev'
+        id: for-dev-prs
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          echo "${{ github.base_ref }}"
+          echo "======================================="
+
+          echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
+
+      - name: Extra ENV for other PRs and commits
+        if: github.base_ref != 'dev'
+        id: non-dev-prs
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          echo "${{ github.base_ref }}"
+          echo "======================================="
+
+          echo "validator_cycle=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Build creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn build
+
+      - name: Run integration tests
+        working-directory: ./cli
+        run: |
+          yarn test:integration
+        env:
+          PROXY_ENABLED: ${{ matrix.proxy }}
+          PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          PROXY_TYPE: ${{ matrix.proxy_type }}
+          EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO: ${{ steps.for-dev-prs.outputs.validator_cycle || steps.non-dev-prs.outputs.validator_cycle }}
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+      - name: Upload logs from Alice and Bob
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          path: /tmp/creditcoin3-node-*.std*
+
+      - name: Commit changes for typedefs
+        if: ${{ env.GITHUB_TOKEN && success() && steps.update_typedefs.outputs.git_diff == 'true' && matrix.proxy == 'no' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update TypeScript type definitions"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload code coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: cli/coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+
+  integration-test-blockchain:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start Node 1
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --ethapi=debug,trace,txpool \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s)s to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Run blockchain tests
+        working-directory: ./cli
+        run: |
+          yarn test:blockchain
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+  integration-test-chainspec:
+    needs:
+      - build-creditcoin-node
+    strategy:
+      fail-fast: false
+      matrix:
+        chainspec: [devnet, testnet]
+    name: integration-test-chainspec-${{ matrix.chainspec }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-${{ matrix.chainspec }}
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Start Node 1
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain ${{ matrix.chainspec }} \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data-${{ matrix.chainspec }} &
+
+      - name: Wait for node(s)s to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Run blockchain tests
+        working-directory: ./cli
+        run: |
+          # TODO: maybe we can make a chainspec-tests directory which symlinks to selected test files
+          yarn jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests/danger-will-brick-the-blockchain.test.ts
+        env:
+          BLOCKCHAIN_TESTS_GLOBAL_SETUP: "./${{ matrix.chainspec }}ChainspecSetup.ts"
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          target: wasm32-unknown-unknown
+          profile: minimal
+          override: true
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo audit
+        run: |
+          cargo install cargo-audit --features=fix --locked
+
+      - name: Run cargo audit
+        run: |
+          cargo audit || true
+          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin3-node" || true)
+
+          # fail for anything which is a 1st level dependency of Creditcoin
+          if [ -n "$CC_MATCH" ]; then
+              echo "FAIL: Direct dependencies of Creditcoin found in audit report"
+              echo "INFO: Inspect the output above for more information"
+              exit 1
+          else
+              echo "INFO: No direct dependencies of Creditcoin found in audit report"
+              exit 0
+          fi
+
+  shellcheck:
+    name: "🐚 Shellcheck"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -e SC2002 # allow useless cat commands
+
+  javascript-checks:
+    name: javascript-${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        directory: [cli]
+        command: [lint, typecheck, check-format]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Run tools
+        working-directory: ${{ matrix.directory }}
+        run: |
+          yarn install
+          yarn ${{ matrix.command }}
+
+  docs-smart-contract-development-with-hardhat:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+
+      - name: Compile contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat compile
+
+      - name: Test contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat test
+
+      - name: Deploy contract(s) to ephemeral Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy "$module"
+          done
+
+      - name: Start a local Hardhat JSON-RPC instance
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat node &
+          sleep 10
+
+      - name: Deploy contract(s) to Hardhat Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy --reset "$module" --network hardhat_local
+          done
+
+      - name: Start Creditcoin Node 1 - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for node(s) to start
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Deploy contract(s) to Creditcoin Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy --reset "$module" --network creditcoin_local
+          done
+        env:
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Deploy contract(s) to Creditcoin Devnet
+        if: github.base_ref == 'dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_devnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.DEVNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Deploy contract(s) to Creditcoin Testnet
+        if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_testnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.TESTNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Deploy contract(s) to Creditcoin Mainnet
+        if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_mainnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.MAINNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
+          HARDHAT_IGNITION_CONFIRM_RESET: yes
+
+      - name: Fork Creditcoin Testnet with Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          echo "Skipped b/c of https://github.com/NomicFoundation/hardhat/discussions/5266"
+          # npx hardhat node --fork https://rpc.cc3-testnet.creditcoin.network
