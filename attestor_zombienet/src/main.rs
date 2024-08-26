@@ -109,7 +109,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Will start funding {} attestor keys", keys.len());
 
-    // let alice_dev = SecretUri::from_str("//Alice").expect("Parse SURI");
     let cc_client = Client::new(args.cc3_rpc_url, &args.cc3_key)
         .await
         .expect("Failed to create client");
@@ -131,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cc_client = cc_client.clone();
             let attestor = AccountId32(key.keypair.public_key().0);
 
-            info!("Transferring 1 dev CTC to {}", attestor);
+            info!("Transferring 10 dev CTC to {}", attestor);
             let handle = tokio::spawn(async move {
                 cc_client
                     .transfer(
