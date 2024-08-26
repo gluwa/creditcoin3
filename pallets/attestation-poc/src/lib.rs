@@ -19,8 +19,9 @@ pub mod pallet {
         InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
-    use frame_support::dispatch::DispatchResult;
-    use frame_support::pallet_prelude::{CountedStorageMap, OptionQuery, ValueQuery};
+    use frame_support::pallet_prelude::{
+        CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
+    };
     use frame_support::{pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use log::debug;
