@@ -12,19 +12,21 @@ default_args:
   - "-v"
   - "--eth-start-block=10"
 num_attestors: 6
+single_node: false
 ```
 
 - `default_command`: The attestor binary location
 - `run`: Whether to start the attestor automatically (set to false for debugging key funding and other setup)
 - `default_args`: The default arguments to pass to the attestor binary
 - `num_attestors`: The number of attestors to spawn
+- `single_node`: If set to true, it will connect to the default node port (9944) and all attestors will point to that one.
 
 ## Running
 
 ```bash
 cd ..
 cargo build --release
-./target/release/attestor_zombienet --cc3-key "//Bob"
+./target/release/attestor_zombienet --cc3-key "//Bob" -c attestor_zombienet/config.yaml
 ```
 
 Make sure to have a creditcoin3-next zombienet running and an anvil node. See [attestor docs](../attestor/README.md)
