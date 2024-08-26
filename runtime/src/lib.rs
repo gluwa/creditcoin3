@@ -39,8 +39,8 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU128, ConstU32, ConstU64, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem,
-        OnFinalize, OnTimestampSet,
+        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        OnTimestampSet,
     },
     weights::{
         constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
@@ -837,12 +837,15 @@ impl pallet_nomination_pools::Config for Runtime {
 }
 
 parameter_types! {
+    pub const DefaultAttestationsPerCheckpoint: u32 = 10;
+    pub const DefaultAttestationInterval: u64 = 10;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
-    type DefaultAttestationInterval = ConstU64<10>;
+    type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type DefaultAttestationInterval = DefaultAttestationInterval;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful

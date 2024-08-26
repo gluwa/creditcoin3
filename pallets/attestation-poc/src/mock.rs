@@ -81,6 +81,7 @@ impl pallet_balances::Config for Test {
 }
 
 impl attestation_poc::Config for Test {
+    type DefaultAttestationsPerCheckpoint = ConstU32<10>;
     type DefaultAttestationInterval = ConstU64<10>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;

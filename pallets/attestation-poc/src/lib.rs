@@ -15,8 +15,8 @@ mod tests;
 #[frame_support::pallet]
 pub mod pallet {
     use attestor_primitives::{
-        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainId, Digest, InherentError,
-        SignedAttestation, INHERENT_IDENTIFIER,
+        AttestationCheckpoint, BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainId, Digest,
+        InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
     use frame_support::pallet_prelude::{
@@ -26,6 +26,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use log::debug;
     use parity_scale_codec::FullCodec;
+    use sp_std::collections::vec_deque::VecDeque;
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
 
@@ -35,6 +36,8 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
+        #[pallet::constant]
+        type DefaultAttestationsPerCheckpoint: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
         #[pallet::constant]
@@ -122,6 +125,23 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
+    #[pallet::getter(fn checkpoints)]
+    pub type Checkpoints<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainId,
+        Blake2_128Concat,
+        Digest,
+        AttestationCheckpoint,
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn checkpointing_queues)]
+    pub type CheckpointingQueues<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainId, VecDeque<Digest>, ValueQuery, GetDefault>;
+
+    #[pallet::storage]
     #[pallet::getter(fn last_attesation_digest)]
     pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, Digest, OptionQuery>;
 
@@ -143,6 +163,22 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn AttestationIntervalDefault<T: Config>() -> ChainAttestationIntervalType {
         T::DefaultAttestationInterval::get()
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn chain_attestatons_per_checkpoint)]
+    pub type ChainAttestationsPerCheckpoint<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainId,
+        u32,
+        ValueQuery,
+        DefaultAttestationsPerCheckpoint<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn DefaultAttestationsPerCheckpoint<T: Config>() -> u32 {
+        T::DefaultAttestationsPerCheckpoint::get()
     }
 
     #[pallet::pallet]
@@ -257,6 +293,10 @@ pub mod pallet {
 
         // Failed proof of possession check
         InvalidProofOfPossession,
+
+        // The checkpointing queue is out of sync with the attestations
+        // map. This should never happen!
+        RemovedNonExistantAttestation,
     }
 
     #[pallet::call]
@@ -430,13 +470,14 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_none(origin)?;
 
+            let chain_id = attestation.chain_id();
             ensure!(
-                T::SupportedChains::is_chain_supported(attestation.chain_id()),
+                T::SupportedChains::is_chain_supported(chain_id),
                 Error::<T>::ChainNotSupported
             );
 
             ensure!(
-                !Attestations::<T>::contains_key(attestation.chain_id(), attestation.digest()),
+                !Attestations::<T>::contains_key(chain_id, attestation.digest()),
                 Error::<T>::AttestationExists
             );
 
@@ -445,18 +486,17 @@ pub mod pallet {
                 Error::<T>::InvalidAttestation
             );
 
-            let previous_digest = Self::last_digest(attestation.chain_id());
+            let previous_digest = Self::last_digest(chain_id);
             ensure!(
                 previous_digest == attestation.attestation.prev_digest,
                 Error::<T>::InvalidAttestation
             );
 
             if let Some(previous_digest) = previous_digest {
-                let previous_attestation =
-                    Attestations::<T>::get(attestation.chain_id(), previous_digest)
-                        .ok_or(Error::<T>::NoPreviousDigest)?;
+                let previous_attestation = Attestations::<T>::get(chain_id, previous_digest)
+                    .ok_or(Error::<T>::NoPreviousDigest)?;
 
-                let interval = ChainAttestationInterval::<T>::get(attestation.chain_id());
+                let interval = ChainAttestationInterval::<T>::get(chain_id);
                 let prev_block_number = previous_attestation.attestation.header_number;
 
                 debug!(
@@ -477,15 +517,21 @@ pub mod pallet {
 
             // Store the attestation
             let digest = attestation.digest();
-            Attestations::<T>::insert(attestation.chain_id(), digest, &attestation);
+            Attestations::<T>::insert(chain_id, digest, &attestation);
 
             // Update last digest
-            LastDigest::<T>::set(attestation.chain_id(), Some(digest));
+            LastDigest::<T>::set(chain_id, Some(digest));
 
-            Self::deposit_event(Event::<T>::BlockAttested(
-                attestation.chain_id(),
-                attestation,
-            ));
+            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
+
+            // Store checkpointing queue entry
+            let mut queue = CheckpointingQueues::<T>::get(chain_id);
+            queue.push_back(digest);
+
+            // Make checkpoint if necessary, removing queue entries
+            Self::try_make_checkpoint(&mut queue, chain_id)?;
+
+            CheckpointingQueues::<T>::insert(chain_id, queue);
 
             Ok(())
         }
@@ -669,6 +715,40 @@ pub mod pallet {
 
             log::info!("Attestation signature is valid");
 
+            Ok(())
+        }
+
+        // When current checkpoint interval is completed by the commitment of its final attestation,
+        // then the prior checkpoint interval is considered "stabilized". We condense all the
+        // attestations for that prior interval into a single checkpoint.
+        fn try_make_checkpoint(queue: &mut VecDeque<Digest>, chain_id: ChainId) -> DispatchResult {
+            let num_to_condense = T::DefaultAttestationsPerCheckpoint::get();
+            // Two full intervals of attestations committed
+            if queue.len() >= (num_to_condense * 2) as usize {
+                for _ in 0..num_to_condense - 1 {
+                    let to_be_removed: Digest = queue
+                        .pop_front()
+                        .expect("Just confirmed queue has sufficient entries. QED");
+                    Attestations::<T>::remove(chain_id, to_be_removed);
+                }
+                // We use the final attestation out of the condensed set to construct the checkpoint
+                let to_be_removed: Digest = queue
+                    .pop_front()
+                    .expect("Just confirmed queue has sufficient entries. QED");
+                // TODO: Find a better way to deal with this edge case, even though in theory it should
+                // never happen, as checkpointing queue should always be in sync with attestations map.
+                ensure!(
+                    Attestations::<T>::contains_key(chain_id, to_be_removed),
+                    Error::<T>::RemovedNonExistantAttestation
+                );
+                let checkpoint_attestation = Attestations::<T>::take(chain_id, to_be_removed)
+                    .expect("Just checked for existance of this key.");
+                let checkpoint = AttestationCheckpoint {
+                    block_number: checkpoint_attestation.header_number(),
+                    digest: checkpoint_attestation.digest(),
+                };
+                Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+            }
             Ok(())
         }
     }
