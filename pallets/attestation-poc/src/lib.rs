@@ -751,26 +751,29 @@ pub mod pallet {
         // attestations for that prior interval into a single checkpoint.
         fn try_make_checkpoint(queue: &mut VecDeque<Digest>, chain_id: ChainId) -> DispatchResult {
             let num_to_condense = T::DefaultAttestationsPerCheckpoint::get();
-            // Two full intervals of attestations committed
-            if queue.len() >= (num_to_condense * 2) as usize {
-                for _ in 0..num_to_condense - 1 {
-                    let to_be_removed: Digest = queue
-                        .pop_front()
-                        .ok_or(Error::<T>::CheckpointCreationError)?;
-                    Attestations::<T>::remove(chain_id, to_be_removed);
-                }
-                // We use the final attestation out of the condensed set to construct the checkpoint
+            // Only move forward if two full checkpoints of attestations are committed.
+            if queue.len() < (num_to_condense * 2) as usize {
+                return Ok(());
+            }
+
+            for _ in 0..num_to_condense - 1 {
                 let to_be_removed: Digest = queue
                     .pop_front()
                     .ok_or(Error::<T>::CheckpointCreationError)?;
-                let checkpoint_attestation = Attestations::<T>::take(chain_id, to_be_removed)
-                    .ok_or(Error::<T>::CheckpointCreationError)?;
-                let checkpoint = AttestationCheckpoint {
-                    block_number: checkpoint_attestation.header_number(),
-                    digest: checkpoint_attestation.digest(),
-                };
-                Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                Attestations::<T>::remove(chain_id, to_be_removed);
             }
+            // We use the final attestation out of the condensed set to construct the checkpoint
+            let to_be_removed: Digest = queue
+                .pop_front()
+                .ok_or(Error::<T>::CheckpointCreationError)?;
+            let checkpoint_attestation = Attestations::<T>::take(chain_id, to_be_removed)
+                .ok_or(Error::<T>::CheckpointCreationError)?;
+            let checkpoint = AttestationCheckpoint {
+                block_number: checkpoint_attestation.header_number(),
+                digest: checkpoint_attestation.digest(),
+            };
+            Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+
             Ok(())
         }
     }
