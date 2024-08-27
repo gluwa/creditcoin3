@@ -754,32 +754,22 @@ pub mod pallet {
             // Two full intervals of attestations committed
             if queue.len() >= (num_to_condense * 2) as usize {
                 for _ in 0..num_to_condense - 1 {
-                    let maybe_removed: Option<Digest> = queue.pop_front();
-                    match maybe_removed {
-                        None => return Err(Error::<T>::CheckpointCreationError.into()),
-                        Some(to_be_removed) => {
-                            Attestations::<T>::remove(chain_id, to_be_removed);
-                        }
-                    }
+                    let to_be_removed: Digest = queue
+                        .pop_front()
+                        .ok_or(Error::<T>::CheckpointCreationError)?;
+                    Attestations::<T>::remove(chain_id, to_be_removed);
                 }
                 // We use the final attestation out of the condensed set to construct the checkpoint
-                let maybe_removed: Option<Digest> = queue.pop_front();
-                match maybe_removed {
-                    None => return Err(Error::<T>::CheckpointCreationError.into()),
-                    Some(to_be_removed) => {
-                        let maybe_attestation = Attestations::<T>::take(chain_id, to_be_removed);
-                        match maybe_attestation {
-                            None => return Err(Error::<T>::CheckpointCreationError.into()),
-                            Some(checkpoint_attestation) => {
-                                let checkpoint = AttestationCheckpoint {
-                                    block_number: checkpoint_attestation.header_number(),
-                                    digest: checkpoint_attestation.digest(),
-                                };
-                                Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
-                            }
-                        }
-                    }
-                }
+                let to_be_removed: Digest = queue
+                    .pop_front()
+                    .ok_or(Error::<T>::CheckpointCreationError)?;
+                let checkpoint_attestation = Attestations::<T>::take(chain_id, to_be_removed)
+                    .ok_or(Error::<T>::CheckpointCreationError)?;
+                let checkpoint = AttestationCheckpoint {
+                    block_number: checkpoint_attestation.header_number(),
+                    digest: checkpoint_attestation.digest(),
+                };
+                Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
             }
             Ok(())
         }
