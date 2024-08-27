@@ -1,15 +1,30 @@
 use super::*;
 use mock::*;
+use sp_core::H256;
+
+#[test]
+fn first_two_epoch_empty_randomness() {
+    new_test_ext(1).execute_with(|| {
+        assert_eq!(
+            crate::RandomnessByEpochIndex::<Test>::get(0),
+            H256::zero().0
+        );
+        assert_eq!(
+            crate::RandomnessByEpochIndex::<Test>::get(1),
+            H256::zero().0
+        );
+        assert_eq!(
+            crate::RandomnessByEpochIndex::<Test>::get(2),
+            H256::zero().0
+        );
+    });
+}
 
 #[test]
 fn can_predict_next_epoch_change() {
     new_test_ext(1).execute_with(|| {
         let last_seen_epoch_index = crate::LastSeenEpochIndex::<Test>::get();
         assert_eq!(last_seen_epoch_index, 0);
-
-        assert!(crate::RandomnessByEpochIndex::<Test>::get(0).is_none());
-        assert!(crate::RandomnessByEpochIndex::<Test>::get(1).is_none());
-        assert!(crate::RandomnessByEpochIndex::<Test>::get(2).is_none());
 
         assert_eq!(<Test as pallet_babe::Config>::EpochDuration::get(), 3);
         // this sets the genesis slot to 6;
@@ -27,9 +42,9 @@ fn can_predict_next_epoch_change() {
 
         let last_seen_epoch_index = crate::LastSeenEpochIndex::<Test>::get();
         assert_eq!(last_seen_epoch_index, 1);
-        assert!(crate::RandomnessByEpochIndex::<Test>::get(1).is_some());
+
         assert_eq!(
-            crate::RandomnessByEpochIndex::<Test>::get(1).unwrap(),
+            crate::RandomnessByEpochIndex::<Test>::get(1),
             pallet_babe::Randomness::<Test>::get()
         );
 
@@ -41,9 +56,8 @@ fn can_predict_next_epoch_change() {
         let last_seen_epoch_index = crate::LastSeenEpochIndex::<Test>::get();
         assert_eq!(last_seen_epoch_index, 2);
 
-        assert!(crate::RandomnessByEpochIndex::<Test>::get(2).is_some());
         assert_eq!(
-            crate::RandomnessByEpochIndex::<Test>::get(2).unwrap(),
+            crate::RandomnessByEpochIndex::<Test>::get(2),
             pallet_babe::Randomness::<Test>::get()
         );
     })

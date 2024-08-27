@@ -1413,7 +1413,7 @@ impl_runtime_apis! {
     }
 
     impl randomness_primitives::api::RandomnessPalletApi<Block> for Runtime {
-        fn randomness_by_epoch_id(epoch_id: u64) -> Option<randomness_primitives::Randomness>{
+        fn randomness_by_epoch_id(epoch_id: u64) -> randomness_primitives::Randomness{
             Randomness::randomness_by_epoch_id(epoch_id)
         }
     }

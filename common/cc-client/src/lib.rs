@@ -11,7 +11,7 @@ use subxt_signer::{
     SecretUri,
 };
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use cc3::runtime_types::attestor_primitives::{
     Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
@@ -40,8 +40,6 @@ pub mod proof;
 use cc3::runtime_types::pallet_prover::types::Prover;
 
 pub type Randomness = [u8; 32];
-
-const FINALIZATION_DELAY: u32 = 2;
 
 #[derive(Debug, Clone)]
 /// Cc3 client that is configured with an url and keypair
@@ -115,24 +113,8 @@ impl<'a> Client {
     }
 
     /// Fetches the babe randomness from 2 epochs ago
-    /// Returns the random at that time + the current block number (where it was calculated from)
-    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Option<Randomness>, H256, u64)> {
-        // Get epoch duration
-        let epoch_duration = self
-            .api
-            .constants()
-            .at(&cc3::constants().babe().epoch_duration())?;
-
-        // Get current block number
-        let current_block_number = self
-            .api
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&cc3::storage().system().number())
-            .await?
-            .ok_or(Error::FailedToGetBlockNumber)?;
-
+    /// Returns the random a time + the current block number (where it was calculated from)
+    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Randomness, u64)> {
         let epoch_index = self
             .api
             .storage()
@@ -141,65 +123,31 @@ impl<'a> Client {
             .fetch(&cc3::storage().babe().epoch_index())
             .await?;
 
-        // when epoch is 0 then fetch &cc3::storage().babe().epoch_index() returns None
-        let epoch_index =
-            if epoch_index.is_none() && u64::from(current_block_number) <= epoch_duration * 2 {
-                0
-            } else {
-                epoch_index.ok_or(Error::FailedToGetBabeVrf)?
-            };
+        // Calculate the epoch index we are interested in
+        // This is the current epoch index - 2
+        let intrested_epoch_index = epoch_index.unwrap_or(0).saturating_sub(2);
 
-        println!(
-            "epoch_index: {:? }Epoch index: {:?}",
-            epoch_index,
-            epoch_index.checked_sub(2)
-        );
+        // Short circuit if epoch index is too low
+        // Randomness is not available for the first 2 epochs
+        if intrested_epoch_index < 2 {
+            tracing::info!("Epoch index is too low to fetch randomness");
+            return Ok((Randomness::default(), intrested_epoch_index));
+        }
 
-        let Some(intrested_epoch_index) = epoch_index.checked_sub(2) else {
-            warn!(
-                "Epoch index is less than 2, returning zero randomness, zero hash and zero epoch index, epoch index: {} epoch_duration: {}",
-                epoch_index, epoch_duration
-            );
-            //zero randomness, zero block hash, zero epoch index
-            return Ok((Some([0u8; 32]), H256::zero(), 0));
-        };
-
-        // Calculate a block number that falls into the range of 2 epoch ago
-        // current block - (epoch duration in block * 2)
-        let block_to_query = current_block_number
-            .checked_sub(u32::try_from(epoch_duration * 2)?)
-            // If the subtraction fails, just query the current block - 2 (finalization delay)
-            // In theory this could fail if the user requests this at block 1-2. But that's not a big deal
-            .unwrap_or(current_block_number - FINALIZATION_DELAY);
-
-        let block_hash_to_query = self
+        let randomness = self
             .api
             .storage()
             .at_latest()
             .await?
-            .fetch(&cc3::storage().system().block_hash(block_to_query))
+            .fetch(
+                &cc3::storage()
+                    .randomness()
+                    .randomness_by_epoch_index(intrested_epoch_index),
+            )
             .await?
             .ok_or(Error::FailedToGetBabeVrf)?;
 
-        info!("Getting babe randomness at block: {block_to_query}");
-        // Probably want to get it from 2 epochs ago (need to fetch current epoch and epoch duration for that)
-        let randomness = if intrested_epoch_index > 2 {
-            self.api
-                .storage()
-                .at_latest()
-                .await?
-                .fetch(
-                    &cc3::storage()
-                        .randomness()
-                        .randomness_by_epoch_index(intrested_epoch_index),
-                )
-                .await?
-                .ok_or(Error::FailedToGetBabeVrf)?
-        } else {
-            [0u8; 32]
-        };
-
-        Ok((Some(randomness), block_hash_to_query, intrested_epoch_index))
+        Ok((randomness, intrested_epoch_index))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
@@ -318,21 +266,10 @@ impl<'a> Client {
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
-        let (randomness, block_hash, epoch_index) =
-            self.fetch_babe_randomness().await.map_err(|e| {
-                error!("Error getting babe vrf output: {:?}", e);
-                Error::FailedToGetBabeVrf
-            })?;
-
-        let randomness = if let Some(r) = randomness {
-            r
-        } else {
-            info!(
-                "Randomness is not initialised at {:?}, epoch_index {}, making default hash",
-                block_hash, epoch_index
-            );
-            H256::zero().0
-        };
+        let (randomness, epoch_index) = self.fetch_babe_randomness().await.map_err(|e| {
+            error!("Error getting babe vrf output: {:?}", e);
+            Error::FailedToGetBabeVrf
+        })?;
 
         info!("Babe VRF Randomness: {}", hex::encode(randomness));
 
@@ -356,7 +293,6 @@ impl<'a> Client {
         Ok(VrfOutput {
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             vrf_number: sp_core::U256::from_little_endian(&s_component_array),
-            block_hash,
             epoch: epoch_index,
         })
     }

@@ -17,8 +17,8 @@ use randomness_primitives::Randomness;
 pub mod pallet {
     use super::*;
     pub use attestor_primitives::ChainId;
+    use frame_support::pallet_prelude::StorageMap;
     use frame_support::pallet_prelude::*;
-    use frame_support::pallet_prelude::{OptionQuery, StorageMap};
     use frame_support::Blake2_128Concat;
     use frame_system::pallet_prelude::*;
     use randomness_primitives::provider::RandomnessPalletProvider;
@@ -51,7 +51,7 @@ pub mod pallet {
         Hasher = Blake2_128Concat,
         Key = u64,
         Value = Randomness,
-        QueryKind = OptionQuery,
+        QueryKind = ValueQuery,
     >;
 
     #[pallet::hooks]
@@ -93,7 +93,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {}
 
     impl<T: Config> RandomnessPalletProvider for Pallet<T> {
-        fn randomness_by_epoch_id(epoch_id: u64) -> Option<Randomness> {
+        fn randomness_by_epoch_id(epoch_id: u64) -> Randomness {
             RandomnessByEpochIndex::<T>::get(epoch_id)
         }
     }

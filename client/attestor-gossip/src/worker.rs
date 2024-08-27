@@ -281,40 +281,21 @@ where
             return Err(Error::DigestMissMatch);
         }
 
-        let current_epoch_hash: u64 = blockchain_info.best_number.into();
-
-        debug!(target: LOG_TARGET, "📝 target block to fetch vrf from: {:?}", current_epoch_hash);
-
-        let target_epoch_hash = self
+        let current_block_hash = self
             .client
-            .block_hash((current_epoch_hash as u32).into())
+            .block_hash(blockchain_info.best_number)
             .ok()
             .flatten()
-            .expect("Target block exists; qed");
+            .expect("Current block hash exists; qed");
 
+        // Get randomness from the attestation
+        info!(target: LOG_TARGET, "Getting randomness for attestation at epoch: {}", attestation.vrf_output.epoch);
         let runtime = self.runtime.runtime_api();
-        let current_epoch = runtime.current_epoch(target_epoch_hash)?;
-
-        let target_epoch = match current_epoch.epoch_index.checked_sub(2) {
-            Some(result) => result,
-            None => {
-                info!("We cannot go back 2 epoch yet, that means we just need to fetch the randomness from current epoch");
-                current_epoch.epoch_index
-            }
-        };
-
-        let vrf_target_epoch = runtime
-            .randomness_by_epoch_id(target_epoch_hash, target_epoch)?
-            .ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
-
-        // Get the vrf for the attestation that was submitted
-        let runtime = self.runtime.runtime_api();
-        let randomness_at_attestation_output_epoch = runtime
-            .randomness_by_epoch_id(target_epoch_hash, attestation.vrf_output.epoch)?
-            .ok_or_else(|| Error::InvalidAttestationVrfOuput)?;
+        let randomness_from_attestation =
+            runtime.randomness_by_epoch_id(current_block_hash, attestation.vrf_output.epoch)?;
 
         // Format the randomness as a number
-        let randomness_u256 = U256::from_little_endian(&randomness_at_attestation_output_epoch);
+        let randomness_u256 = U256::from_little_endian(&randomness_from_attestation);
 
         if attestation.vrf_output.vrf_number >= randomness_u256 {
             debug!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
@@ -326,7 +307,7 @@ where
 
             let is_valid = sp_core::sr25519::Pair::verify(
                 &attestation.vrf_output.signature,
-                vrf_target_epoch,
+                randomness_from_attestation,
                 &public_key,
             );
 
@@ -563,25 +544,6 @@ where
         let attestations = attestations.unwrap().get(&header_number);
         if attestations.is_none() {
             return false;
-        }
-
-        if attestations
-            .unwrap()
-            .iter()
-            .any(|(_, att)| att == attestation)
-        {
-            info!(target: LOG_TARGET, "📝 Attestation is already in cache, no need to do anything here. Round: {:?}", (chain_id, header_number));
-            return true;
-        }
-
-        // check if attestor already pushed a similar message
-        if attestations
-            .unwrap()
-            .iter()
-            .any(|(attestor, _)| attestor == &attestation.attestor)
-        {
-            info!(target: LOG_TARGET, "📝 Attestor already submitted a similar attestation, no need to do anything here. Round: {:?}", (chain_id, header_number));
-            return true;
         }
 
         let runtime = self.runtime.runtime_api();

@@ -132,7 +132,6 @@ where
 pub struct VrfOutput {
     pub signature: sp_core::sr25519::Signature,
     pub vrf_number: U256,
-    pub block_hash: H256,
     pub epoch: u64,
 }
 
