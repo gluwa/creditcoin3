@@ -21,6 +21,16 @@ REGISTRATION_TOKEN=$(curl --silent -X POST \
     -H "X-GitHub-Api-Version: 2022-11-28" \
     "https://api.github.com/repos/$OWNER_REPO_SLUG/actions/runners/registration-token" | jq -r '.token')
 
+if [ "$REGISTRATION_TOKEN" == "null" ]; then
+    echo "ERROR: REGISTRATION_TOKEN is null"
+    exit 1
+fi
+
+if [ -z "$REGISTRATION_TOKEN" ]; then
+    echo "ERROR: REGISTRATION_TOKEN is empty"
+    exit 2
+fi
+
 # Important: ephemeral runners are removed after a single job is executed on them
 # which is inline with the VM lifecycle
 ./config.sh --unattended --ephemeral "$EPHEMERAL" --url "$REPOSITORY_URL" --token "$REGISTRATION_TOKEN" \
