@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        operating-system: [ubuntu-24.04, windows-2022, macos-11]
+        operating-system: [ubuntu-24.04, windows-2022, macos-13]
     runs-on: ${{ matrix.operating-system }}
 
     steps:
@@ -89,7 +89,7 @@ jobs:
           override: true
 
       - name: Install MacOS aarch64 target
-        if: matrix.operating-system == 'macos-11'
+        if: matrix.operating-system == 'macos-13'
         uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
@@ -118,7 +118,7 @@ jobs:
           args: --release ${{ needs.setup.outputs.build_options}}
 
       - name: Build MacOS aarch64 target
-        if: matrix.operating-system == 'macos-11'
+        if: matrix.operating-system == 'macos-13'
         continue-on-error: true
         uses: gluwa/cargo@dev
         with:
@@ -136,7 +136,7 @@ jobs:
           exclusions: "creditcoin3-node.d"
 
       - name: Compress MacOS aarch64 target
-        if: matrix.operating-system == 'macos-11'
+        if: matrix.operating-system == 'macos-13'
         continue-on-error: true
         uses: thedoctor0/zip-release@0.7.6
         with:
