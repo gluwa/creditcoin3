@@ -1062,9 +1062,17 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletSupportedChainsEvent (97) */
     interface PalletSupportedChainsEvent extends Enum {
         readonly isChainRegistered: boolean;
-        readonly asChainRegistered: u64;
+        readonly asChainRegistered: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly chainName: Bytes;
+        } & Struct;
         readonly isChainRemoved: boolean;
-        readonly asChainRemoved: u64;
+        readonly asChainRemoved: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly chainName: Bytes;
+        } & Struct;
         readonly type: 'ChainRegistered' | 'ChainRemoved';
     }
 
@@ -2741,7 +2749,7 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isRemoveChain: boolean;
         readonly asRemoveChain: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
         } & Struct;
         readonly type: 'RegisterChain' | 'RemoveChain';
     }
@@ -3192,14 +3200,21 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidProofOfPossession';
     }
 
-    /** @name PalletSupportedChainsError (396) */
+    /** @name SupportedChainsPrimitivesSupportedChain (396) */
+    interface SupportedChainsPrimitivesSupportedChain extends Struct {
+        readonly chainId: u64;
+        readonly chainName: Bytes;
+    }
+
+    /** @name PalletSupportedChainsError (398) */
     interface PalletSupportedChainsError extends Enum {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;
-        readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported';
+        readonly isArithmetic: boolean;
+        readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic';
     }
 
-    /** @name PalletProverError (400) */
+    /** @name PalletProverError (402) */
     interface PalletProverError extends Enum {
         readonly isProverAlreadyRegistered: boolean;
         readonly isProverNotExists: boolean;
@@ -3222,10 +3237,10 @@ declare module '@polkadot/types/lookup' {
             | 'ChainNotSupported';
     }
 
-    /** @name PalletRandomnessError (401) */
+    /** @name PalletRandomnessError (403) */
     type PalletRandomnessError = Null;
 
-    /** @name SpRuntimeMultiSignature (403) */
+    /** @name SpRuntimeMultiSignature (405) */
     interface SpRuntimeMultiSignature extends Enum {
         readonly isEd25519: boolean;
         readonly asEd25519: SpCoreEd25519Signature;
@@ -3236,30 +3251,30 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Ed25519' | 'Sr25519' | 'Ecdsa';
     }
 
-    /** @name SpCoreEcdsaSignature (404) */
+    /** @name SpCoreEcdsaSignature (406) */
     interface SpCoreEcdsaSignature extends U8aFixed {}
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (407) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (409) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (408) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (410) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (409) */
+    /** @name FrameSystemExtensionsCheckTxVersion (411) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (410) */
+    /** @name FrameSystemExtensionsCheckGenesis (412) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (413) */
+    /** @name FrameSystemExtensionsCheckNonce (415) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (414) */
+    /** @name FrameSystemExtensionsCheckWeight (416) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (415) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (417) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (417) */
+    /** @name Creditcoin3RuntimeRuntime (419) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module

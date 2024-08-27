@@ -1878,7 +1878,7 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::remove_chain`].
              **/
             removeChain: AugmentedSubmittable<
-                (chainId: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                (chainKey: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
                 [u64]
             >;
             /**

@@ -852,8 +852,16 @@ export default {
      **/
     PalletSupportedChainsEvent: {
         _enum: {
-            ChainRegistered: 'u64',
-            ChainRemoved: 'u64',
+            ChainRegistered: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                chainName: 'Bytes',
+            },
+            ChainRemoved: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                chainName: 'Bytes',
+            },
         },
     },
     /**
@@ -2519,7 +2527,7 @@ export default {
                 chainName: 'Text',
             },
             remove_chain: {
-                chainId: 'u64',
+                chainKey: 'u64',
             },
         },
     },
@@ -2900,13 +2908,20 @@ export default {
         ],
     },
     /**
-     * Lookup396: pallet_supported_chains::pallet::Error<T>
+     * Lookup396: supported_chains_primitives::SupportedChain
      **/
-    PalletSupportedChainsError: {
-        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported'],
+    SupportedChainsPrimitivesSupportedChain: {
+        chainId: 'u64',
+        chainName: 'Bytes',
     },
     /**
-     * Lookup400: pallet_prover::pallet::Error<T>
+     * Lookup398: pallet_supported_chains::pallet::Error<T>
+     **/
+    PalletSupportedChainsError: {
+        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic'],
+    },
+    /**
+     * Lookup402: pallet_prover::pallet::Error<T>
      **/
     PalletProverError: {
         _enum: [
@@ -2922,11 +2937,11 @@ export default {
         ],
     },
     /**
-     * Lookup401: pallet_randomness::pallet::Error<T>
+     * Lookup403: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup403: sp_runtime::MultiSignature
+     * Lookup405: sp_runtime::MultiSignature
      **/
     SpRuntimeMultiSignature: {
         _enum: {
@@ -2936,39 +2951,39 @@ export default {
         },
     },
     /**
-     * Lookup404: sp_core::ecdsa::Signature
+     * Lookup406: sp_core::ecdsa::Signature
      **/
     SpCoreEcdsaSignature: '[u8;65]',
     /**
-     * Lookup407: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup409: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup408: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup410: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup409: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup411: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup410: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup412: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup413: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup415: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup414: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup416: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup415: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup417: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup417: creditcoin3_runtime::Runtime
+     * Lookup419: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };

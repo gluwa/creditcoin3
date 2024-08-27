@@ -783,11 +783,19 @@ declare module '@polkadot/api-base/types/events' {
             /**
              * A chain has been registered with a given ID
              **/
-            ChainRegistered: AugmentedEvent<ApiType, [u64]>;
+            ChainRegistered: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, chainName: Bytes],
+                { chainKey: u64; chainId: u64; chainName: Bytes }
+            >;
             /**
              * A chain has been removed with a given ID
              **/
-            ChainRemoved: AugmentedEvent<ApiType, [u64]>;
+            ChainRemoved: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, chainName: Bytes],
+                { chainKey: u64; chainId: u64; chainName: Bytes }
+            >;
             /**
              * Generic event
              **/

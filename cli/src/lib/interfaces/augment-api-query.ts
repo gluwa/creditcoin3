@@ -64,6 +64,7 @@ import type {
     SpCoreCryptoKeyTypeId,
     SpRuntimeDigest,
     SpStakingOffenceOffenceDetails,
+    SupportedChainsPrimitivesSupportedChain,
 } from '@polkadot/types/lookup';
 import type { Observable } from '@polkadot/types/types';
 
@@ -1318,9 +1319,16 @@ declare module '@polkadot/api-base/types/storage' {
             [key: string]: QueryableStorageEntry<ApiType>;
         };
         supportedChains: {
+            chainIdAndNameToUniqKey: AugmentedQuery<
+                ApiType,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: Bytes | string | Uint8Array) => Observable<Option<u64>>,
+                [u64, Bytes]
+            > &
+                QueryableStorageEntry<ApiType, [u64, Bytes]>;
+            chainKeyValue: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
             supportedChains: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<Bytes>>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesSupportedChain>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

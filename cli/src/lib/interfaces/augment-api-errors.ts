@@ -728,6 +728,10 @@ declare module '@polkadot/api-base/types/errors' {
         };
         supportedChains: {
             /**
+             * Math overflow/underflow
+             **/
+            Arithmetic: AugmentedError<ApiType>;
+            /**
              * The chain is already registered
              **/
             ChainAlreadyRegistered: AugmentedError<ApiType>;
