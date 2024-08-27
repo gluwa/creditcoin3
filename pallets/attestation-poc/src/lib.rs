@@ -295,9 +295,10 @@ pub mod pallet {
         // Failed proof of possession check
         InvalidProofOfPossession,
 
-        // The checkpointing queue is out of sync with the attestations
-        // map. This should never happen!
-        RemovedNonExistantAttestation,
+        // Accessed non-existant storage entry, in checkpointing queue
+        // or attestations. This error should not occur unless there
+        // is a bug in this pallet.
+        CheckpointCreationError,
     }
 
     #[pallet::call]
@@ -753,28 +754,32 @@ pub mod pallet {
             // Two full intervals of attestations committed
             if queue.len() >= (num_to_condense * 2) as usize {
                 for _ in 0..num_to_condense - 1 {
-                    let to_be_removed: Digest = queue
-                        .pop_front()
-                        .expect("Just confirmed queue has sufficient entries. QED");
-                    Attestations::<T>::remove(chain_id, to_be_removed);
+                    let maybe_removed: Option<Digest> = queue.pop_front();
+                    match maybe_removed {
+                        None => return Err(Error::<T>::CheckpointCreationError.into()),
+                        Some(to_be_removed) => {
+                            Attestations::<T>::remove(chain_id, to_be_removed);
+                        }
+                    }
                 }
                 // We use the final attestation out of the condensed set to construct the checkpoint
-                let to_be_removed: Digest = queue
-                    .pop_front()
-                    .expect("Just confirmed queue has sufficient entries. QED");
-                // TODO: Find a better way to deal with this edge case, even though in theory it should
-                // never happen, as checkpointing queue should always be in sync with attestations map.
-                ensure!(
-                    Attestations::<T>::contains_key(chain_id, to_be_removed),
-                    Error::<T>::RemovedNonExistantAttestation
-                );
-                let checkpoint_attestation = Attestations::<T>::take(chain_id, to_be_removed)
-                    .expect("Just checked for existance of this key.");
-                let checkpoint = AttestationCheckpoint {
-                    block_number: checkpoint_attestation.header_number(),
-                    digest: checkpoint_attestation.digest(),
-                };
-                Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                let maybe_removed: Option<Digest> = queue.pop_front();
+                match maybe_removed {
+                    None => return Err(Error::<T>::CheckpointCreationError.into()),
+                    Some(to_be_removed) => {
+                        let maybe_attestation = Attestations::<T>::take(chain_id, to_be_removed);
+                        match maybe_attestation {
+                            None => return Err(Error::<T>::CheckpointCreationError.into()),
+                            Some(checkpoint_attestation) => {
+                                let checkpoint = AttestationCheckpoint {
+                                    block_number: checkpoint_attestation.header_number(),
+                                    digest: checkpoint_attestation.digest(),
+                                };
+                                Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                            }
+                        }
+                    }
+                }
             }
             Ok(())
         }
