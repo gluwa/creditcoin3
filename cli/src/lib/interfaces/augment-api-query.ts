@@ -886,7 +886,7 @@ declare module '@polkadot/api-base/types/storage' {
             lastSeenEpochIndex: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
             randomnessByEpochIndex: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<U8aFixed>>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<U8aFixed>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
