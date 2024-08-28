@@ -618,6 +618,7 @@ jobs:
           ./.github/check-extrinsics.sh
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          OWNER_REPO_SLUG: ${{ github.repository }}
 
       #Upload logs if nodes are not connecting.
       #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh

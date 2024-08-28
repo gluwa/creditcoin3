@@ -27,8 +27,9 @@ latest_release_url() {
   curl --silent --header "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$1/releases/latest" | jq -r '.url'
 }
 
-latest_tag=$(latest_release_tag 'gluwa/creditcoin3')
-latest_url=$(latest_release_url 'gluwa/creditcoin3')
+OWNER_REPO_SLUG="${OWNER_REPO_SLUG:-gluwa/creditcoin3}"
+latest_tag=$(latest_release_tag "$OWNER_REPO_SLUG")
+latest_url=$(latest_release_url "$OWNER_REPO_SLUG")
 RELEASE_BIN="./creditcoin3-node"
 echo "[+] Fetching binary for Creditcoin version $latest_tag"
 # WARNING: $GITHUB_TOKEN must be defined in the calling environment because this is a private repository
