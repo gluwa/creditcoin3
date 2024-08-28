@@ -553,6 +553,25 @@ where
             return false;
         }
 
+        if attestations
+            .unwrap()
+            .iter()
+            .any(|(_, att)| att == attestation)
+        {
+            info!(target: LOG_TARGET, "📝 Attestation is already in cache, no need to do anything here. Round: {:?}", (chain_id, header_number));
+            return true;
+        }
+
+        // check if attestor already pushed a similar message
+        if attestations
+            .unwrap()
+            .iter()
+            .any(|(attestor, _)| attestor == &attestation.attestor)
+        {
+            info!(target: LOG_TARGET, "📝 Attestor already submitted a similar attestation, no need to do anything here. Round: {:?}", (chain_id, header_number));
+            return true;
+        }
+
         let runtime = self.runtime.runtime_api();
         match runtime.contains_digest(block_hash, chain_id, attestation.digest()) {
             Ok(true) => {
