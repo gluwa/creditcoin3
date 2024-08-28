@@ -594,6 +594,7 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   integration-test-check-extrinsics:
+    if: github.base_ref == 'dev'
     needs:
       - build-creditcoin-node-for-testing
     runs-on: ubuntu-24.04
