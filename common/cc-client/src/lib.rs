@@ -114,7 +114,7 @@ impl<'a> Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random a time + the current block number (where it was calculated from)
-    pub(crate) async fn fetch_babe_randomness(&self) -> Result<(Randomness, u64)> {
+    pub(crate) async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64)> {
         let epoch_index = self
             .api
             .storage()
@@ -266,10 +266,13 @@ impl<'a> Client {
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
-        let (randomness, epoch_index) = self.fetch_babe_randomness().await.map_err(|e| {
-            error!("Error getting babe vrf output: {:?}", e);
-            Error::FailedToGetBabeVrf
-        })?;
+        let (randomness, epoch_index) =
+            self.fetch_babe_randomness_two_epoch_ego()
+                .await
+                .map_err(|e| {
+                    error!("Error getting babe vrf output: {:?}", e);
+                    Error::FailedToGetBabeVrf
+                })?;
 
         info!("Babe VRF Randomness: {}", hex::encode(randomness));
 

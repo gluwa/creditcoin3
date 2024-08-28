@@ -251,14 +251,6 @@ where
             return Ok(());
         }
 
-        // let attestation = self
-        //     .sign_attestation(msg.attestation.unwrap())
-        //     .await
-        //     .map_err(|e| {
-        //         error!("Error signing attestation: {:?}", e);
-        //         Error::FailedToSignBabeVrf
-        //     })?;
-
         self.submit_attestation(msg.attestation.unwrap())
             .await
             .map_err(|e| {
