@@ -125,13 +125,13 @@ impl<'a> Client {
 
         // Calculate the epoch index we are interested in
         // This is the current epoch index - 2
-        let intrested_epoch_index = epoch_index.unwrap_or(0).saturating_sub(2);
+        let two_epoch_ago = epoch_index.unwrap_or(0).saturating_sub(2);
 
         // Short circuit if epoch index is too low
         // Randomness is not available for the first 2 epochs
-        if intrested_epoch_index < 2 {
+        if two_epoch_ago < 2 {
             tracing::info!("Epoch index is too low to fetch randomness");
-            return Ok((Randomness::default(), intrested_epoch_index));
+            return Ok((Randomness::default(), two_epoch_ago));
         }
 
         let randomness = self
@@ -142,12 +142,12 @@ impl<'a> Client {
             .fetch(
                 &cc3::storage()
                     .randomness()
-                    .randomness_by_epoch_index(intrested_epoch_index),
+                    .randomness_by_epoch_index(two_epoch_ago),
             )
             .await?
             .ok_or(Error::FailedToGetBabeVrf)?;
 
-        Ok((randomness, intrested_epoch_index))
+        Ok((randomness, two_epoch_ago))
     }
 
     pub async fn _fetch_comittee_size(&self) -> Result<u32> {
