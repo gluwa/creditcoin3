@@ -44,7 +44,6 @@ where
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
 {
     /// Best attestation we have in the cache (latest)
-    #[allow(dead_code)]
     pub best_attestation: Option<SignedAttestation<HashFor<B>, AccountId>>,
 
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
@@ -53,7 +52,9 @@ where
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
 
+    #[allow(dead_code)]
     pub client: Arc<C>,
+
     /// Client Backend
     pub backend: Arc<BE>,
 
@@ -281,18 +282,24 @@ where
             return Err(Error::DigestMissMatch);
         }
 
-        let current_block_hash = self
-            .client
-            .block_hash(blockchain_info.best_number)
-            .ok()
-            .flatten()
-            .expect("Current block hash exists; qed");
-
         // Get randomness from the attestation
         info!(target: LOG_TARGET, "Getting randomness for attestation at epoch: {}", attestation.vrf_output.epoch);
         let runtime = self.runtime.runtime_api();
-        let randomness_from_attestation =
-            runtime.randomness_by_epoch_id(current_block_hash, attestation.vrf_output.epoch)?;
+        let randomness_from_attestation = runtime
+            .randomness_by_epoch_id(blockchain_info.best_hash, attestation.vrf_output.epoch)?;
+
+        let current_epoch = runtime.current_epoch(blockchain_info.best_hash)?;
+        let two_epochs_ago = current_epoch.epoch_index.saturating_sub(2);
+
+        let randomness_from_two_epochs_ago =
+            runtime.randomness_by_epoch_id(blockchain_info.best_hash, two_epochs_ago)?;
+
+        // Enforce that an attestor can only submit an attestation if they signed the VRF output from two epochs ago
+        // calculated from "now" which means the current epoch on a synced node
+        if randomness_from_attestation != randomness_from_two_epochs_ago {
+            debug!(target: LOG_TARGET, "📝 Randomness from attestation: {:?}, randomness from two epochs ago: {:?}", randomness_from_attestation, randomness_from_two_epochs_ago);
+            return Err(Error::InvalidAttestationVrfOuput);
+        }
 
         // Format the randomness as a number
         let randomness_u256 = U256::from_little_endian(&randomness_from_attestation);

@@ -139,6 +139,89 @@ impl<'a> Client {
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
         })
     }
+
+    pub async fn submit_attestation<H>(
+        &self,
+        mut attestation: AttestationPrimitive<H>,
+    ) -> Result<()>
+    where
+        H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
+    {
+        let chain_id = attestation.chain_id;
+        // check we can submit this attestation according to the interval
+        let attestation_interval = self
+            .cc_client
+            .chain_attestation_interval(chain_id)
+            .await
+            .map_err(|_e| {
+                error!("Error getting attestation interval for chain: {}", chain_id);
+                Error::FailedToGetAttestationInterval
+            })?
+            .ok_or(Error::FailedToGetAttestationInterval)?;
+
+        if attestation.header_number % attestation_interval != 0 {
+            warn!(
+                "Skipping Attestation because it's not in the configured interval for this chain"
+            );
+            return Ok(());
+        };
+
+        let is_attestor_member = self.cc_client.check_attestors_membership().await?;
+        if !is_attestor_member {
+            warn!("Attestor is not valid at current timeframe, skipping...");
+            return Ok(());
+        };
+
+        // Get the digest of the attestation
+        let attestation_digest = attestation.digest();
+
+        // check if attestation already exists
+        // if yes, don't submit
+        let exists = self
+            .cc_client
+            .chain_attestation_exists(chain_id, attestation_digest)
+            .await?;
+
+        if exists {
+            warn!("Attestation already exists, skipping...");
+            return Ok(());
+        }
+
+        // Get the last digest from the chain
+        // and set it as the previous digest of the attestation
+        let prev_digest = self.cc_client.fetch_last_digest(chain_id).await?;
+        attestation.prev_digest = prev_digest;
+
+        let mut inclusion = false;
+        while !inclusion {
+            info!("Trying to submit attestation...");
+            let attestation = self
+                .sign_attestation(attestation.clone())
+                .await
+                .map_err(|e| {
+                    error!("Error signing attestation: {:?}", e);
+                    Error::FailedToSignBabeVrf
+                })?;
+
+            let chain_id = attestation.attestation_data.chain_id;
+            // Submit the attestation to the chain
+            self.cc_client
+                .submit_attestation(attestation)
+                .await
+                .map_err(|e| {
+                    error!("Error submitting attestation: {:?}", e);
+                    Error::FailedToSubmit
+                })?;
+
+            inclusion =
+                check_attestation_inclusion(self.cc_client.clone(), chain_id, attestation_digest)
+                    .await?;
+        }
+
+        info!("✅ Attestation with digest {attestation_digest} included in chain");
+
+        Ok(())
+    }
 }
 
 impl Actor for Client {}
@@ -168,15 +251,15 @@ where
             return Ok(());
         }
 
-        let attestation = self
-            .sign_attestation(msg.attestation.unwrap())
-            .await
-            .map_err(|e| {
-                error!("Error signing attestation: {:?}", e);
-                Error::FailedToSignBabeVrf
-            })?;
+        // let attestation = self
+        //     .sign_attestation(msg.attestation.unwrap())
+        //     .await
+        //     .map_err(|e| {
+        //         error!("Error signing attestation: {:?}", e);
+        //         Error::FailedToSignBabeVrf
+        //     })?;
 
-        submit_attestation(self.cc_client.clone(), attestation)
+        self.submit_attestation(msg.attestation.unwrap())
             .await
             .map_err(|e| {
                 error!("Error submitting attestation: {:?}", e);
@@ -185,85 +268,6 @@ where
 
         Ok(())
     }
-}
-
-pub async fn submit_attestation<H, AccountId>(
-    cc_client: CcClient,
-    mut attestation: Attestation<H, AccountId>,
-) -> Result<()>
-where
-    H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
-    AccountId: Serialize + Send + Sync + std::fmt::Debug + Clone,
-{
-    // check we can submit this attestation according to the interval
-    let attestation_interval = cc_client
-        .chain_attestation_interval(attestation.attestation_data.chain_id)
-        .await
-        .map_err(|_e| {
-            error!(
-                "Error getting attestation interval for chain: {}",
-                attestation.attestation_data.chain_id
-            );
-            Error::FailedToGetAttestationInterval
-        })?
-        .ok_or(Error::FailedToGetAttestationInterval)?;
-
-    if attestation.attestation_data.header_number % attestation_interval != 0 {
-        warn!("Skipping Attestation because it's not in the configured interval for this chain");
-        return Ok(());
-    };
-
-    let is_attestor_member = cc_client.check_attestors_membership().await?;
-
-    if !is_attestor_member {
-        warn!("Attestor is not valid at current timeframe, skipping...");
-        return Ok(());
-    };
-
-    // Get the digest of the attestation
-    let attestation_digest = attestation.attestation_data.digest();
-
-    // check if attestation already exists
-    // if yes, don't submit
-    let exists = cc_client
-        .chain_attestation_exists(attestation.attestation_data.chain_id, attestation_digest)
-        .await?;
-
-    if exists {
-        warn!("Attestation already exists, skipping...");
-        return Ok(());
-    }
-
-    // Get the last digest from the chain
-    // and set it as the previous digest of the attestation
-    let prev_digest = cc_client
-        .fetch_last_digest(attestation.attestation_data.chain_id)
-        .await?;
-    attestation.attestation_data.prev_digest = prev_digest;
-
-    let mut inclusion = false;
-    while !inclusion {
-        info!("Trying to submit attestation...");
-        // Submit the attestation to the chain
-        cc_client
-            .submit_attestation(attestation.clone())
-            .await
-            .map_err(|e| {
-                error!("Error submitting attestation: {:?}", e);
-                Error::FailedToSubmit
-            })?;
-
-        inclusion = check_attestation_inclusion(
-            cc_client.clone(),
-            attestation.attestation_data.chain_id,
-            attestation_digest,
-        )
-        .await?;
-    }
-
-    info!("✅ Attestation with digest {attestation_digest} included in chain");
-
-    Ok(())
 }
 
 /// Check if the attestation is included in the chain
