@@ -164,25 +164,68 @@ fn register_chain_should_error_when_chain_key_index_exceeded() {
 #[test]
 fn remove_chain_works() {
     ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
         let chain_key = 1;
 
+        // chain has already been added therefore index is now 2
+        assert_eq!(SupportedChain::chain_key_value(), 2);
         assert_ok!(SupportedChain::remove_chain(
             RuntimeOrigin::root(),
             chain_key
         ));
         assert_eq!(SupportedChains::<Test>::get(chain_key), None);
+
+        // internal index should not change
+        assert_eq!(SupportedChain::chain_key_value(), 2);
+
+        // assert on emited event
+        System::assert_last_event(
+            crate::Event::ChainRemoved {
+                chain_key,
+                chain_id: 1,
+                chain_name: "Ethereum".into(),
+            }
+            .into(),
+        );
     });
 }
 
 #[test]
-fn remove_chain_returns_correct_error_when_chain_is_not_supported() {
+fn remove_chain_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::remove_chain(RuntimeOrigin::none(), chain_key),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn remove_chain_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        let chain_key = 1;
+        let acct: AccountId = 4;
+
+        assert_noop!(
+            SupportedChain::remove_chain(RuntimeOrigin::signed(acct), chain_key),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn remove_chain_should_error_when_chain_is_not_supported() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        let chain_id = 1;
+        let chain_key = 1;
 
         assert_noop!(
-            SupportedChain::remove_chain(RuntimeOrigin::root(), chain_id),
+            SupportedChain::remove_chain(RuntimeOrigin::root(), chain_key),
             Error::<Test>::ChainNotSupported
         );
     });
