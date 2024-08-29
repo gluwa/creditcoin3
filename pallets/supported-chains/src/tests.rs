@@ -32,7 +32,7 @@ fn register_chain_works() {
 }
 
 #[test]
-fn register_duplicate_chain_returns_error() {
+fn register_chain_should_error_when_registering_duplicate_chain() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
         let chain_id = 1;
