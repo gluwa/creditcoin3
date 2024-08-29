@@ -478,14 +478,27 @@ pub mod pallet {
 
             Attestations::<T>::insert(chain_id, digest, &attestation);
 
-            Self::deposit_event(Event::<T>::ChainBootstrapped(chain_id, attestation));
-
             // Store checkpointing queue entry
-            let mut queue = CheckpointingQueues::<T>::get(chain_id);
-            queue.push_back(digest);
+            CheckpointingQueues::<T>::mutate(chain_id, |queue| {
+                queue.push_back(digest);
+            });
+
+            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
 
             // Make checkpoint if necessary.
-            Self::try_make_checkpoint(&mut queue, chain_id)?;
+            let mut queue = CheckpointingQueues::<T>::get(chain_id);
+            // The extrinsic didn't fail even if checkpointing failed. We want
+            // to keep the new attestation rather than removing it from storage
+            // via extrinsic rollback in the case of checkpointing failure.
+            match Self::try_make_checkpoint(&mut queue, chain_id) {
+                Ok(_) => CheckpointingQueues::<T>::insert(chain_id, queue),
+                Err(_) => {
+                    log::error!(
+                        "Attestation checkpointing has broken. Attestations are still being recorded, 
+                        but will not be condensed until checkpointing is fixed."
+                    )
+                }
+            }
 
             Ok(())
         }
@@ -550,16 +563,27 @@ pub mod pallet {
             // Update last digest
             LastDigest::<T>::set(chain_id, Some(digest));
 
+            // Store checkpointing queue entry
+            CheckpointingQueues::<T>::mutate(chain_id, |queue| {
+                queue.push_back(digest);
+            });
+
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
 
-            // Store checkpointing queue entry
+            // Make checkpoint if necessary.
             let mut queue = CheckpointingQueues::<T>::get(chain_id);
-            queue.push_back(digest);
-
-            // Make checkpoint if necessary, removing queue entries
-            Self::try_make_checkpoint(&mut queue, chain_id)?;
-
-            CheckpointingQueues::<T>::insert(chain_id, queue);
+            // The extrinsic didn't fail even if checkpointing failed. We want
+            // to keep the new attestation rather than removing it from storage
+            // via extrinsic rollback in the case of checkpointing failure.
+            match Self::try_make_checkpoint(&mut queue, chain_id) {
+                Ok(_) => CheckpointingQueues::<T>::insert(chain_id, queue),
+                Err(_) => {
+                    log::error!(
+                        "Attestation checkpointing has broken. Attestations are still being recorded, 
+                        but will not be condensed until checkpointing is fixed."
+                    )
+                }
+            }
 
             Ok(())
         }
@@ -756,25 +780,66 @@ pub mod pallet {
                 return Ok(());
             }
 
-            for _ in 0..num_to_condense - 1 {
-                let to_be_removed: Digest = queue
-                    .pop_front()
-                    .ok_or(Error::<T>::CheckpointCreationError)?;
-                Attestations::<T>::remove(chain_id, to_be_removed);
+            // Keep track of changes to roll them back if checkpoint creation fails
+            let mut attestations_rollback_record: Vec<SignedAttestation<T::Hash, T::AccountId>> =
+                Vec::new();
+
+            for i in 0..num_to_condense {
+                let to_be_removed: Digest = match queue.pop_front() {
+                    Some(digest) => digest,
+                    None => {
+                        attestations_rollback_record
+                            .into_iter()
+                            .for_each(|attestation| {
+                                Attestations::<T>::insert(
+                                    chain_id,
+                                    attestation.digest(),
+                                    attestation,
+                                );
+                            });
+                        return Err(Error::<T>::CheckpointCreationError.into());
+                    }
+                };
+
+                let removed = match Attestations::<T>::take(chain_id, to_be_removed) {
+                    Some(attestation) => attestation,
+                    None => {
+                        attestations_rollback_record
+                            .into_iter()
+                            .for_each(|attestation| {
+                                Attestations::<T>::insert(
+                                    chain_id,
+                                    attestation.digest(),
+                                    attestation,
+                                );
+                            });
+                        return Err(Error::<T>::CheckpointCreationError.into());
+                    }
+                };
+
+                if i < num_to_condense - 1 {
+                    attestations_rollback_record.push(removed);
+                } else {
+                    // For the very last attestation in the checkpoint we don't have
+                    // to add an attestations_rollback_record entry, since there
+                    // are no further possible errors.
+                    let checkpoint = AttestationCheckpoint {
+                        block_number: removed.header_number(),
+                        digest: removed.digest(),
+                    };
+                    Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                }
             }
-            // We use the final attestation out of the condensed set to construct the checkpoint
-            let to_be_removed: Digest = queue
-                .pop_front()
-                .ok_or(Error::<T>::CheckpointCreationError)?;
-            let checkpoint_attestation = Attestations::<T>::take(chain_id, to_be_removed)
-                .ok_or(Error::<T>::CheckpointCreationError)?;
-            let checkpoint = AttestationCheckpoint {
-                block_number: checkpoint_attestation.header_number(),
-                digest: checkpoint_attestation.digest(),
-            };
-            Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
 
             Ok(())
+        }
+
+        #[cfg(test)]
+        pub(crate) fn break_checkpointing() {
+            let test_chain_id = 1;
+            CheckpointingQueues::<T>::mutate(test_chain_id, |queue| {
+                queue.push_back([0u8; 32].into());
+            })
         }
     }
     // helper functions for checking inherent data

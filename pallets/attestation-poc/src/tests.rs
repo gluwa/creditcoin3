@@ -575,7 +575,7 @@ fn creating_checkpoint_works() {
         let mut removed_by_checkpoint: Vec<H256> = Vec::new();
         let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
         let mut checkpoint_attestation: Option<SignedAttestation<H256, u64>> = None;
-        for i in 0..((att_per_check * 2) - 1) as usize {
+        for i in 0..(att_per_check * 2) as usize {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 chain_id,
@@ -606,26 +606,6 @@ fn creating_checkpoint_works() {
 
         assert_eq!(
             Attestation::checkpointing_queues(chain_id).len(),
-            ((att_per_check * 2) - 1) as usize
-        );
-
-        // Submit final attestation, triggering checkpointing
-        let last_att_block_number = (att_per_check as u64 * 2 * att_interval) + 1;
-        let final_attestation = create_signed_attestation(
-            vec![attestor.clone()],
-            chain_id,
-            last_att_block_number,
-            last_digest,
-        );
-        kept_after_checkpoint.push(final_attestation.clone());
-
-        assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
-            final_attestation
-        ));
-
-        assert_eq!(
-            Attestation::checkpointing_queues(chain_id).len(),
             att_per_check as usize
         );
 
@@ -650,6 +630,95 @@ fn creating_checkpoint_works() {
             Attestation::checkpoints(chain_id, resulting_checkpoint.digest),
             Some(resulting_checkpoint)
         )
+    })
+}
+
+#[test]
+fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_match_attestations_map()
+{
+    ExtBuilder.build_and_execute(|| {
+        // Setup almost two full checkpoints of attestations, so that
+        // the next attestation submitted triggers checkpoint creation.
+        let attestor = Attestor::new(ATTESTOR_1);
+        let chain_id = 1;
+        let att_interval = Attestation::chain_attestation_interval(chain_id);
+        let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id) as u64;
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.attestor.clone(),
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let mut last_digest: Option<H256> = None;
+        let mut attestations = Vec::new();
+        for i in 0..(att_per_check - 1) {
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                chain_id,
+                (att_interval * i) + 1,
+                last_digest,
+            );
+            last_digest = Some(attestation.digest());
+            attestations.push(attestation.clone());
+
+            assert_ok!(Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                attestation.clone()
+            ));
+        }
+
+        // Inserts a garbage checkpointing queue entry without corresponding
+        // attestations entry. We break checkpointing part way through,
+        // requiring that all previous state changes be rolled back.
+        Attestation::break_checkpointing();
+
+        // Trigger checkpointing by adding more attestations
+        for i in att_per_check..(att_per_check * 2) {
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                chain_id,
+                (att_interval * i) + 1,
+                last_digest,
+            );
+            last_digest = Some(attestation.digest());
+
+            if i == att_per_check * 2 - 1 {
+                // Before committing final attestation, queue should contain 2
+                // checkpoints worth of attestations - 1
+                assert_eq!(
+                    Attestation::checkpointing_queues(chain_id).len(),
+                    (att_per_check * 2 - 1) as usize
+                );
+
+                assert_ok!(Attestation::commit_attestation(
+                    RuntimeOrigin::none(),
+                    attestation.clone()
+                ));
+
+                // The final attestation should have been successfully added to
+                // the queue, and then any removals from the queue due to
+                // checkpointing should have been rolled back.
+                assert_eq!(
+                    Attestation::checkpointing_queues(chain_id).len(),
+                    (att_per_check * 2) as usize
+                );
+
+                // Check that no attestations are missing from storage
+                for attestation in &attestations {
+                    assert_eq!(
+                        Attestation::attestations(chain_id, attestation.digest()),
+                        Some(attestation.clone())
+                    );
+                }
+            } else {
+                // No checkpointing this pass
+                assert_ok!(Attestation::commit_attestation(
+                    RuntimeOrigin::none(),
+                    attestation.clone()
+                ));
+            }
+        }
     })
 }
 
