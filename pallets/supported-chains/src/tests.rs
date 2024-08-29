@@ -282,3 +282,17 @@ fn empty_supported_chains() {
         assert_eq!(supported_chains, None);
     });
 }
+
+#[test]
+#[should_panic]
+fn build_should_panic_with_duplicate_chains_in_genesis() {
+    ExtBuilder.build_and_execute_with_duplicate_chains(
+        vec![
+            (1, "Ethereum".as_bytes().to_vec()),
+            (1, "Ethereum".as_bytes().to_vec()),
+        ],
+        || {
+            System::set_block_number(1);
+        },
+    );
+}

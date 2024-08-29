@@ -1,4 +1,5 @@
 use crate as supported_chains;
+use crate::ChainId;
 use frame_support::traits::{ConstU16, ConstU64};
 use sp_core::H256;
 use sp_runtime::{
@@ -69,6 +70,26 @@ impl ExtBuilder {
 
     pub fn build_and_execute(self, test: impl FnOnce()) {
         self.with_supported_chains().execute_with(test);
+    }
+
+    pub fn build_and_execute_with_duplicate_chains(
+        self,
+        supported_chains: Vec<(ChainId, Vec<u8>)>,
+        test: impl FnOnce(),
+    ) {
+        let mut storage = frame_system::GenesisConfig::<Test>::default()
+            .build_storage()
+            .unwrap();
+
+        let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+            supported_chains,
+            _phantom: Default::default(),
+        };
+
+        pallet_genesis.assimilate_storage(&mut storage).unwrap();
+
+        let mut ext: sp_io::TestExternalities = storage.into();
+        ext.execute_with(test);
     }
 }
 
