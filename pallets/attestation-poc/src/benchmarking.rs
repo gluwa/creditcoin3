@@ -63,8 +63,7 @@ fn create_signed_attestation<T: frame_system::Config>(
         chain_id,
         header_number,
         header_hash: <T as frame_system::Config>::Hash::default(),
-        tx_root: [0; 32],
-        rx_root: [0; 32],
+        root: [0; 32],
         prev_digest,
     };
 

@@ -13,6 +13,7 @@ use attestation_chain::attestation_fragment::AttestationFragment;
 use attestation_chain::block::Block;
 use attestation_db::json_db::AttestationJsonDB;
 use attestation_db::{AttestationDB, AttestationDbError, FullFragment};
+use attestation_chain::AttestationChainParams;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Outcome {
@@ -44,7 +45,13 @@ impl DbManager {
             AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>,
         >,
         full_fragment_append_outcome_callback: Option<
-            AsyncCallbackWithArg<Result<Box<AttestationFragment>, AttestationDbError>, ()>,
+            AsyncCallbackWithArg<
+                Result<
+                    Box<AttestationFragment>,
+                    AttestationDbError,
+                >,
+                (),
+            >,
         >,
         db_manager_task_exitted_callback: Option<AsyncCallbackWithArg<Outcome, ()>>,
     ) -> Self {
@@ -70,6 +77,7 @@ impl DbManager {
                 EventLoopKind::HistoricalBlocksCrawlerDbEventLoop => {
                     {
                         historical_blocks_forward_crawler_db_event_loop(
+//                            attestation_chain_params,
                             block_receiver,
                             db,
                             cancellation_token_cloned,
@@ -106,17 +114,26 @@ impl DbManager {
 
 #[allow(dead_code)]
 async fn historical_blocks_backward_crawler_db_event_loop(
+    attestation_chain_params: Arc<AttestationChainParams>,
     mut block_receiver: UnboundedReceiver<Block>,
     db: Arc<RwLock<AttestationJsonDB>>,
     cancellation_token: CancellationToken,
     //    stop_condition: StopCondition,
-    on_block_append_outcome: Option<AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>>,
+    on_block_append_outcome: Option<
+        AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>,
+    >,
     on_full_fragment_set_outcome: Option<
-        AsyncCallbackWithArg<Result<Box<AttestationFragment>, AttestationDbError>, ()>,
+        AsyncCallbackWithArg<
+            Result<
+                Box<AttestationFragment>,
+                AttestationDbError,
+            >,
+            (),
+        >,
     >,
     on_db_manager_task_exitted: Option<AsyncCallbackWithArg<Outcome, ()>>,
 ) {
-    let mut fragment = AttestationFragment::default();
+    let mut fragment = AttestationFragment::new(*attestation_chain_params);
 
     let outcome = loop {
         tokio::select! {
@@ -127,7 +144,7 @@ async fn historical_blocks_backward_crawler_db_event_loop(
                     match result {
                         Ok(head) => {
                             let head = head.clone();
-                            match FullFragment::try_from(&fragment) {
+                            match FullFragment::try_from((&fragment, *attestation_chain_params)) {
                                 Ok(full_fragment) => {
                                     let result = db.write().await.set_fragment(full_fragment);
 
@@ -135,7 +152,7 @@ async fn historical_blocks_backward_crawler_db_event_loop(
                                         callback(result.map(|()| Box::new(fragment.clone()))).await;
                                     }
 
-                                    fragment = AttestationFragment::default();
+                                    fragment = AttestationFragment::new(*attestation_chain_params);
                                 },
                                 Err(_) => {
                                     if let Some(ref callback) = on_block_append_outcome {
@@ -168,50 +185,58 @@ async fn historical_blocks_forward_crawler_db_event_loop(
     db: Arc<RwLock<AttestationJsonDB>>,
     cancellation_token: CancellationToken,
     //    stop_condition: StopCondition,
-    on_block_append_outcome: Option<AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>>,
+    on_block_append_outcome: Option<
+        AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>,
+    >,
     on_full_fragment_set_outcome: Option<
-        AsyncCallbackWithArg<Result<Box<AttestationFragment>, AttestationDbError>, ()>,
+        AsyncCallbackWithArg<
+            Result<
+                Box<AttestationFragment>,
+                AttestationDbError,
+            >,
+            (),
+        >,
     >,
     on_db_manager_task_exitted: Option<AsyncCallbackWithArg<Outcome, ()>>,
 ) {
     let outcome = loop {
         tokio::select! {
-                    res = block_receiver.recv() => match res {
-                        Some(block) => {
-                            let result = db.write().await.try_append_block(block);
-                            match result {
-                                Ok(Some(fragment_boxed)) => {
-                                    if let Some(ref callback) = on_full_fragment_set_outcome {
-                                        callback(Ok(fragment_boxed.clone())).await;
-                                    }
-                                },
-                                Err(AttestationDbError::FragmentAlreadySet(fragment_interval)) => {
-        //                            Err(AttestationDbError::FragmentAlreadySet(fragment_boxed)) => {
-        //                            let fragment_boxed_cloned = fragment_boxed.clone();
-                                    if let Some(ref callback) = on_full_fragment_set_outcome {
-                                        callback(Err(AttestationDbError::FragmentAlreadySet(fragment_interval))).await;
-        //                                callback(Err(AttestationDbError::FragmentAlreadySet(fragment_boxed_cloned))).await;
-                                    }
-                                },
-                                Ok(None) => {
-                                    if let Some(ref callback) = on_block_append_outcome {
-                                        let head = db.read().await.recent_fragment().head().expect("fragment has head").clone();
-                                        callback(Ok(head)).await;
-                                    }
-                                },
-
-                                Err(err) => {
-                                    if let Some(ref callback) = on_block_append_outcome {
-                                        callback(Err(err)).await;
-                                    }
-                                },
+            res = block_receiver.recv() => match res {
+                Some(block) => {
+                    let result = db.write().await.try_append_block(block);
+                    match result {
+                        Ok(Some(fragment_boxed)) => {
+                            if let Some(ref callback) = on_full_fragment_set_outcome {
+                                callback(Ok(fragment_boxed)).await;
+                            }
+                        },
+                        Err(AttestationDbError::FragmentAlreadySet(fragment_interval)) => {
+//                            Err(AttestationDbError::FragmentAlreadySet(fragment_boxed)) => {
+//                            let fragment_boxed_cloned = fragment_boxed.clone();
+                            if let Some(ref callback) = on_full_fragment_set_outcome {
+                                callback(Err(AttestationDbError::FragmentAlreadySet(fragment_interval))).await;
+//                                callback(Err(AttestationDbError::FragmentAlreadySet(fragment_boxed_cloned))).await;
+                            }
+                        },
+                        Ok(None) => {
+                            if let Some(ref callback) = on_block_append_outcome {
+                                let head = db.read().await.recent_fragment().head().expect("fragment has head").clone();
+                                callback(Ok(head)).await;
                             }
                         },
 
-                        None => break Outcome::SenderDropped,
-                    },
-                    _ = cancellation_token.cancelled() => break Outcome::Cancelled,
-                }
+                        Err(err) => {
+                            if let Some(ref callback) = on_block_append_outcome {
+                                callback(Err(err)).await;
+                            }
+                        },
+                    }
+                },
+
+                None => break Outcome::SenderDropped,
+            },
+            _ = cancellation_token.cancelled() => break Outcome::Cancelled,
+        }
     };
 
     if let Some(callback) = on_db_manager_task_exitted {
@@ -224,9 +249,17 @@ async fn block_listener_db_event_loop(
     db: Arc<RwLock<AttestationJsonDB>>,
     cancellation_token: CancellationToken,
 
-    on_block_append_outcome: Option<AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>>,
+    on_block_append_outcome: Option<
+        AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>,
+    >,
     on_full_fragment_set_outcome: Option<
-        AsyncCallbackWithArg<Result<Box<AttestationFragment>, AttestationDbError>, ()>,
+        AsyncCallbackWithArg<
+            Result<
+                Box<AttestationFragment>,
+                AttestationDbError,
+            >,
+            (),
+        >,
     >,
     on_db_manager_task_exitted: Option<AsyncCallbackWithArg<Outcome, ()>>,
 ) {
@@ -279,8 +312,15 @@ pub struct DbManagerBuilder {
     block_append_outcome_callback:
         Option<AsyncCallbackWithArg<Result<Block, AttestationDbError>, ()>>,
     //    full_fragment_appended_callback: Option<AsyncCallbackWithArg<u64, ()>>,
-    full_fragment_append_outcome_callback:
-        Option<AsyncCallbackWithArg<Result<Box<AttestationFragment>, AttestationDbError>, ()>>,
+    full_fragment_append_outcome_callback: Option<
+        AsyncCallbackWithArg<
+            Result<
+                Box<AttestationFragment>,
+                AttestationDbError,
+            >,
+            (),
+        >,
+    >,
     db_manager_task_exitted_callback: Option<AsyncCallbackWithArg<Outcome, ()>>,
 }
 
@@ -344,7 +384,10 @@ impl DbManagerBuilder {
     pub fn on_block_append_outcome<F>(&mut self, f: F) -> &mut Self
     where
         //        F: AsyncCallbackWithArgTrait<Result<Block, AttestationDbError>, ()>,
-        F: Fn(Result<Block, AttestationDbError>) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+        F: Fn(Result<Block, AttestationDbError>) -> BoxFuture<'static, ()>
+            + Send
+            + Sync
+            + 'static,
     {
         self.block_append_outcome_callback = Some(Arc::new(f));
         self
@@ -353,7 +396,12 @@ impl DbManagerBuilder {
     pub fn on_full_fragment_set_outcome<F>(&mut self, f: F) -> &mut Self
     where
         //        F: AsyncCallbackWithArgTrait<Result<Box<AttestationFragment>, AttestationDbError>, ()>,
-        F: Fn(Result<Box<AttestationFragment>, AttestationDbError>) -> BoxFuture<'static, ()>
+        F: Fn(
+                Result<
+                    Box<AttestationFragment>,
+                    AttestationDbError,
+                >,
+            ) -> BoxFuture<'static, ()>
             + Send
             + Sync
             + 'static,

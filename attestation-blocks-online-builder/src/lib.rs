@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //#![feature(trait_alias)]
 
 pub mod attestation_blocks_online_builder;
@@ -13,7 +14,6 @@ pub mod source_blocks_provider;
 pub use crate::attestation_blocks_online_builder::*;
 pub use crate::historical_blocks_provider::*;
 pub use crate::source_blocks_provider::*;
-use ethereum_types::U256;
 use ethers::providers::Ws;
 use futures::future::BoxFuture;
 use std::sync::Arc;
@@ -36,11 +36,11 @@ pub const SOURCE_BLOCK_TIME_MILLIS: u128 = 12_000;
 pub const DEFAULT_MAX_BLOCKS_TO_RETRIEVE: usize = 5;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct SourceChainBlockIdentifier(U256);
+pub struct SourceChainBlockIdentifier(u64);
 //pub struct SourceChainBlockIdentifier(u64);
 
 impl SourceChainBlockIdentifier {
-    fn block_number(&self) -> U256 {
+    fn block_number(&self) -> u64 {
         self.0
     }
 }
@@ -49,17 +49,17 @@ impl TryFrom<EthersBlock> for SourceChainBlockIdentifier {
     type Error = ();
 
     fn try_from(block: EthersBlock) -> Result<Self, Self::Error> {
-        Ok(Self(block.number.map(|n| n.as_u64().into()).ok_or(())?))
+        Ok(Self(block.number.map(|n| n.as_u64()).ok_or(())?))
     }
 }
 
-impl From<U256> for SourceChainBlockIdentifier {
-    fn from(n: U256) -> Self {
+impl From<u64> for SourceChainBlockIdentifier {
+    fn from(n: u64) -> Self {
         Self(n)
     }
 }
 
-impl From<SourceChainBlockIdentifier> for U256 {
+impl From<SourceChainBlockIdentifier> for u64 {
     fn from(b: SourceChainBlockIdentifier) -> Self {
         b.0
     }

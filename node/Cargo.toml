@@ -107,9 +107,6 @@ creditcoin3-attestor-rpc = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
-# Prover
-prover-primitives = { workspace = true }
-
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 

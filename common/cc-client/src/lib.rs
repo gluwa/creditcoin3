@@ -1,4 +1,3 @@
-use alloy::primitives::Address;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sp_core::{H256, U256};
@@ -11,12 +10,11 @@ use subxt_signer::{
     SecretUri,
 };
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use cc3::runtime_types::attestor_primitives::{
     Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
 };
-use cc3::runtime_types::prover_primitives::ChainPriceConfiguration;
 
 use attestor_primitives::{
     Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
@@ -34,10 +32,6 @@ use creditcoin3_attestor_gossip::{Attestation as RpcAttestation, AttestorId, Vrf
 pub mod cc3 {}
 
 pub mod attestation;
-pub mod claim;
-pub mod proof;
-
-use cc3::runtime_types::pallet_prover::types::Prover;
 
 pub type Randomness = [u8; 32];
 
@@ -49,7 +43,6 @@ pub type Randomness = [u8; 32];
 pub struct Client {
     url: String,
     pub keypair: Keypair,
-    pub evm_address: Address,
     api: OnlineClient<SubstrateConfig>,
 }
 
@@ -57,28 +50,18 @@ impl<'a> Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
-    pub async fn new(
-        url: impl Into<String> + Clone,
-        key: &'a str,
-        // private_key: &[u8; 32],
-    ) -> Result<Self> {
+    pub async fn new(url: impl Into<String> + Clone, key: &'a str) -> Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
         let keypair = Keypair::from_uri(&secret_uri)?;
 
-        let evm_address_slice = &keypair.public_key().0[0..20];
-        // let a = hex::encode(evm_address_slice);
-        let evm_address = Address::from_slice(evm_address_slice);
-        info!("Substrate evm address: {:?}", evm_address);
-
         let url = url.into();
-        let api = OnlineClient::<SubstrateConfig>::from_url(&url).await?;
+        let api = if url.contains("ws") || url.contains("http") {
+            OnlineClient::<SubstrateConfig>::from_insecure_url(&url).await?
+        } else {
+            OnlineClient::<SubstrateConfig>::from_url(&url).await?
+        };
 
-        Ok(Self {
-            url,
-            keypair,
-            evm_address,
-            api,
-        })
+        Ok(Self { url, keypair, api })
     }
 
     #[must_use]
@@ -86,26 +69,16 @@ impl<'a> Client {
         self.keypair.sign(message)
     }
 
-    #[must_use]
-    pub fn get_evm_address(&self) -> Address {
-        self.evm_address
-    }
-
-    pub async fn get_chain_key(
-        url: impl Into<String> + Clone,
-        chain_id: u64,
-        name: Vec<u8>,
-    ) -> Result<Option<ChainId>> {
-        let url = url.into();
-        let api = OnlineClient::<SubstrateConfig>::from_url(&url).await?;
-        let chain_key = api
+    pub async fn get_chain_key(&self, chain_id: u64, name: String) -> Result<Option<ChainId>> {
+        let chain_key = self
+            .api
             .storage()
             .at_latest()
             .await?
             .fetch(
                 &cc3::storage()
                     .supported_chains()
-                    .chain_id_and_name_to_uniq_key(chain_id, name),
+                    .chain_id_and_name_to_uniq_key(chain_id, name.as_bytes()),
             )
             .await?;
 
@@ -221,48 +194,6 @@ impl<'a> Client {
         Ok(())
     }
 
-    /// Check the clients membership in the prover pallet
-    pub async fn check_provers_membership(&self, account_id: Option<AccountId32>) -> Result<bool> {
-        let account_id = if let Some(account_id) = account_id {
-            account_id
-        } else {
-            AccountId32(self.keypair.public_key().0)
-        };
-
-        let storage_query = cc3::storage().prover().provers(account_id);
-
-        let result = self
-            .api
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&storage_query)
-            .await?
-            .is_some();
-
-        Ok(result)
-    }
-
-    /// Register to the prover pallet
-    pub async fn register_prover(&self, nickname: String) -> Result<()> {
-        let tx = cc3::tx().prover().register_prover(Prover {
-            nickname: nickname.into(),
-        });
-
-        let ext = self
-            .api
-            .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.keypair)
-            .await?
-            .wait_for_finalized_success()
-            .await?;
-
-        let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
-
-        Ok(())
-    }
-
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
@@ -303,57 +234,6 @@ impl<'a> Client {
     #[must_use]
     pub fn get_attestor_id(&self) -> AttestorId {
         AttestorId::from_public(self.keypair.public_key().0)
-    }
-
-    pub async fn get_chain_price_configurations(
-        &self,
-        account_id: Option<AccountId32>,
-    ) -> Result<Vec<ChainPriceConfiguration>> {
-        let account_id = if let Some(account_id) = account_id {
-            account_id
-        } else {
-            AccountId32(self.keypair.public_key().0)
-        };
-
-        let storage_query = cc3::storage()
-            .prover()
-            .provers_chain_price_configurations(account_id);
-
-        let result = self
-            .api
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&storage_query)
-            .await?
-            .ok_or(Error::FailedToGetChainPriceConfigurations)?;
-
-        Ok(result)
-    }
-
-    pub async fn update_chain_price_configurations(
-        &self,
-        chain_price_configurations: Vec<ChainPriceConfiguration>,
-    ) -> Result<()> {
-        let tx = cc3::tx()
-            .prover()
-            .set_chain_price_config(chain_price_configurations);
-
-        let ext = self
-            .api
-            .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.keypair)
-            .await?
-            .wait_for_finalized_success()
-            .await?;
-
-        let hash = ext.extrinsic_hash();
-        debug!(
-            "Chain price configurations extrinsic submitted with hash: {:?}",
-            hash
-        );
-
-        Ok(())
     }
 
     pub async fn chain_attestation_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
@@ -413,7 +293,12 @@ impl<'a> Client {
         H: Serialize,
         A: Serialize,
     {
-        let rpc_client = RpcClient::from_url(self.url.clone()).await?;
+        let rpc_client = if self.url.contains("http") || self.url.contains("ws") {
+            warn!("Creating insucure rpc client to submit attestation");
+            RpcClient::from_insecure_url(self.url.clone()).await?
+        } else {
+            RpcClient::from_url(self.url.clone()).await?
+        };
 
         let mut params = RpcParams::new();
         params.push(attestation)?;
@@ -468,30 +353,6 @@ impl<'a> Client {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct ChainPriceConfig {
-    pub chain_id: ChainId,
-    pub price: u64,
-}
-
-impl From<ChainPriceConfiguration> for ChainPriceConfig {
-    fn from(config: ChainPriceConfiguration) -> Self {
-        ChainPriceConfig {
-            chain_id: config.chain_id,
-            price: config.price,
-        }
-    }
-}
-
-impl From<ChainPriceConfig> for ChainPriceConfiguration {
-    fn from(val: ChainPriceConfig) -> Self {
-        ChainPriceConfiguration {
-            chain_id: val.chain_id,
-            price: val.price,
-        }
-    }
-}
-
 impl<H, A> From<CcSignedAttestation<H, A>> for SignedAttestation<H, A>
 where
     H: Into<H256>,
@@ -514,8 +375,7 @@ where
             chain_id: attestation.chain_id,
             header_number: attestation.header_number,
             header_hash: attestation.header_hash,
-            tx_root: attestation.tx_root,
-            rx_root: attestation.rx_root,
+            root: attestation.root,
             prev_digest: attestation.prev_digest.map(Into::into),
         }
     }
@@ -553,4 +413,6 @@ pub enum Error {
     FailedToGetChainPriceConfigurations,
     #[error("Failed to get attestation interval")]
     FailedToGetAttestationInterval,
+    #[error("Failed to get chain key")]
+    FailedToGetChainKey,
 }

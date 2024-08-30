@@ -55,7 +55,7 @@ pub enum Error {
 impl Client {
     pub fn subscribe_attestations_submissions(
         &self,
-        filter: Vec<ChainId>,
+        filter: ChainId,
     ) -> Result<AttestationSubscription, Error> {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
@@ -101,7 +101,7 @@ impl Client {
                                             debug!("attestation chain_id: {:?}", evt.0);
 
                                             // If the filter is not empty, check if the chain_id is in the filter
-                                            if filter.is_empty() && !filter.contains(&evt.0) {
+                                            if filter != evt.0 {
                                                 continue;
                                             }
 

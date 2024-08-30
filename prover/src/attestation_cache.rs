@@ -3,14 +3,13 @@ use attestor_primitives::{ChainId, Digest, SignedAttestation};
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     cc3,
     postgres::{attestation, checkpoints, db::PgPool},
-    AttestationCacheType, CcClientArc, Config,
+    AttestationCacheType, CcClientArc,
 };
 
 #[derive(Clone)]
@@ -99,40 +98,19 @@ where
     }
 }
 
-pub async fn build_historical_cache(
-    config: Config,
-    attestations_cache: &AttestationCacheType,
-    cc3_client: &CcClientArc,
-) -> Result<()> {
-    let chains: Vec<u64> = config.get_chains();
-
-    // First populate historical attestations
-    let futures = chains.clone().into_iter().map(|chain| {
-        build_historical_cache_for_chain(chain, attestations_cache.clone(), Arc::clone(cc3_client))
-    });
-
-    let _ = futures::future::join_all(futures).await;
-
-    info!("Historical attestations caches built");
-
-    Ok(())
-}
-
 pub async fn sync_cache(
-    config: &Config,
+    chain_id: ChainId,
     attestations_cache: &AttestationCacheType,
     cc3_client: &cc3::Client,
 ) -> Result<()> {
-    let chains: Vec<u64> = config.get_chains();
-
     // Start subscription for new attestations
-    let (attestation_tx, mut attestation_rx) = mpsc::channel(config.claim_buffer.into());
-    debug!("Created cache buffer with size: {}", config.claim_buffer);
+    let (attestation_tx, mut attestation_rx) = mpsc::channel(100);
+    debug!("Created cache buffer with size: {}", 100);
 
     // Run sub in background and allow server to continue doing other work
     let client = cc3_client.clone();
     let sync_handle =
-        tokio::spawn(async move { client.start_attestation_sub(attestation_tx, chains).await });
+        tokio::spawn(async move { client.start_attestation_sub(attestation_tx, chain_id).await });
 
     // Wait on the channel for new attestations
     while let Some(attestation) = attestation_rx.recv().await {
@@ -153,7 +131,7 @@ pub async fn sync_cache(
     Ok(())
 }
 
-async fn build_historical_cache_for_chain(
+pub async fn build_historical_cache_for_chain(
     chain: ChainId,
     attestations_cache: AttestationCacheType,
     cc3_client: CcClientArc,

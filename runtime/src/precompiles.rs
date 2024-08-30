@@ -10,7 +10,7 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 
-use pallet_evm_precompile_claim::ClaimPrecompile;
+use pallet_evm_precompile_proof_verifier::ProofVerifierPrecompile;
 use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 
 pub struct GluwaPrecompiles<R>(PhantomData<R>);
@@ -23,17 +23,7 @@ where
         Self(Default::default())
     }
     pub fn used_addresses() -> [H160; 9] {
-        [
-            hash(1),    // 0x0000000000000000000000000000000000000001
-            hash(2),    // 0x0000000000000000000000000000000000000002
-            hash(3),    // 0x0000000000000000000000000000000000000003
-            hash(4),    // 0x0000000000000000000000000000000000000004
-            hash(5),    // 0x0000000000000000000000000000000000000005
-            hash(1024), // 0x0000000000000000000000000000000000000400
-            hash(1025), // 0x0000000000000000000000000000000000000401
-            hash(3049), // 0x0000000000000000000000000000000000000Be9
-            hash(4049), // 0x0000000000000000000000000000000000000Fd1
-        ]
+        used_addresses()
         // see fn execute() below for an address-->precompile map
     }
 }
@@ -54,7 +44,7 @@ where
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
             // Gluwa specific
-            a if a == hash(3049) => Some(ClaimPrecompile::<Runtime>::execute(handle)),
+            a if a == hash(3049) => Some(ProofVerifierPrecompile::<Runtime>::execute(handle)),
             a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
             _ => None,
         }
@@ -71,4 +61,19 @@ where
 fn hash(a: u64) -> H160 {
     // just converts the argument to its hex value
     H160::from_low_u64_be(a)
+}
+
+pub fn used_addresses() -> [H160; 9] {
+    [
+        hash(1),    // 0x0000000000000000000000000000000000000001
+        hash(2),    // 0x0000000000000000000000000000000000000002
+        hash(3),    // 0x0000000000000000000000000000000000000003
+        hash(4),    // 0x0000000000000000000000000000000000000004
+        hash(5),    // 0x0000000000000000000000000000000000000005
+        hash(1024), // 0x0000000000000000000000000000000000000400
+        hash(1025), // 0x0000000000000000000000000000000000000401
+        hash(3049), // 0x0000000000000000000000000000000000000Be9
+        hash(4049), // 0x0000000000000000000000000000000000000Fd1
+    ]
+    // see fn execute() below for an address-->precompile map
 }

@@ -11,12 +11,11 @@ use crate::historical_blocks_crawler_instance::{
 };
 use attestation_blocks_online_builder::AttestationChainOnlineBuilder;
 use attestation_blocks_online_builder::SOURCE_BLOCK_TIME_MILLIS;
-use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
+//use attestation_chain::EthAttestationCheckpointsForDev;
 use clap::Parser;
 use colored::Colorize;
 use utils::json_serializable::JsonSerializable;
 //use common::poc_config::{AttestationBlocksBuilderConfig, PocConfig};
-use ethereum_types::U256;
 use poc_config::{AttestationBlocksBuilderConfig, PocConfig};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -24,6 +23,8 @@ use tokio::signal;
 use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
+use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
 
 fn print_with_timestamp(s: colored::ColoredString) {
     println!(
@@ -38,7 +39,7 @@ fn print_with_timestamp(s: colored::ColoredString) {
 #[derive(Clone)]
 pub enum StopCondition {
     FatalFailure,
-    OnBlockReached(Arc<dyn Fn(U256) -> bool + Send + Sync + 'static>),
+    OnBlockReached(Arc<dyn Fn(u64) -> bool + Send + Sync + 'static>),
     //    OnBlockReached(Arc<dyn OnBlockStopConditionPredicate>),
 }
 impl Default for StopCondition {
@@ -150,10 +151,11 @@ fn main() {
             .to_owned().bold(),
     );
 
+    let attestation_chain_params = Arc::new(ETH_ATTESTATION_CHAIN_PARAMS_DEV);
     let runtime = Arc::new(runtime);
 
     let checkpoints = Arc::new(RwLock::new(
-        AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path),
+        AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path, *attestation_chain_params),
     ));
 
     let cancel_on_fatal_failure = CancellationToken::new();
@@ -203,6 +205,7 @@ fn main() {
     };
 
     let (fragment_manager, _crawler_kickoff_block_rx) = create_fragment_manager_instance(
+        Arc::clone(&attestation_chain_params),
         Arc::clone(&runtime),
         Arc::clone(&checkpoints),
         block_receiver,
@@ -223,8 +226,9 @@ fn main() {
     let _ = runtime.block_on(fragment_manager.shutdown());
 
     println!("{}", "main task is exitting".yellow());
-
-    let mut checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path);
+    println!("polling checkpoints from {} ...", checkpoints_path);
+    let mut checkpoints =
+        AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path, ETH_ATTESTATION_CHAIN_PARAMS_DEV);
     match checkpoints.poll() {
         Ok(_) => {
             println!("{}", 

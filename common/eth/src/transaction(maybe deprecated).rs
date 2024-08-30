@@ -1,7 +1,7 @@
 use alloy::consensus::{ReceiptWithBloom, Signed};
 use alloy::consensus::{TxEip1559, TxEip2930, TxEip4844, TxLegacy};
 use alloy::core::primitives::Log;
-use utils::{block_item_traits::BlockItemIdentifier, StarknetPedersenMmr};
+use utils::{block_item_traits::BlockItemIdentifier, StarknetPedersenMerkleTree};
 
 use crate::{AlloyTransaction, AlloyTransactionReceipt};
 
@@ -85,6 +85,7 @@ impl Receipt {
 impl BlockItem for Receipt {
     fn to_bytes(&self) -> Vec<u8> {
         let rwb = self.inner.inner.as_receipt_with_bloom().unwrap();
+
         let receipt = rwb.receipt.clone();
 
         let logs = receipt
@@ -119,10 +120,11 @@ impl BlockItem for Receipt {
     }
 }
 
+
 pub fn starknet_pedersen_mmr(
     transactions: Vec<Transaction>,
     receipts: Vec<Receipt>,
-) -> (StarknetPedersenMmr, StarknetPedersenMmr) {
+) -> (StarknetPedersenMerkleTree, StarknetPedersenMerkleTree) {
     // Create rlp's for all transactions
     let tx_rlps = transactions
         .iter()
@@ -134,8 +136,8 @@ pub fn starknet_pedersen_mmr(
         .map(BlockItem::to_bytes)
         .collect::<Vec<Vec<u8>>>();
 
-    let tx_tree = StarknetPedersenMmr::from(&tx_rlps[..]);
-    let rx_tree = StarknetPedersenMmr::from(&rx_rlps[..]);
+    let tx_tree = StarknetPedersenMerkleTree::from(&tx_rlps[..]);
+    let rx_tree = StarknetPedersenMerkleTree::from(&rx_rlps[..]);
 
     (tx_tree, rx_tree)
 }

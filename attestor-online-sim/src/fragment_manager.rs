@@ -9,6 +9,7 @@ use attestation_blocks_online_builder::AsyncCallbackWithArg;
 use attestation_chain::attestation_checkpoints::AttestationCheckpoint;
 use attestation_chain::attestation_fragment::{AttestationFragment, AttestationFragmentError};
 use attestation_chain::block::Block;
+use attestation_chain::AttestationChainParams;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Outcome {
@@ -29,6 +30,7 @@ pub struct FragmentManager {
 
 impl FragmentManager {
     pub(crate) fn new(
+        attestation_chain_params: Arc<AttestationChainParams>,
         event_loop_kind: EventLoopKind,
         runtime: Arc<Runtime>,
         block_receiver: UnboundedReceiver<Block>,
@@ -36,7 +38,9 @@ impl FragmentManager {
         block_append_outcome_callback: Option<
             AsyncCallbackWithArg<Result<Block, AttestationFragmentError>, ()>,
         >,
-        on_checkpoint_ready: Option<AsyncCallbackWithArg<AttestationCheckpoint, ()>>,
+        on_checkpoint_ready: Option<
+            AsyncCallbackWithArg<AttestationCheckpoint, ()>,
+        >,
         task_exitted_callback: Option<AsyncCallbackWithArg<Outcome, ()>>,
     ) -> Self {
         let cancellation_token = CancellationToken::new();
@@ -47,6 +51,7 @@ impl FragmentManager {
                 EventLoopKind::BlockListenerEventLoop => {
                     {
                         block_listener_event_loop(
+                            attestation_chain_params,
                             block_receiver,
                             cancellation_token_cloned,
                             block_append_outcome_callback,
@@ -60,6 +65,7 @@ impl FragmentManager {
                 EventLoopKind::HistoricalBlocksCrawlerEventLoop => {
                     {
                         historical_blocks_crawler_event_loop(
+                            attestation_chain_params,
                             block_receiver,
                             cancellation_token_cloned,
                             block_append_outcome_callback,
@@ -87,6 +93,7 @@ impl FragmentManager {
 }
 
 async fn historical_blocks_crawler_event_loop(
+    attestation_chain_params: Arc<AttestationChainParams>,
     mut block_receiver: UnboundedReceiver<Block>,
     cancellation_token: CancellationToken,
 
@@ -96,7 +103,7 @@ async fn historical_blocks_crawler_event_loop(
     on_checkpoint_ready: Option<AsyncCallbackWithArg<AttestationCheckpoint, ()>>,
     on_exitted: Option<AsyncCallbackWithArg<Outcome, ()>>,
 ) {
-    let mut fragment = AttestationFragment::default();
+    let mut fragment = AttestationFragment::new(*attestation_chain_params);
 
     let outcome = loop {
         tokio::select! {
@@ -111,7 +118,7 @@ async fn historical_blocks_crawler_event_loop(
                                 if let Some(ref callback) = on_checkpoint_ready {
                                     callback(checkpoint).await;
                                 }
-                                fragment = AttestationFragment::default();
+                                fragment = AttestationFragment::new(*attestation_chain_params);
                             } else if let Some(ref callback) = on_block_append_outcome {
                                     //let head = fragment.head().expect("fragment has head").clone();
                                     callback(Ok(head)).await;
@@ -139,6 +146,7 @@ async fn historical_blocks_crawler_event_loop(
 }
 
 async fn block_listener_event_loop(
+    attestation_chain_params: Arc<AttestationChainParams>,
     mut block_receiver: UnboundedReceiver<Block>,
     cancellation_token: CancellationToken,
 
@@ -148,7 +156,7 @@ async fn block_listener_event_loop(
     on_checkpoint_ready: Option<AsyncCallbackWithArg<AttestationCheckpoint, ()>>,
     on_exitted: Option<AsyncCallbackWithArg<Outcome, ()>>,
 ) {
-    let mut fragment = AttestationFragment::default();
+    let mut fragment = AttestationFragment::new(*attestation_chain_params);
 
     let outcome = loop {
         tokio::select! {
@@ -187,18 +195,21 @@ async fn block_listener_event_loop(
 }
 
 pub struct FragmentManagerBuilder {
+    attestation_chain_params: Arc<AttestationChainParams>,
     runtime: Arc<Runtime>,
     block_receiver: Option<UnboundedReceiver<Block>>,
 
     block_append_outcome_callback:
         Option<AsyncCallbackWithArg<Result<Block, AttestationFragmentError>, ()>>,
-    checkpoint_ready_callback: Option<AsyncCallbackWithArg<AttestationCheckpoint, ()>>,
+    checkpoint_ready_callback:
+        Option<AsyncCallbackWithArg<AttestationCheckpoint, ()>>,
     task_exitted_callback: Option<AsyncCallbackWithArg<Outcome, ()>>,
 }
 
 impl FragmentManagerBuilder {
-    pub fn new(runtime: Arc<Runtime>, block_receiver: UnboundedReceiver<Block>) -> Self {
+    pub fn new(attestation_chain_params: Arc<AttestationChainParams>, runtime: Arc<Runtime>, block_receiver: UnboundedReceiver<Block>) -> Self {
         Self {
+            attestation_chain_params,
             runtime,
             block_receiver: Some(block_receiver),
 
@@ -210,6 +221,7 @@ impl FragmentManagerBuilder {
 
     pub fn build_block_listener_manager(&mut self) -> FragmentManager {
         FragmentManager::new(
+            Arc::clone(&self.attestation_chain_params),
             EventLoopKind::BlockListenerEventLoop,
             Arc::clone(&self.runtime),
             self.block_receiver.take().expect("called for second time?"),
@@ -220,8 +232,11 @@ impl FragmentManagerBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn build_historical_blocks_crawler_fragment_manager(&mut self) -> FragmentManager {
+    pub fn build_historical_blocks_crawler_fragment_manager(
+        &mut self,
+    ) -> FragmentManager {
         FragmentManager::new(
+            Arc::clone(&self.attestation_chain_params),
             EventLoopKind::HistoricalBlocksCrawlerEventLoop,
             Arc::clone(&self.runtime),
             self.block_receiver.take().expect("called for second time?"),
@@ -246,7 +261,10 @@ impl FragmentManagerBuilder {
     pub fn on_checkpoint_ready<F>(&mut self, f: F) -> &mut Self
     where
         //        F: AsyncCallbackWithArgTrait<AttestationCheckpoint, ()>
-        F: Fn(AttestationCheckpoint) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+        F: Fn(AttestationCheckpoint) -> BoxFuture<'static, ()>
+            + Send
+            + Sync
+            + 'static,
     {
         self.checkpoint_ready_callback = Some(Arc::new(f));
         self

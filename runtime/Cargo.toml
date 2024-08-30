@@ -87,7 +87,7 @@ pallet-randomness = { workspace = true }
 pallet-supported-chains = { workspace = true }
 
 attestor-primitives = { workspace = true }
-pallet-evm-precompile-claim = { workspace = true }
+pallet-evm-precompile-proof-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
@@ -117,6 +117,7 @@ runtime-benchmarks = [
     "pallet-im-online/runtime-benchmarks",
     "pallet-nomination-pools/runtime-benchmarks",
     "pallet-offences/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
     "pallet-staking/runtime-benchmarks",
     "pallet-sudo/runtime-benchmarks",
     "pallet-supported-chains/runtime-benchmarks",
@@ -170,7 +171,6 @@ std = [
     "pallet-nomination-pools-runtime-api/std",
     "pallet-offences/std",
     "pallet-prover/std",
-    "pallet-randomness/std",
     "pallet-proxy/std",
     "pallet-session/std",
     "pallet-staking/std",
@@ -199,8 +199,9 @@ std = [
     "creditcoin3-rpc-primitives-debug/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
-    "randomness-primitives/std",
-    "pallet-evm-precompile-claim/std",
+    "pallet-evm-precompile-proof-verifier/std",
     "pallet-evm-precompile-substrate-transfer/std",
     "log/std",
+    "pallet-randomness/std",
+    "randomness-primitives/std",
 ]

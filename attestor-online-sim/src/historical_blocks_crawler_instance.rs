@@ -6,7 +6,6 @@ use attestation_blocks_online_builder::{
 };
 use attestation_chain::block::{Block, MaybeCreatedFromEmpty};
 use colored::Colorize;
-use ethereum_types::U256;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::signal;
@@ -60,7 +59,7 @@ pub(crate) async fn create_historical_blocks_crawler_instance(
 
                     let mut block_stream_provider = SourceBlocksProvider::historical_blocks_provider();
                     block_stream_provider
-                        .start(Into::<U256>::into(start_block).into())
+                        .start(start_block.into())
                         .map_err(|_| InstanceCreationError::Other("expected to be able to inject a start block number to historical blocks stream".to_owned()))?;
 
                     let (db_block_sender, db_block_receiver) = unbounded_channel::<Block>();
@@ -195,6 +194,11 @@ pub(crate) async fn create_historical_blocks_crawler_instance(
                             })
                         }
                     )
+                    .on_late_block_dropped(move |block_number| {
+                        Box::pin(async move {
+                            println!("{}", format!("late block dropped {}", block_number).bold());
+                        })
+                    })                
                     .on_attestation_chain_build_task_exitted(move |outcome| {
                         let cancel_on_exitted = cancel_on_exitted.clone();
 

@@ -1,8 +1,5 @@
-#![allow(clippy::too_many_arguments)]
-
 use crate::AsyncCallbackWithArg;
-//use common::sorted_block::SortedBlockError;
-use ethereum_types::U256;
+//use utils::sorted_block::SortedBlockError;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use std::sync::Arc;
@@ -13,10 +10,9 @@ use utils::Felt;
 #[derive(Debug, Clone)]
 pub enum CreateAttestationBlockError {
     Network(String),
-    ResiliencyEventLoopDropped(U256),
+    ResiliencyEventLoopDropped(u64),
     //    Network(jsonrpsee_core::ClientError),
-    //    Empty(U256),
-    Cancelled(U256),
+    Cancelled(u64),
     Other(String),
 }
 
@@ -32,15 +28,15 @@ pub enum CreateAttestationBlockError {
 pub(crate) async fn create_attestation_block_task(
     source_chain_api_server_url: Arc<str>,
     _cache_dir: Option<Arc<str>>,
-    block_number: U256,
+    block_number: u64,
     create_attestation_block_cancellation_token: CancellationToken,
     disconnected: Arc<AtomicBool>,
     retrial_period: u64,
     retrial_attempts: usize,
 
-    on_retry_retrieve_block: Option<AsyncCallbackWithArg<(U256, String, u64), ()>>,
+    on_retry_retrieve_block: Option<AsyncCallbackWithArg<(u64, String, u64), ()>>,
     on_toggle_connection_mode: Option<AsyncCallbackWithArg<bool, ()>>,
-) -> Result<(Felt, Felt), CreateAttestationBlockError> {
+) -> Result<Felt, CreateAttestationBlockError> {
     let mut retrials = 0;
 
     loop {
@@ -52,13 +48,14 @@ pub(crate) async fn create_attestation_block_task(
                 // compute Pedersen hashes and create attestation block
                 match retrieve_block_and_compute_merkle_roots(
                     &source_chain_api_server_url,
-                    //                    cache_dir.as_deref(),
+                    // cache_dir.as_deref(),
+                    // cache_dir.as_deref(),
                     block_number,
                     create_attestation_block_cancellation_token,
                 )
                 .await
                 {
-                    Ok(roots) => break Ok(roots),
+                    Ok(root) => break Ok(root),
 
                     Err(CreateAttestationBlockError::Network(msg)) => {
                         if let Some(ref callback) = on_retry_retrieve_block {
@@ -92,23 +89,21 @@ pub(crate) async fn create_attestation_block_task(
 async fn retrieve_block_and_compute_merkle_roots(
     url: &str,
     //    cache_dir: Option<&str>,
-    block_number: U256,
+    block_number: u64,
     cancellation_token: CancellationToken,
-) -> Result<(Felt, Felt), CreateAttestationBlockError> {
-    use attestation_chain::utils::retrieve_and_compute_merkle_roots;
+) -> Result<Felt, CreateAttestationBlockError> {
+    use attestation_chain::utils::retrieve_and_compute_merkle_root;
 
     tokio::select! {
-            res = retrieve_and_compute_merkle_roots(url, block_number) => {
-    //            res = retrieve_and_compute_merkle_roots(url, cache_dir, block_number) => {
-                match res {
-                    Ok((tx_tree_root, rx_tree_root)) => Ok((tx_tree_root, rx_tree_root)),
-                    Err(err) => Err(CreateAttestationBlockError::Network(err.to_string())),
-    //                Err(err) => Err(CreateAttestationBlockError::from(err)),
-                }
+        res = retrieve_and_compute_merkle_root(url, block_number) => {
+            match res {
+                Ok(tree_root) => Ok(tree_root),
+                Err(err) => Err(CreateAttestationBlockError::Network(err.to_string())),
             }
-
-            _ = cancellation_token.cancelled() => {
-                Err(CreateAttestationBlockError::Cancelled(block_number))
-            },
         }
+
+        _ = cancellation_token.cancelled() => {
+            Err(CreateAttestationBlockError::Cancelled(block_number))
+        },
+    }
 }

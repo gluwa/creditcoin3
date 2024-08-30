@@ -1,6 +1,3 @@
-#![allow(clippy::too_many_arguments)]
-
-use ethereum_types::U256;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -54,8 +51,9 @@ pub struct InstanceBuilder {
     cancellation_token: Option<CancellationToken>,
     //    reset_resiliency_queue_receiver: Option<UnboundedReceiver<()>>,
     create_attestation_block_outcome_callback:
-        Option<AsyncCallbackWithArg<Result<U256, CreateAttestationBlockError>, ()>>,
+        Option<AsyncCallbackWithArg<Result<u64, CreateAttestationBlockError>, ()>>,
     block_ready_callback: Option<AsyncCallbackWithArg<Block, ()>>,
+    late_block_dropped_callback: Option<AsyncCallbackWithArg<u64, ()>>,
     block_announced_on_source_chain_callback:
         Option<AsyncCallbackWithArg<SourceChainBlockIdentifier, ()>>,
     send_block_to_appending_task_outcome_callback: Option<
@@ -68,11 +66,11 @@ pub struct InstanceBuilder {
         Option<AsyncCallbackWithArg<BlockListenerOutcome, ()>>,
     block_listener_event_loop_left_callback: Option<AsyncCallbackWithArg<BlockListenerOutcome, ()>>,
     backpressure_applied_callback: Option<AsyncCallbackWithArg<(usize, usize), ()>>,
-    announced_block_is_being_processed_callback: Option<AsyncCallbackWithArg<U256, ()>>,
-    waiting_to_finish_creating_block_task_callback: Option<AsyncCallbackWithArg<U256, ()>>,
+    announced_block_is_being_processed_callback: Option<AsyncCallbackWithArg<u64, ()>>,
+    waiting_to_finish_creating_block_task_callback: Option<AsyncCallbackWithArg<u64, ()>>,
     attestation_chain_build_task_exitted_callback:
         Option<AsyncCallbackWithArg<ChainBuildTaskOutcome, ()>>,
-    retry_retrieve_block_callback: Option<AsyncCallbackWithArg<(U256, String, u64), ()>>,
+    retry_retrieve_block_callback: Option<AsyncCallbackWithArg<(u64, String, u64), ()>>,
     toggle_connection_mode_callback: Option<AsyncCallbackWithArg<bool, ()>>,
     checking_connectivity_callback: Option<AsyncCallback<()>>,
 }
@@ -101,6 +99,7 @@ impl InstanceBuilder {
             //                                     }),
             create_attestation_block_outcome_callback: None,
             block_ready_callback: None,
+            late_block_dropped_callback: None,
             block_announced_on_source_chain_callback: None,
             send_block_to_appending_task_outcome_callback: None,
             leaving_block_listener_event_loop_callback: None,
@@ -128,6 +127,7 @@ impl InstanceBuilder {
             //            self.reset_resiliency_queue_receiver.take().expect("called twice?"),
             self.create_attestation_block_outcome_callback.take(),
             self.block_ready_callback.take(),
+            self.late_block_dropped_callback.take(),
             self.block_announced_on_source_chain_callback.take(),
             self.send_block_to_appending_task_outcome_callback.take(),
             self.leaving_block_listener_event_loop_callback.take(),
@@ -144,8 +144,8 @@ impl InstanceBuilder {
 
     pub fn on_create_attestation_block_outcome<F>(&mut self, f: F) -> &mut Self
     where
-        //        F: AsyncCallbackWithArgTrait<Result<U256, CreateAttestationBlockError>, ()>
-        F: Fn(Result<U256, CreateAttestationBlockError>) -> BoxFuture<'static, ()>
+        //        F: AsyncCallbackWithArgTrait<Result<u64, CreateAttestationBlockError>, ()>
+        F: Fn(Result<u64, CreateAttestationBlockError>) -> BoxFuture<'static, ()>
             + Send
             + Sync
             + 'static,
@@ -160,6 +160,13 @@ impl InstanceBuilder {
         F: Fn(Block) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
         self.block_ready_callback = Some(Arc::new(f));
+        self
+    }
+    pub fn on_late_block_dropped<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    {
+        self.late_block_dropped_callback = Some(Arc::new(f));
         self
     }
 
@@ -223,8 +230,8 @@ impl InstanceBuilder {
 
     pub fn on_retry_retrieve_block<F>(&mut self, f: F) -> &mut Self
     where
-        //        F: AsyncCallbackWithArgTrait<(U256, String, U256), ()>
-        F: Fn((U256, String, u64)) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+        //        F: AsyncCallbackWithArgTrait<(u64, String, u64), ()>
+        F: Fn((u64, String, u64)) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
         self.retry_retrieve_block_callback = Some(Arc::new(f));
         self
@@ -250,8 +257,8 @@ impl InstanceBuilder {
 
     pub fn on_announced_block_is_being_processed<F>(&mut self, f: F) -> &mut Self
     where
-        //        F: AsyncCallbackWithArgTrait<U256, ()>
-        F: Fn(U256) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+        //        F: AsyncCallbackWithArgTrait<u64, ()>
+        F: Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
         self.announced_block_is_being_processed_callback = Some(Arc::new(f));
         self
@@ -259,8 +266,8 @@ impl InstanceBuilder {
 
     pub fn on_waiting_to_finish_creating_block_task<F>(&mut self, f: F) -> &mut Self
     where
-        //        F: AsyncCallbackWithArgTrait<U256, ()>
-        F: Fn(U256) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+        //        F: AsyncCallbackWithArgTrait<u64, ()>
+        F: Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     {
         self.waiting_to_finish_creating_block_task_callback = Some(Arc::new(f));
         self
@@ -289,9 +296,10 @@ impl<const SOURCE_BLOCK_TIME_MILLIS: u128> AttestationChainOnlineBuilder<SOURCE_
         cancellation_token: CancellationToken,
         //        reset_resiliency_queue_receiver: UnboundedReceiver<()>,
         create_attestation_block_outcome_callback: Option<
-            AsyncCallbackWithArg<Result<U256, CreateAttestationBlockError>, ()>,
+            AsyncCallbackWithArg<Result<u64, CreateAttestationBlockError>, ()>,
         >,
         block_ready_callback: Option<AsyncCallbackWithArg<Block, ()>>,
+        late_block_dropped_callback: Option<AsyncCallbackWithArg<u64, ()>>,
         block_announced_on_source_chain_callback: Option<
             AsyncCallbackWithArg<SourceChainBlockIdentifier, ()>,
         >,
@@ -308,12 +316,12 @@ impl<const SOURCE_BLOCK_TIME_MILLIS: u128> AttestationChainOnlineBuilder<SOURCE_
             AsyncCallbackWithArg<BlockListenerOutcome, ()>,
         >,
         backpressure_applied_callback: Option<AsyncCallbackWithArg<(usize, usize), ()>>,
-        announced_block_is_being_processed_callback: Option<AsyncCallbackWithArg<U256, ()>>,
-        waiting_to_finish_creating_block_task_callback: Option<AsyncCallbackWithArg<U256, ()>>,
+        announced_block_is_being_processed_callback: Option<AsyncCallbackWithArg<u64, ()>>,
+        waiting_to_finish_creating_block_task_callback: Option<AsyncCallbackWithArg<u64, ()>>,
         attestation_chain_build_task_exitted_callback: Option<
             AsyncCallbackWithArg<ChainBuildTaskOutcome, ()>,
         >,
-        retry_retrieve_block_callback: Option<AsyncCallbackWithArg<(U256, String, u64), ()>>,
+        retry_retrieve_block_callback: Option<AsyncCallbackWithArg<(u64, String, u64), ()>>,
         toggle_connection_mode_callback: Option<AsyncCallbackWithArg<bool, ()>>,
         checking_connectivity_callback: Option<AsyncCallback<()>>,
     ) -> Self {
@@ -394,6 +402,7 @@ impl<const SOURCE_BLOCK_TIME_MILLIS: u128> AttestationChainOnlineBuilder<SOURCE_
                 reset_resiliency_queue_receiver,
                 // hook callbacks
                 block_ready_callback,
+                late_block_dropped_callback,
             )
             .await
         }));

@@ -78,7 +78,7 @@ use randomness_primitives::provider::RandomnessPalletProvider;
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
 mod precompiles;
-use precompiles::GluwaPrecompiles;
+pub use precompiles::{used_addresses, GluwaPrecompiles};
 
 /// Type of block number.
 pub type BlockNumber = u32;
@@ -865,10 +865,6 @@ impl pallet_randomness::Config for Runtime {
 impl pallet_prover::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
-    type Address = fp_account::AccountId20;
-    type Currency = Balances;
-    type ClaimLockCurrency = Balances;
-    type Hashing = BlakeTwo256;
     type SupportedChains = SupportedChains;
 }
 

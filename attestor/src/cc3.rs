@@ -20,16 +20,29 @@ use attestor_primitives::{
 
 pub type Randomness = [u8; 32];
 
+// Chain id to chain name mapping
+// Only these are supported for now
+const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 3] = [
+    (1, "Ethereum"),
+    (31337, "Local anvil"),
+    (11_155_111, "Sepolia ethereum"),
+];
+
+#[derive(Debug, Clone, Serialize)]
+struct SourceChainConfig {
+    pub chain_key: ChainId,
+    pub attestation_interval: u64,
+}
+
 #[derive(Debug, Clone)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
 /// - `bls_keypair`: BLS keypair
-/// - `attestation_interval`: Attestation interval for the chain
 pub struct Client {
     pub cc_client: CcClient,
     pub bls_keypair: PrivateKey,
-    pub attestation_interval: u64,
+    chain_config: SourceChainConfig,
 }
 
 impl Client {
@@ -57,32 +70,57 @@ impl Client {
                 Error::InvalidProofOfPossession
             })
     }
+
+    #[must_use]
+    pub fn get_attestation_interval(&self) -> u64 {
+        self.chain_config.attestation_interval
+    }
+
+    #[must_use]
+    pub fn get_chain_key(&self) -> ChainId {
+        self.chain_config.chain_key
+    }
 }
 
 impl<'a> Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
+    /// - `chain_id`: chain id of the source chain
     pub async fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
         chain_id: ChainId,
-        // private_key: &[u8; 32],
     ) -> Result<Self> {
         let cc_client = CcClient::new(url, key).await?;
 
         // Derive bls key from secret seed
         let bls_keypair = PrivateKey::new(key.as_bytes());
 
+        let chain_name = CHAIN_ID_TO_CHAIN_NAME
+            .iter()
+            .find(|(id, _)| *id == chain_id)
+            .expect("Unknown chain id");
+
+        let chain_key = cc_client
+            .get_chain_key(chain_id, chain_name.1.to_string())
+            .await?
+            .ok_or(Error::FailedToGetChainKey)?;
+
         let attestation_interval = cc_client
-            .chain_attestation_interval(chain_id)
+            .chain_attestation_interval(chain_key)
             .await?
             .ok_or(Error::FailedToGetAttestationInterval)?;
+
+        let chain_config = SourceChainConfig {
+            chain_key,
+            attestation_interval,
+        };
 
         Ok(Self {
             cc_client,
             bls_keypair,
-            attestation_interval,
+            chain_config,
         })
     }
 
@@ -147,19 +185,12 @@ impl<'a> Client {
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
+        // We need to override the chain_id with the one we are attesting to
+        // because we have a different mapping in cc next
+        attestation.chain_id = self.chain_config.chain_key;
         let chain_id = attestation.chain_id;
-        // check we can submit this attestation according to the interval
-        let attestation_interval = self
-            .cc_client
-            .chain_attestation_interval(chain_id)
-            .await
-            .map_err(|_e| {
-                error!("Error getting attestation interval for chain: {}", chain_id);
-                Error::FailedToGetAttestationInterval
-            })?
-            .ok_or(Error::FailedToGetAttestationInterval)?;
 
-        if attestation.header_number % attestation_interval != 0 {
+        if attestation.header_number % self.chain_config.attestation_interval != 0 {
             warn!(
                 "Skipping Attestation because it's not in the configured interval for this chain"
             );
@@ -203,7 +234,6 @@ impl<'a> Client {
                     Error::FailedToSignBabeVrf
                 })?;
 
-            let chain_id = attestation.attestation_data.chain_id;
             // Submit the attestation to the chain
             self.cc_client
                 .submit_attestation(attestation)

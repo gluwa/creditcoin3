@@ -6,48 +6,28 @@ This document explains the prover module
 
 - Running creditcoin3-next chain (Run with `--dev` flag)
 - Running eth node (local or remote), for ease of use configure it to have chain id 31337 since this is a test chain that is configured for a prover with this key (see below).
+- Attestation network (see [attestator](../attestor/README.md) for more details)
 - Docker compose
 
-## Configuration file
+## Installation (Optional if not running dev mode)
 
-The configuration file is a toml file that contains the following fields:
-
-```toml
-[[chain]]
-rpc_url = "https://example.com"
-chain_id = 1
-price = 1
-```
-
-Chain can be repeated multiple times to add multiple chains.
-
-## Running
-
-Start the side services first (there is an adminer app running on localhost:81):
-
-```sh
-docker compose up -d
-```
-
-Run diesel migration:
-
-```sh
-diesel migration run --database-url=postgres://prover:prover@localhost/attestations
-```
-
-Run the prover:
-
-First setup the cairo env:
+Setup cairo env:
 
 ```sh
 python3.10 -m venv ~/cairo_venv
 pip install -r requirements.txt
 ```
 
-Then run the prover:
+Run docker compose:
 
 ```sh
-cargo run -- -v --cc3-key "involve bridge disagree copy aim auction ready garlic industry flee echo era"  --nickname dylan --config-file ./config.toml
+docker compose up -d
+```
+
+## Running
+
+```sh
+cargo run -- -v --cc3-key "//Alice" --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 ```
 
 Check prover attestation cache:
@@ -57,16 +37,19 @@ psql postgres://prover:prover@localhost/attestations
 select * from signedattestation;
 ```
 
-## Submitting a claim (Via polkadotJS)
+## Dev mode
 
-1. Go to the polkadotJS extrinsic page
-2. Select the `prover` module and `submitClaim` extrinsic
-3. Fill in the fields
-4. Submit the transaction
+If you want to run the prover in dev mode, you can use the following command:
 
-See example:
+```sh
+cargo run -- -v --cc3-key "//Alice" --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" --dev
+```
 
-[alt_submit_claim](./assets/submit_claim.png)
+This disables the Cairo prover and uses a dummy proof output instead.
+
+## Submitting a query
+
+See [query-cli](../query-cli/README.md) for more details.
 
 ## Claims
 

@@ -9,7 +9,7 @@ use attestor::{Config, Server};
 pub struct Attestor {
     #[arg(
         long,
-        default_value = "ws://localhost:8545",
+        default_value = "http://localhost:8545",
         help = "A websocket url to an ethereum node, must have websocket enabled and all the necessary rpc methods."
     )]
     eth_rpc_url: String,

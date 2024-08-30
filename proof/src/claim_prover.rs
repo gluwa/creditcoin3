@@ -1,19 +1,18 @@
+use crate::json_serializable::JsonSerializable;
+use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
+use eth_common::OrderedBlock;
+use mmr::traits::MerkleTreeTrait;
+use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::claim_out_of_bounds_witness::ClaimOutOfBoundsWitness;
+use prover_primitives::types::{
+    CairoVerifierOutput, ClaimDigestRoot, ClaimProverError, MerkleProofSerializable, ScriptError,
+    StoneProof, StoneProofJson,
+};
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
-
-use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
-use mmr::traits::MerkleTreeTrait;
-use prover_primitives::claim::{ClaimKind, ClaimSerializable};
-//use utils::json_serializable::JsonSerializable;
-use utils::{StarknetPedersenMerkleProof, StarknetPedersenMmr};
-
-use prover_primitives::types::{
-    CairoVerifierOutput, ClaimDigestRoots, ClaimProverError, MerkleProofSerializable, ScriptError,
-    StoneProof, StoneProofJson,
-};
-
-use crate::json_serializable::JsonSerializable;
+use tracing::debug;
+use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 
 const DATA_ROOT_DIR: &str = "../data";
 const CLAIM_PROOF_DIR: &str = "claim-proofs";
@@ -23,11 +22,13 @@ fn claim_proof_dir() -> String {
 }
 
 #[derive(Serialize)]
-pub struct ClaimProver<'a> {
+pub struct ClaimProver {
+    block_number: u64,
     merkle_proof: MerkleProofSerializable,
-    claim_digest_roots: ClaimDigestRoots,
-    attestation_chain: FragmentSliceSerializable<'a>,
+    claim_digest_roots: ClaimDigestRoot,
+    attestation_chain: FragmentSliceSerializable,
     claim: ClaimSerializable,
+    out_of_bounds_flag: u8,
 
     #[serde(skip)]
     cairo_input_file: Option<String>,
@@ -41,7 +42,7 @@ pub struct ClaimProver<'a> {
     cairo_output: Option<CairoVerifierOutput>,
 }
 
-impl<'a> ClaimProver<'a> {
+impl ClaimProver {
     const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
     const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo/scripts/stone_prove_claim.sh";
 
@@ -97,19 +98,24 @@ impl<'a> ClaimProver<'a> {
     }
 }
 
-impl<'a> ClaimProver<'a> {
+impl ClaimProver {
     fn new(
+        block_number: u64,
         merkle_proof: StarknetPedersenMerkleProof,
         rlp: Vec<u8>,
         claim: ClaimSerializable,
-        claim_digest_roots: ClaimDigestRoots,
-        attestation_chain: FragmentSliceSerializable<'a>,
+        claim_digest_roots: ClaimDigestRoot,
+        attestation_chain: FragmentSliceSerializable,
+        out_of_bounds_flag: bool,
     ) -> Self {
         Self {
+            block_number,
             merkle_proof: (merkle_proof, rlp).into(),
             claim,
             claim_digest_roots,
             attestation_chain,
+            out_of_bounds_flag: out_of_bounds_flag.into(),
+
             cairo_input_file: None,
             cairo_output_file: None,
             stone_proof_file: None,
@@ -144,13 +150,10 @@ impl<'a> ClaimProver<'a> {
 
     // TODO: make it private, it's public only for dev
     pub fn default_dir(&self) -> String {
-        let hex_block_number = format!("0x{:X}", self.claim.id().block_item_id.block_number());
-        let subject_index = self.claim.id().block_item_id.index() as usize;
+        let hex_block_number = format!("0x{:X}", self.claim.id().block_number());
+        let subject_index = self.claim.id().index() as usize;
 
-        let partial_dir = &format!(
-            "block_{hex_block_number}/{}{subject_index}",
-            self.claim.id().kind.subdir()
-        );
+        let partial_dir = &format!("block_{hex_block_number}/{subject_index}",);
         format!("{}/{partial_dir}", claim_proof_dir())
     }
 
@@ -178,48 +181,47 @@ impl<'a> ClaimProver<'a> {
     }
 }
 
-#[allow(clippy::needless_lifetimes)]
-pub async fn build_prover<'a>(
+pub async fn build_prover(
     claim: ClaimSerializable,
-    attestation_chain_slice: FragmentSlice<'a>,
-    tx_bytes: Vec<Vec<u8>>,
-    rx_bytes: Vec<Vec<u8>>,
-) -> Result<ClaimProver<'a>, ClaimProverError> {
-    let (transactions_tree, receipts_tree) =
-        futures::future::join(async { StarknetPedersenMmr::from(&tx_bytes[..]) }, async {
-            StarknetPedersenMmr::from(&rx_bytes[..])
-        })
-        .await;
+    attestation_chain_slice: FragmentSlice<'_>,
+    block: OrderedBlock,
+) -> Result<ClaimProver, ClaimProverError> {
+    let claim_block_number = claim.id().block_number();
 
-    let subject_index = claim.id().block_item_id.index() as usize;
-    let (subject_bytes, merkle_path) = match claim.id().kind {
-        ClaimKind::Tx => (
-            tx_bytes
-                .get(subject_index)
-                .ok_or(ClaimProverError::Other(format!(
-                    "tx index {subject_index} is out of bounds"
-                )))?
-                .clone(),
-            transactions_tree.generate_proof(subject_index),
-        ),
-        ClaimKind::Rx => (
-            rx_bytes
-                .get(subject_index)
-                .ok_or(ClaimProverError::Other(format!(
-                    "rx index {subject_index} is out of bounds"
-                )))?
-                .clone(),
-            receipts_tree.generate_proof(subject_index),
-        ),
+    let mt = eth_common::starknet_pedersen_mmr(&block);
+
+    let out_of_bound_witness_index = if !mt.is_full() {
+        mt.num_of_leaves()
+    } else {
+        mt.num_of_leaves() - 1
     };
-    let digest_roots = ClaimDigestRoots::new(&transactions_tree.root().0, &receipts_tree.root().0);
+
+    debug!("out_of_bound_witness_index: {out_of_bound_witness_index}");
+
+    let subject_index = core::cmp::min(claim.id().index() as usize, out_of_bound_witness_index);
+    let out_of_bounds_flag = subject_index == out_of_bound_witness_index;
+    let out_of_bound_witness = ClaimOutOfBoundsWitness::default();
+
+    let (subject_bytes, merkle_path) = (
+        block
+            .items()
+            .get(subject_index)
+            .map(eth_common::TxRx::to_bytes)
+            .unwrap_or(out_of_bound_witness.to_bytes())
+            .clone(),
+        mt.generate_proof(subject_index),
+    );
+
+    let digest_root = ClaimDigestRoot::new(&mt.root().0);
 
     let instance = ClaimProver::new(
+        claim_block_number,
         merkle_path,
         subject_bytes,
         claim,
-        digest_roots,
+        digest_root,
         attestation_chain_slice.into(),
+        out_of_bounds_flag,
     )
     .with_default_files()
     .map_err(|err| ClaimProverError::SerializationFailure(format!("{err:?}")))?;

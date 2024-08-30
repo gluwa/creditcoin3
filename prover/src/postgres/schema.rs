@@ -8,9 +8,7 @@ diesel::table! {
         #[max_length = 64]
         header_hash -> Varchar,
         #[max_length = 64]
-        tx_root -> Varchar,
-        #[max_length = 64]
-        rx_root -> Varchar,
+        merkle_root -> Varchar,
         #[max_length = 64]
         digest -> Varchar,
         #[max_length = 64]
@@ -26,9 +24,7 @@ diesel::table! {
         #[max_length = 64]
         header_hash -> Varchar,
         #[max_length = 64]
-        tx_root -> Varchar,
-        #[max_length = 64]
-        rx_root -> Varchar,
+        merkle_root -> Varchar,
         #[max_length = 64]
         digest -> Varchar,
         #[max_length = 64]

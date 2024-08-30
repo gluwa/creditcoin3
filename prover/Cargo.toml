@@ -14,6 +14,8 @@ path = "bin/prover.rs"
 
 [lints.clippy]
 cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+enum_variant_names = "allow"
 from_over_into = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
@@ -39,7 +41,6 @@ diesel_migrations = "2.1"
 either = "1.13.0"
 futures = { workspace = true }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
-prover-primitives = { workspace = true }
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 starknet-types-core = { workspace = true }
@@ -56,10 +57,11 @@ sp-core = { workspace = true, default-features = false }
 
 # Creditcoin deps
 attestation-chain = { workspace = true }
-attestor-primitives = { path = "../primitives/attestor" }
+attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 eth = { workspace = true }
 mmr = { workspace = true }
 proof = { workspace = true }
+prover-primitives = { workspace = true }
 serde_json.workspace = true
 utils = { workspace = true }

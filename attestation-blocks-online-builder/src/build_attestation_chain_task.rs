@@ -1,4 +1,3 @@
-#![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
 
 use crate::create_attestation_block_task::{
@@ -6,7 +5,6 @@ use crate::create_attestation_block_task::{
 };
 use crate::network_failures_resilience::ContinuityHandle;
 use crate::{AsyncCallbackWithArg, SourceChainBlockIdentifier};
-use ethereum_types::U256;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -30,16 +28,16 @@ pub(crate) async fn build_attestation_chain_task(
     disconnected: Arc<AtomicBool>, // toggled when network disconnection is discovered
     force_shutdown_token: CancellationToken,
     ongoing_create_attestation_block_tasks: Arc<
-        RwLock<HashMap<U256, JoinHandle<Result<U256, CreateAttestationBlockError>>>>,
+        RwLock<HashMap<u64, JoinHandle<Result<u64, CreateAttestationBlockError>>>>,
     >,
     // hook callbacks
-    on_announced_block_is_being_processed: Option<AsyncCallbackWithArg<U256, ()>>,
+    on_announced_block_is_being_processed: Option<AsyncCallbackWithArg<u64, ()>>,
     on_create_attestation_block_outcome: Option<
-        AsyncCallbackWithArg<Result<U256, CreateAttestationBlockError>, ()>,
+        AsyncCallbackWithArg<Result<u64, CreateAttestationBlockError>, ()>,
     >,
-    on_waiting_to_finish_creating_block_task: Option<AsyncCallbackWithArg<U256, ()>>,
+    on_waiting_to_finish_creating_block_task: Option<AsyncCallbackWithArg<u64, ()>>,
     on_attestation_chain_build_task_exitted: Option<AsyncCallbackWithArg<Outcome, ()>>,
-    on_retry_retrieve_block: Option<AsyncCallbackWithArg<(U256, String, u64), ()>>,
+    on_retry_retrieve_block: Option<AsyncCallbackWithArg<(u64, String, u64), ()>>,
     on_toggle_connection_mode: Option<AsyncCallbackWithArg<bool, ()>>,
 ) {
     let ongoing_create_attestation_block_tasks_cloned =
@@ -85,13 +83,13 @@ pub(crate) async fn build_attestation_chain_task(
                         on_toggle_connection_mode,
                     )
                     .await
-                    .and_then(|roots| {
+                    .and_then(|root| {
                         // at this point the attestation block is crafted, however
                         // before being appended to the attestation chain it is sent
                         // to the resiliency queue where it will wait until all the previous
                         // blocks are also ready
                         resiliency_sender
-                            .send(ContinuityHandle::new(block_number, roots))
+                            .send(ContinuityHandle::new(block_number, root))
                             .map_err(|err| {
                                 CreateAttestationBlockError::ResiliencyEventLoopDropped(
                                     err.0.block_number(),

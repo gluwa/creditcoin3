@@ -6,20 +6,22 @@ use attestation_chain::block::Block;
 use attestation_db::json_db::AttestationJsonDB;
 use attestation_db::{AttestationDB, AttestationDbError};
 use colored::Colorize;
-use ethereum_types::U256;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+use attestation_chain::AttestationChainParams;
 
 pub(crate) fn create_historical_blocks_db_manager_instance(
+    attestation_chain_params: Arc<AttestationChainParams>,
     runtime: Arc<Runtime>,
     db: Arc<RwLock<AttestationJsonDB>>,
     db_block_receiver: UnboundedReceiver<Block>,
     stop_condition: StopCondition,
 ) -> DbManager {
     let db_cloned = Arc::clone(&db);
+    let attestation_chain_params_cloned = Arc::clone(&attestation_chain_params);
     let cancellation_token = CancellationToken::new();
     let cancellation_token_cloned = cancellation_token.clone();
     let stop_condition_cloned = stop_condition.clone();
@@ -32,6 +34,7 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
     )
     .on_block_append_outcome(move |outcome| {
         let db = Arc::clone(&db);
+        let attestation_chain_params = Arc::clone(&attestation_chain_params_cloned);
         let cancellation_token = cancellation_token_cloned.clone();
         let stop_condition = stop_condition.clone();
 
@@ -51,6 +54,7 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
                 }
                 Err(AttestationDbError::FragmentAlreadySet(fragment_interval)) => {
                     let _next_interval = skip_existing_fragments(
+                        attestation_chain_params,
                         db,
                         fragment_interval.head(),
                         cancellation_token.clone(),
@@ -69,6 +73,7 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
     })
     .on_full_fragment_set_outcome(move |result| {
         let db = Arc::clone(&db_cloned);
+        let attestation_chain_params = Arc::clone(&attestation_chain_params);
         let cancellation_token = cancellation_token.clone();
         let stop_condition = stop_condition_cloned.clone();
 
@@ -77,18 +82,21 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
                 Ok(fragment_boxed) => {
                     let head = fragment_boxed.head().unwrap().n();
                     let tail = fragment_boxed.tail().unwrap().n();
-                    print_with_timestamp(
-                        format!(
-                            "𓈜𓈜𓈜 fragment {} => ({}, {}) set in DB, fragments in db: {}",
-                            <AttestationJsonDB as AttestationDB>::key_for(head).unwrap(),
-                            tail,
-                            head,
-                            db.read().await.len(),
-                        )
-                        .bold()
-                        .bright_green(),
-                    );
-                    let interval = AttestationInterval::interval_for(head)
+                    {
+                        let db = db.read().await;
+                        print_with_timestamp(
+                            format!(
+                                "𓈜𓈜𓈜 fragment {} => ({}, {}) set in DB, fragments in db: {}",
+                                db.key_for(head).unwrap(),
+                                tail,
+                                head,
+                                db.len(),
+                            )
+                            .bold()
+                            .bright_green(),
+                        );
+                    }
+                    let interval = attestation_chain_params.interval_for(head)
                         .expect("full fragment defines interval");
                     if let StopCondition::OnBlockReached(ref p) = stop_condition {
                         if p(interval.head()) {
@@ -96,8 +104,9 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
                         }
                     }
                     let _next_interval = skip_existing_fragments(
+                        Arc::clone(&attestation_chain_params),
                         db,
-                        interval.next().head(),
+                        interval.next(&attestation_chain_params).head(),
                         cancellation_token.clone(),
                         stop_condition,
                     )
@@ -105,6 +114,7 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
                 }
                 Err(AttestationDbError::FragmentAlreadySet(fragment_interval)) => {
                     let _next_interval = skip_existing_fragments(
+                        attestation_chain_params,
                         db,
                         fragment_interval.head(),
                         cancellation_token.clone(),
@@ -136,13 +146,14 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
 }
 
 async fn skip_existing_fragments(
+    attestation_chain_params: Arc<AttestationChainParams>,
     db: Arc<RwLock<AttestationJsonDB>>,
-    fragment_head: U256,
+    fragment_head: u64,
     cancellation_token: CancellationToken,
     stop_condition: StopCondition,
 ) -> AttestationInterval {
     //                    let tail = fragment_boxed.tail().unwrap().n();
-    let mut interval = AttestationInterval::interval_for(fragment_head)
+    let mut interval = attestation_chain_params.interval_for(fragment_head)
         .expect("interval exists for aligned checkpoint");
     while db.read().await.fragment_exists(&interval) {
         print_with_timestamp(format!("fragment {interval:?} already set in DB").yellow());
@@ -155,7 +166,7 @@ async fn skip_existing_fragments(
                 break;
             }
         }
-        interval = interval.next();
+        interval = interval.next(&attestation_chain_params);
     }
     interval
 }

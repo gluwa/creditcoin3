@@ -24,12 +24,11 @@ pub struct Attestation {
     pub chain_id: i64,
     pub header_number: i64,
     pub header_hash: String,
-    pub tx_root: String,
-    pub rx_root: String,
+    pub merkle_root: String,
     pub digest: String,
 }
 
-pub async fn create_attestation(
+pub async fn _create_attestation(
     connection: &mut AsyncPgConnection,
     attestation: Attestation,
 ) -> Result<()> {
@@ -41,7 +40,7 @@ pub async fn create_attestation(
     Ok(())
 }
 
-pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
+pub async fn _exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
     Ok(diesel_select(diesel_exists(
         attestation_table.filter(attestation::digest.eq(digest)),
     ))

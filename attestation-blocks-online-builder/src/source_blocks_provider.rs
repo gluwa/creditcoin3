@@ -1,6 +1,5 @@
-#![allow(clippy::result_unit_err)]
-#![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
+#![allow(clippy::result_unit_err)]
 
 use crate::create_attestation_block_task::CreateAttestationBlockError;
 use crate::ethereum_block_listener::{ethereum_block_listener, Outcome};
@@ -8,7 +7,6 @@ use crate::{
     AsyncCallbackWithArg, HistoricalBlocksProvider, NextHistoricalBlockInjector,
     SourceChainBlockIdentifier,
 };
-use ethereum_types::U256;
 use ethers::providers::{Middleware, Provider, Ws};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -67,7 +65,7 @@ impl SourceBlocksProvider {
         self,
         append_to_chain_sender: UnboundedSender<SourceChainBlockIdentifier>,
         ongoing_create_attestation_block_tasks: Arc<
-            RwLock<HashMap<U256, JoinHandle<Result<U256, CreateAttestationBlockError>>>>,
+            RwLock<HashMap<u64, JoinHandle<Result<u64, CreateAttestationBlockError>>>>,
         >,
         cancellation_token: CancellationToken,
         max_num_of_blocks_to_expulse: usize, // backpressure-related parameter

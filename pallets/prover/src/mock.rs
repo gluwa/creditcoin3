@@ -1,5 +1,4 @@
 use crate::{self as prover_pallet};
-use fp_account::AccountId20;
 use frame_support::{parameter_types, traits::ConstU32};
 use frame_system as system;
 use sp_core::H256;
@@ -7,8 +6,6 @@ use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
-
-use crate::ChainPriceConfiguration;
 
 type AccountId = u64;
 type Balance = u128;
@@ -82,10 +79,6 @@ impl pallet_balances::Config for Test {
 impl prover_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = prover_pallet::weights::WeightInfo<Test>;
-    type Address = AccountId20;
-    type Currency = Balances;
-    type ClaimLockCurrency = Balances;
-    type Hashing = BlakeTwo256;
     type SupportedChains = SupportedChains;
 }
 
@@ -124,20 +117,6 @@ impl ExtBuilder {
             ],
         };
         b.assimilate_storage(&mut t).unwrap();
-
-        prover_pallet::GenesisConfig::<Test> {
-            provers: vec![(
-                PROVER_3,
-                vec![
-                    (ChainPriceConfiguration {
-                        price: 100,
-                        chain_id: 1,
-                    }),
-                ],
-            )],
-        }
-        .assimilate_storage(&mut t)
-        .expect("Pallet prover storage can be assimilated");
 
         let chains = pallet_supported_chains::GenesisConfig::<Test> {
             supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],

@@ -1,5 +1,8 @@
-use crate::attestation_checkpoints::{
-    AttestationCheckpoint, AttestationCheckpointError, AttestationCheckpoints,
+use crate::{
+    attestation_checkpoints::{
+        AttestationCheckpoint, AttestationCheckpointError, AttestationCheckpoints,
+    },
+    AttestationChainParams,
 };
 
 pub struct AttestationCheckpointsForDev {
@@ -10,7 +13,7 @@ pub struct AttestationCheckpointsForDev {
 impl Clone for AttestationCheckpointsForDev {
     fn clone(&self) -> Self {
         Self {
-            inner: Default::default(),
+            inner: AttestationCheckpoints::new(self.inner.params()),
             full_path: self.full_path.clone(),
         }
     }
@@ -18,12 +21,12 @@ impl Clone for AttestationCheckpointsForDev {
 
 impl AttestationCheckpointsForDev {
     const FNAME: &'static str = "checkpoints.json";
-    pub fn with_execution_chain_url(path: &str) -> Self {
+    pub fn with_execution_chain_url(path: &str, params: AttestationChainParams) -> Self {
         use std::fs::create_dir_all;
         create_dir_all(path).unwrap();
 
         Self {
-            inner: Default::default(),
+            inner: AttestationCheckpoints::new(params),
             full_path: path.to_owned() + "/" + Self::FNAME,
         }
     }

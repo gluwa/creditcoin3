@@ -1,0 +1,11 @@
+{
+  "artifacts": [
+    {
+      "chain_id": 42,
+      "contract": {
+        "address": "0x5cc307268a1393ab9a764a20dace848ab8275c46",
+        "gas_limit": 50000000
+      }
+    }
+  ]
+}

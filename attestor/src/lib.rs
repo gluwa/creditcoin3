@@ -7,13 +7,6 @@ pub mod attestation;
 pub mod cc3;
 pub mod eth_sub;
 pub mod merkle;
-use cc_client::Client as CcClient;
-
-const CHAIN_ID_TO_CHAIN_NAME: [(u64, &[u8]); 3] = [
-    (1, "Ethereum".as_bytes()),
-    (31337, "Local anvil".as_bytes()),
-    (11_155_111, "Sepolia ethereum".as_bytes()),
-];
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
@@ -44,46 +37,27 @@ impl Server {
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&self) -> Result<()> {
-        let eth_client = Client::new(&self.config.eth_rpc_url).await?;
+        let eth_client = Client::new(&self.config.eth_rpc_url, &String::new()).await?;
 
         let chain_id = eth_client.get_chain_id().await?;
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
-        let chain_name = CHAIN_ID_TO_CHAIN_NAME
-            .iter()
-            .find(|(id, _)| *id == chain_id)
-            .expect("Unknown chain id");
+        let cc3_client =
+            cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id).await?;
 
-        debug!("Chain name: {:?}", chain_name);
-
-        let chain_key =
-            CcClient::get_chain_key(&self.config.cc3_rpc_url, chain_id, chain_name.1.to_vec())
-                .await?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Failed to get chain key for chain id {:?} and chain name {:?}",
-                        chain_id, chain_name.1
-                    )
-                });
-
-        debug!("Chain key: {:?}", chain_key);
-
-        let cc3_client = cc3::Client::new(
-            &self.config.cc3_rpc_url,
-            &self.config.cc3_key,
-            chain_key,
-            //&self.config.bls_key,
-        )
-        .await?;
         cc3_client.init().await?;
 
-        let attestation_interval = cc3_client.attestation_interval;
+        let attestation_interval = cc3_client.get_attestation_interval();
+        debug!("----- Attestation interval: {:?}", attestation_interval);
+
+        let chain_key = cc3_client.get_chain_key();
+        debug!("----- Chain key: {:?}", chain_key);
 
         // Create an Actor reference for the cc3 client
         let cc3_client = spawn(cc3_client);
 
         // Create an attestor
-        let attestor = spawn(attestation::Attestor::new());
+        let attestor = spawn(attestation::Attestor::default());
 
         // Subscribe to new eth head given the attestor and cc3 client
         eth_sub::subscribe_to_new_heads(
@@ -92,7 +66,6 @@ impl Server {
             cc3_client,
             self.config.eth_start_block,
             attestation_interval,
-            chain_key,
         )
         .await?;
 

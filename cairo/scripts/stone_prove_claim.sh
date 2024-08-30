@@ -78,17 +78,14 @@ else
   echo "parameter_file: $AIR_PARAMS"
   echo "generating proof (will take a while)..."
 
-  "$STONE_PROVER/cpu_air_prover" \
+  if ! "$STONE_PROVER/cpu_air_prover" \
     --out_file="$PROOF_FILE" \
     --private_input_file="$PRIVATE_INPUT" \
     --public_input_file="$PUBLIC_INPUT" \
     --prover_config_file="$AIR_PROVER_CONFIG" \
     --parameter_file="$AIR_PARAMS" \
-    -generate_annotations \
-    >/dev/null
-  if ! "$STONE_PROVER/cpu_air_prover"; then
-    message=$(cat /tmp/elapsed.txt)
-    echo "cpu_air_prover failed: $message"
+    -generate_annotations >/dev/null 2>&1; then
+    echo "cpu_air_prover failed to generate proof."
     exit 44
   fi
 

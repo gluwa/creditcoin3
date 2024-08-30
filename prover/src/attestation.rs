@@ -6,6 +6,7 @@ use utils::Felt;
 
 use crate::postgres;
 
+#[allow(dead_code)]
 pub enum ConversionError {
     InvalidTxRoot,
     InvalidRxRoot,
@@ -17,11 +18,8 @@ pub fn create_block_attestation(
     attestation: &postgres::attestation::Attestation,
     prev_digest: &str,
 ) -> Result<Block> {
-    let tx_root = Felt::from_hex(&attestation.tx_root)?;
-    debug!("created tx_root: {:?}", tx_root);
-
-    let rx_root = Felt::from_hex(&attestation.rx_root)?;
-    debug!("created rx_root: {:?}", rx_root);
+    let root = Felt::from_hex(&attestation.merkle_root)?;
+    debug!("created merkle_root: {:?}", root);
 
     let prev_digest = Felt::from_hex(prev_digest)?;
     debug!("created prev_digest: {:?}", prev_digest);
@@ -30,9 +28,8 @@ pub fn create_block_attestation(
     debug!("digest: {:?}", digest);
 
     Ok(Block {
-        block_number: attestation.header_number.into(),
-        tx_root,
-        rx_root,
+        block_number: attestation.header_number as u64,
+        root,
         prev_digest,
         digest,
     })
@@ -41,13 +38,12 @@ pub fn create_block_attestation(
 impl From<crate::postgres::checkpoints::AttestationCheckpoint> for Block {
     fn from(attestation: crate::postgres::checkpoints::AttestationCheckpoint) -> Self {
         debug!("Converting attestation to block: {:?}", attestation);
-        debug!("tx_root : {:?}", attestation.tx_root);
-        debug!("tx_root str: {:?}", attestation.tx_root.as_str());
+        debug!("merkle_root : {:?}", attestation.merkle_root);
+        debug!("tx_root str: {:?}", attestation.merkle_root.as_str());
 
         Block {
-            block_number: attestation.header_number.into(),
-            tx_root: hex_to_felt(&attestation.tx_root).unwrap(),
-            rx_root: hex_to_felt(&attestation.rx_root).unwrap(),
+            block_number: attestation.header_number as u64,
+            root: hex_to_felt(&attestation.merkle_root).unwrap(),
             prev_digest: FieldElement::from_dec_str(&attestation.prev_digest.expect("Some"))
                 .unwrap(),
             digest: FieldElement::from_dec_str(&attestation.digest).unwrap(),
@@ -81,8 +77,7 @@ fn test_from_attestation_to_block() {
         chain_id: 1,
         header_number: 1,
         header_hash: "1234".to_string(),
-        tx_root: "1234".to_string(),
-        rx_root: "1234".to_string(),
+        merkle_root: "1234".to_string(),
         digest: "712407950682829515725516432181193776679273327660415695581617124654780006662"
             .to_string(),
         prev_digest: Some(
@@ -94,7 +89,6 @@ fn test_from_attestation_to_block() {
     };
 
     let block: Block = attestation.into();
-    assert_eq!(block.block_number, 1.into());
-    assert_eq!(block.tx_root, FieldElement::from_hex("0x1234").unwrap());
-    assert_eq!(block.rx_root, FieldElement::from_hex("0x1234").unwrap());
+    assert_eq!(block.block_number, 1u64);
+    assert_eq!(block.root, FieldElement::from_hex("0x1234").unwrap());
 }

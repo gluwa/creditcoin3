@@ -500,8 +500,7 @@ fn create_signed_attestation(
         chain_id,
         header_number,
         header_hash: H256::random(),
-        tx_root: [0; 32],
-        rx_root: [0; 32],
+        root: [0; 32],
         prev_digest,
     };
 

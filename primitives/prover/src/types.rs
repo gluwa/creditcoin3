@@ -1,12 +1,9 @@
-use crate::claim::ClaimIdentifier;
 use anyhow::anyhow;
-use ethereum_types::U256;
 use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
 use sp_std::boxed::Box;
 use sp_std::vec::Vec;
-use utils::block_item_traits::BlockItemIdentifier;
-use utils::utils::{try_parse_felt, try_parse_u64, try_parse_usize, u256_from_felts};
+use utils::utils::{try_parse_felt, try_parse_u64, try_parse_usize};
 use utils::Felt;
 use utils::StarknetPedersenMerkleProof;
 
@@ -15,16 +12,14 @@ use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 
 #[derive(Serialize)]
-pub struct ClaimDigestRoots {
-    tx_root: String,
-    rx_root: String,
+pub struct ClaimDigestRoot {
+    merkle_root: String,
 }
 
-impl ClaimDigestRoots {
-    pub fn new(tx_root: &Felt, rx_root: &Felt) -> Self {
+impl ClaimDigestRoot {
+    pub fn new(merkle_root: &Felt) -> Self {
         Self {
-            tx_root: tx_root.to_string(),
-            rx_root: rx_root.to_string(),
+            merkle_root: merkle_root.to_string(),
         }
     }
 }
@@ -43,9 +38,10 @@ pub fn felt_from_dec_str(s: &str) -> anyhow::Result<Felt> {
 
 #[derive(Debug, Clone)]
 pub struct CairoVerifierOutput {
-    pub claim_id: ClaimIdentifier,
+    //    pub claim_id: ClaimIdentifier,
+    pub claim_index: u64,
     pub continuity_checkpoint_digest: Felt,
-    pub continuity_checkpoint_block_number: U256,
+    pub continuity_checkpoint_block_number: u64,
     pub query_hash: Felt,
     pub claim_fields: Vec<Felt>,
 }
@@ -92,43 +88,37 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
 
         let mut it = ss.iter();
 
-        let claim_kind = (Self::parse_field(it.next(), try_parse_usize, "claim_kind")? as u8)
-            .try_into()
-            .map_err(|x| format!("invalid claim kind: {x}"))?;
-        let block_number_lo = Self::parse_field(it.next(), try_parse_felt, "block_number_lo")?;
-        let block_number_hi = Self::parse_field(it.next(), try_parse_felt, "block_number_hi")?;
-        let claim_id = ClaimIdentifier {
-            kind: claim_kind,
-            block_item_id: BlockItemIdentifier::new(
-                u256_from_felts(&block_number_lo, &block_number_hi),
-                Self::parse_field(it.next(), try_parse_u64, "index")?,
-            ),
-        };
-        //        let tx_type = Self::parse_field(it.next(), try_parse_u64, "tx_type")? as u8;
+        // let claim_kind = (Self::parse_field(it.next(), try_parse_usize,"claim_kind")? as u8)
+        //                                 .try_into()
+        //                                 .map_err(|x| format!("invalid claim kind: {x}"))?;
+        // let block_number_lo = Self::parse_field(it.next(), try_parse_felt,"block_number_lo")?;
+        // let block_number_hi = Self::parse_field(it.next(), try_parse_felt,"block_number_hi")?;
+        // let claim_id = ClaimIdentifier {
+        //     kind: claim_kind,
+        //     block_item_id: BlockItemIdentifier::new(
+        //     u256_from_felts(&block_number_lo, &block_number_hi),
+        //     Self::parse_field(it.next(), try_parse_u64, "index")?,
+        //     )
+        // };
+        let claim_index = Self::parse_field(it.next(), try_parse_u64, "index")?;
         let continuity_checkpoint_digest =
             Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_digest")?;
-        let continuity_checkpoint_block_number_lo = Self::parse_field(
+        // let continuity_checkpoint_block_number_lo = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_block_number_lo")?;
+        // let continuity_checkpoint_block_number_hi = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_block_number_hi")?;
+        //        let continuity_checkpoint_block_number = u256_from_felts(&continuity_checkpoint_block_number_lo, &continuity_checkpoint_block_number_hi);
+        let continuity_checkpoint_block_number = Self::parse_field(
             it.next(),
-            try_parse_felt,
-            "continuity_checkpoint_block_number_lo",
+            try_parse_u64,
+            "continuity_checkpoint_block_number",
         )?;
-        let continuity_checkpoint_block_number_hi = Self::parse_field(
-            it.next(),
-            try_parse_felt,
-            "continuity_checkpoint_block_number_hi",
-        )?;
-        let continuity_checkpoint_block_number = u256_from_felts(
-            &continuity_checkpoint_block_number_lo,
-            &continuity_checkpoint_block_number_hi,
-        );
         let query_hash = Self::parse_field(it.next(), try_parse_felt, "query_hash")?;
         it.take(rlp_len)
             .enumerate()
             .map(|(i, s)| Self::parse_field(Some(s), try_parse_felt, &format!("felt[{i}]")))
             .collect::<Result<Vec<_>, _>>()
             .map(|claim_fields| Self {
-                claim_id,
-                //                tx_type,
+                claim_index,
+                //                claim_id,
                 continuity_checkpoint_digest,
                 continuity_checkpoint_block_number,
                 query_hash,
@@ -143,13 +133,13 @@ pub struct MerkleProofSerializable {
     arity: usize,
     root: String,
     path: Vec<Vec<String>>,
-    claim_rlp: Vec<u8>,
+    claim_subject: Vec<u8>,
     leaf_hash_prefix: u8,
     inner_node_hash_prefix: u8,
 }
 
 impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
-    fn from((proof, claim_rlp): (StarknetPedersenMerkleProof, Vec<u8>)) -> Self {
+    fn from((proof, claim_subject): (StarknetPedersenMerkleProof, Vec<u8>)) -> Self {
         Self {
             height: proof.height(),
             arity: StarknetPedersenMerkleProof::arity(),
@@ -168,7 +158,7 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
                     v
                 })
                 .collect(),
-            claim_rlp,
+            claim_subject,
             leaf_hash_prefix: mmr::LEAF_HASH_PREPEND_VALUE,
             inner_node_hash_prefix: mmr::INNER_HASH_PREPEND_VALUE,
         }
@@ -232,7 +222,7 @@ impl From<Option<i32>> for ScriptError {
 pub type StoneProofPublicInput = CairoVerifierOutput;
 
 impl StoneProofPublicInput {
-    const NUMBER_OF_STATIC_FIELDS: usize = 4 + 1 + 1 + 2;
+    const NUMBER_OF_STATIC_FIELDS: usize = 4;
 }
 
 impl TryFrom<&StoneProofJson> for StoneProofPublicInput {

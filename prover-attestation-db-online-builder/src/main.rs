@@ -17,11 +17,10 @@ use anyhow::anyhow;
 use attestation_chain::attestation_checkpoints::AttestationInterval;
 use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
 use attestation_db::json_db::AttestationJsonDB;
-use attestation_db::AttestationDB;
+use attestation_db::{AttestationDB, EthAttestationJsonDB};
 use clap::Parser;
 use colored::Colorize;
 use either::Either;
-use ethereum_types::U256;
 use futures::StreamExt;
 use futures_util::stream::Stream;
 use poc_config::PocConfig;
@@ -35,6 +34,8 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use utils::json_serializable::JsonSerializable;
+use attestation_chain::AttestationChainParams;
+use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
 
 fn print_with_timestamp(s: colored::ColoredString) {
     println!(
@@ -49,7 +50,7 @@ fn print_with_timestamp(s: colored::ColoredString) {
 #[derive(Clone)]
 pub enum StopCondition {
     FatalFailure,
-    OnBlockReached(Arc<dyn Fn(U256) -> bool + Send + Sync + 'static>),
+    OnBlockReached(Arc<dyn Fn(u64) -> bool + Send + Sync + 'static>),
     //    OnBlockReached(Arc<dyn OnBlockStopConditionPredicate>),
 }
 impl Default for StopCondition {
@@ -152,7 +153,7 @@ fn main() {
         .db_url()
         .expect("at worst case was set to default");
     println!("db: {db_url}");
-    let mut db = AttestationJsonDB::try_create(db_url).unwrap();
+    let mut db = EthAttestationJsonDB::try_create(ETH_ATTESTATION_CHAIN_PARAMS_DEV, db_url).unwrap();
 
     if args.reset_db {
         match db.reset() {
@@ -176,12 +177,14 @@ fn main() {
         .build()
         .unwrap();
 
+
+    let attestation_chain_params = Arc::new(ETH_ATTESTATION_CHAIN_PARAMS_DEV);
     let runtime = Arc::new(runtime);
     let runtime_cloned = Arc::clone(&runtime);
     let db = Arc::new(RwLock::new(db));
     let _source_chain_api_server_url_cloned = source_chain_api_server_url.to_owned();
 
-    let checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path);
+    let checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path, *attestation_chain_params);
     println!("accessing checkpoints at {}", checkpoints.full_path());
 
     let claim_listener_join_handle = runtime.spawn(async move {
@@ -222,6 +225,7 @@ fn main() {
         while let Some(claim) = claim_stream.next().await {
             let res = build_db_and_submit_claim(
                 poc_config.clone(),
+                Arc::clone(&attestation_chain_params),
                 Arc::clone(&runtime_cloned),
                 Arc::clone(&db),
                 checkpoints.clone(),
@@ -289,8 +293,10 @@ fn main() {
     println!("main task is exitting");
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_db_and_submit_claim(
     poc_config: PocConfig,
+    attestation_chain_params: Arc<AttestationChainParams>,
     runtime: Arc<Runtime>,
     db: Arc<RwLock<AttestationJsonDB>>,
     mut checkpoints: AttestationCheckpointsForDev,
@@ -303,6 +309,7 @@ async fn build_db_and_submit_claim(
     let source_chain_api_server_url = poc_config.source_chain_api_server_url();
     let block_cache_dir = poc_config.block_cache_url();
 
+    println!("polling checkpoints from {} ...", checkpoints.full_path());
     checkpoints
         .poll()
         .map_err(|err| anyhow!("unable to access checkpoints: {err:?}\nrun attestor simulator to generate one or some checkpoints"))?;
@@ -326,7 +333,7 @@ async fn build_db_and_submit_claim(
     );
 
     println!("{}", format!("{claim:?}").bold().blue());
-    let claim_block_number = claim.id().block_item_id.block_number();
+    let claim_block_number = claim.id().block_number();
     let claim_checkpoint = checkpoints
         .inner()
         .checkpoint_for(claim_block_number)
@@ -362,14 +369,20 @@ async fn build_db_and_submit_claim(
             // ))
             // .unwrap();
 
-            let start_interval = AttestationInterval::interval_for(checkpoints_tail)
+            let start_interval = attestation_chain_params.interval_for(checkpoints_tail)
                 .expect("interval exists for aligned checkpoint");
-            let crawler_kickoff_block =
-                skip_existing_fragments(Arc::clone(&db), start_interval, claim_checkpoint).await?;
+            let crawler_kickoff_block = skip_existing_fragments(
+                Arc::clone(&attestation_chain_params),
+                Arc::clone(&db), 
+                start_interval, 
+                claim_checkpoint
+            ).await?;
+
             let stop_condition = StopCondition::OnBlockReached(Arc::new(move |curr_block| {
                 curr_block >= claim_checkpoint
             }));
             build_attestation_db(
+                Arc::clone(&attestation_chain_params),
                 source_chain_api_server_url,
                 block_cache_dir,
                 Arc::clone(&runtime),
@@ -389,6 +402,7 @@ async fn build_db_and_submit_claim(
         }
     };
     cairo_verify_claim(
+        *attestation_chain_params,
         source_chain_api_server_url,
         claim,
         &claim_attestation_fragment,
@@ -401,10 +415,11 @@ async fn build_db_and_submit_claim(
 }
 
 async fn skip_existing_fragments(
+    attestation_chain_params: Arc<AttestationChainParams>,
     db: Arc<RwLock<AttestationJsonDB>>,
     start_interval: AttestationInterval,
-    claim_checkpoint: U256,
-) -> anyhow::Result<U256> {
+    claim_checkpoint: u64,
+) -> anyhow::Result<u64> {
     let mut next_interval = start_interval;
     let mut crawler_kickoff_block = next_interval.tail();
     while db.read().await.fragment_exists(&next_interval)
@@ -413,13 +428,13 @@ async fn skip_existing_fragments(
         print_with_timestamp(
             format!(
                 "fragment {} -> {:?} already set in DB, skipping",
-                <AttestationJsonDB as AttestationDB>::key_for(next_interval.head()).unwrap(),
+                db.read().await.key_for(next_interval.head()).unwrap(),
                 next_interval,
             )
             .yellow(),
         );
 
-        next_interval = next_interval.next();
+        next_interval = next_interval.next(&attestation_chain_params);
         crawler_kickoff_block = next_interval.tail() + 1;
     }
 
@@ -445,11 +460,12 @@ async fn skip_existing_fragments(
 }
 
 async fn build_attestation_db(
+    attestation_chain_params: Arc<AttestationChainParams>,
     source_chain_api_server_url: &str,
     block_cache_dir: Option<&str>,
     runtime: Arc<Runtime>,
     db: Arc<RwLock<AttestationJsonDB>>,
-    crawler_kickoff_block: U256,
+    crawler_kickoff_block: u64,
     stop_condition: StopCondition,
 ) -> anyhow::Result<()> {
     println!("{}", "press Ctrl+C to quit".bold());
@@ -496,6 +512,7 @@ async fn build_attestation_db(
     })?;
 
     let historical_blocks_db_manager = create_historical_blocks_db_manager_instance(
+        Arc::clone(&attestation_chain_params),
         Arc::clone(&runtime),
         Arc::clone(&db),
         db_block_receiver,
@@ -567,8 +584,8 @@ async fn shutdown_instance(
 }
 
 // pub(crate) fn create_sample_query(tx: &Transaction) -> TxClaimQuery {
-// //    use common::claim_query::{Eip1559TxClaimQueryField, LegacyTxClaimQueryField, Eip2930TxClaimQueryField, Eip4844TxClaimQueryField};
-//     use prover_primitives::claim_query::{Eip1559TxClaimQueryField, LegacyTxClaimQueryField, Eip4844TxClaimQueryField, Eip2930TxClaimQueryField};
+// //    use common::claim_query::{Eip1559ClaimQueryField, LegacyClaimQueryField, Eip2930ClaimQueryField, Eip4844ClaimQueryField};
+//     use prover_primitives::claim_query::{Eip1559ClaimQueryField, LegacyClaimQueryField, Eip4844ClaimQueryField, Eip2930ClaimQueryField};
 //     use std::collections::HashSet;
 
 //     println!("{}", format!("transaction type: {:?}", tx.tx_type()).bold().cyan());
@@ -576,33 +593,33 @@ async fn shutdown_instance(
 //     match tx.tx_type() {
 //         None => TxClaimQuery::try_from(
 //             vec![
-//                 LegacyTxClaimQueryField::To,
-//                 LegacyTxClaimQueryField::SingleDataRelativeRange(None),
-//                 LegacyTxClaimQueryField::Signature,
+//                 LegacyClaimQueryField::To,
+//                 LegacyClaimQueryField::SingleDataRelativeRange(None),
+//                 LegacyClaimQueryField::Signature,
 //             ].into_iter().collect::<HashSet<_>>()
 //         ).unwrap(),
 //         Some(1) => TxClaimQuery::try_from(
 //             vec![
-//                 Eip2930TxClaimQueryField::ChainId,
-//                 Eip2930TxClaimQueryField::To,
-//                 Eip2930TxClaimQueryField::SingleDataRelativeRange(None),
-//                 Eip2930TxClaimQueryField::Signature,
+//                 Eip2930ClaimQueryField::ChainId,
+//                 Eip2930ClaimQueryField::To,
+//                 Eip2930ClaimQueryField::SingleDataRelativeRange(None),
+//                 Eip2930ClaimQueryField::Signature,
 //             ].into_iter().collect::<HashSet<_>>()
 //         ).unwrap(),
 //         Some(2) => TxClaimQuery::try_from(
 //             vec![
-//                 Eip1559TxClaimQueryField::ChainId,
-//                 Eip1559TxClaimQueryField::To,
-//                 Eip1559TxClaimQueryField::SingleDataRelativeRange(None),
-//                 Eip1559TxClaimQueryField::Signature,
+//                 Eip1559ClaimQueryField::ChainId,
+//                 Eip1559ClaimQueryField::To,
+//                 Eip1559ClaimQueryField::SingleDataRelativeRange(None),
+//                 Eip1559ClaimQueryField::Signature,
 //             ].into_iter().collect::<HashSet<_>>()
 //         ).unwrap(),
 //         Some(3) => TxClaimQuery::try_from(
 //             vec![
-//                 Eip4844TxClaimQueryField::ChainId,
-//                 Eip4844TxClaimQueryField::To,
-//                 Eip4844TxClaimQueryField::SingleDataRelativeRange(None),
-//                 Eip4844TxClaimQueryField::Signature,
+//                 Eip4844ClaimQueryField::ChainId,
+//                 Eip4844ClaimQueryField::To,
+//                 Eip4844ClaimQueryField::SingleDataRelativeRange(None),
+//                 Eip4844ClaimQueryField::Signature,
 //             ].into_iter().collect::<HashSet<_>>()
 //         ).unwrap(),
 //         _ => unimplemented!("tx type not supported"),

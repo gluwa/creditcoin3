@@ -2,7 +2,7 @@
 authors = { workspace = true }
 description = "A Precompile to expose allow claim submission"
 edition = "2021"
-name = "pallet-evm-precompile-claim"
+name = "pallet-evm-precompile-proof-verifier"
 version = "0.1.0"
 
 [lints.clippy]
@@ -19,7 +19,8 @@ log = { workspace = true }
 precompile-utils = { workspace = true }
 
 # Primitives
-prover-primitives = { workspace = true, default-features = false }
+attestor-primitives = { workspace = true }
+prover-primitives = { workspace = true }
 
 # Prover
 pallet-prover = { workspace = true, default-features = false }
@@ -75,4 +76,5 @@ std = [
     "sp-runtime/std",
     "sp-std/std",
     "pallet-supported-chains/std",
+    "attestor-primitives/std",
 ]

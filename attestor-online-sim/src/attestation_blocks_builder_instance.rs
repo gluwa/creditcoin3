@@ -142,6 +142,11 @@ pub(crate) fn create_attestation_blocks_builder_instance(
             })
         }
     )
+    .on_late_block_dropped(move |block_number| {
+        Box::pin(async move {
+            println!("{}", format!("late block dropped {}", block_number).bold());
+        })
+    })
     .on_attestation_chain_build_task_exitted(move |outcome| {
         let cancel_on_exitted = cancel_on_exitted.clone();
         Box::pin(async move {

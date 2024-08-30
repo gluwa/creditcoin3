@@ -6,9 +6,10 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    attestation::{self, Attestor, NewBlock},
+    attestation::{self, Attestor},
     cc3::{self, AttestationSubmit, Client},
 };
+use eth::OrderedBlock;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -17,7 +18,7 @@ pub enum Error {
     #[error("Failed to fetch block {0}")]
     FailedToFetchBlock(String),
     #[error("Actor send error {0}")]
-    AttestationError(#[from] kameo::error::SendError<NewBlock, attestation::Error>),
+    AttestationError(#[from] kameo::error::SendError<OrderedBlock, attestation::Error>),
     #[error("Attestation submit error {0}")]
     AttestationSubmitError(#[from] kameo::error::SendError<AttestationSubmit<H256>, cc3::Error>),
     #[error("Eth client error {0}")]
@@ -32,7 +33,6 @@ pub async fn subscribe_to_new_heads(
     cc3_client: ActorRef<Client>,
     eth_start_block: Option<u64>,
     attestation_interval: u64,
-    chain_key: u64,
 ) -> Result<(), Error> {
     // Only create a subscription config if we have a start block
     let config = eth_start_block.map(|eth_start_block| SubscriptionConfig {
@@ -47,27 +47,7 @@ pub async fn subscribe_to_new_heads(
     // Continuously await new blocks and notify the attestor
     loop {
         if let Some(block) = subscription.next().await {
-            // TODO: find a way to query receipts on a hardhat node (or some sidecar) https://github.com/NomicFoundation/hardhat/issues/4761
-            let receipts = eth_client
-                .get_receipts(block.header.number.unwrap_or_default())
-                .await?;
-
-            let transactions = eth_client
-                .get_transactions(block.header.number.unwrap_or_default())
-                .await?;
-
-            // let last_digest = cc3_client.send(GetLastDigest { chain_id }).await?;
-
-            // Notify the attestor with a new block
-            let attestation = attestor
-                .send(NewBlock {
-                    chain_id: chain_key,
-                    header_number: block.header.number.unwrap(),
-                    header_hash: sp_core::H256(block.header.hash.unwrap().0),
-                    transactions,
-                    receipts,
-                })
-                .await?;
+            let attestation = attestor.send(block).await?;
 
             cc3_client.send(AttestationSubmit { attestation }).await?;
         } else {

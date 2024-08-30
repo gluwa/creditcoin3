@@ -22,6 +22,8 @@ rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
 starknet-ff = { version = "0.3.7", default-features = false }
 
 # Workspace dependencies
+parity-scale-codec = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false }
 serde = { workspace = true, features = [
     "derive",
     "alloc",
@@ -55,4 +57,6 @@ std = [
     "fs2",
     "chrono/std",
     "starknet-types-core/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
 ]

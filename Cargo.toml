@@ -12,11 +12,12 @@ members = [
     "primitives/randomness",
     "primitives/ext",
     "primitives/rpc/*",
-    "precompiles/claim",
+    "precompiles/proof-verifier",
     "precompiles/substrate-transfer",
     "host",
     "common/*",
     "attestor_zombienet",
+    "query-cli",
 ]
 resolver = "2"
 
@@ -73,6 +74,23 @@ tiny-bip39 = { version = "1.0", default-features = false }
 tokio = "1.38.0"
 tracing = "0.1.40"
 url = "2.2.2"
+
+# Alloy
+alloy = { version = "0.2", features = [
+    "node-bindings",
+    "providers",
+    "provider-http",
+    "provider-ws",
+    "rpc-client",
+    "rpc-types",
+    "rpc-types-eth",
+    "serde",
+    "consensus",
+    "rlp",
+    "contract",
+    "sol-types",
+    "signers",
+] }
 
 # Starknet
 starknet-crypto = { version = "0.7", default-features = false }
@@ -195,7 +213,7 @@ pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = 
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Precompiles
-pallet-evm-precompile-claim = { path = "precompiles/claim", default-features = false }
+pallet-evm-precompile-proof-verifier = { path = "precompiles/proof-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 
 # Tracing
@@ -223,6 +241,7 @@ creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 # Randomness
+pallet-randomness = { path = "pallets/randomness", default-features = false }
 randomness-primitives = { path = "primitives/randomness", default-features = false }
 
 # Prover
@@ -230,8 +249,6 @@ pallet-prover = { path = "pallets/prover", default_features = false }
 proof = { path = "proof", default-features = false }
 proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
-
-pallet-randomness = { path = "pallets/randomness", default-features = false }
 
 # Common
 bls-signatures = { path = "common/bls-signatures", default-features = false, features = [

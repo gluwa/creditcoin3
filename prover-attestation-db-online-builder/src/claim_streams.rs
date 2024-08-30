@@ -7,7 +7,6 @@ use futures::task::{Context, Poll};
 // use std::time::Duration;
 // use attestation_chain::attestation_checkpoints::AttestationInterval;
 // use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
-//use ethereum_types::U256;
 use prover_primitives::claim::ClaimSerializable;
 use serde::{Deserialize, Serialize};
 use utils::json_serializable::JsonSerializable;
@@ -227,7 +226,7 @@ impl futures_util::stream::Stream for FromJsonClaimGenerationStream {
     fn poll_next(mut self: Pin<&mut Self>, _ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Ready(
             (!self.claims.0.is_empty())
-                .then_some(&mut self.claims.0)
+                .then(|| &mut self.claims.0)
                 .and_then(|claims| claims.drain(0..1).next()),
         )
     }

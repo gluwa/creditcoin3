@@ -53,13 +53,13 @@ pub trait MerkleTreeTrait<H: HashT> {
     /// return a slice of leaves
     fn leaves(&self) -> &[Prefixed<H>];
     /// a size (not necessarily a number of currently present leaves) of the leaf layer
-    fn base_layer_size(&self) -> usize;
+    //    fn base_layer_size(&self) -> usize;
     /// returns tree's arity (determined at compile time)
     fn arity(&self) -> usize {
         ARITY as usize
     }
-    /// returns tree's height (determined at compile time)
-    fn height(&self) -> usize;
+    // returns tree's height (determined at compile time)
+    //    fn height(&self) -> usize;
 }
 /// trait for append-only Merkle tree semantics
 pub trait AppendOnly {

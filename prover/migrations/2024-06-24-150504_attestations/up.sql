@@ -4,8 +4,7 @@ CREATE TABLE AttestationCheckpoint (
     chain_id BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
     header_hash VARCHAR(64) NOT NULL,
-    tx_root VARCHAR(64) NOT NULL,
-    rx_root VARCHAR(64) NOT NULL,
+    merkle_root VARCHAR(64) NOT NULL,
     digest VARCHAR(64) NOT NULL UNIQUE,
     prev_digest VARCHAR(64) UNIQUE,
     signature VARCHAR(192) NOT NULL,
@@ -22,8 +21,7 @@ CREATE TABLE Attestation (
     chain_id BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
     header_hash VARCHAR(64) NOT NULL,
-    tx_root VARCHAR(64) NOT NULL,
-    rx_root VARCHAR(64) NOT NULL,
+    merkle_root VARCHAR(64) NOT NULL,
     digest VARCHAR(64) NOT NULL UNIQUE,
     prev_digest VARCHAR(64) UNIQUE
 );

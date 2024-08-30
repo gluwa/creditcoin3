@@ -53,6 +53,7 @@ updates:
       - "/pallets/randomness"
       - "/pallets/supported-chains"
       - "/precompiles/claim"
+      - "/precompiles/proof-verifier"
       - "/precompiles/substrate-transfer"
       - "/primitives/account"
       - "/primitives/attestation_chain"
@@ -66,6 +67,7 @@ updates:
       - "/primitives/supported-chains"
       - "/proof"
       - "/prover"
+      - "/query-cli"
       - "/runtime"
       - "/runtime/evm_tracer"
       - "/runtime/generate-bags"
@@ -76,11 +78,6 @@ updates:
       dev-dependencies:
         dependency-type: "development"
         applies-to: version-updates
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/runtime/generate-bags"
     schedule:
       interval: "monthly"
 

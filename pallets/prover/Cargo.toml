@@ -36,7 +36,9 @@ supported-chains-primitives = { workspace = true, default-features = false }
 
 proof-verifier = { workspace = true, default-features = false }
 
-fp-account = { workspace = true, default-features = false }
+precompile-utils = { workspace = true }
+
+fp-account = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
@@ -73,4 +75,5 @@ std = [
     "supported-chains-primitives/std",
     "proof-verifier/std",
     "prover-primitives/std",
+    "precompile-utils/std",
 ]

@@ -1,30 +1,37 @@
+use crate::attestation_checkpoints::{
+    AttestationCheckpoint, AttestationCheckpointError, AttestationCheckpointSerializable,
+};
+use crate::AttestationChainParams;
 use serde::{Deserialize, Serialize};
-//use common::json_serializable::JsonSerializable;
-use crate::attestation_checkpoints::AttestationCheckpointError;
-use crate::attestation_checkpoints::AttestationCheckpointSerializable;
-use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
-use crate::CHECKPOINT_INTERVAL;
-use ethereum_types::U256;
 
-fn cp_index(cp: &AttestationCheckpoint) -> Option<usize> {
-    AttestationInterval::index(cp.n())
+fn cp_index(params: &AttestationChainParams, cp: &AttestationCheckpoint) -> Option<usize> {
+    params.index_in_interval_for(cp.n())
 }
 
-type DenseCheckpointBuffer = [Option<AttestationCheckpoint>; CHECKPOINT_INTERVAL];
+type DenseCheckpointBuffer = Vec<Option<AttestationCheckpoint>>;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct DenseCheckpoints {
-    head: Option<U256>,
+    head: Option<u64>,
     buffers: [DenseCheckpointBuffer; 2],
     curr_buf: usize,
 }
 
 impl DenseCheckpoints {
+    pub fn new(interval: usize) -> Self {
+        Self {
+            head: Default::default(),
+            buffers: [vec![None; interval], vec![None; interval]],
+            curr_buf: Default::default(),
+        }
+    }
+
     pub fn try_append(
         &mut self,
         cp: AttestationCheckpoint,
+        params: &AttestationChainParams,
     ) -> Result<Option<AttestationCheckpoint>, AttestationCheckpointError> {
-        let cp_index = cp_index(&cp).ok_or(
+        let cp_index = cp_index(params, &cp).ok_or(
             AttestationCheckpointError::InvalidAttestationCheckpoint(cp.n()),
         )?;
 
@@ -38,7 +45,7 @@ impl DenseCheckpoints {
         }
         let output = if cp_index == 0 {
             if self.is_full() {
-                *self.prev_mut() = DenseCheckpointBuffer::default();
+                *self.prev_mut() = vec![None; params.interval()]
             }
             self.swap();
             Some(cp)
@@ -51,16 +58,20 @@ impl DenseCheckpoints {
         Ok(output)
     }
 
-    pub fn any(&self, cp: &AttestationCheckpoint) -> bool {
-        cp_index(cp)
+    pub fn any(&self, cp: &AttestationCheckpoint, params: &AttestationChainParams) -> bool {
+        cp_index(params, cp)
             .map(|index| {
                 self.prev()[index].as_ref() == Some(cp) || self.curr()[index].as_ref() == Some(cp)
             })
             .unwrap_or(false)
     }
 
-    pub fn checkpoint_for(&self, b: U256) -> Option<&AttestationCheckpoint> {
-        let index = AttestationInterval::index(b)?;
+    pub fn checkpoint_for(
+        &self,
+        b: u64,
+        params: &AttestationChainParams,
+    ) -> Option<&AttestationCheckpoint> {
+        let index = params.index_in_interval_for(b)?;
 
         if self.prev()[index].map(|cp| cp.n()) == Some(b) {
             self.prev()[index].as_ref()
@@ -71,7 +82,7 @@ impl DenseCheckpoints {
         }
     }
 
-    pub fn head(&self) -> Option<U256> {
+    pub fn head(&self) -> Option<u64> {
         self.head
     }
 }
@@ -97,11 +108,11 @@ impl DenseCheckpoints {
     }
 }
 
-type DenseCheckpointsSerializableBuffer = [AttestationCheckpointSerializable; CHECKPOINT_INTERVAL];
+type DenseCheckpointsSerializableBuffer = Vec<AttestationCheckpointSerializable>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DenseCheckpointsSerializable {
-    head: Option<U256>,
+    head: Option<u64>,
     buffers: [DenseCheckpointsSerializableBuffer; 2],
     curr_buf: usize,
 }
@@ -112,16 +123,12 @@ impl From<&DenseCheckpoints> for DenseCheckpointsSerializable {
             .iter()
             .map(Option::<_>::as_ref)
             .map(From::from)
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("both arrays have same sizes");
+            .collect::<Vec<_>>();
         let buf1 = dense_checkpoints.buffers[1]
             .iter()
             .map(Option::<_>::as_ref)
             .map(From::from)
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("both arrays have same sizes");
+            .collect::<Vec<_>>();
         Self {
             head: dense_checkpoints.head,
             buffers: [buf0, buf1],
@@ -137,15 +144,11 @@ impl TryFrom<DenseCheckpointsSerializable> for DenseCheckpoints {
         let buf0 = checkpoints_json.buffers[0]
             .iter()
             .map(TryFrom::try_from)
-            .collect::<Result<Vec<_>, Self::Error>>()?
-            .try_into()
-            .expect("both arrays have same sizes");
+            .collect::<Result<Vec<_>, Self::Error>>()?;
         let buf1 = checkpoints_json.buffers[1]
             .iter()
             .map(TryFrom::try_from)
-            .collect::<Result<Vec<_>, Self::Error>>()?
-            .try_into()
-            .expect("both arrays have same sizes");
+            .collect::<Result<Vec<_>, Self::Error>>()?;
 
         Ok(Self {
             head: checkpoints_json.head,
@@ -182,49 +185,85 @@ impl std::fmt::Display for DenseCheckpoints {
 mod tests {
     use crate::attestation_checkpoints::AttestationCheckpoint;
     use crate::dense_checkpoints::DenseCheckpoints;
+    use crate::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
 
-    #[ignore]
     #[test]
     fn basic_dense_append_test4() {
-        let mut dcps = DenseCheckpoints::default();
+        let interval = ETH_ATTESTATION_CHAIN_PARAMS_DEV.interval();
+        let genesis = ETH_ATTESTATION_CHAIN_PARAMS_DEV.genesis();
 
-        for i in 2..8 {
-            let cp = AttestationCheckpoint::try_from_block(i.into(), 0u64.into()).unwrap();
-            let res = dcps.try_append(cp).unwrap();
-            if i != 4 {
+        let mut dcps = DenseCheckpoints::new(interval);
+
+        for i in 2 + genesis..8 + genesis {
+            let cp = AttestationCheckpoint::try_from_block(
+                ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+                i,
+                0u64.into(),
+            )
+            .unwrap();
+            let res = dcps
+                .try_append(cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV)
+                .unwrap();
+            if i != genesis + interval as u64 {
                 assert!(res.is_none());
-                assert!(dcps.any(&cp));
+                assert!(dcps.any(&cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV));
             } else {
-                assert_eq!(res.map(|cp| cp.n()), Some(4.into()));
+                assert_eq!(res.map(|cp| cp.n()), Some(genesis + interval as u64));
             }
         }
         println!("{}", dcps);
     }
-    #[ignore]
     #[test]
     fn basic_dense_append_test6() {
-        let mut dcps = DenseCheckpoints::default();
+        let interval = ETH_ATTESTATION_CHAIN_PARAMS_DEV.interval();
+        let genesis = ETH_ATTESTATION_CHAIN_PARAMS_DEV.genesis();
 
-        for i in 2..8 {
-            AttestationCheckpoint::try_from_block(i.into(), 0u64.into()).unwrap();
+        let mut dcps = DenseCheckpoints::new(interval);
+
+        for i in 2 + genesis..8 + genesis {
+            AttestationCheckpoint::try_from_block(ETH_ATTESTATION_CHAIN_PARAMS_DEV, i, 0u64.into())
+                .unwrap();
         }
         assert_eq!(
-            dcps.try_append(AttestationCheckpoint::try_from_block(8.into(), 0u64.into()).unwrap())
+            dcps.try_append(
+                AttestationCheckpoint::try_from_block(
+                    ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+                    genesis + 8,
+                    0u64.into()
+                )
+                .unwrap(),
+                &ETH_ATTESTATION_CHAIN_PARAMS_DEV
+            )
+            .unwrap()
+            .map(|cp| cp.n()),
+            Some(genesis + 8)
+        );
+        for i in 9 + genesis..12 + genesis {
+            let cp = AttestationCheckpoint::try_from_block(
+                ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+                i,
+                0u64.into(),
+            )
+            .unwrap();
+            assert!(dcps
+                .try_append(cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV)
+                .unwrap()
+                .is_none());
+            assert!(dcps.any(&cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV));
+        }
+        let cp = AttestationCheckpoint::try_from_block(
+            ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+            genesis + 12,
+            0u64.into(),
+        )
+        .unwrap();
+        assert_eq!(
+            dcps.try_append(cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV)
                 .unwrap()
                 .map(|cp| cp.n()),
-            Some(8.into())
+            Some(genesis + 12)
         );
-        for i in 9..12 {
-            let cp = AttestationCheckpoint::try_from_block(i.into(), 0u64.into()).unwrap();
-            assert!(dcps.try_append(cp).unwrap().is_none());
-            assert!(dcps.any(&cp));
-        }
-        let cp = AttestationCheckpoint::try_from_block(12.into(), 0u64.into()).unwrap();
-        assert_eq!(
-            dcps.try_append(cp).unwrap().map(|cp| cp.n()),
-            Some(12.into())
-        );
-        assert!(!dcps.any(&cp));
+        assert!(!dcps.any(&cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV));
         println!("{}", dcps);
     }
 
@@ -234,7 +273,7 @@ mod tests {
 
     //     for i in 4..8 {
     //         let cp = AttestationCheckpoint::try_from_block(i, 0u64.into()).unwrap();
-    //         assert!(dcps.try_append(cp.clone()).unwrap().is_none());
+    //         assert!(dcps.try_append(cp).unwrap().is_none());
     //     }
     //     // assert_eq!(
     //     //     dcps.try_append(AttestationCheckpoint::new(8, 0u64.into())).unwrap().map(|cp| cp.n()),

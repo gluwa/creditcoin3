@@ -5,7 +5,6 @@ use std::{
 
 use attestor_primitives::BlsPublicKeyWrapper;
 use hex_literal::hex;
-use prover_primitives::ChainPriceConfiguration;
 use serde::{Deserialize, Serialize};
 // Substrate
 use sc_chain_spec::{ChainType, Properties};
@@ -21,8 +20,8 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping,
-    AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId, ProverConfig,
+    opaque::SessionKeys, pallet_evm::AddressMapping as _, used_addresses, AccountId,
+    AddressMapping, AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
     RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig,
     SupportedChainsConfig, WASM_BINARY,
 };
@@ -220,13 +219,6 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                         ),
                     ],
                     vec![(1, 10), (2, 10)],
-                    vec![(
-                        eth_acct(hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3")),
-                        vec![ChainPriceConfiguration {
-                            price: 100,
-                            chain_id: 1,
-                        }],
-                    )],
                 ),
                 enable_manual_seal,
             }
@@ -333,13 +325,6 @@ pub fn local_testnet_config() -> ChainSpec {
                     ),
                 ],
                 vec![(1, 10), (2, 10)],
-                vec![(
-                    eth_acct(hex!("de0311dc23909abea7fae81ba4a0188cbd85aae3")),
-                    vec![ChainPriceConfiguration {
-                        price: 100,
-                        chain_id: 1,
-                    }],
-                )],
             )
         },
         // Bootnodes
@@ -381,7 +366,6 @@ fn testnet_genesis(
     comittee_set_size: u32,
     attestation_invulnerables: Vec<(AccountId, BlsPublicKeyWrapper)>,
     attestation_chains_interval: Vec<(u64, u64)>,
-    provers: Vec<(AccountId, Vec<ChainPriceConfiguration>)>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -391,6 +375,12 @@ fn testnet_genesis(
     // all funds locked in staking.
     const STASH: u128 = 100_000 * UNITS;
     const ENDOWMENT: u128 = 1_000_000 * UNITS;
+
+    // This is the simplest bytecode to revert without returning any data.
+    // We will pre-deploy it under all of our precompiles to ensure they can be called from
+    // within contracts.
+    // (PUSH1 0x00 PUSH1 0x00 REVERT)
+    let revert_bytecode = vec![0x60, 0x00, 0x60, 0x00, 0xFD];
 
     RuntimeGenesisConfig {
         // System
@@ -480,7 +470,21 @@ fn testnet_genesis(
                     let acct = H160::from(acct);
                     map.insert(acct, genesis_account(one_mil));
                 }
+
+                used_addresses().map(|addr| {
+                    map.insert(
+                        addr,
+                        fp_evm::GenesisAccount {
+                            nonce: Default::default(),
+                            balance: Default::default(),
+                            storage: Default::default(),
+                            code: revert_bytecode.clone(),
+                        },
+                    );
+                });
+
                 eprintln!("EVM accounts: {:?}", map);
+
                 map
             },
             ..Default::default()
@@ -502,6 +506,5 @@ fn testnet_genesis(
             ],
             _phantom: Default::default(),
         },
-        prover: ProverConfig { provers },
     }
 }

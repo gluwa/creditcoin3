@@ -55,7 +55,7 @@ impl<H: HashT> Default for ProofItem<H> {
 
 impl<H: HashT> Debug for ProofItem<H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        writeln!(f, "{:?}", self.prefixed.hashes)
+        writeln!(f, "{:?}@{}", self.prefixed.hashes, self.offset)
     }
 }
 
@@ -159,3 +159,61 @@ impl<H: HashT> Debug for Proof<H> {
         write!(f, "{:?}", self.items)
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use std::hash::DefaultHasher;
+//     use crate::HashT;
+//     use crate::Mmr;
+//     use std::hash::Hash;
+//     use std::hash::Hasher;
+//     use crate::traits::MerkleTreeTrait;
+
+//     #[derive(Debug)]
+//     struct StdHash;
+//     #[derive(Hash, Clone, Copy, Default, PartialEq, Debug)]
+//     pub struct Wrapped8([u8; 8]);
+//     impl From<u8> for Wrapped8 {
+//         fn from(n: u8) -> Self {
+//             let mut arr = [0u8; 8];
+//             arr[0] = n;
+//             Self(arr)
+//         }
+//     }
+
+//     impl HashT for StdHash {
+//         type Output = Wrapped8;
+
+//         fn hash(input: &[u8]) -> Self::Output {
+//             let mut s = DefaultHasher::new();
+//             input.hash(&mut s);
+//             Wrapped8(s.finish().to_ne_bytes())
+//         }
+//     }
+
+//     #[test]
+//     fn same_path_offsets_for_different_indices_test() {
+//         let input = (0..7u8)
+//             .map(|i| vec![i])
+//             .collect::<Vec<_>>();
+
+//         let mmr = Mmr::<StdHash>::from(&input[..]);
+//         println!("mmr num of leaves: {}", mmr.num_of_leaves());
+
+//         let proof_offsets1 = mmr.generate_proof(4).items.iter().map(|item| item.offset).collect::<Vec<_>>();
+
+//         println!("{proof_offsets1:?}");
+
+//         let input = (0..35u8)
+//             .map(|i| vec![i])
+//             .collect::<Vec<_>>();
+
+//         let mmr = Mmr::<StdHash>::from(&input[..]);
+//         println!("mmr num of leaves: {}", mmr.num_of_leaves());
+
+//         let proof_offsets2 = mmr.generate_proof(32).items.iter().map(|item| item.offset).collect::<Vec<_>>();
+
+//         println!("{proof_offsets2:?}");
+//         assert_eq!(proof_offsets1, proof_offsets2);
+//     }
+// }

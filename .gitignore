@@ -25,12 +25,16 @@ polkadot.*
 attestor/zombie/zombienet-linux-x64
 attestor/zombie/zombienet-macos
 
+# Attestor Zombienet config
+attestor_zombienet/config.yaml
+
 # Cairo
 cairo/scripts/verify_merkle_proof_compiled.json
 cario/lang/cpu_air_params.json
 
 # Prover
 prover/claims/*.json
+prover/artifacts/*.json
 
 # Added by cargo
 /target
@@ -46,11 +50,18 @@ prover/claims/*.json
 **/ignition/deployments/
 precompiles/metadata/abi/*.json
 
-data
+# temp, output & test files
 data/attestation-chain/*
 data/block-cache/*
 data/claim-proofs/*
 data/db/*
-
-# poc config
-**/config.json
+**/*output.txt
+**/program_input*.json
+**/block_*.json
+**/proof_*.json
+**/*compiled.json
+**/*trace.json
+**/*memory.json
+**/claim_attestation*.json
+./config.json
+primitives/data/*

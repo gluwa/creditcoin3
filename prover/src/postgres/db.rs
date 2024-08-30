@@ -19,7 +19,7 @@ pub fn get_pool(postgres_uri: &str) -> Result<Pool<AsyncPgConnection>> {
 }
 
 pub async fn run_migrations(postgres_uri: String) -> Result<()> {
-    info!("Running databse migrations...");
+    info!("Running database migrations...");
     // Blocking task because diesel_async doesn't support async migrations (yet)
     tokio::task::spawn_blocking(move || {
         let mut async_wrapper: AsyncConnectionWrapper<AsyncPgConnection> =

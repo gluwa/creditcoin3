@@ -1,5 +1,5 @@
-use crate::Client;
-use alloy::{providers::Provider, rpc::types::eth::Block};
+use crate::{Client, OrderedBlock};
+use alloy::providers::Provider;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -12,7 +12,7 @@ use crate::Error;
 #[async_trait]
 pub trait BlockSubscription: Send + Sync {
     fn cancel(&self) -> Result<()>;
-    async fn next(&mut self) -> Option<Block>;
+    async fn next(&mut self) -> Option<OrderedBlock>;
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -21,7 +21,7 @@ const BUFFER_SIZE: usize = 100;
 /// It subscribes to the head of the chain and pushes new blocks to the channel
 #[derive(Debug)]
 struct NewBlockSubscription {
-    receiver: mpsc::Receiver<Block>,
+    receiver: mpsc::Receiver<OrderedBlock>,
     handle: JoinHandle<Result<(), Error>>,
 }
 
@@ -36,7 +36,7 @@ impl BlockSubscription for NewBlockSubscription {
     }
 
     /// Get the next block from the channel
-    async fn next(&mut self) -> Option<Block> {
+    async fn next(&mut self) -> Option<OrderedBlock> {
         // Receive the next proof from the channel
         self.receiver.recv().await
     }
@@ -49,7 +49,9 @@ fn subscribe_latest_heads(client: Client) -> Result<Box<dyn BlockSubscription>, 
 
     let client = client.clone();
     let handle = tokio::spawn(async move {
-        let subscription = client.provider.subscribe_blocks().await?;
+        let provider = client.get_ws().await?;
+        let subscription = provider.subscribe_blocks().await?;
+        // Open stream
         let mut stream = subscription.into_stream();
 
         loop {
@@ -92,7 +94,7 @@ impl BlockSubscription for BlockFetcher {
         Ok(())
     }
 
-    async fn next(&mut self) -> Option<Block> {
+    async fn next(&mut self) -> Option<OrderedBlock> {
         // If the current height is not divisible by the interval, increment it to the next interval
         if self.from_height % self.interval != 0 {
             let remainder = self.from_height % self.interval;

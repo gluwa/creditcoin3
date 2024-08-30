@@ -9,15 +9,25 @@ pub mod command;
 #[runtime_interface]
 pub trait HostApi {
     fn verify_proof(proof: Vec<u8>) -> bool {
-        match command::run_verifier(proof) {
-            Ok(r) => {
-                log::debug!("result of verifying proof: {:?}", r);
-                true
+        #[cfg(target_arch = "x86_64")]
+        {
+            match command::run_verifier(proof) {
+                Ok(r) => {
+                    log::debug!("result of verifying proof: {:?}", r);
+                    true
+                }
+                Err(e) => {
+                    log::error!("error verifying proof: {:?}", e);
+                    false
+                }
             }
-            Err(e) => {
-                log::error!("error verifying proof: {:?}", e);
-                false
-            }
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            log::debug!("proof len: {}", proof.len());
+            log::warn!("run_verifier is not supported on this architecture.");
+            true
         }
     }
 }

@@ -5,12 +5,6 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-// #[macro_export]
-// macro_rules! max_leaves {
-//     ($arity:expr, $height:expr) => {
-//         $arity * layer_size!($arity, $height, 0)
-//     };
-// }
 #[inline]
 pub fn layer_size(arity: Arity, height: usize, layer_index: usize) -> usize {
     let arity = arity as usize;
@@ -200,6 +194,7 @@ mod tests {
         assert_eq!(vec![0, 4, 5], partition_by_arity(5, a));
         assert_eq!(vec![0, 4, 6], partition_by_arity(6, a));
         assert_eq!(vec![0, 4, 6, 7], partition_by_arity(7, a));
+        assert_eq!(vec![0, 32, 34, 35], partition_by_arity(35, a));
         let a = Arity::Four;
         assert_eq!(vec![0, 4], partition_by_arity(4, a));
         assert_eq!(vec![0, 4, 5], partition_by_arity(5, a));

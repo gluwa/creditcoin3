@@ -94,8 +94,8 @@ pub struct Attestation<H> {
     pub chain_id: ChainId,
     pub header_number: u64,
     pub header_hash: H,
-    pub tx_root: ScaleFelt,
-    pub rx_root: ScaleFelt,
+    pub root: ScaleFelt,
+    //    pub rx_root: ScaleFelt,
     pub prev_digest: Option<Digest>,
 }
 
@@ -119,10 +119,10 @@ where
         bytes.extend_from_slice(self.header_hash.as_ref());
 
         // Serialize tx_root
-        bytes.extend_from_slice(&self.tx_root);
+        bytes.extend_from_slice(&self.root);
 
-        // Serialize rx_root
-        bytes.extend_from_slice(&self.rx_root);
+        // // Serialize rx_root
+        // bytes.extend_from_slice(&self.rx_root);
 
         bytes
     }

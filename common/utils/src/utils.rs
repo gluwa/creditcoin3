@@ -100,9 +100,8 @@ pub fn try_parse_u64(s: &str) -> Result<u64, core::num::ParseIntError> {
     s.parse::<u64>()
         .or_else(|_| u64::from_str_radix(s.trim_start_matches("0x"), 16))
 }
-pub fn try_parse_felt(s: &str) -> Result<Felt, starknet_ff::FromStrError> {
-    felt_from_dec_str(s)
-        .or_else(|_| Felt::from_hex(s).map_err(|_| starknet_ff::FromStrError::InvalidCharacter))
+pub fn try_parse_felt(s: &str) -> Result<Felt, starknet_types_core::felt::FromStrError> {
+    felt_from_dec_str(s).or_else(|_| Felt::from_hex(s))
 }
 
 pub fn address_from_felt(felt: &Felt) -> Address {
@@ -116,7 +115,7 @@ pub fn felts_from_bytes(bytes: &[u8]) -> Vec<Felt> {
 }
 
 // converts felt array to byte array
-// felt array is assumed to be formed from 31-byte long chunks using Felt::from_byte_slice_be
+// felt array is assumed to be formed from 31-byte long chunks using Felt::from_bytes_be_slice
 // source_bytes_len is needed to be provided in order the conversion to yield the same
 // source byte array used to form the felt array
 // if source_bytes_len is not provided the resulting array tail may have zero padding not present in the original
@@ -167,7 +166,7 @@ pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
 
     // let mut buf_hi = [0u8; 31];
     // buf_hi[30] = buf[0];
-    // let hi = Felt::from_byte_slice_be(&buf_hi[..]).expect("less that 256 bits");
+    // let hi = Felt::from_bytes_be_slice(&buf_hi[..]).expect("less that 256 bits");
 
     (lo, hi)
 }

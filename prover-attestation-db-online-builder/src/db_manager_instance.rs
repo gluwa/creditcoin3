@@ -11,18 +11,21 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db_manager::{DbManager, DbManagerBuilder};
 use crate::print_with_timestamp;
+use attestation_chain::AttestationChainParams;
 //use crate::OnBlockStopConditionPredicate;
 
 #[allow(dead_code)]
 pub(crate) fn create_db_manager_instance(
     //    pub(crate) fn create_db_manager_instance<P: OnBlockStopConditionPredicate>(
+    attestation_chain_params: Arc<AttestationChainParams>,
     runtime: Arc<Runtime>,
     db: Arc<RwLock<AttestationJsonDB>>,
     db_block_receiver: UnboundedReceiver<Block>,
 ) -> (DbManager, Receiver<AttestationInterval>) {
     //    let (crawler_kickoff_fragment_ready_tx, crawler_kickoff_fragment_ready_rx) = channel::<Box<AttestationFragment>>(1);
     let db_cloned = Arc::clone(&db);
-    let (crawler_kickoff_block_tx, crawler_kickoff_block_rx) = channel::<AttestationInterval>(1);
+    let (crawler_kickoff_block_tx, crawler_kickoff_block_rx) =
+        channel::<AttestationInterval>(1);
     let cancellation_token = CancellationToken::new();
 
     let instance = DbManagerBuilder::new(
@@ -34,6 +37,7 @@ pub(crate) fn create_db_manager_instance(
     )
     .on_block_append_outcome(move |outcome| {
         let mut crawler_kickoff_block_tx = Some(crawler_kickoff_block_tx.clone());
+        let attestation_chain_params = Arc::clone(&attestation_chain_params);
 
         Box::pin(async move {
             match outcome {
@@ -45,7 +49,7 @@ pub(crate) fn create_db_manager_instance(
                         ).bold().bright_magenta()
                     );
                     if let Some(crawler_kickoff_block_tx) = crawler_kickoff_block_tx.take() {
-                        if let Some(prev_interval) = AttestationInterval::interval_for(block_number) {
+                        if let Some(prev_interval) = attestation_chain_params.interval_for(block_number) {
                             if let Ok(()) = crawler_kickoff_block_tx.send(prev_interval).await {
     //                            println!("{}", format!("historical blocks crawler can kickoff from fragment {prev_interval:?}").bold().bright_green())
                             }
@@ -75,11 +79,12 @@ pub(crate) fn create_db_manager_instance(
             match result {
                 Ok(fragment_boxed) => {
                     let db = db.read().await;
-                    let head = fragment_boxed.head().unwrap();
+                    let head = fragment_boxed.head().expect("full fragment has head");
+                    let tail = fragment_boxed.tail().expect("full fragment has tail");
                     print_with_timestamp(
                         format!("𓈜𓈜𓈜 fragment {} => ({}, {}) set in DB, fragments in db: {}", 
-                            <AttestationJsonDB as AttestationDB>::key_for(head.n()).unwrap(),
-                            fragment_boxed.tail().unwrap().n(),
+                            db.key_for(head.n()).expect("fragment was set in db"),
+                            tail.n(),
                             head.n(),
                             db.len(),
                         ).bold().bright_green()

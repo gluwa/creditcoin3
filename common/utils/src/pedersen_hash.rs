@@ -1,25 +1,24 @@
 use crate::utils::felts_from_bytes;
 use core::fmt::Debug;
-use starknet_crypto::pedersen_hash;
-use starknet_types_core::felt::Felt as FieldElement;
+use starknet_crypto::{pedersen_hash, Felt};
 
 #[derive(core::hash::Hash, Debug, PartialEq, Eq, Clone, Copy, Default)]
-pub struct StarknetFeltWrapped(pub FieldElement);
+pub struct StarknetFeltWrapped(pub Felt);
 
-impl From<FieldElement> for StarknetFeltWrapped {
-    fn from(felt: FieldElement) -> Self {
+impl From<Felt> for StarknetFeltWrapped {
+    fn from(felt: Felt) -> Self {
         Self(felt)
     }
 }
 
 impl From<u8> for StarknetFeltWrapped {
     fn from(n: u8) -> Self {
-        Self(FieldElement::from(n))
+        Self(Felt::from(n))
     }
 }
 
-impl AsRef<FieldElement> for StarknetFeltWrapped {
-    fn as_ref(&self) -> &FieldElement {
+impl AsRef<Felt> for StarknetFeltWrapped {
+    fn as_ref(&self) -> &Felt {
         &self.0
     }
 }
@@ -41,7 +40,7 @@ impl mmr::traits::HashT for StarknetPedersenHash {
     }
 }
 
-pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
+pub fn pedersen_array<T: AsRef<Felt>>(felts: &[T]) -> Felt {
     let maybe_zero_prefix = *felts[0].as_ref();
     let mut prev = maybe_zero_prefix;
 
@@ -49,7 +48,7 @@ pub fn pedersen_array<T: AsRef<FieldElement>>(felts: &[T]) -> FieldElement {
         prev = pedersen_hash(&prev, felt.as_ref());
     }
 
-    let len_felt = FieldElement::from_bytes_be_slice(&u64_to_bytes_be((felts.len()) as u64));
+    let len_felt = Felt::from_bytes_be_slice(&u64_to_bytes_be((felts.len()) as u64));
 
     pedersen_hash(prev.as_ref(), &len_felt)
 }
@@ -70,7 +69,7 @@ fn u64_to_bytes_be(x: u64) -> [u8; 8] {
 
 #[cfg(test)]
 mod tests {
-    use crate::pedersen_hash::{pedersen_array, u64_to_bytes_be, FieldElement};
+    use crate::pedersen_hash::{pedersen_array, u64_to_bytes_be, Felt};
     use crate::utils::felt_from_dec_str;
 
     use starknet_crypto::pedersen_hash;
@@ -78,10 +77,10 @@ mod tests {
     #[test]
     fn pedersen2_test() {
         let bytes_be = u64_to_bytes_be(0x0000000000000001);
-        let a = FieldElement::from_bytes_be_slice(&bytes_be);
+        let a = Felt::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0x0000000000000002);
-        let b = FieldElement::from_bytes_be_slice(&bytes_be);
+        let b = Felt::from_bytes_be_slice(&bytes_be);
 
         let h = pedersen_hash(&a, &b);
         assert_eq!(
@@ -95,10 +94,10 @@ mod tests {
     #[test]
     fn pedersen2_test1() {
         let bytes_be = u64_to_bytes_be(0x0807060504030201);
-        let a = FieldElement::from_bytes_be_slice(&bytes_be);
+        let a = Felt::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0x8070605040302010);
-        let b = FieldElement::from_bytes_be_slice(&bytes_be);
+        let b = Felt::from_bytes_be_slice(&bytes_be);
 
         let h = pedersen_hash(&a, &b);
         assert_eq!(
@@ -112,13 +111,13 @@ mod tests {
     #[test]
     fn pedersen_array_3_elements_test() {
         let bytes_be = u64_to_bytes_be(0xa);
-        let a = FieldElement::from_bytes_be_slice(&bytes_be);
+        let a = Felt::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0xb);
-        let b = FieldElement::from_bytes_be_slice(&bytes_be);
+        let b = Felt::from_bytes_be_slice(&bytes_be);
 
         let bytes_be = u64_to_bytes_be(0xc);
-        let c = FieldElement::from_bytes_be_slice(&bytes_be);
+        let c = Felt::from_bytes_be_slice(&bytes_be);
 
         let h = pedersen_array(&[a, b, c]);
 

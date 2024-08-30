@@ -9,24 +9,31 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{channel, Receiver, Sender, UnboundedReceiver};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-
+use attestation_chain::AttestationChainParams;
 use crate::print_with_timestamp;
 
 pub(crate) fn create_fragment_manager_instance(
+    attestation_chain_params: Arc<AttestationChainParams>,
     runtime: Arc<Runtime>,
     checkpoints: Arc<RwLock<AttestationCheckpointsForDev>>,
     block_receiver: UnboundedReceiver<Block>,
     cancel_on_fatal_failure: CancellationToken,
-) -> (FragmentManager, Receiver<AttestationInterval>) {
+) -> (
+    FragmentManager,
+    Receiver<AttestationInterval>,
+) {
     let checkpoints_cloned = Arc::clone(&checkpoints);
-    let (_crawler_kickoff_block_tx, crawler_kickoff_block_rx) = channel::<AttestationInterval>(1);
+    let (_crawler_kickoff_block_tx, crawler_kickoff_block_rx) =
+        channel::<AttestationInterval>(1);
     let cancel_on_fatal_failure_cloned = cancel_on_fatal_failure.clone();
 
     let instance = FragmentManagerBuilder::new(
+        Arc::clone(&attestation_chain_params),
         Arc::clone(&runtime),
         block_receiver,
     )
     .on_block_append_outcome(move |outcome| {
+        let attestation_chain_params = Arc::clone(&attestation_chain_params);
         let checkpoints = Arc::clone(&checkpoints);
 //        let mut crawler_kickoff_block_tx = Some(crawler_kickoff_block_tx.clone());
         let mut crawler_kickoff_block_tx: Option<Sender<AttestationInterval>> = None;
@@ -42,7 +49,7 @@ pub(crate) fn create_fragment_manager_instance(
                         ).bold().bright_magenta()
                     );
                     if let Some(crawler_kickoff_block_tx) = crawler_kickoff_block_tx.take() {
-                        if let Some(prev_interval) = AttestationInterval::interval_for(block_number) {
+                        if let Some(prev_interval) = attestation_chain_params.interval_for(block_number) {
                             if let Ok(()) = crawler_kickoff_block_tx.send(prev_interval).await {
                             } else {
                                 println!("{}", "error on crawler starting".to_owned().red());
@@ -56,7 +63,7 @@ pub(crate) fn create_fragment_manager_instance(
                     // if block is aligned here this means it's a beginning of the very first fragment
                     // it can't be a valid checkpoint as it doesn't have a predecessor
                     // checkpoint corresponding to this block must be prepended from the previous fragment
-                    if !AttestationInterval::is_aligned(block.n()) {
+                    if !attestation_chain_params.is_aligned(block.n()) {
                         try_append_checkpoint(
                             checkpoints,
                             AttestationCheckpoint::from(&block),

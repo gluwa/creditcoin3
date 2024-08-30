@@ -1,9 +1,11 @@
 use anyhow::anyhow;
+use attestation_chain::AttestationChainParams;
 use colored::Colorize;
 use either::Either;
-use prover_primitives::claim::ClaimSerializable;
-use tracing::debug;
+use eth_common::OrderedBlock;
+use tracing::{debug, info};
 
+use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
 use attestation_chain::attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints};
@@ -12,30 +14,31 @@ use attestation_chain::attestation_fragment::AttestationFragment;
 use crate::claim_prover::{build_prover, ClaimProver};
 
 pub mod claim_prover;
-
 pub mod json_serializable;
 
 pub async fn cairo_generate_proof(
+    params: AttestationChainParams,
     claim: ClaimSerializable,
     claim_attestation_fragment: &AttestationFragment,
-    tx_bytes: Vec<Vec<u8>>,
-    rx_bytes: Vec<Vec<u8>>,
+    block: OrderedBlock,
     cairo_proof_mode: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<either::Either<(StoneProof, String), CairoVerifierOutput>> {
-    let claim_block_number = claim.id().block_item_id.block_number();
-    let attestation_chain_slice = claim_attestation_fragment.attestation_slice_for(claim_block_number, None)
-        .ok_or(anyhow!("can't create attestation checkpoint slice for {} on this attestation chain ({:?}, {:?})",
-            claim_block_number,
-            claim_attestation_fragment.tail().map(|att| att.n()),
-            claim_attestation_fragment.head().map(|att| att.n())))?;
+    let claim_block_number = claim.id().block_number();
+
+    let checkpoint_block_number = params.checkpoint_number_for(claim_block_number)
+        .ok_or(anyhow!("claim block number {} matches no checkpoints, check ATTESTATION_GENESIS and CHECKPOINT_INTERVAL alignment", claim_block_number))?;
+
+    let claim_attestation_slice = claim_attestation_fragment
+        .attestation_slice_for(claim_block_number, Some(checkpoint_block_number))
+        .ok_or(anyhow!("unable to slice fragment {claim_attestation_fragment:?} for block number {} and checkpoint {}", claim_block_number, checkpoint_block_number))?;
 
     debug!("\n");
-    debug!("---------- cairo claim proving task is starting ----------");
+    info!("---------- cairo claim proving task is starting ----------");
     debug!("claim: {:?}", claim);
     debug!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_prover(claim.clone(), attestation_chain_slice,tx_bytes, rx_bytes)
+    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_slice, block)
         .await
         .map(|claim_cairo_verifier| {
             debug!("done");
@@ -65,11 +68,12 @@ pub async fn cairo_generate_proof(
     let output = cairo_verifier
         .cairo_output()
         .ok_or(anyhow!("successful verification expected to yield output"))?;
-    debug!("----- cairo verification successful -----");
+
+    info!("----- cairo verification successful -----");
     debug!("cairo verification output:");
     debug!("{}", format!("{:?}", output).bold());
 
-    let mut checkpoints = AttestationCheckpoints::new();
+    let mut checkpoints = AttestationCheckpoints::new(params);
     checkpoints
         .try_append(
             claim_attestation_fragment
@@ -79,6 +83,7 @@ pub async fn cairo_generate_proof(
         .map_err(|err| anyhow!("{:?}", err))?;
 
     let output_checkpoint = AttestationCheckpoint::try_from_block(
+        params,
         output.continuity_checkpoint_block_number,
         output.continuity_checkpoint_digest,
     )
@@ -102,13 +107,13 @@ pub async fn cairo_generate_proof(
     };
 
     if cairo_proof_mode {
-        debug!("running stone-prover, will take a while...");
+        info!("running stone-prover, will take a while...");
 
         cairo_verifier
             .stone_prove(force_stone_proving)
             .await
             .map(|msg| {
-                println!("{msg}");
+                info!("{}", msg);
             })
             .map_err(|err| anyhow!("{err:?}"))?;
 
@@ -144,16 +149,22 @@ pub async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> an
 #[cfg(test)]
 mod tests {
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
-    use attestation_db::AttestationDB;
+    use attestation_chain::AttestationChainParams;
+    use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
     use colored::Colorize;
-    use eth_common::{transaction::BlockItem, Client};
+    use eth_common::OrderedBlock;
     use hashbrown::HashSet;
+    use poc_config::PocConfig;
+    use prover_primitives::types::CairoVerifierOutput;
     use prover_primitives::types::StoneProofPublicInput;
     use prover_primitives::{
-        claim::{Claim, ClaimIdentifier, ClaimKind, ClaimSerializable},
-        claim_query::{Eip4844TxClaimQueryField::*, TxClaimQuery},
+        claim::{Claim, ClaimIdentifier, ClaimSerializable},
+        claim_query::TxClaimQuery,
     };
-    use utils::{block_item_traits::BlockItemIdentifier, utils::felts_from_bytes};
+    use std::thread::sleep;
+    use std::time::Duration;
+    use utils::block_item_traits::BlockItem;
+    use utils::json_serializable::JsonSerializable;
 
     /// tests this circuit:
     /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
@@ -163,39 +174,321 @@ mod tests {
     /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
     /// to create attestation db on prover's side
     #[ignore]
-    #[tokio::test]
-    async fn claim_validation_test() {
-        const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
+    #[test]
+    fn claim_validation_test_tx_type_0() {
+        use prover_primitives::claim_query::LegacyClaimQueryField::*;
 
-        let block = 19543673;
-        let index = 95;
-        // access token should not be published on github
-        let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
-        let checkpoints_path = "../data/execution-chain";
+        let block_number = 19543673u64;
+        let index = 13;
 
-        let eth_client = Client::new(url).await.expect("failed to create eth client");
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
         // -------------------------------------- claimer part ----------------------------------
-        let tx_asd = eth_client.get_transactions(block).await.unwrap();
-        let rx_asd = eth_client.get_receipts(block).await.unwrap();
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
 
-        let tx_bytes = tx_asd
-            .iter()
-            .map(eth_common::transaction::Transaction::to_bytes)
-            .collect::<Vec<_>>();
-        let rx_bytes = rx_asd
-            .iter()
-            .map(eth_common::transaction::Receipt::to_bytes)
-            .collect::<Vec<_>>();
-
-        // rlp-encoded tx/rx
-        let payload_bytes = tx_asd[index].payload_bytes();
-        // create rlp instance containing payload bytes
-        let rlp = rlp::Rlp::new(&payload_bytes[..]);
+        //        println!("{:?}", block.items()[index]);
+        let payload_bytes = block.items()[index].payload_bytes();
         // form claim id
-        let claim_id = ClaimIdentifier {
-            kind: ClaimKind::Tx,
-            block_item_id: BlockItemIdentifier::new(block.into(), index as u64),
-        };
+        let claim_id = ClaimIdentifier::new(block_number, index as u64);
+        // form query of fields of interest to get values from prover for
+        let claim_query = TxClaimQuery::try_from(
+            vec![
+                To,
+                SingleDataRelativeRange(Some(24..30)),
+                Nonce,
+                SingleDataRelativeRange(Some(33..39)),
+                Signature,
+                SignatureHash,
+                StateRoot,
+                UsedGas,
+                LogsBloom,
+                SingleLog(Some(0)),
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>(),
+        )
+        .unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
+        // ----------------------- prover's part ------------------------------------------------
+        let output = rt.block_on(run_prover(cairo_claim, block));
+
+        assert!(validate_proof_data(
+            ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+            block_number,
+            claim,
+            output
+        )
+        .is_ok());
+
+        println!(
+            "{}",
+            "CLAIMER: query fields and hash validated".bold().green()
+        );
+    }
+
+    /// tests this circuit:
+    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    /// prior to running this test:
+    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    /// to create attestation db on prover's side
+    #[ignore]
+    #[test]
+    fn claim_validation_test_tx_type_1() {
+        use prover_primitives::claim_query::Eip2930ClaimQueryField::*;
+
+        let block_number = 19543676u64;
+        let index = 116;
+
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+
+        //        println!("{:?}", block.items()[index]);
+        let payload_bytes = block.items()[index].payload_bytes();
+        // form claim id
+        let claim_id = ClaimIdentifier::new(block_number, index as u64);
+        // form query of fields of interest to get values from prover for
+        let claim_query = TxClaimQuery::try_from(
+            vec![
+                To,
+                SingleDataRelativeRange(None),
+                Nonce,
+                Signature,
+                SignatureHash,
+                StatusCode,
+                UsedGas,
+                LogsBloom,
+                SingleLog(None),
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>(),
+        )
+        .unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
+        // ----------------------- prover's part ------------------------------------------------
+        let output = rt.block_on(run_prover(cairo_claim, block));
+
+        assert!(validate_proof_data(
+            ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+            block_number,
+            claim,
+            output
+        )
+        .is_ok());
+
+        println!(
+            "{}",
+            "CLAIMER: query fields and hash validated".bold().green()
+        );
+    }
+
+    /// tests this circuit:
+    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    /// prior to running this test:
+    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    /// to create attestation db on prover's side
+    #[ignore]
+    #[test]
+    fn claim_validation_test_tx_type_2() {
+        use prover_primitives::claim_query::Eip1559ClaimQueryField::*;
+
+        let block_number = 19543673u64;
+        let index = 96;
+
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+
+        //        println!("{:?}", block.items()[index]);
+        let payload_bytes = block.items()[index].payload_bytes();
+        // form claim id
+        let claim_id = ClaimIdentifier::new(block_number, index as u64);
+        // form query of fields of interest to get values from prover for
+        let claim_query = TxClaimQuery::try_from(
+            vec![
+                To,
+                SingleDataRelativeRange(Some(24..30)),
+                Nonce,
+                SingleDataRelativeRange(Some(33..39)),
+                Signature,
+                SignatureHash,
+                StatusCode,
+                UsedGas,
+                LogsBloom,
+                SingleLog(Some(4)),
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>(),
+        )
+        .unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
+        // ----------------------- prover's part ------------------------------------------------
+        let output = rt.block_on(run_prover(cairo_claim, block));
+
+        assert!(validate_proof_data(
+            ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+            block_number,
+            claim,
+            output
+        )
+        .is_ok());
+
+        println!(
+            "{}",
+            "CLAIMER: query fields and hash validated".bold().green()
+        );
+    }
+
+    /// tests this circuit:
+    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    /// prior to running this test:
+    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    /// to create attestation db on prover's side
+    #[ignore]
+    #[test]
+    fn claim_validation_test_tx_type_3() {
+        use prover_primitives::claim_query::Eip4844ClaimQueryField::*;
+
+        let block_number = 19543673u64;
+        let index = 95;
+
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+
+        let payload_bytes = block.items()[index].payload_bytes();
+
+        // form claim id
+        let claim_id = ClaimIdentifier::new(block_number, index as u64);
+        // form query of fields of interest to get values from prover for
+        let claim_query = TxClaimQuery::try_from(
+            vec![
+                To,
+                SingleDataRelativeRange(Some(24..30)),
+                Nonce,
+                SingleDataRelativeRange(Some(33..39)),
+                SingleDataRelativeRange(None),
+                BlobVersionedHashes(Some(0)),
+                Signature,
+                StatusCode,
+                UsedGas,
+                LogsBloom,
+                SingleLog(None),
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>(),
+        )
+        .unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
+        // ----------------------- prover's part ------------------------------------------------
+        let output = rt.block_on(run_prover(cairo_claim, block));
+
+        assert!(validate_proof_data(
+            ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+            block_number,
+            claim,
+            output
+        )
+        .is_ok());
+
+        println!(
+            "{}",
+            "CLAIMER: query fields and hash validated".bold().green()
+        );
+    }
+
+    #[ignore]
+    #[test]
+    fn claim_out_of_bound_test() {
+        use prover_primitives::claim_query::Eip4844ClaimQueryField::*;
+
+        let block_number = 19543673u64;
+        let index = 95;
+        let out_of_bound_index = 1000 + index;
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+
+        let num_of_leaves = block.items().len();
+        let payload_bytes = block.items()[index].payload_bytes();
+
+        // create rlp instance containing payload bytes
+        //        let rlp = rlp::Rlp::new(&payload_bytes[..]);
+        // form claim id
+        let claim_id = ClaimIdentifier::new(block_number, out_of_bound_index as u64);
+
         // form query of fields of interest to get values from prover for
         let claim_query = TxClaimQuery::try_from(
             vec![
@@ -210,38 +503,244 @@ mod tests {
         )
         .unwrap();
         // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
-        let claim = Claim::try_create(claim_id, claim_query, rlp).unwrap();
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
         // cairo_claim is sent by claimer to prover
         let cairo_claim = ClaimSerializable::from(&claim);
 
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
         // ----------------------- prover's part ------------------------------------------------
-        // internal prover's data
-        let db_url = "../data/db";
-        let db = attestation_db::json_db::AttestationJsonDB::try_create(db_url).unwrap();
-        let attestation_fragment = db
-            .get_fragment_for(block.into())
-            .expect("fragment not found");
+        let output = rt.block_on(run_prover(cairo_claim, block));
 
-        let mut checkpoints =
-            AttestationCheckpointsForDev::with_execution_chain_url(checkpoints_path);
-        // simulate polling checkpoints from CC3 blockchain
-        checkpoints.poll().unwrap();
+        assert_eq!(
+            Err(
+                prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(
+                    num_of_leaves as u64
+                )
+            ),
+            validate_proof_data(
+                ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+                block_number,
+                claim,
+                output
+            )
+        );
+
+        println!(
+            "{}",
+            format!("CLAIMER: claim out of bounds, witness at {}", num_of_leaves)
+                .bold()
+                .red()
+        );
+    }
+
+    #[ignore]
+    #[test]
+    fn claim_out_of_bound_null_leaf_test() {
+        use prover_primitives::claim_query::Eip4844ClaimQueryField::*;
+
+        let block_number = 19543696u64;
+        let index = 156;
+        let out_of_bound_index = 1 + index;
+
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+
+        let num_of_leaves = block.items().len();
+        let payload_bytes = block.items()[index].payload_bytes();
+
+        // form claim id
+        let claim_id = ClaimIdentifier::new(block_number, out_of_bound_index as u64);
+        // form query of fields of interest to get values from prover for
+        let claim_query =
+            TxClaimQuery::try_from(vec![To].into_iter().collect::<HashSet<_>>()).unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
+        // ----------------------- prover's part ------------------------------------------------
+        let output = rt.block_on(run_prover(cairo_claim, block));
+
+        assert_eq!(
+            Err(
+                prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(
+                    num_of_leaves as u64
+                )
+            ),
+            validate_proof_data(
+                ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+                block_number,
+                claim,
+                output
+            )
+        );
+
+        println!(
+            "{}",
+            format!("CLAIMER: claim out of bounds, witness at {}", num_of_leaves)
+                .bold()
+                .red()
+        );
+    }
+
+    // #[tokio::test]
+    // async fn claim_first_leaf_out_of_bound_test() {
+    //     let block = 19543673u64;
+    //     let index = 127;
+    //     // rlp-encoded tx/rx
+    //     let (payload_bytes, num_of_leaves ) = prepare_claim_subject_rlp(block, index).await;
+    //     // create rlp instance containing payload bytes
+    //     let rlp = rlp::Rlp::new(&payload_bytes[..]);
+
+    //     let out_of_bound_index = 1 + index;
+    //     // form claim id
+    //     let claim_id = ClaimIdentifier {
+    //         block_item_id: BlockItemIdentifier::new(block.into(), out_of_bound_index as u64),
+    //     };
+    //     // form query of fields of interest to get values from prover for
+    //     let claim_query = TxClaimQuery::try_from(
+    //         vec![
+    //             To,
+    //         ]
+    //         .into_iter()
+    //         .collect::<HashSet<_>>(),
+    //     )
+    //     .unwrap();
+    //     // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+    //     let claim = Claim::try_create(claim_id, claim_query, rlp).unwrap();
+    //     // cairo_claim is sent by claimer to prover
+    //     let cairo_claim = ClaimSerializable::from(&claim);
+
+    //     println!("{}", format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold());
+    //     // ----------------------- prover's part ------------------------------------------------
+    //     let output = run_prover(block, cairo_claim).await;
+
+    //     assert_eq!(
+    //         Err(prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(num_of_leaves as u64)),
+    //         validate_proof_data(block, claim, output)
+    //     );
+
+    //     println!(
+    //         "{}",
+    //         format!("CLAIMER: claim out of bounds, witness at {}", num_of_leaves).bold().red()
+    //     );
+    // }
+
+    #[ignore]
+    #[test]
+    fn claim_out_of_bound_empty_block_test() {
+        use prover_primitives::claim_query::Eip4844ClaimQueryField::*;
+
+        // THIS BLOCK IS EMPTY ON ETHEREUM MAINNET
+        let block_number = 19543675u64;
+        let fake_block_just_for_rlp = 19543673u64;
+        let index = 95;
+        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        let url = poc_config.source_chain_api_server_url();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let eth_client = rt
+            .block_on(eth_common::Client::new(url, ""))
+            .expect("failed to create eth client");
+        // -------------------------------------- claimer part ----------------------------------
+        let fake_block = rt
+            .block_on(eth_client.get_block(fake_block_just_for_rlp))
+            .unwrap();
+
+        let payload_bytes = fake_block.items()[index].payload_bytes();
+
+        sleep(Duration::from_millis(500));
+
+        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        // create rlp instance containing payload bytes
+        //        let rlp = rlp::Rlp::new(&payload_bytes[..]);
+
+        let out_of_bound_index = 1;
+        // form claim id
+        let claim_id = ClaimIdentifier::new(block_number, out_of_bound_index as u64);
+        // form query of fields of interest to get values from prover for
+        let claim_query =
+            TxClaimQuery::try_from(vec![To].into_iter().collect::<HashSet<_>>()).unwrap();
+        // claim object will be used to validate that fields got from prover correspond to local view of tx/rx payload
+        let claim = Claim::try_create(claim_id, claim_query, payload_bytes).unwrap();
+        // cairo_claim is sent by claimer to prover
+        let cairo_claim = ClaimSerializable::from(&claim);
+
+        println!(
+            "{}",
+            format!("CLAIMER: sending claim to prover: {cairo_claim:?}").bold()
+        );
+        // ----------------------- prover's part ------------------------------------------------
+        let output = rt.block_on(run_prover(cairo_claim, block));
+        let expected_out_of_bound_witness = 0u64;
+        assert_eq!(
+            Err(prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(0u64)),
+            validate_proof_data(
+                ETH_ATTESTATION_CHAIN_PARAMS_DEV,
+                block_number,
+                claim,
+                output
+            )
+        );
+
+        println!(
+            "{}",
+            format!(
+                "CLAIMER: claim out of bounds, witness at {}",
+                expected_out_of_bound_witness
+            )
+            .bold()
+            .red()
+        );
+    }
+
+    async fn run_prover(
+        cairo_claim: ClaimSerializable,
+        block: OrderedBlock,
+    ) -> CairoVerifierOutput {
+        use attestation_db::AttestationDB;
+        const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
+
+        let attestation_chain_params = ETH_ATTESTATION_CHAIN_PARAMS_DEV;
+        let db_url = "../data/db";
+        let db = attestation_db::EthAttestationJsonDB::try_create(attestation_chain_params, db_url)
+            .unwrap();
+        println!("{}", format!("PROVER: accessing db at: {db_url:?}").bold());
+        let block_number = block.number();
+
+        let attestation_fragment = db.get_fragment_for(block_number).unwrap();
 
         // change to false if you don't want to generate stone-proof and rather use output of cairo program
-        let generate_stone_proof = true;
+        let generate_stone_proof = false;
         let overwrite_existing_stone_proof = false;
-        let result = crate::cairo_generate_proof(
+        let cairo_output_or_stone_proof = crate::cairo_generate_proof(
+            attestation_chain_params,
             cairo_claim,
             &attestation_fragment,
-            tx_bytes,
-            rx_bytes,
+            block,
+            // checkpoints.inner(),
             generate_stone_proof,
             overwrite_existing_stone_proof,
         )
-        .await;
+        .await
+        .unwrap();
 
+        println!("{}", "PROVER: sending output to claimer".bold());
         // -------------------------------------- claimer part ----------------------------------
-        let cairo_output_or_stone_proof = result.unwrap();
 
         let output = match cairo_output_or_stone_proof {
             either::Left((mut stone_proof, stone_proof_dir)) => {
@@ -258,65 +757,56 @@ mod tests {
             }
             either::Right(cairo_output) => cairo_output,
         };
+        output
+    }
 
-        let checkpoint = checkpoints.inner().checkpoint_for(block.into()).unwrap();
+    fn validate_proof_data<Q>(
+        attestation_chain_params: AttestationChainParams,
+        block: u64,
+        claim: prover_primitives::claim::Claim<Q>,
+        output: CairoVerifierOutput,
+    ) -> Result<(), prover_primitives::claim::ClaimValidationError>
+    where
+        Q: prover_primitives::claim_query::ClaimQuery,
+    {
+        let checkpoints_path = "../data/execution-chain";
+        println!(
+            "{}",
+            format!("CLAIMER: polling checkpoints from: {checkpoints_path:?} ...").bold()
+        );
+        let mut checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(
+            checkpoints_path,
+            attestation_chain_params,
+        );
+        // simulate polling checkpoints from CC3 blockchain
+        checkpoints.poll().unwrap();
+
+        let checkpoint = checkpoints.inner().checkpoint_for(block).unwrap();
         assert_eq!(output.continuity_checkpoint_block_number, checkpoint.n());
         assert_eq!(&output.continuity_checkpoint_digest, checkpoint.digest());
         println!("{}", "CLAIMER: continuity verified".bold().green());
 
-        claim.validate_fields(&output).unwrap();
-
-        println!(
-            "{}",
-            "CLAIMER: query fields and hash validated".bold().green()
-        );
+        claim.validate(&output)
     }
 
-    #[tokio::test]
-    async fn tx_output_matches_rlp_test() {
-        let block = 19543696;
-        let index = 45;
+    #[allow(dead_code)]
+    async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow::Result<()> {
+        use std::io::Write;
 
-        let url = "wss://eth-mainnet.g.alchemy.com/v2/ziEK05XpthEPz4a3g1iA4iD828g6wm_e";
+        tokio::process::Command::new("/bin/bash")
+            .arg("-c")
+            .arg(format!("source {} {}", script_source, input_dir,))
+            .stdout(std::process::Stdio::inherit())
+            .output()
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:?}"))
+            .and_then(|output| {
+                output.status.success().then_some(()).ok_or({
+                    let _ = std::io::stdout().write_all(&output.stdout);
+                    let _ = std::io::stdout().write_all(&output.stderr);
 
-        let eth_client = Client::new(url).await.expect("failed to create eth client");
-        // -------------------------------------- claimer part ----------------------------------
-        let tx_asd = eth_client.get_transactions(block).await.unwrap();
-
-        let payload_bytes = tx_asd[index].payload_bytes();
-
-        let rlp = rlp::Rlp::new(&payload_bytes[..]);
-        let rlp_felts = felts_from_bytes(rlp.as_raw());
-
-        let claim_id = ClaimIdentifier {
-            kind: ClaimKind::Tx,
-            block_item_id: BlockItemIdentifier::new(block.into(), index as u64),
-        };
-
-        let claim_query = TxClaimQuery::try_from(
-            vec![
-                To,
-                //                SingleDataRelativeRange(Some(24..30)),
-                Nonce,
-                SingleDataRelativeRange(None),
-                //                SingleDataRelativeRange(Some(33..39)),
-            ]
-            .into_iter()
-            .collect::<HashSet<_>>(),
-        )
-        .unwrap();
-
-        let claim = Claim::try_create(claim_id.clone(), claim_query, rlp).unwrap();
-
-        //        let felts_from_prover = rlp_felts.clone();
-        let prover_output = StoneProofPublicInput {
-            claim_id,
-            continuity_checkpoint_digest: Default::default(),
-            continuity_checkpoint_block_number: Default::default(),
-            query_hash: claim.query_hash(),
-            claim_fields: rlp_felts,
-        };
-
-        assert!(claim.validate_fields(&prover_output).is_ok());
+                    anyhow::anyhow!("error code: {:?}", output.status.code())
+                })
+            })
     }
 }

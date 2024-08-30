@@ -1,11 +1,14 @@
 [package]
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
+edition = "2021"
 name = "attestor-online-sim"
-publish.workspace = true
-repository.workspace = true
-version.workspace = true
+
+[workspace]
+# version.workspace = true
+# authors.workspace = true
+# edition.workspace = true
+# license.workspace = true
+# publish.workspace = true
+# repository.workspace = true
 
 [dependencies]
 attestation-chain = { path = "../primitives/attestation_chain" }

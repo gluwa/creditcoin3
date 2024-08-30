@@ -1,0 +1,22 @@
+[package]
+edition = "2021"
+license = "MIT"
+name = "query-cli"
+publish = false
+version = "0.1.0"
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+eth = { workspace = true }
+
+anyhow.workspace = true
+prover-primitives = { workspace = true, features = ["std"] }
+utils = { path = "../common/utils" }

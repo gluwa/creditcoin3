@@ -6,12 +6,14 @@ use attestation_chain::{
 };
 use colored::Colorize;
 use either::Either;
-use eth_common::{transaction::BlockItem, Client};
+use eth_common::Client;
 use proof::claim_prover::{build_prover, ClaimProver};
 use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+use attestation_chain::AttestationChainParams;
 
 pub async fn cairo_verify_claim(
+    attestation_chain_params: AttestationChainParams,
     url: &str,
     claim: ClaimSerializable,
     claim_attestation_fragment: &AttestationFragment,
@@ -19,7 +21,7 @@ pub async fn cairo_verify_claim(
     cairo_proof_mode: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<Either<StoneProof, CairoVerifierOutput>> {
-    let block_number = claim.id().block_item_id.block_number();
+    let block_number = claim.id().block_number();
     let claim_checkpoint = checkpoints.checkpoint_for(block_number).ok_or(anyhow!(
         "claim block number {} matches no checkpoints",
         block_number
@@ -34,21 +36,12 @@ pub async fn cairo_verify_claim(
     println!("claim: {:?}", claim);
     println!("fetching block and building merkle trees...");
 
-    let eth_client = Client::new(url).await.map_err(|err| anyhow!("{err:?}"))?;
+    let eth_client = Client::new(url, "")
+        .await
+        .map_err(|err| anyhow!("{err:?}"))?;
+    let block = eth_client.get_block(block_number).await?;
 
-    let tx_bytes = eth_client.get_transactions(block_number.as_u64()).await?;
-    let rx_bytes = eth_client.get_receipts(block_number.as_u64()).await?;
-
-    let tx_bytes = tx_bytes
-        .iter()
-        .map(eth_common::transaction::Transaction::to_bytes)
-        .collect::<Vec<_>>();
-    let rx_bytes = rx_bytes
-        .iter()
-        .map(eth_common::transaction::Receipt::to_bytes)
-        .collect::<Vec<_>>();
-
-    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_slice, tx_bytes, rx_bytes)
+    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_slice, block)
         .await
         .map(|claim_cairo_verifier| {
             print_with_timestamp("done".into());
@@ -84,6 +77,7 @@ pub async fn cairo_verify_claim(
     println!("{}", format!("{:?}", output).bold());
 
     let output_checkpoint = AttestationCheckpoint::try_from_block(
+        attestation_chain_params,
         output.continuity_checkpoint_block_number,
         output.continuity_checkpoint_digest,
     )

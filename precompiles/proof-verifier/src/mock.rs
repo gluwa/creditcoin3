@@ -3,7 +3,6 @@ use super::*;
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_evm::{EnsureAddressNever, EnsureAddressRoot, IdentityAddressMapping};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
-use prover_primitives::ChainPriceConfiguration;
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::{H160, H256, U256};
@@ -168,9 +167,9 @@ impl pallet_balances::Config for Runtime {
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
 
 pub type Precompiles<R> =
-    PrecompileSetBuilder<R, (PrecompileAt<AddressU64<1>, ClaimPrecompile<R>>,)>;
+    PrecompileSetBuilder<R, (PrecompileAt<AddressU64<1>, ProofVerifierPrecompile<R>>,)>;
 
-pub type PCall = ClaimPrecompileCall<Runtime>;
+pub type PCall = ProofVerifierPrecompileCall<Runtime>;
 
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// Block storage limit in bytes. Set to 40 KB.
@@ -216,10 +215,6 @@ impl pallet_evm::Config for Runtime {
 impl pallet_prover::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
-    type Address = H160;
-    type Currency = Balances;
-    type ClaimLockCurrency = Balances;
-    type Hashing = BlakeTwo256;
     type SupportedChains = SupportedChains;
 }
 
@@ -265,20 +260,6 @@ impl ExtBuilder {
         }
         .assimilate_storage(&mut t)
         .expect("Pallet balances storage can be assimilated");
-
-        pallet_prover::GenesisConfig::<Runtime> {
-            provers: vec![(
-                Account::Alice,
-                vec![
-                    (ChainPriceConfiguration {
-                        chain_id: 1,
-                        price: 100,
-                    }),
-                ],
-            )],
-        }
-        .assimilate_storage(&mut t)
-        .expect("Pallet prover storage can be assimilated");
 
         let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
             supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],

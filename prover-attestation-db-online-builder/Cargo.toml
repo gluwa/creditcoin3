@@ -1,14 +1,17 @@
 [package]
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
+edition = "2021"
 name = "prover-attestation-db-online-builder"
-publish.workspace = true
-repository.workspace = true
-version.workspace = true
+
+[workspace]
+# version.workspace = true
+# authors.workspace = true
+# edition.workspace = true
+# license.workspace = true
+# publish.workspace = true
+# repository.workspace = true
 
 [dependencies]
-anyhow = "1"
+anyhow = "1.0.68"
 futures = "0.3.30"
 rand = "0.8.5"
 serde = "1.0.193"

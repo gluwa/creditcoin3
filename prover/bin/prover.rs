@@ -1,12 +1,9 @@
 use clap::Parser;
-use std::{error::Error, fs};
+use std::error::Error;
 use tokio::signal;
 use tracing::{debug, info};
 
-use prover::{
-    config::{ChainPriceConfigurations, Config},
-    Server,
-};
+use prover::{config::Config, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
@@ -17,8 +14,11 @@ pub struct Attestor {
     #[arg(long, required = true)]
     cc3_key: String,
 
+    #[arg(long, default_value = "http://localhost:8545")]
+    eth_rpc_url: String,
+
     #[arg(long, required = true)]
-    nickname: String,
+    eth_private_key: String,
 
     #[arg(short, long)]
     verbose: bool,
@@ -26,14 +26,14 @@ pub struct Attestor {
     #[arg(long, default_value_t = 100)]
     claim_buffer: u8,
 
-    #[arg(short, long, default_value = "./config.toml", required = true)]
-    config_file: String,
-
     #[arg(
         long,
         default_value = "postgres://prover:prover@127.0.0.1:5432/attestations"
     )]
     postgres_uri: String,
+
+    #[arg(long)]
+    dev: bool,
 }
 
 #[tokio::main]
@@ -55,16 +55,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_env_filter(env_filter)
         .try_init();
 
-    let config_file = fs::read_to_string(args.config_file)?;
-    let chain_price_configurations: ChainPriceConfigurations = toml::from_str(&config_file)?;
-
     let config = Config {
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
-        nickname: args.nickname,
+        eth_rpc_url: args.eth_rpc_url,
+        eth_private_key: args.eth_private_key,
         claim_buffer: args.claim_buffer,
-        chain_price_configurations,
         postgres_uri: args.postgres_uri,
+        test_mode: args.dev,
     };
 
     let mut server = Server::new(config).await?;

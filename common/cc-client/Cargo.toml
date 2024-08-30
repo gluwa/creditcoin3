@@ -15,38 +15,20 @@ no_effect_underscore_binding = "allow"
 pedantic = "warn"
 redundant_slicing = "allow"
 too_many_arguments = "allow"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Ethereum
-alloy = { git = "https://github.com/alloy-rs/alloy", features = [
-    "node-bindings",
-    "providers",
-    "provider-http",
-    "provider-ws",
-    "rpc-client",
-    "rpc-types",
-    "rpc-types-eth",
-    "serde",
-    "consensus",
-    "rlp",
-    "contract",
-    "sol-types",
-    "signers",
-] }
 
 # Substrate
 subxt = "0.37"
 subxt-signer = "0.37"
 
 # Creditcoin deps
-attestor-primitives = { workspace = true }
+attestor-primitives = { workspace = true, features = ["std"] }
 bls-signatures = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
-prover-primitives = { workspace = true }
+prover-primitives = { workspace = true, features = ["std"] }
 
 # workspace deps
 hex = { workspace = true }

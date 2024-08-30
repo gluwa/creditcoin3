@@ -1,5 +1,6 @@
 use anyhow::Result;
 use cc_client::AccountId32;
+use eth::Client as EthClient;
 use sp_core::H256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -7,15 +8,16 @@ use tracing::{debug, info};
 
 use attestation_cache::AttestationCache;
 
-pub mod attestation;
-pub mod attestation_cache;
-pub mod cc3;
-pub mod claim;
 pub mod config;
-mod fragment;
-pub mod postgres;
 
-use cc3::Claim;
+mod attestation;
+mod attestation_cache;
+mod cc3;
+mod claim;
+mod contract;
+mod fragment;
+mod postgres;
+
 use config::Config;
 
 /// `AttestationCacheType` cache type
@@ -24,10 +26,13 @@ pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
 /// `CcClientArc` type
 pub type CcClientArc = Arc<cc3::Client>;
 
+/// `EthClientArc` type
+pub type EthClientArc = Arc<EthClient>;
+
 /// Prover server is configured using `Config`
 pub struct Server {
-    #[allow(dead_code)]
     config: Config,
+    cc3_client: EthClient,
     // Attestation cache
     attestations_cache: AttestationCacheType,
 }
@@ -38,100 +43,116 @@ impl Server {
         let db_pool = postgres::db::get_pool(&config.postgres_uri)?;
         postgres::db::run_migrations(config.postgres_uri.clone()).await?;
 
+        // Create attestations cache
         let attestations_cache: AttestationCacheType =
             Arc::new(attestation_cache::AttestationCache::new(db_pool));
+        info!("Created attestations cache");
+
+        // Deploy the prover contract
+        // This will deploy it on ccnext chain
+        let cc3_http_url = config.cc3_rpc_url.clone().replace("ws", "http");
+        let cc3_eth_client = EthClient::new(&cc3_http_url, &config.eth_private_key).await?;
+        contract::deploy(&cc3_eth_client).await?;
+        info!("Deployed prover contract");
 
         Ok(Server {
             config,
+            cc3_client: cc3_eth_client,
             attestations_cache,
         })
     }
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&mut self) -> Result<()> {
-        let cc3_client = cc3::Client::new(
-            &self.config.cc3_rpc_url,
-            &self.config.cc3_key,
-            &self.config.nickname,
-        )
-        .await?;
-
         debug!("Creating cc3 client");
-        cc3_client.init().await?;
-
-        // Sync chain prices configuration
-        cc3_client
-            .sync_chain_prices_configuration(self.config.chain_price_configurations.chain.clone())
-            .await?;
+        let cc3_client = cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key).await?;
 
         let attestations_cache = self.attestations_cache.clone();
         let cc3_client = Arc::new(cc3_client);
 
+        // Create an eth client
+        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, &String::new()).await?);
+
+        // Get the chain id of the eth chain
+        let eth_chain_id = eth_client.get_chain_id().await?;
+
+        // Convert into ccnext parsed chain id
+        let chain_id = cc3_client
+            .get_chain_key(eth_chain_id)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!("Chain id not found for eth chain id: {}", eth_chain_id)
+            })?;
+
         // Build historical cache first before starting the subscription for new attestations & claims
-        let config = self.config.clone();
-        // let attestations_cache = attestations_cache.clone();
-        info!("Starting sync cache");
-        attestation_cache::build_historical_cache(config, &attestations_cache, &cc3_client).await?;
+        info!("Building historical cache for chain with id: {}", chain_id);
+        attestation_cache::build_historical_cache_for_chain(
+            chain_id,
+            attestations_cache.clone(),
+            cc3_client.clone(),
+        )
+        .await?;
 
         // Sync the cache
         info!("Starting cache live sync");
         let sync_attestations_cache = attestations_cache.clone();
         let sync_cc3_client = cc3_client.clone();
-        let sync_config = self.config.clone();
         tokio::spawn(async move {
-            attestation_cache::sync_cache(&sync_config, &sync_attestations_cache, &sync_cc3_client)
+            attestation_cache::sync_cache(chain_id, &sync_attestations_cache, &sync_cc3_client)
                 .await
                 .expect("Failed to sync cache");
         });
 
-        // Handle claim subscription
-        info!("Starting claim subscription");
-        let claim_attestations_cache = attestations_cache.clone();
-        let claim_cc3_client = cc3_client.clone();
-        let claim_config = self.config.clone();
+        let cc_eth_client = Arc::new(self.cc3_client.clone());
+
+        info!("Starting unprocessed claim processing...");
+        let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
+        for query in unprocessed_queries {
+            let cc3_client = cc3_client.clone();
+            let eth_client = eth_client.clone();
+            if self.config.test_mode {
+                info!("Processing unprocessed query in test mode");
+                claim::_dummy_process(cc3_client, eth_client, query, &attestations_cache).await?;
+            } else {
+                info!("Processing unprocessed query: {:?}", query);
+                let proof =
+                    claim::process(cc3_client, eth_client, &query, &attestations_cache).await?;
+
+                info!("Submitting proof for query: {:?}", query);
+                contract::submit_proof(&cc_eth_client, query, proof).await?;
+            }
+        }
+
+        // Create a channel for query submission
+        let (sender, mut receiver) = mpsc::channel(100);
+
+        info!("Starting query submission subscription...");
+        let eth_client_for_query_sub = Arc::new(self.cc3_client.clone());
         tokio::spawn(async move {
-            handle_claim_sub(&claim_config, &claim_cc3_client, &claim_attestations_cache)
+            contract::subscribe_query_submission(eth_client_for_query_sub, sender)
                 .await
-                .expect("Failed to handle claim sub");
+                .expect("Failed to subscribe to query submission");
         });
+
+        info!("Listening for new queries...");
+        // Wait for new queries and handle them
+        while let Some(query) = receiver.recv().await {
+            let eth_client = eth_client.clone();
+            let cc3_client = cc3_client.clone();
+
+            if self.config.test_mode {
+                info!("Processing query in test mode");
+                claim::_dummy_process(cc3_client, eth_client, query, &attestations_cache).await?;
+            } else {
+                info!("Processing query: {:?}", query);
+                let proof =
+                    claim::process(cc3_client, eth_client, &query, &attestations_cache).await?;
+
+                info!("Submitting proof for query: {:?}", query);
+                contract::submit_proof(&cc_eth_client, query, proof).await?;
+            }
+        }
 
         Ok(())
     }
-}
-
-pub async fn handle_claim_sub(
-    config: &Config,
-    cc3_client: &CcClientArc,
-    attestation_cache: &AttestationCacheType,
-) -> Result<()> {
-    let (claim_tx, mut claim_rx) = mpsc::channel(config.claim_buffer.into());
-    debug!("Created claim buffer with size: {}", config.claim_buffer);
-
-    // Run sub in background and allow server to continue doing other work
-    let client = Arc::clone(cc3_client);
-    let claim_sub_handle = tokio::spawn(async move { client.start_claim_sub(claim_tx).await });
-
-    debug!("Starting claim processing handler");
-
-    // Handle claims in the main task or another spawned task
-    let client = Arc::clone(cc3_client);
-    let chain_price_configurations = config.chain_price_configurations.clone();
-    while let Some(claim) = claim_rx.recv().await {
-        // Get the rpc url for the chain the claim is from
-        let eth_client_rpc_url = chain_price_configurations
-            .get_rpc_url(claim.claim.chain_id)
-            .ok_or_else(|| anyhow::anyhow!("Chain not found"))
-            .unwrap_or_else(|_| panic!("Chain with id {} not found", claim.claim.chain_id));
-
-        // Create an eth client
-        let eth_client = eth::Client::new(eth_client_rpc_url).await?;
-
-        // Process the claim
-        claim::process(client.clone(), eth_client, claim, attestation_cache).await?;
-    }
-
-    // Wait for the claim subscription task to finish and handle its result
-    claim_sub_handle.await??;
-
-    Ok(())
 }

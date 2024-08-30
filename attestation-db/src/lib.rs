@@ -3,8 +3,9 @@ pub mod json_db;
 use attestation_chain::attestation_checkpoints::AttestationInterval;
 use attestation_chain::attestation_fragment::{AttestationFragment, AttestationFragmentError};
 use attestation_chain::block::Block;
-use attestation_chain::{ATTESTATION_GENESIS, CHECKPOINT_INTERVAL};
-use ethereum_types::U256;
+use attestation_chain::AttestationChainParams;
+
+pub type EthAttestationJsonDB = crate::json_db::AttestationJsonDB;
 pub struct FullFragment<'a>(&'a AttestationFragment);
 
 impl<'a> FullFragment<'a> {
@@ -16,12 +17,14 @@ impl<'a> FullFragment<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a AttestationFragment> for FullFragment<'a> {
+impl<'a> TryFrom<(&'a AttestationFragment, AttestationChainParams)> for FullFragment<'a> {
     type Error = ();
 
-    fn try_from(fragment: &'a AttestationFragment) -> Result<Self, Self::Error> {
-        if fragment.is_full() {
-            Ok(Self(fragment))
+    fn try_from(
+        fragment_with_params: (&'a AttestationFragment, AttestationChainParams),
+    ) -> Result<Self, Self::Error> {
+        if fragment_with_params.0.is_full() {
+            Ok(Self(fragment_with_params.0))
         } else {
             Err(())
         }
@@ -34,7 +37,7 @@ pub enum AttestationDbError {
     FragmentAfterRecent(AttestationInterval),
 
     MisalignedBlockDiscarded(Box<Block>),
-    BlockNumberMismatch(U256),
+    BlockNumberMismatch(u64),
     //    BlockNumberMismatch(u64),
     BlockDigestMismatch(Box<Block>),
 
@@ -65,23 +68,25 @@ impl From<AttestationFragmentError> for AttestationDbError {
 #[allow(private_bounds)]
 pub trait AttestationDB: AttestationDBImpl {
     fn checkpoint_interval(&self) -> usize;
-    fn genesis(&self) -> U256;
+    // fn genesis(&self) -> u64;
+    // fn interval(&self) -> usize;
+    fn attestation_chain_params(&self) -> &AttestationChainParams;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn reset(&mut self) -> Result<(), AttestationDbError>;
 
     fn recent_fragment(&self) -> &AttestationFragment;
 
-    fn get_fragment_for(&self, block_number: U256) -> Option<AttestationFragment>;
+    fn get_fragment_for(&self, block_number: u64) -> Option<AttestationFragment>;
 
-    fn fragment_for_exists(&self, block_number: U256) -> bool;
+    fn fragment_for_exists(&self, block_number: u64) -> bool;
     fn fragment_exists(&self, interval: &AttestationInterval) -> bool;
 
-    fn key_for(block_number: U256) -> Option<U256> {
+    fn key_for(&self, block_number: u64) -> Option<u64> {
         block_number
-            .checked_sub(1u64.into())?
-            .checked_sub(ATTESTATION_GENESIS)
-            .map(|d| d / CHECKPOINT_INTERVAL as u64)
+            .checked_sub(1u64)?
+            .checked_sub(self.attestation_chain_params().genesis())
+            .map(|d| d / self.attestation_chain_params().interval() as u64)
     }
     fn set_fragment(&mut self, full_fragment: FullFragment) -> Result<(), AttestationDbError> {
         let fragment = full_fragment.unwrap_fragment();

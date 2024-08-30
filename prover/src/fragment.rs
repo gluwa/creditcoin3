@@ -1,35 +1,28 @@
 use anyhow::Result;
 use tracing::{debug, info};
 
-use attestation_chain::attestation_fragment::AttestationFragment;
+use attestation_chain::{attestation_fragment::AttestationFragment, AttestationChainParams};
 use attestor_primitives::Attestation as AttestationPrimitive;
 use eth::Client;
 use mmr::traits::MerkleTreeTrait;
+use prover_primitives::Query;
 
 use crate::attestation::create_block_attestation;
-use crate::{postgres, AttestationCacheType, CcClientArc, Claim};
+use crate::{postgres, AttestationCacheType, EthClientArc};
 
 // Get the attestation fragment for a claim
 // This function will either get the fragment from the cache or create it and store it in the cache
 // The fragment is created by querying the chain for the attestation chain interval and then querying the chain for the attestation fragment
 pub async fn get_for_claim(
-    cc3_client: &CcClientArc,
-    eth_client: Client,
-    claim: &Claim,
+    eth_client: &EthClientArc,
+    query: &Query,
     attestation_cache: &AttestationCacheType,
+    interval: u64,
 ) -> Result<AttestationFragment> {
-    let chain_id = claim.claim.chain_id;
-
-    let attestation_chain_interval = cc3_client
-        .get_attestation_chain_interval(claim.claim.chain_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Chain not found"))?;
+    let chain_id = query.chain_id;
 
     // Calculate the interval bounds for the attestation chain
-    let (lower_bound, upper_bound) = get_interval_bounds(
-        claim.claim.id.block_item_id.block_number,
-        attestation_chain_interval,
-    );
+    let (lower_bound, upper_bound) = get_interval_bounds(query.height, interval);
 
     // Get the checkpoints for the interval
     let start_checkpoint = attestation_cache
@@ -46,7 +39,7 @@ pub async fn get_for_claim(
 
     // If the fragment is not in the cache, create it
     let attestations = if db_fragment.is_empty() {
-        construct_fragment(&eth_client, chain_id, lower_bound, upper_bound).await?
+        construct_fragment(eth_client, chain_id, lower_bound, upper_bound).await?
     } else {
         db_fragment
     };
@@ -55,17 +48,13 @@ pub async fn get_for_claim(
         "Attestation fragment found in cache, fragment length: {}",
         attestations.len()
     );
-    // First digest is the start checkpoint
-    let mut start_digest = start_checkpoint.prev_digest.clone().unwrap_or_default();
-    info!(
-        "Start digest: {}, End digest: {}",
-        start_digest, end_checkpoint.digest
-    );
 
     // Check if the first attestation digest matches the start checkpoint digest
     let first_attestation = attestations
         .first()
         .ok_or_else(|| anyhow::anyhow!("No first attestation found"))?;
+    info!("First attestation digest: {}", first_attestation.digest);
+
     if start_checkpoint.digest.as_bytes() != first_attestation.digest.as_bytes() {
         debug!(
             "Start checkpoint digest: {}, first attestation digest: {}",
@@ -80,6 +69,8 @@ pub async fn get_for_claim(
     let last_attestation = attestations
         .last()
         .ok_or_else(|| anyhow::anyhow!("No last attestation found"))?;
+    info!("Last attestation digest: {}", last_attestation.digest);
+
     if end_checkpoint.digest.as_bytes() != last_attestation.digest.as_bytes() {
         debug!(
             "End checkpoint digest: {}, last attestation digest: {}",
@@ -94,7 +85,17 @@ pub async fn get_for_claim(
     attestation_cache.upsert_fragment(&attestations).await?;
 
     // Create the attestation fragment object
-    let mut attestation_fragment = AttestationFragment::new();
+    let mut attestation_fragment = AttestationFragment::new(AttestationChainParams::new(
+        0,
+        usize::try_from(interval).expect("Interval is too large"),
+    ));
+
+    // First digest is the start checkpoint
+    let mut start_digest = start_checkpoint.prev_digest.clone().unwrap_or_default();
+    info!(
+        "Start digest: {}, End digest: {}",
+        start_digest, end_checkpoint.digest
+    );
     for attestation in &attestations {
         let block_attestation = create_block_attestation(attestation, &start_digest)?;
         info!(
@@ -138,22 +139,18 @@ async fn construct_fragment(
     // TODO: This should be done in parallel
     let mut prev_digest = None;
     for block_number in lower_bound..=upper_bound {
-        // TODO: abstract this into a function
         let block = eth_client.get_block(block_number).await?;
-        let transactions = eth_client.get_transactions(block_number).await?;
-        let receipts = eth_client.get_receipts(block_number).await?;
 
         // Generate the pedersen mmr
-        let (tx, rx) = eth::transaction::starknet_pedersen_mmr(transactions, receipts);
+        let mt = eth::starknet_pedersen_mmr(&block);
 
         // Create the primitive to generate a digest after
         let attestation_primitive = AttestationPrimitive {
             chain_id,
-            header_hash: block.header.hash.unwrap(),
+            header_hash: block.hash().unwrap(),
             header_number: block_number,
             prev_digest,
-            tx_root: tx.root().0.to_bytes_be(),
-            rx_root: rx.root().0.to_bytes_be(),
+            root: mt.root().0.to_bytes_be(),
         };
 
         // Get the digest of the attestation
@@ -177,8 +174,7 @@ async fn construct_fragment(
                 .strip_prefix("0x")
                 .unwrap()
                 .to_string(),
-            tx_root: hex::encode(tx.root().0.to_bytes_be()),
-            rx_root: hex::encode(rx.root().0.to_bytes_be()),
+            merkle_root: hex::encode(mt.root().0.to_bytes_be()),
         };
 
         attestations.push(attestation);

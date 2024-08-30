@@ -1,7 +1,5 @@
 use crate::{SourceChainBlockIdentifier, SourceChainBlockStream};
-use attestation_chain::attestation_checkpoints::AttestationInterval;
 use core::pin::Pin;
-use ethereum_types::U256;
 use futures::task::{Context, Poll};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -16,10 +14,7 @@ impl HistoricalBlocksProvider {
 
         Self {
             stream: Some(HistoricalBlocksStream { rx }),
-            block_injector: Some(NextHistoricalBlockInjector {
-                watermark: 0.into(),
-                tx,
-            }),
+            block_injector: Some(NextHistoricalBlockInjector { watermark: 0, tx }),
         }
     }
 
@@ -49,23 +44,23 @@ impl Default for HistoricalBlocksProvider {
 
 #[derive(Clone)]
 pub struct NextHistoricalBlockInjector {
-    watermark: U256,
+    watermark: u64,
     tx: UnboundedSender<SourceChainBlockIdentifier>,
 }
 
 impl NextHistoricalBlockInjector {
     pub async fn on_block_appended(
         &mut self,
-        block_number: U256,
+        block_number: u64,
     ) -> Result<SourceChainBlockIdentifier, HistoricalBlocksProviderError> {
         //        pub async fn on_block_appended(&mut self, block: &Block) -> Result<SourceChainBlockIdentifier, HistoricalBlocksProviderError> {
         //        self.inject_block_identifier((block.n() + 1).into())
         use tokio::time::{sleep, Duration};
 
-        if self.watermark == 0.into() {
+        if self.watermark == 0u64 {
             self.watermark = block_number;
             for _ in 0..4 {
-                self.watermark += 1.into();
+                self.watermark += 1u64;
                 self.inject_block_identifier(self.watermark.into())?;
 
                 sleep(Duration::from_millis(700)).await;
@@ -77,9 +72,10 @@ impl NextHistoricalBlockInjector {
 
     pub fn on_fragment_set(
         &self,
-        interval: AttestationInterval,
+        tail: u64,
+        //        interval: AttestationInterval,
     ) -> Result<SourceChainBlockIdentifier, HistoricalBlocksProviderError> {
-        let tail = interval.tail();
+        //        let tail = interval.tail();
         self.inject_block_identifier((tail + 1).into())
     }
 }

@@ -1,0 +1,60 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "proof",
+        "type": "bytes"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "chainId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint64",
+            "name": "height",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint64",
+            "name": "index",
+            "type": "uint64"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint64",
+                "name": "offset",
+                "type": "uint64"
+              },
+              {
+                "internalType": "uint64",
+                "name": "size",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct LayoutSegment[]",
+            "name": "layout",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct Query",
+        "name": "query",
+        "type": "tuple"
+      }
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
