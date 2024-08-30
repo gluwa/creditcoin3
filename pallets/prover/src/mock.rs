@@ -95,6 +95,15 @@ pub(crate) const CLAIMER_1: AccountId = 3;
 pub(crate) const CLAIMER_2: AccountId = 4;
 pub(crate) const PROVER_3: AccountId = 5;
 
+pub(crate) fn verify_proof(proof: Vec<u8>) -> bool {
+    // make it easier to construct arbitrary proofs for testing purposes
+    if proof.len() >= 10 {
+        return true;
+    }
+
+    false
+}
+
 #[derive(Default)]
 pub struct ExtBuilder;
 

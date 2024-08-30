@@ -23,9 +23,11 @@ pub mod pallet {
     use sp_std::vec::Vec;
     use supported_chains_primitives::provider::SupportedChainsProvider;
 
-    #[cfg(not(feature = "runtime-benchmarks"))]
+    #[cfg(test)]
+    use crate::mock::verify_proof;
+    #[cfg(all(not(feature = "runtime-benchmarks"), not(test)))]
     use proof_verifier::host_api::verify_proof;
-    #[cfg(feature = "runtime-benchmarks")]
+    #[cfg(all(feature = "runtime-benchmarks", not(test)))]
     use proof_verifier::host_benchmark_api::verify_proof;
 
     #[pallet::config]
