@@ -6,7 +6,7 @@ use assert_matches::assert_matches;
 use attestor_primitives::{Attestation as AttestationPrimitive, ChainId, SignedAttestation};
 use attestor_primitives::{BlsPublicKey, BlsSignature};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
-use frame_support::{assert_err, assert_ok};
+use frame_support::{assert_noop, assert_ok};
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
@@ -73,7 +73,7 @@ fn register_attestor_should_fail_when_address_is_already_registered() {
             att.signature
         ));
 
-        assert_err!(
+        assert_noop!(
             Attestation::register_attestor(att.attestor, att.public_key, att.signature),
             Error::<Test>::AlreadyAttestor
         );
@@ -92,7 +92,7 @@ fn register_attestor_should_fail_when_list_is_full() {
             att_1.public_key,
             att_1.signature
         ));
-        assert_err!(
+        assert_noop!(
             Attestation::register_attestor(att_2.attestor, att_2.public_key, att_2.signature),
             Error::<Test>::AttestorListFull
         );
@@ -114,7 +114,7 @@ fn max_invulnerable_default_should_be_100() {
 fn set_max_attestors_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
         let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
-        assert_err!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin)
+        assert_noop!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin);
     })
 }
 
@@ -124,7 +124,7 @@ fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
         let root_origin = RuntimeOrigin::root();
         // There should be at least one invulnerable set in mock.rs
         // We set the max number of invulnerables to 0, less than the current number.
-        assert_err!(
+        assert_noop!(
             Attestation::set_max_invulnerables(root_origin, 0),
             Error::<Test>::MaxInvulnerablesCannotBeChanged
         );
@@ -135,10 +135,10 @@ fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
 fn set_max_invulnerables_should_error_with_non_root_origin() {
     ExtBuilder.build_and_execute(|| {
         let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
-        assert_err!(
+        assert_noop!(
             Attestation::set_max_invulnerables(bad_origin, 200),
             BadOrigin
-        )
+        );
     })
 }
 
@@ -157,7 +157,7 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
             att_2.public_key,
             att_2.signature
         ));
-        assert_err!(
+        assert_noop!(
             Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
             Error::<Test>::MaxAttestorsCannotBeChanged
         );
@@ -181,7 +181,7 @@ fn unregister_attestor_should_work_happy_path() {
 fn unregister_attestor_should_fail_when_address_is_not_registered() {
     ExtBuilder.build_and_execute(|| {
         let attestor = RuntimeOrigin::signed(ATTESTOR_1);
-        assert_err!(
+        assert_noop!(
             Attestation::unregister_attestor(attestor),
             Error::<Test>::AddressNotAttestor
         );
@@ -213,7 +213,7 @@ fn unregister_invulnerable_should_work_happy_path() {
 #[test]
 fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
     ExtBuilder.build_and_execute(|| {
-        assert_err!(
+        assert_noop!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
             Error::<Test>::AddressIsNotInvulnerable
         );
@@ -228,7 +228,7 @@ fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
             att.public_key,
             att.signature
         ));
-        assert_err!(
+        assert_noop!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
             Error::<Test>::AddressIsNotInvulnerable
         );
@@ -257,7 +257,7 @@ fn test_set_max_comittee_size_other_fails() {
     ExtBuilder.build_and_execute(|| {
         let attestor = RuntimeOrigin::signed(ATTESTOR_1);
 
-        assert_err!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
+        assert_noop!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
     })
 }
 
@@ -328,14 +328,14 @@ fn setting_attestation_interval_for_unsupported_chain_fails() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
         let chain_attestation_interval = 101;
-        assert_err!(
+        assert_noop!(
             Attestation::set_chain_attestation_interval(
                 RuntimeOrigin::root(),
                 chain_id,
                 chain_attestation_interval
             ),
             Error::<Test>::ChainNotSupported
-        )
+        );
     })
 }
 
@@ -354,10 +354,10 @@ fn bootstrapping_unsupported_chain_fails() {
 
         let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
 
-        assert_err!(
+        assert_noop!(
             Attestation::bootstrap_chain(RuntimeOrigin::root(), chain_id, attestation,),
             Error::<Test>::ChainNotSupported
-        )
+        );
     })
 }
 
@@ -399,7 +399,7 @@ fn submitting_duplicate_attestation_fails() {
             attestation.clone()
         ));
 
-        assert_err!(
+        assert_noop!(
             Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
             Error::<Test>::AttestationExists
         );
@@ -458,7 +458,7 @@ fn submitting_invalid_attestation_chain_fails() {
         let attestation =
             create_signed_attestation(vec![attestor.clone()], 1, 11, Some(fake_digest));
 
-        assert_err!(
+        assert_noop!(
             Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
             Error::<Test>::InvalidAttestation
         );
@@ -470,7 +470,7 @@ fn invalid_proof_of_possession() {
     ExtBuilder.build_and_execute(|| {
         let att_1 = Attestor::new(ATTESTOR_1);
         let att_2 = Attestor::new(ATTESTOR_2);
-        assert_err!(
+        assert_noop!(
             Attestation::register_attestor(att_1.attestor, att_1.public_key, att_2.signature),
             Error::<Test>::InvalidProofOfPossession
         );

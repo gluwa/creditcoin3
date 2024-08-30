@@ -3,7 +3,7 @@ use self::mock::PROVER_3;
 use super::*;
 use prover_primitives::{Query, VerifierExitStatus};
 
-use frame_support::{assert_err, assert_noop, assert_ok};
+use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, System, Test};
@@ -44,7 +44,7 @@ fn submit_proof_should_error_when_proof_is_empty() {
             layout_segments: vec![],
         };
 
-        assert_err!(
+        assert_noop!(
             ProverModule::submit_proof(prover_configured_in_genesis(), b"".to_vec(), query),
             Error::<Test>::InvalidProofSubmitted
         );
