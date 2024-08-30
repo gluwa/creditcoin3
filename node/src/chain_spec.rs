@@ -156,6 +156,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     SS58Prefix::get() as u64,
                     3,
                     vec![(1, 10), (2, 10)],
+                    vec![(1, 10), (2, 10)],
                 ),
                 enable_manual_seal,
             }
@@ -215,6 +216,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 SS58Prefix::get() as u64,
                 3,
                 vec![(1, 10), (2, 10)],
+                vec![(1, 10), (2, 10)],
             )
         },
         // Bootnodes
@@ -255,6 +257,7 @@ fn testnet_genesis(
     chain_id: u64,
     comittee_set_size: u32,
     attestation_chains_interval: Vec<(u64, u64)>,
+    chain_attestations_per_checkpoint: Vec<(u64, u32)>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -386,6 +389,7 @@ fn testnet_genesis(
             comittee_set_size,
             invulnerables: vec![],
             attestation_chains_interval: attestation_chains_interval.clone(),
+            attestations_per_checkpoint: chain_attestations_per_checkpoint.clone(),
         },
         supported_chains: SupportedChainsConfig {
             supported_chains: vec![

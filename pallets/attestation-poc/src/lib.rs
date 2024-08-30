@@ -192,6 +192,7 @@ pub mod pallet {
         pub comittee_set_size: u32,
         pub invulnerables: Vec<(T::AccountId, BlsPublicKeyWrapper)>,
         pub attestation_chains_interval: Vec<(ChainId, ChainAttestationIntervalType)>,
+        pub attestations_per_checkpoint: Vec<(ChainId, u32)>,
     }
 
     #[pallet::genesis_build]
@@ -210,6 +211,10 @@ pub mod pallet {
                 self.attestation_chains_interval.clone().into_iter()
             {
                 ChainAttestationInterval::<T>::insert(chain_id, chain_attestation_interval);
+            }
+
+            for (chain_id, att_per_check) in self.attestations_per_checkpoint.clone().into_iter() {
+                ChainAttestationsPerCheckpoint::<T>::insert(chain_id, att_per_check);
             }
         }
     }
