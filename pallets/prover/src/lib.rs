@@ -55,7 +55,6 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        QueryReceived(H256, T::AccountId),
         QueryVerified(H256, T::AccountId, VerifierExitStatus),
     }
 
@@ -70,8 +69,6 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::submit_proof())]
         pub fn submit_proof(origin: OriginFor<T>, proof: Vec<u8>, query: Query) -> DispatchResult {
             let prover = ensure_signed(origin)?;
-
-            Self::deposit_event(Event::<T>::QueryReceived(query.id(), prover.clone()));
 
             // Pre eliminary check
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
