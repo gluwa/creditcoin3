@@ -12,7 +12,7 @@ fn prover_configured_in_genesis() -> RuntimeOrigin {
 }
 
 #[test]
-fn submit_invalid_proof_fails() {
+fn submit_proof_should_error_with_invalid_input() {
     ExtBuilder.build_and_execute(|| {
         let query = Query {
             chain_id: 1,
