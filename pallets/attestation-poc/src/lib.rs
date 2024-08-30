@@ -239,6 +239,11 @@ pub mod pallet {
         CheckpointReached(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
         ComitteeSetSizeChanged(u32),
+
+        /// Emitted when checkpointing was attempted, but failed due to an inconsistency between
+        /// the checkpointing queue and attestations map. Optionally includes queue entry which
+        /// had no matching attestation in the attestations map.
+        CheckpointingFailed(Option<Digest>),
     }
 
     #[pallet::error]
@@ -793,32 +798,24 @@ pub mod pallet {
                 let to_be_removed: Digest = match queue.pop_front() {
                     Some(digest) => digest,
                     None => {
-                        attestations_rollback_record
-                            .into_iter()
-                            .for_each(|attestation| {
-                                Attestations::<T>::insert(
-                                    chain_id,
-                                    attestation.digest(),
-                                    attestation,
-                                );
-                            });
-                        return Err(Error::<T>::CheckpointCreationError.into());
+                        return Err(Self::roll_back_checkpointing(
+                            chain_id,
+                            attestations_rollback_record,
+                            None,
+                        )
+                        .into());
                     }
                 };
 
                 let removed = match Attestations::<T>::take(chain_id, to_be_removed) {
                     Some(attestation) => attestation,
                     None => {
-                        attestations_rollback_record
-                            .into_iter()
-                            .for_each(|attestation| {
-                                Attestations::<T>::insert(
-                                    chain_id,
-                                    attestation.digest(),
-                                    attestation,
-                                );
-                            });
-                        return Err(Error::<T>::CheckpointCreationError.into());
+                        return Err(Self::roll_back_checkpointing(
+                            chain_id,
+                            attestations_rollback_record,
+                            Some(to_be_removed),
+                        )
+                        .into());
                     }
                 };
 
@@ -837,6 +834,20 @@ pub mod pallet {
             }
 
             Ok(())
+        }
+
+        fn roll_back_checkpointing(
+            chain_id: ChainId,
+            rollback_record: Vec<SignedAttestation<T::Hash, T::AccountId>>,
+            offending_queue_entry: Option<Digest>,
+        ) -> Error<T> {
+            rollback_record.into_iter().for_each(|attestation| {
+                Attestations::<T>::insert(chain_id, attestation.digest(), attestation);
+            });
+
+            Self::deposit_event(Event::<T>::CheckpointingFailed(offending_queue_entry));
+
+            Error::<T>::CheckpointCreationError
         }
 
         #[cfg(test)]

@@ -1,7 +1,5 @@
 use super::*;
-use crate::mock::{
-    Attestation, ExtBuilder, RuntimeOrigin, Test, ATTESTOR_1, ATTESTOR_2, DEFAULT_COMITTEE_SET_SIZE,
-};
+use crate::mock::*;
 use assert_matches::assert_matches;
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, ChainId, SignedAttestation,
@@ -637,6 +635,8 @@ fn creating_checkpoint_works() {
 fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_match_attestations_map()
 {
     ExtBuilder.build_and_execute(|| {
+        // Needed to emit event
+        System::set_block_number(1);
         // Setup almost two full checkpoints of attestations, so that
         // the next attestation submitted triggers checkpoint creation.
         let attestor = Attestor::new(ATTESTOR_1);
@@ -683,6 +683,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
             );
             last_digest = Some(attestation.digest());
 
+            // Final attestation
             if i == att_per_check * 2 - 1 {
                 // Before committing final attestation, queue should contain 2
                 // checkpoints worth of attestations - 1
@@ -695,6 +696,11 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
                     RuntimeOrigin::none(),
                     attestation.clone()
                 ));
+
+                // assert on emited event
+                System::assert_last_event(
+                    crate::Event::CheckpointingFailed(Some([0u8; 32].into())).into(),
+                );
 
                 // The final attestation should have been successfully added to
                 // the queue, and then any removals from the queue due to
