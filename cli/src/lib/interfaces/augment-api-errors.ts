@@ -516,21 +516,7 @@ declare module '@polkadot/api-base/types/errors' {
             [key: string]: AugmentedError<ApiType>;
         };
         prover: {
-            BalanceToLow: AugmentedError<ApiType>;
-            ChainNotSupported: AugmentedError<ApiType>;
-            ChainPriceConfigurationNotFound: AugmentedError<ApiType>;
-            ClaimNotExists: AugmentedError<ApiType>;
             InvalidProofSubmitted: AugmentedError<ApiType>;
-            ProverAlreadyExists: AugmentedError<ApiType>;
-            /**
-             * Prover already registered
-             **/
-            ProverAlreadyRegistered: AugmentedError<ApiType>;
-            /**
-             * Prover not exists
-             **/
-            ProverNotExists: AugmentedError<ApiType>;
-            WrongClaimHash: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

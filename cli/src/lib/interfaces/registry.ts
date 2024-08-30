@@ -137,15 +137,9 @@ import type {
     PalletNominationPoolsSubPools,
     PalletNominationPoolsUnbondPool,
     PalletOffencesEvent,
-    PalletProverBlockItemIdentifier,
     PalletProverCall,
-    PalletProverClaim,
-    PalletProverClaimId,
-    PalletProverClaimKind,
     PalletProverError,
     PalletProverEvent,
-    PalletProverFeltRange,
-    PalletProverProver,
     PalletProxyAnnouncement,
     PalletProxyCall,
     PalletProxyError,
@@ -190,7 +184,9 @@ import type {
     PalletUtilityCall,
     PalletUtilityError,
     PalletUtilityEvent,
-    ProverPrimitivesChainPriceConfiguration,
+    ProverPrimitivesLayoutSegment,
+    ProverPrimitivesQuery,
+    ProverPrimitivesVerifierExitStatus,
     SpArithmeticArithmeticError,
     SpConsensusBabeAllowedSlots,
     SpConsensusBabeAppPublic,
@@ -362,15 +358,9 @@ declare module '@polkadot/types/types/registry' {
         PalletNominationPoolsSubPools: PalletNominationPoolsSubPools;
         PalletNominationPoolsUnbondPool: PalletNominationPoolsUnbondPool;
         PalletOffencesEvent: PalletOffencesEvent;
-        PalletProverBlockItemIdentifier: PalletProverBlockItemIdentifier;
         PalletProverCall: PalletProverCall;
-        PalletProverClaim: PalletProverClaim;
-        PalletProverClaimId: PalletProverClaimId;
-        PalletProverClaimKind: PalletProverClaimKind;
         PalletProverError: PalletProverError;
         PalletProverEvent: PalletProverEvent;
-        PalletProverFeltRange: PalletProverFeltRange;
-        PalletProverProver: PalletProverProver;
         PalletProxyAnnouncement: PalletProxyAnnouncement;
         PalletProxyCall: PalletProxyCall;
         PalletProxyError: PalletProxyError;
@@ -415,7 +405,9 @@ declare module '@polkadot/types/types/registry' {
         PalletUtilityCall: PalletUtilityCall;
         PalletUtilityError: PalletUtilityError;
         PalletUtilityEvent: PalletUtilityEvent;
-        ProverPrimitivesChainPriceConfiguration: ProverPrimitivesChainPriceConfiguration;
+        ProverPrimitivesLayoutSegment: ProverPrimitivesLayoutSegment;
+        ProverPrimitivesQuery: ProverPrimitivesQuery;
+        ProverPrimitivesVerifierExitStatus: ProverPrimitivesVerifierExitStatus;
         SpArithmeticArithmeticError: SpArithmeticArithmeticError;
         SpConsensusBabeAllowedSlots: SpConsensusBabeAllowedSlots;
         SpConsensusBabeAppPublic: SpConsensusBabeAppPublic;

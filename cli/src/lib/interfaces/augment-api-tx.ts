@@ -56,15 +56,13 @@ import type {
     PalletNominationPoolsConfigOpU128,
     PalletNominationPoolsConfigOpU32,
     PalletNominationPoolsPoolState,
-    PalletProverClaim,
-    PalletProverProver,
     PalletStakingPalletConfigOpPerbill,
     PalletStakingPalletConfigOpPercent,
     PalletStakingPalletConfigOpU128,
     PalletStakingPalletConfigOpU32,
     PalletStakingRewardDestination,
     PalletStakingValidatorPrefs,
-    ProverPrimitivesChainPriceConfiguration,
+    ProverPrimitivesQuery,
     SpConsensusBabeDigestsNextConfigDescriptor,
     SpConsensusGrandpaEquivocationProof,
     SpConsensusSlotsEquivocationProof,
@@ -1247,48 +1245,18 @@ declare module '@polkadot/api-base/types/submittable' {
         };
         prover: {
             /**
-             * See [`Pallet::register_prover`].
-             **/
-            registerProver: AugmentedSubmittable<
-                (
-                    prover: PalletProverProver | { nickname?: any } | string | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [PalletProverProver]
-            >;
-            /**
-             * See [`Pallet::set_chain_price_config`].
-             **/
-            setChainPriceConfig: AugmentedSubmittable<
-                (
-                    chainPriceConfigs:
-                        | Vec<ProverPrimitivesChainPriceConfiguration>
-                        | (
-                              | ProverPrimitivesChainPriceConfiguration
-                              | { chainId?: any; price?: any }
-                              | string
-                              | Uint8Array
-                          )[],
-                ) => SubmittableExtrinsic<ApiType>,
-                [Vec<ProverPrimitivesChainPriceConfiguration>]
-            >;
-            /**
-             * See [`Pallet::submit_claim`].
-             **/
-            submitClaim: AugmentedSubmittable<
-                (
-                    claim: PalletProverClaim | { chainId?: any; id?: any; feltRanges?: any } | string | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [PalletProverClaim]
-            >;
-            /**
              * See [`Pallet::submit_proof`].
              **/
             submitProof: AugmentedSubmittable<
                 (
-                    claimHash: H256 | string | Uint8Array,
                     proof: Bytes | string | Uint8Array,
+                    query:
+                        | ProverPrimitivesQuery
+                        | { chainId?: any; height?: any; index?: any; layoutSegments?: any }
+                        | string
+                        | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [H256, Bytes]
+                [Bytes, ProverPrimitivesQuery]
             >;
             /**
              * Generic tx

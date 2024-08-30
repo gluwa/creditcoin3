@@ -32,11 +32,10 @@ import type {
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsPoolState,
-    PalletProverClaim,
     PalletStakingExposure,
     PalletStakingForcing,
     PalletStakingValidatorPrefs,
-    ProverPrimitivesChainPriceConfiguration,
+    ProverPrimitivesVerifierExitStatus,
     SpConsensusGrandpaAppPublic,
     SpRuntimeDispatchError,
 } from '@polkadot/types/lookup';
@@ -541,25 +540,8 @@ declare module '@polkadot/api-base/types/events' {
             [key: string]: AugmentedEvent<ApiType>;
         };
         prover: {
-            /**
-             *
-             **/
-            ClaimVerified: AugmentedEvent<ApiType, [H256, AccountId32]>;
-            /**
-             *
-             **/
-            ProverChainPriceConfigurationSet: AugmentedEvent<
-                ApiType,
-                [AccountId32, Vec<ProverPrimitivesChainPriceConfiguration>]
-            >;
-            /**
-             *
-             **/
-            ProverClaimSubmitted: AugmentedEvent<ApiType, [AccountId32, AccountId32, H256, PalletProverClaim]>;
-            /**
-             * Emitted when an prover is properly registered with the prover system
-             **/
-            ProverRegistered: AugmentedEvent<ApiType, [AccountId32]>;
+            QueryReceived: AugmentedEvent<ApiType, [H256, AccountId32]>;
+            QueryVerified: AugmentedEvent<ApiType, [H256, AccountId32, ProverPrimitivesVerifierExitStatus]>;
             /**
              * Generic event
              **/
