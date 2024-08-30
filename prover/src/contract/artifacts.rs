@@ -59,6 +59,11 @@ pub async fn create_deployment_artifact(
         contract: deployment,
     };
 
+    // Ensure the parent directory exists
+    if let Some(parent_dir) = Path::new(ARTIFACT_STORAGE_FILE).parent() {
+        tokio::fs::create_dir_all(parent_dir).await?;
+    }
+
     // Check if the file exists
     let artifact_storage = if Path::new(ARTIFACT_STORAGE_FILE).exists() {
         // Read the existing file
