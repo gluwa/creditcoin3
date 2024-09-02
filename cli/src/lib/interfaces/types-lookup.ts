@@ -1077,11 +1077,9 @@ declare module '@polkadot/types/lookup' {
 
     /** @name PalletProverEvent (98) */
     interface PalletProverEvent extends Enum {
-        readonly isQueryReceived: boolean;
-        readonly asQueryReceived: ITuple<[H256, AccountId32]>;
         readonly isQueryVerified: boolean;
         readonly asQueryVerified: ITuple<[H256, AccountId32, ProverPrimitivesVerifierExitStatus]>;
-        readonly type: 'QueryReceived' | 'QueryVerified';
+        readonly type: 'QueryVerified';
     }
 
     /** @name ProverPrimitivesVerifierExitStatus (99) */

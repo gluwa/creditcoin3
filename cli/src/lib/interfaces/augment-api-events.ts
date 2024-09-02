@@ -540,7 +540,6 @@ declare module '@polkadot/api-base/types/events' {
             [key: string]: AugmentedEvent<ApiType>;
         };
         prover: {
-            QueryReceived: AugmentedEvent<ApiType, [H256, AccountId32]>;
             QueryVerified: AugmentedEvent<ApiType, [H256, AccountId32, ProverPrimitivesVerifierExitStatus]>;
             /**
              * Generic event

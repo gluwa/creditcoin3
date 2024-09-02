@@ -868,7 +868,6 @@ export default {
      **/
     PalletProverEvent: {
         _enum: {
-            QueryReceived: '(H256,AccountId32)',
             QueryVerified: '(H256,AccountId32,ProverPrimitivesVerifierExitStatus)',
         },
     },
