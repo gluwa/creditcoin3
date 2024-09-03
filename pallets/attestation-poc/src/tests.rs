@@ -153,7 +153,7 @@ fn set_max_attestors_should_error_with_non_root_origin() {
 }
 
 #[test]
-fn set_max_attestors_should_error_when_truncating_existing_list() {
+fn set_max_attestors_should_work_when_truncating_existing_list() {
     ExtBuilder.build_and_execute(|| {
         let att_1 = Attestor::new(ATTESTOR_1);
         let att_2 = Attestor::new(ATTESTOR_2);
@@ -172,14 +172,11 @@ fn set_max_attestors_should_error_when_truncating_existing_list() {
         let count = Attestors::<Test>::count();
         assert_eq!(count, 3);
 
-        assert_noop!(
-            Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
-            Error::<Test>::MaxAttestorsCannotBeChanged
-        );
-
-        // this is the default value
+        assert_ok!(Attestation::set_max_attestors(RuntimeOrigin::root(), 1));
+        let count = Attestors::<Test>::count();
+        assert_eq!(count, 3);
         let max_attestors = Attestation::max_attestors();
-        assert_eq!(max_attestors, 100);
+        assert_eq!(max_attestors, 1);
     })
 }
 

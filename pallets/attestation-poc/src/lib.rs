@@ -252,9 +252,6 @@ pub mod pallet {
         /// The attestor list is at the max size allowed by the current configuration
         AttestorListFull,
 
-        /// The call to set_max_attestor_failed, most likely because the current list is longer than the new requested maximum
-        MaxAttestorsCannotBeChanged,
-
         /// the address supplied is not currently registered as an attestor
         AddressNotAttestor,
 
@@ -389,9 +386,6 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
         pub fn set_max_attestors(origin: OriginFor<T>, new_max: u32) -> DispatchResult {
             ensure_root(origin)?;
-
-            let count = Attestors::<T>::count();
-            ensure!(new_max >= count, Error::<T>::MaxAttestorsCannotBeChanged);
 
             MaxAttestors::<T>::put(new_max);
             Ok(())
