@@ -391,12 +391,6 @@ pub mod pallet {
             ensure_root(origin)?;
 
             let count = Attestors::<T>::count();
-
-            if count == 0 {
-                MaxAttestors::<T>::put(new_max);
-                return Ok(());
-            }
-
             ensure!(new_max >= count, Error::<T>::MaxAttestorsCannotBeChanged);
 
             MaxAttestors::<T>::put(new_max);
