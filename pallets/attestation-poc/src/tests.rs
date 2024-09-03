@@ -354,8 +354,40 @@ fn set_comittee_set_size_should_update_storage_and_emit_an_event() {
 }
 
 #[test]
-fn add_invulnerable_also_adds_as_attestor_works() {
+fn register_invulnerable_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(ATTESTOR_1);
+
+        assert_noop!(
+            Attestation::register_invulnerable(RuntimeOrigin::none(), ATTESTOR_1, att.public_key),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn register_invulnerable_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(ATTESTOR_1);
+        assert_noop!(
+            Attestation::register_invulnerable(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                ATTESTOR_1,
+                att.public_key
+            ),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn register_invulnerable_adds_attestor_and_invulnerable_and_emits_events() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert!(!Attestors::<Test>::contains_key(ATTESTOR_1));
+        assert!(!Invlunerables::<Test>::contains_key(ATTESTOR_1));
+
         let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
@@ -364,7 +396,10 @@ fn add_invulnerable_also_adds_as_attestor_works() {
         ));
 
         assert!(Attestation::attestors(ATTESTOR_1).is_some());
-        assert!(Attestation::invulnerables(ATTESTOR_1))
+        assert!(Attestation::invulnerables(ATTESTOR_1));
+
+        // assert on event
+        System::assert_last_event(crate::Event::InvulnerableRegistered(ATTESTOR_1).into());
     })
 }
 
