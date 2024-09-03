@@ -305,22 +305,42 @@ fn remove_invulnerable_that_is_not_attestor_works() {
 }
 
 #[test]
-fn set_chain_attestation_interval_updates_internal_storage() {
+fn set_chain_attestation_interval_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
         let chain_id = 1;
-
-        let attestation_interval = Attestation::chain_attestation_interval(chain_id);
-        assert_eq!(attestation_interval, 10); // Interval set in mock genesis
-
         let chain_attestation_interval = 101;
-        assert_ok!(Attestation::set_chain_attestation_interval(
-            RuntimeOrigin::root(),
-            chain_id,
-            chain_attestation_interval
-        ));
 
-        let attestation_interval = Attestation::chain_attestation_interval(chain_id);
-        assert_eq!(attestation_interval, 101);
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::none(),
+                chain_id,
+                chain_attestation_interval
+            ),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_chain_attestation_interval_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_id = 1;
+        let chain_attestation_interval = 101;
+
+        let acct: AccountId = 4;
+
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::signed(acct),
+                chain_id,
+                chain_attestation_interval
+            ),
+            BadOrigin
+        );
     })
 }
 
@@ -337,6 +357,26 @@ fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
             ),
             Error::<Test>::ChainNotSupported
         );
+    })
+}
+
+#[test]
+fn set_chain_attestation_interval_updates_internal_storage() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 1;
+
+        let attestation_interval = Attestation::chain_attestation_interval(chain_id);
+        assert_eq!(attestation_interval, 10); // Interval set in mock genesis
+
+        let chain_attestation_interval = 101;
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::root(),
+            chain_id,
+            chain_attestation_interval
+        ));
+
+        let attestation_interval = Attestation::chain_attestation_interval(chain_id);
+        assert_eq!(attestation_interval, 101);
     })
 }
 
