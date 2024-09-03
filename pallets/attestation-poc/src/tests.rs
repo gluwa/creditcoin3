@@ -363,14 +363,14 @@ fn setting_attestations_per_checkpoint_on_unsupported_chain_fails() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
         let att_per_check = 101;
-        assert_err!(
+        assert_noop!(
             Attestation::set_attestations_per_checkpoint(
                 RuntimeOrigin::root(),
                 chain_id,
                 att_per_check
             ),
             Error::<Test>::ChainNotSupported
-        )
+        );
     })
 }
 
