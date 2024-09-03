@@ -305,12 +305,13 @@ fn remove_invulnerable_that_is_not_attestor_works() {
 }
 
 #[test]
-fn setting_attestation_interval_works() {
+fn set_chain_attestation_interval_updates_internal_storage() {
     ExtBuilder.build_and_execute(|| {
-        let attestation_interval = Attestation::chain_attestation_interval(1);
+        let chain_id = 1;
+
+        let attestation_interval = Attestation::chain_attestation_interval(chain_id);
         assert_eq!(attestation_interval, 10); // Interval set in mock genesis
 
-        let chain_id = 1;
         let chain_attestation_interval = 101;
         assert_ok!(Attestation::set_chain_attestation_interval(
             RuntimeOrigin::root(),
@@ -318,13 +319,13 @@ fn setting_attestation_interval_works() {
             chain_attestation_interval
         ));
 
-        let attestation_interval = Attestation::chain_attestation_interval(1);
+        let attestation_interval = Attestation::chain_attestation_interval(chain_id);
         assert_eq!(attestation_interval, 101);
     })
 }
 
 #[test]
-fn setting_attestation_interval_for_unsupported_chain_fails() {
+fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
         let chain_attestation_interval = 101;
