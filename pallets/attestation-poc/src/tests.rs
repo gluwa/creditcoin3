@@ -111,14 +111,6 @@ fn max_invulnerable_default_should_be_100() {
 }
 
 #[test]
-fn set_max_attestors_should_error_with_non_root_origin() {
-    ExtBuilder.build_and_execute(|| {
-        let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
-        assert_noop!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin);
-    })
-}
-
-#[test]
 fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
     ExtBuilder.build_and_execute(|| {
         let root_origin = RuntimeOrigin::root();
@@ -143,7 +135,25 @@ fn set_max_invulnerables_should_error_with_non_root_origin() {
 }
 
 #[test]
-fn set_max_attestors_should_error_if_list_is_truncated() {
+fn set_max_attestors_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::none(), 1),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_should_error_with_non_root_origin() {
+    ExtBuilder.build_and_execute(|| {
+        let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
+        assert_noop!(Attestation::set_max_attestors(bad_origin, 1), BadOrigin);
+    })
+}
+
+#[test]
+fn set_max_attestors_should_error_when_truncating_existing_list() {
     ExtBuilder.build_and_execute(|| {
         let att_1 = Attestor::new(ATTESTOR_1);
         let att_2 = Attestor::new(ATTESTOR_2);
@@ -157,10 +167,61 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
             att_2.public_key,
             att_2.signature
         ));
+
+        // 1 invulnerable coming from mock runtime
+        let count = Attestors::<Test>::count();
+        assert_eq!(count, 3);
+
         assert_noop!(
             Attestation::set_max_attestors(RuntimeOrigin::root(), 1),
             Error::<Test>::MaxAttestorsCannotBeChanged
         );
+
+        // this is the default value
+        let max_attestors = Attestation::max_attestors();
+        assert_eq!(max_attestors, 100);
+    })
+}
+
+#[test]
+fn set_max_attestors_should_work_when_list_is_empty() {
+    ExtBuilder.build_and_execute(|| {
+        let _ = Attestors::<Test>::clear(u32::MAX, None);
+        let count = Attestors::<Test>::count();
+        assert_eq!(count, 0);
+
+        assert_ok!(Attestation::set_max_attestors(RuntimeOrigin::root(), 5));
+        let max_attestors = Attestation::max_attestors();
+        assert_eq!(max_attestors, 5);
+    })
+}
+
+#[test]
+fn set_max_attestors_should_work_when_expanding_existing_list() {
+    ExtBuilder.build_and_execute(|| {
+        let att_1 = Attestor::new(ATTESTOR_1);
+        let att_2 = Attestor::new(ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att_1.attestor,
+            att_1.public_key,
+            att_1.signature
+        ));
+        assert_ok!(Attestation::register_attestor(
+            att_2.attestor,
+            att_2.public_key,
+            att_2.signature
+        ));
+
+        // 1 invulnerable coming from mock runtime
+        let count = Attestors::<Test>::count();
+        assert_eq!(count, 3);
+        // this is the default value
+        let max_attestors = Attestation::max_attestors();
+        assert_eq!(max_attestors, 100);
+
+        assert_ok!(Attestation::set_max_attestors(RuntimeOrigin::root(), 10),);
+        let max_attestors = Attestation::max_attestors();
+        assert_eq!(max_attestors, 10);
     })
 }
 
