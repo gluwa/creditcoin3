@@ -236,7 +236,16 @@ fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
 }
 
 #[test]
-fn test_set_max_comittee_size_root_works() {
+fn set_comittee_set_size_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = RuntimeOrigin::signed(ATTESTOR_1);
+
+        assert_noop!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
+    })
+}
+
+#[test]
+fn set_comittee_set_size_updates_storage() {
     ExtBuilder.build_and_execute(|| {
         let comittee_size = Attestation::comittee_set_size();
         assert_eq!(comittee_size, DEFAULT_COMITTEE_SET_SIZE);
@@ -249,15 +258,6 @@ fn test_set_max_comittee_size_root_works() {
 
         let comittee_size = Attestation::comittee_set_size();
         assert_eq!(comittee_size, new_comittee_size);
-    })
-}
-
-#[test]
-fn test_set_max_comittee_size_other_fails() {
-    ExtBuilder.build_and_execute(|| {
-        let attestor = RuntimeOrigin::signed(ATTESTOR_1);
-
-        assert_noop!(Attestation::set_comittee_set_size(attestor, 512), BadOrigin);
     })
 }
 
