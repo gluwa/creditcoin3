@@ -165,26 +165,44 @@ fn set_max_attestors_should_error_if_list_is_truncated() {
 }
 
 #[test]
-fn unregister_attestor_should_work_happy_path() {
+fn unregister_attestor_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
-        let att = Attestor::new(ATTESTOR_1);
-        assert_ok!(Attestation::register_attestor(
-            att.attestor.clone(),
-            att.public_key,
-            att.signature
-        ));
-        assert_ok!(Attestation::unregister_attestor(att.attestor));
+        assert_noop!(
+            Attestation::unregister_attestor(RuntimeOrigin::none()),
+            BadOrigin
+        );
     })
 }
 
 #[test]
-fn unregister_attestor_should_fail_when_address_is_not_registered() {
+fn unregister_attestor_should_error_when_address_is_not_registered_as_attestor() {
     ExtBuilder.build_and_execute(|| {
         let attestor = RuntimeOrigin::signed(ATTESTOR_1);
         assert_noop!(
             Attestation::unregister_attestor(attestor),
             Error::<Test>::AddressNotAttestor
         );
+    })
+}
+
+#[test]
+fn unregister_attestor_should_update_storage_and_emit_an_event() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        // setup
+        let att = Attestor::new(ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.attestor.clone(),
+            att.public_key,
+            att.signature
+        ));
+        assert!(Attestation::is_attestor(&ATTESTOR_1));
+
+        // test
+        assert_ok!(Attestation::unregister_attestor(att.attestor.clone()));
+        assert!(!Attestation::is_attestor(&ATTESTOR_1));
+        System::assert_last_event(crate::Event::AttestorUnregistered(ATTESTOR_1).into());
     })
 }
 
