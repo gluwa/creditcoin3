@@ -697,11 +697,6 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
                     attestation.clone()
                 ));
 
-                // assert on emited event
-                System::assert_last_event(
-                    crate::Event::CheckpointingFailed(Some([0u8; 32].into())).into(),
-                );
-
                 // The final attestation should have been successfully added to
                 // the queue, and then any removals from the queue due to
                 // checkpointing should have been rolled back.

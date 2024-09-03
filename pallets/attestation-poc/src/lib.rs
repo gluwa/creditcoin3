@@ -22,7 +22,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::{
         CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
     };
-    use frame_support::{pallet_prelude::*, Blake2_128Concat};
+    use frame_support::{pallet_prelude::*, transactional, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use log::debug;
     use parity_scale_codec::FullCodec;
@@ -239,11 +239,6 @@ pub mod pallet {
         CheckpointReached(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
         ComitteeSetSizeChanged(u32),
-
-        /// Emitted when checkpointing was attempted, but failed due to an inconsistency between
-        /// the checkpointing queue and attestations map. Optionally includes queue entry which
-        /// had no matching attestation in the attestations map.
-        CheckpointingFailed(Option<Digest>),
     }
 
     #[pallet::error]
@@ -470,27 +465,20 @@ pub mod pallet {
 
             Attestations::<T>::insert(chain_id, digest, &attestation);
 
-            // Store checkpointing queue entry
-            CheckpointingQueues::<T>::mutate(chain_id, |queue| {
-                queue.push_back(digest);
-            });
-
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
 
-            // Make checkpoint if necessary.
+            // Add to checkpointing queue
             let mut queue = CheckpointingQueues::<T>::get(chain_id);
+            queue.push_back(digest);
+
+            // Make checkpoint if necessary.
             // The extrinsic didn't fail even if checkpointing failed. We want
             // to keep the new attestation rather than removing it from storage
             // via extrinsic rollback in the case of checkpointing failure.
-            match Self::try_make_checkpoint(&mut queue, chain_id) {
-                Ok(_) => CheckpointingQueues::<T>::insert(chain_id, queue),
-                Err(_) => {
-                    log::error!(
-                        "Attestation checkpointing has broken. Attestations are still being recorded, 
-                        but will not be condensed until checkpointing is fixed."
-                    )
-                }
+            if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
+                log::error!("Error: {:?}", e);
             }
+            CheckpointingQueues::<T>::insert(chain_id, queue);
 
             Ok(())
         }
@@ -555,27 +543,20 @@ pub mod pallet {
             // Update last digest
             LastDigest::<T>::set(chain_id, Some(digest));
 
-            // Store checkpointing queue entry
-            CheckpointingQueues::<T>::mutate(chain_id, |queue| {
-                queue.push_back(digest);
-            });
-
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
 
-            // Make checkpoint if necessary.
+            // Add to checkpointing queue
             let mut queue = CheckpointingQueues::<T>::get(chain_id);
+            queue.push_back(digest);
+
+            // Make checkpoint if necessary.
             // The extrinsic didn't fail even if checkpointing failed. We want
             // to keep the new attestation rather than removing it from storage
             // via extrinsic rollback in the case of checkpointing failure.
-            match Self::try_make_checkpoint(&mut queue, chain_id) {
-                Ok(_) => CheckpointingQueues::<T>::insert(chain_id, queue),
-                Err(_) => {
-                    log::error!(
-                        "Attestation checkpointing has broken. Attestations are still being recorded, 
-                        but will not be condensed until checkpointing is fixed."
-                    )
-                }
+            if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
+                log::error!("Error: {:?}", e);
             }
+            CheckpointingQueues::<T>::insert(chain_id, queue);
 
             Ok(())
         }
@@ -783,6 +764,7 @@ pub mod pallet {
         // When current checkpoint interval is completed by the commitment of its final attestation,
         // then the prior checkpoint interval is considered "stabilized". We condense all the
         // attestations for that prior interval into a single checkpoint.
+        #[transactional]
         fn try_make_checkpoint(queue: &mut VecDeque<Digest>, chain_id: ChainId) -> DispatchResult {
             let num_to_condense = T::DefaultAttestationsPerCheckpoint::get();
             // Only move forward if two full checkpoints of attestations are committed.
@@ -790,38 +772,33 @@ pub mod pallet {
                 return Ok(());
             }
 
-            // Keep track of changes to roll them back if checkpoint creation fails
-            let mut attestations_rollback_record: Vec<SignedAttestation<T::Hash, T::AccountId>> =
-                Vec::new();
-
+            // Because checkpointing queue storage is written to after this function
+            // returns, it isn't covered by the #[transactional] macro and must be manually
+            // rolled back.
+            let mut checkpointing_rollback: Vec<Digest> = Vec::new();
             for i in 0..num_to_condense {
                 let to_be_removed: Digest = match queue.pop_front() {
                     Some(digest) => digest,
                     None => {
-                        return Err(Self::roll_back_checkpointing(
-                            chain_id,
-                            attestations_rollback_record,
-                            None,
-                        )
-                        .into());
+                        for digest in checkpointing_rollback {
+                            queue.push_front(digest);
+                        }
+                        return Err(Error::<T>::CheckpointCreationError.into());
                     }
                 };
+                checkpointing_rollback.push(to_be_removed);
 
                 let removed = match Attestations::<T>::take(chain_id, to_be_removed) {
                     Some(attestation) => attestation,
                     None => {
-                        return Err(Self::roll_back_checkpointing(
-                            chain_id,
-                            attestations_rollback_record,
-                            Some(to_be_removed),
-                        )
-                        .into());
+                        for digest in checkpointing_rollback {
+                            queue.push_front(digest);
+                        }
+                        return Err(Error::<T>::CheckpointCreationError.into());
                     }
                 };
 
-                if i < num_to_condense - 1 {
-                    attestations_rollback_record.push(removed);
-                } else {
+                if i == num_to_condense - 1 {
                     // For the very last attestation in the checkpoint we don't have
                     // to add an attestations_rollback_record entry, since there
                     // are no further possible errors.
@@ -834,20 +811,6 @@ pub mod pallet {
             }
 
             Ok(())
-        }
-
-        fn roll_back_checkpointing(
-            chain_id: ChainId,
-            rollback_record: Vec<SignedAttestation<T::Hash, T::AccountId>>,
-            offending_queue_entry: Option<Digest>,
-        ) -> Error<T> {
-            rollback_record.into_iter().for_each(|attestation| {
-                Attestations::<T>::insert(chain_id, attestation.digest(), attestation);
-            });
-
-            Self::deposit_event(Event::<T>::CheckpointingFailed(offending_queue_entry));
-
-            Error::<T>::CheckpointCreationError
         }
 
         #[cfg(test)]
