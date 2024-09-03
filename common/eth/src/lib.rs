@@ -224,6 +224,13 @@ impl TxRx {
         })
     }
 
+    pub fn tx(&self) -> &TypedTransaction {
+        &self.tx
+    }
+    pub fn rx(&self) -> &ReceiptWithBloom<Log> {
+        &self.rx
+    }
+
     pub fn tx_hash(&self) -> &BlockHash {
         self.tx.tx_hash()
     }
@@ -325,6 +332,35 @@ impl OrderedBlock {
     }
 }
 
+pub struct OrderedRawBlock {
+    pub chain_id: Option<u64>,
+    pub number: u64,
+    pub hash: Option<BlockHash>,
+    pub transactions: Vec<Transaction>,
+    pub receipts: Vec<TransactionReceipt>,
+}
+
+impl OrderedRawBlock {
+    pub fn new(
+        chain_id: Option<u64>,
+        number: u64,
+        hash: Option<BlockHash>,
+        mut transactions: Vec<Transaction>,
+        mut receipts: Vec<TransactionReceipt>,
+    ) -> Self {
+        transactions.sort_by_key(|tx| tx.transaction_index);
+        receipts.sort_by_key(|rx| rx.transaction_index);
+
+        Self {
+            chain_id,
+            number,
+            hash,
+            transactions,
+            receipts,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Client {
     url: Url,
@@ -411,6 +447,28 @@ impl Client {
             receipts,
         )
         .map_err(Error::TransactionConversion)
+    }
+
+    pub async fn get_raw_block(&self, number: u64) -> Result<OrderedRawBlock, Error> {
+        let get_eth_block_fut = self.get_eth_block(number);
+        let get_eth_receipts_fut = self.get_receipts(number);
+
+        let (block, receipts) =
+            futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await?;
+
+        if block.transactions.len() != receipts.len() {
+            return Err(Error::TransactionsReceiptsMismatch(number));
+        }
+
+        let transactions = block.transactions.into_transactions().collect::<Vec<_>>();
+
+        Ok(OrderedRawBlock::new(
+            Some(self.chain_id),
+            number,
+            block.header.hash,
+            transactions,
+            receipts,
+        ))
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {

@@ -10,7 +10,7 @@ use pallet_evm::AddressMapping;
 use precompile_utils::prelude::*;
 use sp_core::H256;
 
-use prover_primitives::{Query, VerifierExitStatus};
+use pallet_prover_primitives::{Query, VerifierExitStatus};
 
 #[cfg(test)]
 mod mock;

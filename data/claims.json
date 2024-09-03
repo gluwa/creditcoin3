@@ -106,5 +106,17 @@
           "end": 3
       }
     ]
+  },
+  {
+    "id": {
+        "block_number": 19543697,
+        "index": 2
+    },
+    "felt_ranges": [
+      {
+          "start": 0,
+          "end": 3
+      }
+    ]
   }
 ]

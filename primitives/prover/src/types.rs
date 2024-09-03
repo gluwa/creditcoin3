@@ -3,7 +3,8 @@ use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
 use sp_std::boxed::Box;
 use sp_std::vec::Vec;
-use utils::utils::{try_parse_felt, try_parse_u64, try_parse_usize};
+use std::collections::HashMap;
+use utils::utils::{felts_to_bytes, try_parse_felt, try_parse_u64, try_parse_usize};
 use utils::Felt;
 use utils::StarknetPedersenMerkleProof;
 
@@ -88,24 +89,10 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
 
         let mut it = ss.iter();
 
-        // let claim_kind = (Self::parse_field(it.next(), try_parse_usize,"claim_kind")? as u8)
-        //                                 .try_into()
-        //                                 .map_err(|x| format!("invalid claim kind: {x}"))?;
-        // let block_number_lo = Self::parse_field(it.next(), try_parse_felt,"block_number_lo")?;
-        // let block_number_hi = Self::parse_field(it.next(), try_parse_felt,"block_number_hi")?;
-        // let claim_id = ClaimIdentifier {
-        //     kind: claim_kind,
-        //     block_item_id: BlockItemIdentifier::new(
-        //     u256_from_felts(&block_number_lo, &block_number_hi),
-        //     Self::parse_field(it.next(), try_parse_u64, "index")?,
-        //     )
-        // };
         let claim_index = Self::parse_field(it.next(), try_parse_u64, "index")?;
         let continuity_checkpoint_digest =
             Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_digest")?;
-        // let continuity_checkpoint_block_number_lo = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_block_number_lo")?;
-        // let continuity_checkpoint_block_number_hi = Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_block_number_hi")?;
-        //        let continuity_checkpoint_block_number = u256_from_felts(&continuity_checkpoint_block_number_lo, &continuity_checkpoint_block_number_hi);
+
         let continuity_checkpoint_block_number = Self::parse_field(
             it.next(),
             try_parse_u64,
@@ -223,13 +210,8 @@ pub type StoneProofPublicInput = CairoVerifierOutput;
 
 impl StoneProofPublicInput {
     const NUMBER_OF_STATIC_FIELDS: usize = 4;
-}
-
-impl TryFrom<&StoneProofJson> for StoneProofPublicInput {
-    type Error = String;
-
-    fn try_from(proof: &StoneProofJson) -> Result<Self, String> {
-        let public_memory = &proof.public_input.public_memory.0;
+    pub fn size(public_input: &PublicInput) -> Result<usize, String> {
+        let public_memory = &public_input.public_memory.0;
         let rlp_len = public_memory
             .last()
             .ok_or("proof public input is empty".to_owned())
@@ -237,12 +219,21 @@ impl TryFrom<&StoneProofJson> for StoneProofPublicInput {
             .and_then(|s| {
                 try_parse_usize(s).map_err(|err| format!("failed to parse 'rlp_len': {err:?}"))
             })?;
+        Ok(rlp_len + Self::NUMBER_OF_STATIC_FIELDS + 1)
+    }
+}
+
+impl TryFrom<&StoneProofJson> for StoneProofPublicInput {
+    type Error = String;
+
+    fn try_from(proof: &StoneProofJson) -> Result<Self, String> {
+        let public_memory = &proof.public_input.public_memory.0;
 
         Self::try_from(
             &public_memory
                 .iter()
                 .rev()
-                .take(rlp_len + Self::NUMBER_OF_STATIC_FIELDS + 1)
+                .take(Self::size(&proof.public_input)?)
                 .rev()
                 .map(PublicMemoryItem::value)
                 .collect::<Vec<_>>()[..],
@@ -267,14 +258,51 @@ impl PublicMemoryItem {
 pub struct PublicMemory(Vec<PublicMemoryItem>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemorySegment {
+    begin_addr: usize,
+    stop_ptr: usize,
+}
+
+pub type MemorySegments = HashMap<Box<str>, MemorySegment>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicInput {
     pub public_memory: PublicMemory,
     dynamic_params: serde_json::value::Value,
     layout: serde_json::value::Value,
-    memory_segments: serde_json::value::Value,
+    memory_segments: MemorySegments,
     n_steps: serde_json::value::Value,
     rc_max: serde_json::value::Value,
     rc_min: serde_json::value::Value,
+}
+
+impl PublicInput {
+    pub fn program_bytes(&self) -> Result<Vec<u8>, String> {
+        let initial_pc = self
+            .memory_segments
+            .get("program")
+            .ok_or("fatal: program segment not present in proof")?
+            .begin_addr;
+        let program_end = self
+            .memory_segments
+            .get("execution")
+            .ok_or("fatal: execution segment not present in proof")?
+            .begin_addr
+            - 2;
+        let program_len = program_end - initial_pc;
+
+        let bytecode_memory = &self.public_memory.0[initial_pc..initial_pc + program_len];
+
+        Ok(felts_to_bytes(
+            &bytecode_memory
+                .iter()
+                .map(PublicMemoryItem::value)
+                .map(try_parse_felt)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|err| format!("{err:?}"))?[..],
+            None,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -294,6 +322,11 @@ impl StoneProof {
     pub fn proof(&self) -> &StoneProofJson {
         &self.0
     }
+
+    pub fn program_bytes(&self) -> Result<Vec<u8>, String> {
+        self.0.public_input.program_bytes()
+    }
+
     pub fn strip_off_annotations(&mut self) -> &mut Self {
         self.proof_mut().annotations = serde_json::value::Value::Null;
         self

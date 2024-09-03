@@ -1,7 +1,7 @@
 use self::mock::PROVER_3;
 
 use super::*;
-use prover_primitives::{Query, VerifierExitStatus};
+use pallet_prover_primitives::{Query, VerifierExitStatus};
 
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;

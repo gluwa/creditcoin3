@@ -1,8 +1,7 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-
 pub mod claim;
 pub mod claim_out_of_bounds_witness;
 pub mod claim_query;
+pub mod stark_program_auth;
 pub mod types;
 
 use attestor_primitives::ChainId;

@@ -1,0 +1,12 @@
+[package]
+edition = "2021"
+name = "block-cache"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alloy = { version = "0.2", features = ["rpc-types"] }
+anyhow = "1.0.86"
+serde = "1.0.209"
+serde_json = "1.0.127"
+#eth-common = { path = "../common/eth", package = "eth" }

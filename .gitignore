@@ -30,7 +30,7 @@ attestor_zombienet/config.yaml
 
 # Cairo
 cairo/scripts/verify_merkle_proof_compiled.json
-cario/lang/cpu_air_params.json
+cairo/lang/cpu_air_params.json
 
 # Prover
 prover/claims/*.json
@@ -52,12 +52,13 @@ precompiles/metadata/abi/*.json
 
 # temp, output & test files
 data/attestation-chain/*
-data/block-cache/*
+# don't ignore block-cache for integration tests
+#data/block-cache/*
 data/claim-proofs/*
 data/db/*
 **/*output.txt
 **/program_input*.json
-**/block_*.json
+#**/block_*.json
 **/proof_*.json
 **/*compiled.json
 **/*trace.json

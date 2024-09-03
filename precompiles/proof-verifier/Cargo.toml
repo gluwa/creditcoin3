@@ -20,7 +20,7 @@ precompile-utils = { workspace = true }
 
 # Primitives
 attestor-primitives = { workspace = true }
-prover-primitives = { workspace = true }
+pallet-prover-primitives = { workspace = true }
 
 # Prover
 pallet-prover = { workspace = true, default-features = false }
@@ -46,7 +46,7 @@ pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 derive_more = { workspace = true }
 hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
-prover-primitives = { workspace = true, default-features = false }
+pallet-prover-primitives = { workspace = true, default-features = false }
 serde = { workspace = true }
 sha3 = { workspace = true }
 # Moonbeam
@@ -60,7 +60,7 @@ default = ["std"]
 std = [
     "log/std",
     "precompile-utils/std",
-    "prover-primitives/std",
+    "pallet-prover-primitives/std",
     "fp-account/std",
     "fp-evm/std",
     "frame-support/std",

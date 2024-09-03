@@ -3,8 +3,8 @@ use crate::mock::{
     *,
 };
 
+use pallet_prover_primitives::Query;
 use precompile_utils::testing::*;
-use prover_primitives::Query;
 use sp_core::H160;
 use std::str::from_utf8;
 

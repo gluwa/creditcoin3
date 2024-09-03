@@ -151,20 +151,20 @@ mod tests {
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use attestation_chain::AttestationChainParams;
     use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
+    use block_cache::{BlockCache, CacheT};
     use colored::Colorize;
     use eth_common::OrderedBlock;
     use hashbrown::HashSet;
-    use poc_config::PocConfig;
+    use prover_primitives::stark_program_auth::{
+        StarkProgramAuth, StarkProgramAuthError, StarkProgramMetadataStorage,
+    };
     use prover_primitives::types::CairoVerifierOutput;
     use prover_primitives::types::StoneProofPublicInput;
     use prover_primitives::{
         claim::{Claim, ClaimIdentifier, ClaimSerializable},
         claim_query::TxClaimQuery,
     };
-    use std::thread::sleep;
-    use std::time::Duration;
     use utils::block_item_traits::BlockItem;
-    use utils::json_serializable::JsonSerializable;
 
     /// tests this circuit:
     /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
@@ -181,16 +181,28 @@ mod tests {
         let block_number = 19543673u64;
         let index = 13;
 
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        // let poc_config = PocConfig::try_from_file("../config.json").unwrap();
 
-        let url = poc_config.source_chain_api_server_url();
+        // let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
-        // -------------------------------------- claimer part ----------------------------------
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        // let eth_client = rt
+        //     .block_on(eth_common::Client::new(url, ""))
+        //     .expect("failed to create eth client");
+        // // -------------------------------------- claimer part ----------------------------------
+        // let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         //        println!("{:?}", block.items()[index]);
         let payload_bytes = block.items()[index].payload_bytes();
@@ -255,16 +267,28 @@ mod tests {
         let block_number = 19543676u64;
         let index = 116;
 
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        // let poc_config = PocConfig::try_from_file("../config.json").unwrap();
 
-        let url = poc_config.source_chain_api_server_url();
+        // let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
-        // -------------------------------------- claimer part ----------------------------------
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        // let eth_client = rt
+        //     .block_on(eth_common::Client::new(url, ""))
+        //     .expect("failed to create eth client");
+        // // -------------------------------------- claimer part ----------------------------------
+        // let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         //        println!("{:?}", block.items()[index]);
         let payload_bytes = block.items()[index].payload_bytes();
@@ -328,16 +352,23 @@ mod tests {
         let block_number = 19543673u64;
         let index = 96;
 
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        //        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
 
-        let url = poc_config.source_chain_api_server_url();
+        //        let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
-        // -------------------------------------- claimer part ----------------------------------
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         //        println!("{:?}", block.items()[index]);
         let payload_bytes = block.items()[index].payload_bytes();
@@ -402,16 +433,28 @@ mod tests {
         let block_number = 19543673u64;
         let index = 95;
 
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        //        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
 
-        let url = poc_config.source_chain_api_server_url();
+        //        let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
+        // let eth_client = rt
+        //     .block_on(eth_common::Client::new(url, ""))
+        //     .expect("failed to create eth client");
         // -------------------------------------- claimer part ----------------------------------
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        //        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         let payload_bytes = block.items()[index].payload_bytes();
 
@@ -470,16 +513,28 @@ mod tests {
         let block_number = 19543673u64;
         let index = 95;
         let out_of_bound_index = 1000 + index;
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        //        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
 
-        let url = poc_config.source_chain_api_server_url();
+        // let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
+        // let eth_client = rt
+        //     .block_on(eth_common::Client::new(url, ""))
+        //     .expect("failed to create eth client");
         // -------------------------------------- claimer part ----------------------------------
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        //        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         let num_of_leaves = block.items().len();
         let payload_bytes = block.items()[index].payload_bytes();
@@ -544,16 +599,27 @@ mod tests {
         let block_number = 19543696u64;
         let index = 156;
         let out_of_bound_index = 1 + index;
-
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
-        let url = poc_config.source_chain_api_server_url();
+        // let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        // let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
-        // -------------------------------------- claimer part ----------------------------------
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        //let eth_client = rt
+        //     .block_on(eth_common::Client::new(url, ""))
+        //     .expect("failed to create eth client");
+        // // -------------------------------------- claimer part ----------------------------------
+        // let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         let num_of_leaves = block.items().len();
         let payload_bytes = block.items()[index].payload_bytes();
@@ -649,23 +715,45 @@ mod tests {
         let block_number = 19543675u64;
         let fake_block_just_for_rlp = 19543673u64;
         let index = 95;
-        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
-        let url = poc_config.source_chain_api_server_url();
+        //        let poc_config = PocConfig::try_from_file("../config.json").unwrap();
+        //let url = poc_config.source_chain_api_server_url();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let eth_client = rt
-            .block_on(eth_common::Client::new(url, ""))
-            .expect("failed to create eth client");
+        // let eth_client = rt
+        //     .block_on(eth_common::Client::new(url, ""))
+        //     .expect("failed to create eth client");
         // -------------------------------------- claimer part ----------------------------------
-        let fake_block = rt
-            .block_on(eth_client.get_block(fake_block_just_for_rlp))
+        // let fake_block = rt
+        //     .block_on(eth_client.get_block(fake_block_just_for_rlp))
+        //     .unwrap();
+
+        let block_json = BlockCache::new("../data/block-cache", fake_block_just_for_rlp)
+            .try_read()
             .unwrap();
+        let fake_block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
         let payload_bytes = fake_block.items()[index].payload_bytes();
 
-        sleep(Duration::from_millis(500));
+        let block_json = BlockCache::new("../data/block-cache", block_number)
+            .try_read()
+            .unwrap();
+        let block = OrderedBlock::try_create(
+            block_json.chain_id.unwrap(),
+            block_json.number,
+            block_json.hash,
+            block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+            block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+        )
+        .unwrap();
 
-        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
+        //        let block = rt.block_on(eth_client.get_block(block_number)).unwrap();
         // create rlp instance containing payload bytes
         //        let rlp = rlp::Rlp::new(&payload_bytes[..]);
 
@@ -725,7 +813,7 @@ mod tests {
         let attestation_fragment = db.get_fragment_for(block_number).unwrap();
 
         // change to false if you don't want to generate stone-proof and rather use output of cairo program
-        let generate_stone_proof = false;
+        let generate_stone_proof = true;
         let overwrite_existing_stone_proof = false;
         let cairo_output_or_stone_proof = crate::cairo_generate_proof(
             attestation_chain_params,
@@ -753,11 +841,62 @@ mod tests {
                     .strip_off_annotations()
                     .strip_off_prover_config()
                     .strip_off_private_input();
-                StoneProofPublicInput::try_from(stone_proof.proof()).unwrap()
+
+                let stark_program_metadata_url = format!(
+                    "{}/{}",
+                    "../data/execution-chain",
+                    StarkProgramMetadataStorage::DEFAULT_URL
+                );
+                let stark_program_metadata_storage =
+                    StarkProgramMetadataStorage::retrieve_from_chain_sim(
+                        &stark_program_metadata_url,
+                    )
+                    .unwrap();
+
+                let metadata = StarkProgramAuth::authenticate(
+                    &stone_proof,
+                    &stark_program_metadata_storage,
+                    default_stark_program_auth_hasher,
+                )
+                .map_err(|err| match err {
+                    StarkProgramAuthError::AuthenticationFailure(h) => anyhow::anyhow!(
+                        "STARK program not authenticated, got program bytecode fingerprint: {h:?}"
+                    ),
+                    _ => anyhow::anyhow!("{err:?}"),
+                })
+                .unwrap();
+
+                println!(
+                    "{}",
+                    format!("CLAMER: STARK program authenticated, metadata: {metadata:?}")
+                        .bold()
+                        .bright_green()
+                );
+
+                let stone_proof_public_input =
+                    StoneProofPublicInput::try_from(stone_proof.proof()).unwrap();
+
+                println!(
+                    "{}",
+                    format!("Stone Proof Output: {:?}", stone_proof_public_input).bold()
+                );
+
+                stone_proof_public_input
             }
             either::Right(cairo_output) => cairo_output,
         };
         output
+    }
+
+    fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
+        use std::hash::DefaultHasher;
+        use std::hash::Hash;
+        use std::hash::Hasher;
+
+        let mut hasher = DefaultHasher::new();
+        (bytes[..]).hash(&mut hasher);
+
+        hasher.finish()
     }
 
     fn validate_proof_data<Q>(

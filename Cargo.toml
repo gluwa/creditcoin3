@@ -12,6 +12,7 @@ members = [
     "primitives/randomness",
     "primitives/ext",
     "primitives/rpc/*",
+    "primitives/pallet-prover",
     "precompiles/proof-verifier",
     "precompiles/substrate-transfer",
     "host",
@@ -246,6 +247,7 @@ randomness-primitives = { path = "primitives/randomness", default-features = fal
 
 # Prover
 pallet-prover = { path = "pallets/prover", default_features = false }
+pallet-prover-primitives = { path = "primitives/pallet-prover", default-features = false }
 proof = { path = "proof", default-features = false }
 proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }

@@ -39,5 +39,6 @@ prover-primitives = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 attestation-db = { path = "../attestation-db" }
+block-cache = { path = "../block-cache" }
 hashbrown = { version = "0.14.5", default-features = false }
 poc-config = { path = "../poc-config" }

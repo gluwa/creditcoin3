@@ -31,7 +31,7 @@ frame-benchmarking = { workspace = true, default-features = false, optional = tr
 pallet-balances = { workspace = true, default-features = false }
 
 attestor-primitives = { workspace = true, default-features = false }
-prover-primitives = { workspace = true, default-features = false }
+pallet-prover-primitives = { workspace = true, default-features = false }
 supported-chains-primitives = { workspace = true, default-features = false }
 
 proof-verifier = { workspace = true, default-features = false }
@@ -70,10 +70,9 @@ std = [
     "scale-info/std",
     "frame-benchmarking?/std",
     "attestor-primitives/std",
-    "prover-primitives/std",
     "fp-account/std",
     "supported-chains-primitives/std",
     "proof-verifier/std",
-    "prover-primitives/std",
+    "pallet-prover-primitives/std",
     "precompile-utils/std",
 ]

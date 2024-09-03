@@ -1,5 +1,4 @@
 use crate::AsyncCallbackWithArg;
-//use utils::sorted_block::SortedBlockError;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use std::sync::Arc;
@@ -16,18 +15,9 @@ pub enum CreateAttestationBlockError {
     Other(String),
 }
 
-// impl From<SortedBlockError> for CreateAttestationBlockError {
-//     fn from(err: SortedBlockError) -> Self {
-//         match err {
-//             SortedBlockError::FetchFailure(err) => Self::Network(format!("{err:?}")),
-//             err => unreachable!("unexpected error: {err:?}"),
-//         }
-//     }
-// }
-
 pub(crate) async fn create_attestation_block_task(
     source_chain_api_server_url: Arc<str>,
-    _cache_dir: Option<Arc<str>>,
+    cache_dir: Option<Arc<str>>,
     block_number: u64,
     create_attestation_block_cancellation_token: CancellationToken,
     disconnected: Arc<AtomicBool>,
@@ -48,8 +38,7 @@ pub(crate) async fn create_attestation_block_task(
                 // compute Pedersen hashes and create attestation block
                 match retrieve_block_and_compute_merkle_roots(
                     &source_chain_api_server_url,
-                    // cache_dir.as_deref(),
-                    // cache_dir.as_deref(),
+                    cache_dir.as_deref(),
                     block_number,
                     create_attestation_block_cancellation_token,
                 )
@@ -88,14 +77,13 @@ pub(crate) async fn create_attestation_block_task(
 
 async fn retrieve_block_and_compute_merkle_roots(
     url: &str,
-    //    cache_dir: Option<&str>,
+    cache_dir: Option<&str>,
     block_number: u64,
     cancellation_token: CancellationToken,
 ) -> Result<Felt, CreateAttestationBlockError> {
-    use attestation_chain::utils::retrieve_and_compute_merkle_root;
 
     tokio::select! {
-        res = retrieve_and_compute_merkle_root(url, block_number) => {
+        res = retrieve_block_and_compute_merkle_root_cached(url, cache_dir, block_number) => {
             match res {
                 Ok(tree_root) => Ok(tree_root),
                 Err(err) => Err(CreateAttestationBlockError::Network(err.to_string())),
@@ -106,4 +94,56 @@ async fn retrieve_block_and_compute_merkle_roots(
             Err(CreateAttestationBlockError::Cancelled(block_number))
         },
     }
+}
+
+async fn retrieve_block_and_compute_merkle_root_cached(
+    url: &str,
+    cache_dir: Option<&str>,
+    block_number: u64,
+) -> anyhow::Result<Felt> {
+    use block_cache::BlockCache;
+    use block_cache::CacheT;
+    use mmr::traits::MerkleTreeTrait;
+    use block_cache::OrderedBlockJson;
+
+    let mut cache =
+        cache_dir.map(|dir| BlockCache::new(dir, block_number));
+
+    if let Some(ref cache) = cache {
+        if let Ok(block_json) = cache.try_read() {
+            let block = eth_common::OrderedBlock::try_create(
+                block_json.chain_id.unwrap(),
+                block_json.number,
+                block_json.hash,
+                block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+                block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+            )?;
+
+            return Ok(eth_common::starknet_pedersen_mmr(&block).root().0);
+        }
+    }
+
+    let eth_client = eth_common::Client::new(url, "").await?;
+    let raw_block = eth_client.get_raw_block(block_number).await?;
+
+    let block_json = OrderedBlockJson {
+        chain_id: raw_block.chain_id,
+        number: raw_block.number,
+        hash: raw_block.hash,
+        items: raw_block.transactions.into_iter().zip(raw_block.receipts.into_iter()).collect(),
+    };
+
+    if let Some(cache) = cache.as_mut() {
+        let _ = cache.try_write(&block_json);
+    }
+
+    let block = eth_common::OrderedBlock::try_create(
+        block_json.chain_id.unwrap(),
+        block_json.number,
+        block_json.hash,
+        block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
+        block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
+    )?;
+
+    Ok(eth_common::starknet_pedersen_mmr(&block).root().0)
 }

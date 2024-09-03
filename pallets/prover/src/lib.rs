@@ -18,7 +18,7 @@ mod benchmarking;
 pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
-    use prover_primitives::{Query, VerifierExitStatus};
+    use pallet_prover_primitives::{Query, VerifierExitStatus};
     use sp_core::H256;
     use sp_std::vec::Vec;
     use supported_chains_primitives::provider::SupportedChainsProvider;

@@ -3,7 +3,7 @@
 use super::*;
 use frame_benchmarking::{account, benchmarks};
 use frame_system::RawOrigin;
-use prover_primitives::{Query, VerifierExitStatus};
+use pallet_prover_primitives::{Query, VerifierExitStatus};
 use sp_std::vec;
 
 benchmarks! {

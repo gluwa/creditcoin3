@@ -7,26 +7,6 @@ use crate::utils::U248_BYTE_COUNT;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
-pub trait CacheT<T>: Clone {
-    type CachedItem: TryInto<T> + Serialize + for<'a> Deserialize<'a>;
-
-    fn key(&self) -> &str;
-    fn try_create_key(&mut self) -> anyhow::Result<()>;
-
-    // fn try_read(&self) -> anyhow::Result<Vec<Self::CachedItem>> {
-    //     let file = std::fs::File::open(self.key())?;
-    //     Ok(serde_json::from_reader::<_, Vec<Self::CachedItem>>(file)?)
-    // }
-
-    // fn try_write(&mut self, items: &[Self::CachedItem]) -> anyhow::Result<()> {
-    //     self.try_create_key()?;
-    //
-    //     let file = std::fs::File::create(self.key())?;
-    //
-    //     Ok(serde_json::to_writer_pretty(file, items)?)
-    // }
-}
-
 #[derive(
     Debug,
     Default,

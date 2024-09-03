@@ -74,3 +74,4 @@ impl std::fmt::Display for SourceChainBlockIdentifier {
 impl SourceChainBlockStream for ethers::providers::SubscriptionStream<'_, Ws, EthersBlock> {
     type SourceBlock = EthersBlock;
 }
+
