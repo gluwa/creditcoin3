@@ -265,38 +265,69 @@ fn unregister_attestor_should_update_storage_and_emit_an_event() {
 }
 
 #[test]
-fn unregister_invulnerable_should_work_happy_path() {
+fn unregister_invulnerable_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        let att = Attestor::new(ATTESTOR_1);
-        assert_ok!(Attestation::register_attestor(
-            att.attestor.clone(),
-            att.public_key,
-            att.signature
-        ));
+        System::set_block_number(1);
 
+        // setup
+        assert!(!Attestors::<Test>::contains_key(ATTESTOR_1));
+        assert!(!Invulnerables::<Test>::contains_key(ATTESTOR_1));
+
+        let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1,
             att.public_key
         ));
+        assert!(Attestation::attestors(ATTESTOR_1).is_some());
+        assert!(Attestation::invulnerables(ATTESTOR_1));
+
+        // test
         assert_ok!(Attestation::unregister_invulnerable(
             RuntimeOrigin::root(),
             ATTESTOR_1
         ));
+        assert!(!Attestors::<Test>::contains_key(ATTESTOR_1));
+        assert!(!Invulnerables::<Test>::contains_key(ATTESTOR_1));
+        System::assert_last_event(crate::Event::InvulnerableUnregistered(ATTESTOR_1).into())
     })
 }
 
 #[test]
-fn unregister_invulnerable_should_fail_when_address_is_not_registered() {
+fn unregister_invulnerable_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::unregister_invulnerable(RuntimeOrigin::none(), ATTESTOR_1),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn unregister_invulnerable_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::unregister_invulnerable(RuntimeOrigin::signed(ATTESTOR_1), ATTESTOR_1),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn unregister_invulnerable_should_fail_when_address_is_not_registered_at_all() {
+    ExtBuilder.build_and_execute(|| {
+        assert!(!Attestors::<Test>::contains_key(ATTESTOR_1));
+        assert!(!Invulnerables::<Test>::contains_key(ATTESTOR_1));
+
         assert_noop!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
             Error::<Test>::AddressIsNotInvulnerable
         );
     })
 }
+
 #[test]
-fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
+fn unregister_invulnerable_should_fail_when_address_is_an_attestor_but_not_invulnerable() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -304,6 +335,9 @@ fn unregister_invulnerable_should_fail_when_address_is_not_invulnerable() {
             att.public_key,
             att.signature
         ));
+        assert!(Attestation::attestors(ATTESTOR_1).is_some());
+        assert!(!Invulnerables::<Test>::contains_key(ATTESTOR_1));
+
         assert_noop!(
             Attestation::unregister_invulnerable(RuntimeOrigin::root(), ATTESTOR_1),
             Error::<Test>::AddressIsNotInvulnerable
