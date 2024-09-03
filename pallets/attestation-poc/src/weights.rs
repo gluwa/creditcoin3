@@ -156,12 +156,12 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CounterForInvlunerables` (r:1 w:1)
-	/// Proof: `Attestation::CounterForInvlunerables` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::CounterForInvulnerables` (r:1 w:1)
+	/// Proof: `Attestation::CounterForInvulnerables` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Attestation::MaxInvulnerables` (r:1 w:0)
 	/// Proof: `Attestation::MaxInvulnerables` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Invlunerables` (r:1 w:1)
-	/// Proof: `Attestation::Invlunerables` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Invulnerables` (r:1 w:1)
+	/// Proof: `Attestation::Invulnerables` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_invulnerable() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `307`
@@ -172,8 +172,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(10))
 			.saturating_add(T::DbWeight::get().writes(6))
 	}
-	/// Storage: `Attestation::Invlunerables` (r:1 w:1)
-	/// Proof: `Attestation::Invlunerables` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Invulnerables` (r:1 w:1)
+	/// Proof: `Attestation::Invulnerables` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CounterForAttestors` (r:1 w:1)
@@ -186,8 +186,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CounterForInvlunerables` (r:1 w:1)
-	/// Proof: `Attestation::CounterForInvlunerables` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::CounterForInvulnerables` (r:1 w:1)
+	/// Proof: `Attestation::CounterForInvulnerables` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	fn unregister_invulnerable() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `446`
@@ -198,8 +198,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(8))
 			.saturating_add(T::DbWeight::get().writes(6))
 	}
-	/// Storage: `Attestation::CounterForInvlunerables` (r:1 w:0)
-	/// Proof: `Attestation::CounterForInvlunerables` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::CounterForInvulnerables` (r:1 w:0)
+	/// Proof: `Attestation::CounterForInvulnerables` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Attestation::MaxInvulnerables` (r:0 w:1)
 	/// Proof: `Attestation::MaxInvulnerables` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_max_invulnerables() -> Weight {

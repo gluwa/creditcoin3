@@ -86,7 +86,7 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn invulnerables)]
-    pub type Invlunerables<T: Config> = CountedStorageMap<
+    pub type Invulnerables<T: Config> = CountedStorageMap<
         Hasher = Blake2_128Concat,
         Key = T::AccountId,
         // Value can be ignored
@@ -203,7 +203,7 @@ pub mod pallet {
 
             let invulnerables = &self.invulnerables;
             for invulnerable in invulnerables.iter() {
-                Invlunerables::<T>::insert(invulnerable.0.clone(), true);
+                Invulnerables::<T>::insert(invulnerable.0.clone(), true);
                 Attestors::<T>::insert(invulnerable.0.clone(), invulnerable.1 .0);
             }
 
@@ -425,7 +425,7 @@ pub mod pallet {
             ensure_root(origin)?;
 
             ensure!(
-                new_max >= Invlunerables::<T>::count(),
+                new_max >= Invulnerables::<T>::count(),
                 Error::<T>::MaxInvulnerablesCannotBeChanged
             );
 
@@ -688,7 +688,7 @@ pub mod pallet {
         }
 
         fn vulnerable_list_has_space() -> bool {
-            Invlunerables::<T>::count() < MaxInvulnerables::<T>::get()
+            Invulnerables::<T>::count() < MaxInvulnerables::<T>::get()
         }
 
         /// Insert address as attestor & invulnerable
@@ -703,13 +703,13 @@ pub mod pallet {
                 Error::<T>::InvulnerableListFull
             );
 
-            Invlunerables::<T>::insert(address, true);
+            Invulnerables::<T>::insert(address, true);
             Self::deposit_event(Event::<T>::InvulnerableRegistered(address.clone()));
             Ok(())
         }
 
         fn address_is_invulnerable(address: &T::AccountId) -> bool {
-            Invlunerables::<T>::contains_key(address)
+            Invulnerables::<T>::contains_key(address)
         }
 
         fn remove_attestor_and_emit_event(address: &T::AccountId) {
@@ -722,7 +722,7 @@ pub mod pallet {
             Self::remove_attestor_and_emit_event(address);
 
             // Remove from invulnerables
-            Invlunerables::<T>::remove(address);
+            Invulnerables::<T>::remove(address);
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(address.clone()));
 
             Ok(())

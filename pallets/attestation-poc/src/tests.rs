@@ -386,7 +386,7 @@ fn register_invulnerable_adds_attestor_and_invulnerable_and_emits_events() {
         System::set_block_number(1);
 
         assert!(!Attestors::<Test>::contains_key(ATTESTOR_1));
-        assert!(!Invlunerables::<Test>::contains_key(ATTESTOR_1));
+        assert!(!Invulnerables::<Test>::contains_key(ATTESTOR_1));
 
         let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_invulnerable(
