@@ -110,7 +110,28 @@ fn max_invulnerable_default_should_be_100() {
 }
 
 #[test]
-fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
+fn set_max_invulnerables_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_invulnerables(RuntimeOrigin::none(), 200),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
+        assert_noop!(
+            Attestation::set_max_invulnerables(bad_origin, 200),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_should_error_when_value_is_less_than_current_count() {
     ExtBuilder.build_and_execute(|| {
         let root_origin = RuntimeOrigin::root();
         // There should be at least one invulnerable set in mock.rs
@@ -123,13 +144,17 @@ fn set_max_invulnerables_should_error_with_new_max_less_than_current_count() {
 }
 
 #[test]
-fn set_max_invulnerables_should_error_with_non_root_origin() {
+fn set_max_invulnerables_should_update_storage() {
     ExtBuilder.build_and_execute(|| {
-        let bad_origin = RuntimeOrigin::signed(ATTESTOR_1);
-        assert_noop!(
-            Attestation::set_max_invulnerables(bad_origin, 200),
-            BadOrigin
-        );
+        assert_eq!(Attestation::max_invulnerables(), 100);
+        assert_eq!(Invulnerables::<Test>::count(), 1); // from mock
+
+        assert_ok!(Attestation::set_max_invulnerables(
+            RuntimeOrigin::root(),
+            10
+        ),);
+        assert_eq!(Attestation::max_invulnerables(), 10);
+        assert_eq!(Invulnerables::<Test>::count(), 1); // this wasn't updated
     })
 }
 
