@@ -868,13 +868,13 @@ export default {
      **/
     PalletProverEvent: {
         _enum: {
-            QueryVerified: '(H256,AccountId32,ProverPrimitivesVerifierExitStatus)',
+            QueryVerified: '(H256,AccountId32,PalletProverPrimitivesVerifierExitStatus)',
         },
     },
     /**
-     * Lookup99: prover_primitives::VerifierExitStatus
+     * Lookup99: pallet_prover_primitives::VerifierExitStatus
      **/
-    ProverPrimitivesVerifierExitStatus: {
+    PalletProverPrimitivesVerifierExitStatus: {
         _enum: ['Success', 'ProofInvalid', 'LayoutMismatch', 'QueryOutOfBounds'],
     },
     /**
@@ -2498,23 +2498,23 @@ export default {
         _enum: {
             submit_proof: {
                 proof: 'Bytes',
-                query: 'ProverPrimitivesQuery',
+                query: 'PalletProverPrimitivesQuery',
             },
         },
     },
     /**
-     * Lookup317: prover_primitives::Query
+     * Lookup317: pallet_prover_primitives::Query
      **/
-    ProverPrimitivesQuery: {
+    PalletProverPrimitivesQuery: {
         chainId: 'u64',
         height: 'u64',
         index: 'u64',
-        layoutSegments: 'Vec<ProverPrimitivesLayoutSegment>',
+        layoutSegments: 'Vec<PalletProverPrimitivesLayoutSegment>',
     },
     /**
-     * Lookup319: prover_primitives::LayoutSegment
+     * Lookup319: pallet_prover_primitives::LayoutSegment
      **/
-    ProverPrimitivesLayoutSegment: {
+    PalletProverPrimitivesLayoutSegment: {
         _alias: {
             size_: 'size',
         },

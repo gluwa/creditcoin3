@@ -140,6 +140,9 @@ import type {
     PalletProverCall,
     PalletProverError,
     PalletProverEvent,
+    PalletProverPrimitivesLayoutSegment,
+    PalletProverPrimitivesQuery,
+    PalletProverPrimitivesVerifierExitStatus,
     PalletProxyAnnouncement,
     PalletProxyCall,
     PalletProxyError,
@@ -184,9 +187,6 @@ import type {
     PalletUtilityCall,
     PalletUtilityError,
     PalletUtilityEvent,
-    ProverPrimitivesLayoutSegment,
-    ProverPrimitivesQuery,
-    ProverPrimitivesVerifierExitStatus,
     SpArithmeticArithmeticError,
     SpConsensusBabeAllowedSlots,
     SpConsensusBabeAppPublic,
@@ -361,6 +361,9 @@ declare module '@polkadot/types/types/registry' {
         PalletProverCall: PalletProverCall;
         PalletProverError: PalletProverError;
         PalletProverEvent: PalletProverEvent;
+        PalletProverPrimitivesLayoutSegment: PalletProverPrimitivesLayoutSegment;
+        PalletProverPrimitivesQuery: PalletProverPrimitivesQuery;
+        PalletProverPrimitivesVerifierExitStatus: PalletProverPrimitivesVerifierExitStatus;
         PalletProxyAnnouncement: PalletProxyAnnouncement;
         PalletProxyCall: PalletProxyCall;
         PalletProxyError: PalletProxyError;
@@ -405,9 +408,6 @@ declare module '@polkadot/types/types/registry' {
         PalletUtilityCall: PalletUtilityCall;
         PalletUtilityError: PalletUtilityError;
         PalletUtilityEvent: PalletUtilityEvent;
-        ProverPrimitivesLayoutSegment: ProverPrimitivesLayoutSegment;
-        ProverPrimitivesQuery: ProverPrimitivesQuery;
-        ProverPrimitivesVerifierExitStatus: ProverPrimitivesVerifierExitStatus;
         SpArithmeticArithmeticError: SpArithmeticArithmeticError;
         SpConsensusBabeAllowedSlots: SpConsensusBabeAllowedSlots;
         SpConsensusBabeAppPublic: SpConsensusBabeAppPublic;

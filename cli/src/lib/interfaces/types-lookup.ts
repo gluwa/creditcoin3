@@ -1078,12 +1078,12 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletProverEvent (98) */
     interface PalletProverEvent extends Enum {
         readonly isQueryVerified: boolean;
-        readonly asQueryVerified: ITuple<[H256, AccountId32, ProverPrimitivesVerifierExitStatus]>;
+        readonly asQueryVerified: ITuple<[H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
         readonly type: 'QueryVerified';
     }
 
-    /** @name ProverPrimitivesVerifierExitStatus (99) */
-    interface ProverPrimitivesVerifierExitStatus extends Enum {
+    /** @name PalletProverPrimitivesVerifierExitStatus (99) */
+    interface PalletProverPrimitivesVerifierExitStatus extends Enum {
         readonly isSuccess: boolean;
         readonly isProofInvalid: boolean;
         readonly isLayoutMismatch: boolean;
@@ -2717,21 +2717,21 @@ declare module '@polkadot/types/lookup' {
         readonly isSubmitProof: boolean;
         readonly asSubmitProof: {
             readonly proof: Bytes;
-            readonly query: ProverPrimitivesQuery;
+            readonly query: PalletProverPrimitivesQuery;
         } & Struct;
         readonly type: 'SubmitProof';
     }
 
-    /** @name ProverPrimitivesQuery (317) */
-    interface ProverPrimitivesQuery extends Struct {
+    /** @name PalletProverPrimitivesQuery (317) */
+    interface PalletProverPrimitivesQuery extends Struct {
         readonly chainId: u64;
         readonly height: u64;
         readonly index: u64;
-        readonly layoutSegments: Vec<ProverPrimitivesLayoutSegment>;
+        readonly layoutSegments: Vec<PalletProverPrimitivesLayoutSegment>;
     }
 
-    /** @name ProverPrimitivesLayoutSegment (319) */
-    interface ProverPrimitivesLayoutSegment extends Struct {
+    /** @name PalletProverPrimitivesLayoutSegment (319) */
+    interface PalletProverPrimitivesLayoutSegment extends Struct {
         readonly offset: u64;
         readonly size_: u64;
     }

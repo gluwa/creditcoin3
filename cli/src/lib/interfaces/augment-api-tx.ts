@@ -56,13 +56,13 @@ import type {
     PalletNominationPoolsConfigOpU128,
     PalletNominationPoolsConfigOpU32,
     PalletNominationPoolsPoolState,
+    PalletProverPrimitivesQuery,
     PalletStakingPalletConfigOpPerbill,
     PalletStakingPalletConfigOpPercent,
     PalletStakingPalletConfigOpU128,
     PalletStakingPalletConfigOpU32,
     PalletStakingRewardDestination,
     PalletStakingValidatorPrefs,
-    ProverPrimitivesQuery,
     SpConsensusBabeDigestsNextConfigDescriptor,
     SpConsensusGrandpaEquivocationProof,
     SpConsensusSlotsEquivocationProof,
@@ -1251,12 +1251,12 @@ declare module '@polkadot/api-base/types/submittable' {
                 (
                     proof: Bytes | string | Uint8Array,
                     query:
-                        | ProverPrimitivesQuery
+                        | PalletProverPrimitivesQuery
                         | { chainId?: any; height?: any; index?: any; layoutSegments?: any }
                         | string
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [Bytes, ProverPrimitivesQuery]
+                [Bytes, PalletProverPrimitivesQuery]
             >;
             /**
              * Generic tx

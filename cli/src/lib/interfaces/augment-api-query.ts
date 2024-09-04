@@ -40,6 +40,7 @@ import type {
     PalletNominationPoolsPoolMember,
     PalletNominationPoolsRewardPool,
     PalletNominationPoolsSubPools,
+    PalletProverPrimitivesVerifierExitStatus,
     PalletProxyAnnouncement,
     PalletProxyProxyDefinition,
     PalletStakingActiveEraInfo,
@@ -54,7 +55,6 @@ import type {
     PalletStakingUnappliedSlash,
     PalletStakingValidatorPrefs,
     PalletTransactionPaymentReleases,
-    ProverPrimitivesVerifierExitStatus,
     SpConsensusBabeAppPublic,
     SpConsensusBabeBabeEpochConfiguration,
     SpConsensusBabeDigestsNextConfigDescriptor,
@@ -818,7 +818,7 @@ declare module '@polkadot/api-base/types/storage' {
         prover: {
             queryResultById: AugmentedQuery<
                 ApiType,
-                (arg: H256 | string | Uint8Array) => Observable<Option<ProverPrimitivesVerifierExitStatus>>,
+                (arg: H256 | string | Uint8Array) => Observable<Option<PalletProverPrimitivesVerifierExitStatus>>,
                 [H256]
             > &
                 QueryableStorageEntry<ApiType, [H256]>;
