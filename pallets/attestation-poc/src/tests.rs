@@ -566,7 +566,7 @@ fn set_chain_attestation_interval_updates_internal_storage() {
 }
 
 #[test]
-fn setting_attestations_per_checkpoint_works() {
+fn set_attestations_per_checkpoint_should_update_storage() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 1;
         let att_per_check = Attestation::attestation_checkpoint_interval(chain_id);
@@ -585,7 +585,27 @@ fn setting_attestations_per_checkpoint_works() {
 }
 
 #[test]
-fn setting_attestations_per_checkpoint_on_unsupported_chain_fails() {
+fn set_attestations_per_checkpoint_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_attestations_per_checkpoint(RuntimeOrigin::none(), 2, 101),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_attestations_per_checkpoint_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_attestations_per_checkpoint(RuntimeOrigin::signed(ATTESTOR_1), 2, 101),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_attestations_per_checkpoint_should_error_on_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
         let att_per_check = 101;
