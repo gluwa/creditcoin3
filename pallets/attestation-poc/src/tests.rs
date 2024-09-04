@@ -642,7 +642,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
         let attestor = Attestor::new(ATTESTOR_1);
         let chain_id = 1;
         let att_interval = Attestation::chain_attestation_interval(chain_id);
-        let att_per_check = Attestation::chain_attestatons_per_checkpoint(chain_id) as u64;
+        let att_per_check = Attestation::attestation_checkpoint_interval(chain_id) as u64;
 
         assert_ok!(Attestation::register_attestor(
             attestor.attestor.clone(),

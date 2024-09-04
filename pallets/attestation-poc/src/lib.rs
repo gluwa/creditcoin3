@@ -167,8 +167,8 @@ pub mod pallet {
     }
 
     #[pallet::storage]
-    #[pallet::getter(fn chain_attestatons_per_checkpoint)]
-    pub type ChainAttestationsPerCheckpoint<T: Config> = StorageMap<
+    #[pallet::getter(fn attestation_checkpoint_interval)]
+    pub type AttestationCheckpointInterval<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         ChainId,
@@ -214,7 +214,7 @@ pub mod pallet {
             }
 
             for (chain_id, att_per_check) in self.attestations_per_checkpoint.clone().into_iter() {
-                ChainAttestationsPerCheckpoint::<T>::insert(chain_id, att_per_check);
+                AttestationCheckpointInterval::<T>::insert(chain_id, att_per_check);
             }
         }
     }
@@ -575,7 +575,7 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
-            ChainAttestationsPerCheckpoint::<T>::set(chain_id, attestations_per_checkpoint);
+            AttestationCheckpointInterval::<T>::set(chain_id, attestations_per_checkpoint);
             Ok(())
         }
     }
