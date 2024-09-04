@@ -1,6 +1,5 @@
 use super::*;
 use crate::mock::*;
-use assert_matches::assert_matches;
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, ChainId, SignedAttestation,
 };
@@ -102,12 +101,12 @@ fn register_attestor_should_fail_when_list_is_full() {
 // TODO: make this smarter and rely on the runtime value instead of the function
 #[test]
 fn max_attestor_default_should_be_100() {
-    ExtBuilder.build_and_execute(|| assert_matches!(Attestation::max_attestors(), 100))
+    ExtBuilder.build_and_execute(|| assert_eq!(Attestation::max_attestors(), 100))
 }
 
 #[test]
 fn max_invulnerable_default_should_be_100() {
-    ExtBuilder.build_and_execute(|| assert_matches!(Attestation::max_invulnerables(), 100))
+    ExtBuilder.build_and_execute(|| assert_eq!(Attestation::max_invulnerables(), 100))
 }
 
 #[test]
