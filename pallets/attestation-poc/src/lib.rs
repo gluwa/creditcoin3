@@ -143,7 +143,7 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, ChainId, VecDeque<Digest>, ValueQuery, GetDefault>;
 
     #[pallet::storage]
-    #[pallet::getter(fn last_attesation_digest)]
+    #[pallet::getter(fn last_attestation_digest)]
     pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, Digest, OptionQuery>;
 
     #[pallet::storage]
@@ -231,8 +231,6 @@ pub mod pallet {
         InvulnerableRegistered(T::AccountId),
 
         InvulnerableUnregistered(T::AccountId),
-
-        ChainBootstrapped(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
         BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 

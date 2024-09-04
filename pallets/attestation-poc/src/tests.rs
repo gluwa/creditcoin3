@@ -688,24 +688,82 @@ fn set_attestations_per_checkpoint_should_error_on_unsupported_chain() {
 }
 
 #[test]
-fn bootstrapping_unsupported_chain_fails() {
+fn bootstrap_chain_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
-
         let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
 
-        assert_ok!(Attestation::register_attestor(
-            attestor.attestor.clone(),
-            attestor.public_key,
-            attestor.signature
-        ));
+        assert_noop!(
+            Attestation::bootstrap_chain(RuntimeOrigin::none(), chain_id, attestation,),
+            BadOrigin
+        );
+    })
+}
 
+#[test]
+fn bootstrap_chain_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+        let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+
+        assert_noop!(
+            Attestation::bootstrap_chain(RuntimeOrigin::signed(ATTESTOR_1), chain_id, attestation,),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn bootstrap_chain_should_error_when_chain_is_unsupported() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+        let attestor = Attestor::new(ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
 
         assert_noop!(
             Attestation::bootstrap_chain(RuntimeOrigin::root(), chain_id, attestation,),
             Error::<Test>::ChainNotSupported
         );
+    })
+}
+
+#[test]
+fn bootstrap_chain_should_update_storage_and_emit_event() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_id = 1; // supported in mock runtime
+        let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+
+        assert_eq!(Attestation::last_attestation_digest(chain_id), None);
+        assert_eq!(
+            Attestation::attestations(chain_id, attestation.digest()),
+            None
+        );
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 0);
+
+        assert_ok!(Attestation::bootstrap_chain(
+            RuntimeOrigin::root(),
+            chain_id,
+            attestation.clone(),
+        ),);
+
+        // storage
+        assert_eq!(
+            Attestation::last_attestation_digest(chain_id),
+            Some(attestation.digest())
+        );
+        assert_eq!(
+            Attestation::attestations(chain_id, attestation.digest()),
+            Some(attestation.clone())
+        );
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 1);
+
+        // event
+        System::assert_last_event(crate::Event::BlockAttested(chain_id, attestation).into());
     })
 }
 
