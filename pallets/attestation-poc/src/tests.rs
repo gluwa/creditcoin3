@@ -51,19 +51,40 @@ impl Attestor {
 }
 
 #[test]
-fn register_attestor_should_work_happy_path() {
+fn register_attestor_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        // 1 invulnerable from mock runtime
+        assert_eq!(Attestors::<Test>::count(), 1);
+
         let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.attestor,
             att.public_key,
             att.signature
         ));
+
+        assert_eq!(Attestors::<Test>::count(), 2);
+        assert!(Attestation::attestors(ATTESTOR_1).is_some());
+        assert!(Attestation::is_attestor(&ATTESTOR_1));
+        System::assert_last_event(crate::Event::AttestorRegistered(ATTESTOR_1).into());
     })
 }
 
 #[test]
-fn register_attestor_should_fail_when_address_is_already_registered() {
+fn register_attestor_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(ATTESTOR_1);
+        assert_noop!(
+            Attestation::register_attestor(RuntimeOrigin::none(), att.public_key, att.signature),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn register_attestor_should_error_when_address_is_already_registered() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -80,7 +101,51 @@ fn register_attestor_should_fail_when_address_is_already_registered() {
 }
 
 #[test]
-fn register_attestor_should_fail_when_list_is_full() {
+fn register_attestor_should_error_when_public_key_is_invalid() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(ATTESTOR_1);
+        assert_noop!(
+            Attestation::register_attestor(
+                att.attestor,
+                *b"000000000000000000000000000000000000000000000000",
+                att.signature
+            ),
+            Error::<Test>::InvalidBlsPublicKey
+        );
+    })
+}
+
+#[test]
+fn register_attestor_should_error_when_signature_is_invalid() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(ATTESTOR_1);
+
+        assert_noop!(
+            Attestation::register_attestor(
+                att.attestor,
+                att.public_key,
+                *b"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            Error::<Test>::InvalidBlsSignature
+        );
+    })
+}
+
+#[test]
+fn register_attestor_should_error_when_signature_doesnt_validate_against_public_key() {
+    ExtBuilder.build_and_execute(|| {
+        let att1 = Attestor::new(ATTESTOR_1);
+        let att2 = Attestor::new(ATTESTOR_2);
+
+        assert_noop!(
+            Attestation::register_attestor(att1.attestor, att1.public_key, att2.signature),
+            Error::<Test>::InvalidProofOfPossession
+        );
+    })
+}
+
+#[test]
+fn register_attestor_should_error_when_list_is_full() {
     ExtBuilder.build_and_execute(|| {
         let root = RuntimeOrigin::root();
         let att_1 = Attestor::new(ATTESTOR_1);
@@ -91,6 +156,8 @@ fn register_attestor_should_fail_when_list_is_full() {
             att_1.public_key,
             att_1.signature
         ));
+
+        // note: test target is try_insert_attestor_and_emit_event()
         assert_noop!(
             Attestation::register_attestor(att_2.attestor, att_2.public_key, att_2.signature),
             Error::<Test>::AttestorListFull
