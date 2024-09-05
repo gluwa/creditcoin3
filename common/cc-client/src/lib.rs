@@ -1,6 +1,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sp_core::{H256, U256};
+use sp_core::{
+    sr25519::{self},
+    Pair, H256, U256,
+};
 use std::str::FromStr;
 use subxt::backend::rpc::{RpcClient, RpcParams};
 pub use subxt::utils::AccountId32;
@@ -17,9 +20,10 @@ use cc3::runtime_types::attestor_primitives::{
 };
 
 use attestor_primitives::{
-    Attestation, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
+    Attestation, AttestorId, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
 };
-use creditcoin3_attestor_gossip::{Attestation as RpcAttestation, AttestorId, VrfOutput};
+use creditcoin3_attestor_gossip::Attestation as RpcAttestation;
+use vrf::{make_proof_of_inclusion, ProofOfInclusion};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -35,14 +39,15 @@ pub mod attestation;
 
 pub type Randomness = [u8; 32];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 pub struct Client {
     url: String,
-    pub keypair: Keypair,
+    pair: sr25519::Pair,
+    signing_keypair: Keypair,
     api: OnlineClient<SubstrateConfig>,
 }
 
@@ -52,7 +57,9 @@ impl<'a> Client {
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &'a str) -> Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
-        let keypair = Keypair::from_uri(&secret_uri)?;
+        let signing_keypair = Keypair::from_uri(&secret_uri)?;
+
+        let pair = sr25519::Pair::from_string(key, None)?;
 
         let url = url.into();
         let api = if url.contains("ws") || url.contains("http") {
@@ -61,12 +68,17 @@ impl<'a> Client {
             OnlineClient::<SubstrateConfig>::from_url(&url).await?
         };
 
-        Ok(Self { url, keypair, api })
+        Ok(Self {
+            url,
+            pair,
+            signing_keypair,
+            api,
+        })
     }
 
     #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
-        self.keypair.sign(message)
+        self.signing_keypair.sign(message)
     }
 
     pub async fn get_chain_key(&self, chain_id: u64, name: String) -> Result<Option<ChainId>> {
@@ -102,10 +114,11 @@ impl<'a> Client {
 
         // Short circuit if epoch index is too low
         // Randomness is not available for the first 2 epochs
-        if two_epoch_ago < 2 {
-            tracing::info!("Epoch index is too low to fetch randomness");
+        if two_epoch_ago == 0 {
+            info!("Epoch index is too low to fetch randomness");
             return Ok((Randomness::default(), two_epoch_ago));
         }
+        info!("Fetching randomness for epoch index: {}", two_epoch_ago);
 
         let randomness = self
             .api
@@ -154,9 +167,12 @@ impl<'a> Client {
 
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self) -> Result<bool> {
-        let storage_query = cc3::storage()
-            .attestation()
-            .attestors(subxt::utils::AccountId32::from(self.keypair.public_key()));
+        let storage_query =
+            cc3::storage()
+                .attestation()
+                .attestors(subxt::utils::AccountId32::from(
+                    self.signing_keypair.public_key(),
+                ));
 
         let result = self
             .api
@@ -183,7 +199,7 @@ impl<'a> Client {
         let ext = self
             .api
             .tx()
-            .sign_and_submit_then_watch_default(&tx, &self.keypair)
+            .sign_and_submit_then_watch_default(&tx, &self.signing_keypair)
             .await?
             .wait_for_finalized_success()
             .await?;
@@ -196,7 +212,7 @@ impl<'a> Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(&self) -> Result<VrfOutput, Error> {
+    pub async fn sign_babe_vrf(&self, for_block_height: u64) -> Result<ProofOfInclusion, Error> {
         let (randomness, epoch_index) =
             self.fetch_babe_randomness_two_epoch_ego()
                 .await
@@ -205,35 +221,41 @@ impl<'a> Client {
                     Error::FailedToGetBabeVrf
                 })?;
 
-        info!("Babe VRF Randomness: {}", hex::encode(randomness));
+        // Get committee set size
+        let committee_size = self._fetch_comittee_size().await.map_err(|e| {
+            error!("Error getting committee size: {:?}", e);
+            Error::FailedToGetComitteSetSize
+        })?;
 
-        let randomness_as_u256 = U256::from_little_endian(&randomness);
+        let attestor_working_set_size = self
+            .get_attestor_working_set_size()
+            .await
+            .map_err(|e| {
+                error!("Error getting attestor working set size: {:?}", e);
+                Error::FailedToGetAttestorWorkingSetSize
+            })?
+            .ok_or(Error::FailedToGetAttestorWorkingSetSize)?;
 
-        // Sign the randomness
-        let signature = self.keypair.sign(&randomness);
+        let proof_of_inclusion = make_proof_of_inclusion(
+            epoch_index,
+            u64::from(committee_size),
+            u64::from(attestor_working_set_size),
+            &randomness,
+            &self.pair,
+            &self.get_attestor_id(),
+            for_block_height,
+        )
+        .map_err(|e| {
+            error!("Error getting babe vrf output: {:?}", e);
+            Error::FailedToGetBabeVrf
+        })?;
 
-        // Convert `S` component bytes to a [u8; 32] array
-        let mut s_component_array = [0; 32];
-        s_component_array.copy_from_slice(&signature.0[32..64]);
-
-        // Convert `S` component bytes to an integer
-        let signature_output_as_u256 = U256::from_little_endian(&s_component_array);
-
-        info!(
-            "Signature output is above or below threshold: {}",
-            signature_output_as_u256 > randomness_as_u256
-        );
-
-        Ok(VrfOutput {
-            signature: sp_core::sr25519::Signature::from_raw(signature.0),
-            vrf_number: sp_core::U256::from_little_endian(&s_component_array),
-            epoch: epoch_index,
-        })
+        Ok(proof_of_inclusion)
     }
 
     #[must_use]
     pub fn get_attestor_id(&self) -> AttestorId {
-        AttestorId::from_public(self.keypair.public_key().0)
+        AttestorId::from_public(self.signing_keypair.public_key().0)
     }
 
     pub async fn chain_attestation_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
@@ -332,7 +354,7 @@ impl<'a> Client {
         let ext = self
             .api
             .tx()
-            .create_signed_offline(&tx, &self.keypair, params)?
+            .create_signed_offline(&tx, &self.signing_keypair, params)?
             .submit_and_watch()
             .await?;
 
@@ -346,10 +368,24 @@ impl<'a> Client {
         let nonce = self
             .api
             .tx()
-            .account_nonce(&AccountId32(self.keypair.public_key().0))
+            .account_nonce(&AccountId32(self.signing_keypair.public_key().0))
             .await?;
 
         Ok(nonce)
+    }
+
+    pub async fn get_attestor_working_set_size(&self) -> Result<Option<u32>> {
+        let storage_query = cc3::storage().attestation().counter_for_attestors();
+
+        let result = self
+            .api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
     }
 }
 
@@ -415,4 +451,6 @@ pub enum Error {
     FailedToGetAttestationInterval,
     #[error("Failed to get chain key")]
     FailedToGetChainKey,
+    #[error("Failed to attestor working set size")]
+    FailedToGetAttestorWorkingSetSize,
 }

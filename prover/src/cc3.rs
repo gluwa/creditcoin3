@@ -32,7 +32,7 @@ pub enum Error {
     UnsupportedChain,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client

@@ -562,6 +562,10 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        pub fn working_set_size() -> u32 {
+            Attestors::<T>::count()
+        }
+
         pub fn is_attestor(address: &T::AccountId) -> bool {
             Attestors::<T>::contains_key(address)
         }

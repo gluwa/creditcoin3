@@ -123,19 +123,19 @@ atleast that number of attestors. For example, if the `THRESHOLD` is set to 3, y
 #### Start the first prefunded attestor
 
 ```sh
-../target/release/attestor -v --cc3-key "snake adult despair divide embrace this smart fatigue wine latin page parade" --eth-start-block 0
+../target/release/attestor -v --cc3-key "//Alice" --eth-start-block 0
 ```
 
 #### (Optionally) Start the second prefunded attestor
 
 ```sh
-../target/release/attestor -v --cc3-key "silver mixed elevator layer copper venture taste also peanut evolve grab inquiry" --eth-start-block 0
+../target/release/attestor -v --cc3-key "//Bob" --eth-start-block 0
 ```
 
 #### (Optionally) Start the third prefunded attestor
 
 ```sh
-../target/release/attestor -v --cc3-key "put badge smooth surround hawk today fortune like rigid exist village sphere" --eth-start-block 0
+../target/release/attestor -v --cc3-key "//Charlie" --eth-start-block 0
 ```
 
 Alternatively, you can generate your own keys, transfer some balance to that address in order to register an attestor and then start the attestors.

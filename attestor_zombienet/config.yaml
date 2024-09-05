@@ -5,4 +5,4 @@ default_args:
   - "-v"
   - "--eth-start-block=0"
 num_attestors: 5
-single_node: false
+single_node: true

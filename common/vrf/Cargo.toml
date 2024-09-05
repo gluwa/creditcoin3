@@ -1,0 +1,45 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "vrf"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+attestor-primitives = { workspace = true, default-features = false }
+log = { workspace = true, default-features = false }
+parity-scale-codec = { workspace = true, default-features = false }
+randomness-primitives = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false }
+sp-consensus-babe = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false, features = [
+    "full_crypto",
+    "std",
+] }
+
+anyhow = { version = "1.0", default-features = false }
+rand = { version = "0.8", default-features = false }
+schnorrkel = { version = "0.9", default-features = false }
+thiserror = { version = "1.0", default-features = false }
+
+[dev-dependencies]
+env_logger = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "sp-core/std",
+    "attestor-primitives/std",
+    "log/std",
+    "parity-scale-codec/std",
+    "randomness-primitives/std",
+    "serde/std",
+    "sp-consensus-babe/std",
+    "anyhow/std",
+    "rand/std",
+    "schnorrkel/std",
+]

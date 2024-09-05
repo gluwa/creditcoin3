@@ -13,7 +13,6 @@ version.workspace = true
 bls-signatures = { workspace = true, default-features = false }
 frame-support = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
-rand = { version = "0.8", default-features = false }
 scale-info = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false }
 serde_bytes = { version = "0.11.14", default-features = false }
@@ -41,7 +40,6 @@ std = [
     "serde_bytes/std",
     "scale-info/std",
     "sp-api/std",
-    "rand/std",
     "bls-signatures/std",
     "utils/std",
     "starknet-types-core/std",

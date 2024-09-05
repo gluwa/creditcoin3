@@ -5,19 +5,26 @@ use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::{H256, U256};
+use sp_runtime::AccountId32;
 use sp_std::vec::Vec;
 use starknet_types_core::felt::Felt;
 
 pub mod api;
 pub mod bls;
 
+/// Identifier for a source chain
 pub type ChainId = u64;
 
+/// Mapping key for cc next source chains
 pub type ChainKey = u64;
+
+/// Attestation digest
+pub type Digest = H256;
 
 /// BLS public keys as bytes
 pub type BlsPublicKey = [u8; 48];
 
+/// BLS signatures as bytes
 pub type BlsSignature = [u8; 96];
 
 #[derive(Serialize, Deserialize, Debug, Encode, Decode, PartialEq, Eq)]
@@ -33,6 +40,7 @@ impl BlsPublicKeyWrapper {
     }
 }
 
+/// Inherent identifier for attestor inherent
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
 #[derive(Encode, Decode, sp_runtime::RuntimeDebug)]
@@ -47,6 +55,27 @@ impl IsFatalError for InherentError {
             InherentError::NotValid => true,
             InherentError::Duplicate(_) => true,
         }
+    }
+}
+
+#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttestorId(AccountId32);
+
+impl AttestorId {
+    pub fn new(id: AccountId32) -> Self {
+        Self(id)
+    }
+
+    pub fn from_public(public_key: [u8; 32]) -> Self {
+        Self(AccountId32::new(public_key))
+    }
+
+    pub fn public_key(&self) -> [u8; 32] {
+        self.clone().0.into()
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        self.0.encode()
     }
 }
 
@@ -95,11 +124,8 @@ pub struct Attestation<H> {
     pub header_number: u64,
     pub header_hash: H,
     pub root: ScaleFelt,
-    //    pub rx_root: ScaleFelt,
     pub prev_digest: Option<Digest>,
 }
-
-pub type Digest = H256;
 
 impl<H> Attestation<H>
 where
@@ -121,9 +147,6 @@ where
         // Serialize tx_root
         bytes.extend_from_slice(&self.root);
 
-        // // Serialize rx_root
-        // bytes.extend_from_slice(&self.rx_root);
-
         bytes
     }
 
@@ -131,26 +154,6 @@ where
     pub fn digest(&self) -> Digest {
         H256::from(&sp_io::hashing::blake2_256(&self.serialize()))
     }
-
-    // This seems to break the attestations, they are not going through smoothly if I use pedersen hash instead of blake
-    // Need to investigate more
-    // pub fn digest(&self) -> Digest {
-    //     let (lo, hi) = u256_to_felts(&self.header_number.into());
-    //     let d1 = starknet_crypto::pedersen_hash(&lo, &hi);
-    //     let d2 = starknet_crypto::pedersen_hash(&d1, &Felt::from_bytes_be_slice(&self.tx_root));
-    //     let d3 = starknet_crypto::pedersen_hash(&d2, &Felt::from_bytes_be_slice(&self.rx_root));
-    //
-    //     starknet_crypto::pedersen_hash(
-    //         &d3,
-    //         &Felt::from_bytes_be_slice(
-    //             self.prev_digest
-    //                 .unwrap_or_else(|| [0u8; 32].into())
-    //                 .as_bytes(),
-    //         ),
-    //     )
-    //     .to_bytes_be()
-    //     .into()
-    // }
 }
 
 pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {

@@ -29,9 +29,11 @@ attestor-primitives = { workspace = true, features = ["std"] }
 bls-signatures = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 prover-primitives = { workspace = true, features = ["std"] }
+vrf = { workspace = true }
 
 # workspace deps
 hex = { workspace = true }
+parity-scale-codec = { workspace = true }
 serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }

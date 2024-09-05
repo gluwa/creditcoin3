@@ -46,6 +46,7 @@ updates:
       - "/common/eth"
       - "/common/mmr"
       - "/common/utils"
+      - "/common/vrf"
       - "/host"
       - "/node"
       - "/node/cli-opt"

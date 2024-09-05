@@ -1,11 +1,8 @@
 use parity_scale_codec::{Codec, Decode};
-use sp_core::H256;
 
-use crate::{ChainId, SignedAttestation};
+use crate::{ChainId, Digest, SignedAttestation};
 
 use super::BlsPublicKey;
-
-pub type Digest = H256;
 
 sp_api::decl_runtime_apis! {
     pub trait AttestorApi<H, AccountId>
@@ -16,6 +13,8 @@ sp_api::decl_runtime_apis! {
         fn is_attestor(attestor: &AccountId) -> bool;
 
         fn comittee_set_size() -> u32;
+
+        fn working_set_size() -> u32;
 
         fn last_digest(chain_id: ChainId) -> Option<Digest>;
 

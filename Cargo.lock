@@ -1396,7 +1396,6 @@ dependencies = [
  "bls-signatures",
  "frame-support",
  "parity-scale-codec",
- "rand 0.8.5",
  "scale-info",
  "serde",
  "serde_bytes",
@@ -2016,6 +2015,7 @@ dependencies = [
  "bls-signatures",
  "creditcoin3-attestor-gossip",
  "hex",
+ "parity-scale-codec",
  "prover-primitives",
  "serde",
  "sp-core",
@@ -2025,6 +2025,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",
+ "vrf",
 ]
 
 [[package]]
@@ -2520,6 +2521,7 @@ dependencies = [
  "substrate-prometheus-endpoint",
  "supported-chains-primitives",
  "thiserror",
+ "vrf",
 ]
 
 [[package]]
@@ -9243,7 +9245,6 @@ dependencies = [
 name = "randomness-primitives"
 version = "3.31.0"
 dependencies = [
- "attestor-primitives",
  "sp-api",
  "sp-std",
 ]
@@ -13976,6 +13977,24 @@ name = "void"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
+
+[[package]]
+name = "vrf"
+version = "3.31.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "env_logger 0.11.5",
+ "log",
+ "parity-scale-codec",
+ "rand 0.8.5",
+ "randomness-primitives",
+ "schnorrkel 0.9.1",
+ "serde",
+ "sp-consensus-babe",
+ "sp-core",
+ "thiserror",
+]
 
 [[package]]
 name = "wait-timeout"

@@ -10,6 +10,7 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lints.clippy]
+absurd_extreme_comparisons = "allow"
 iter_next_slice = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
@@ -31,12 +32,13 @@ sc-utils = { workspace = true, features = ["default"] }
 serde = { workspace = true, features = ["derive"] }
 sp-api = { workspace = true, features = ["default"] }
 sp-consensus-babe = { workspace = true, features = ["std"] }
-sp-core = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std", "serde", "full_crypto"] }
 sp-inherents = { workspace = true, features = ["std"] }
 sp-runtime = { workspace = true, features = ["std"] }
 starknet-crypto = { workspace = true }
 substrate-prometheus-endpoint = { workspace = true }
 thiserror = { workspace = true }
+vrf = { workspace = true }
 
 # Workspace
 attestor-primitives = { workspace = true }

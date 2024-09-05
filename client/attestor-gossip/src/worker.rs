@@ -1,25 +1,29 @@
-use attestor_primitives::bls::{Bls, CryptoScheme, WrapEncode};
-use attestor_primitives::{api::AttestorApi, ChainId, SignedAttestation};
-use bls_signatures::{aggregate, Serialize};
 use futures::StreamExt;
 use log::{debug, error, info};
 use parity_scale_codec::{Codec, Decode, Encode};
-use randomness_primitives::api::RandomnessPalletApi;
 use sc_client_api::{Backend, BlockBackend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
-use sp_core::{Pair, H256, U256};
+use sp_core::H256;
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use attestor_primitives::{
+    api::AttestorApi,
+    bls::{Bls, CryptoScheme, WrapEncode},
+    AttestorId, ChainId, SignedAttestation,
+};
+
+use bls_signatures::{aggregate, Serialize};
+use randomness_primitives::api::RandomnessPalletApi;
 use supported_chains_primitives::api::SupportedChainsApi;
+use vrf;
 
-use crate::{Client, HashFor, LOG_TARGET};
-
-use super::{inherent, Attestation, AttestorComms, Error, Message};
+use super::{inherent, Attestation, AttestorComms, Client, Error, HashFor, Message, LOG_TARGET};
 
 /// Gossip engine votes messages topic
 pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
@@ -31,7 +35,7 @@ where
 
 type BlockNumber = u64;
 
-type Attestations<B, AccountId> = Vec<(AccountId, Attestation<HashFor<B>, AccountId>)>;
+type Attestations<B, AccountId> = HashMap<AccountId, Attestation<HashFor<B>, AccountId>>;
 
 pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, CIDP, AccountId>
 where
@@ -41,7 +45,17 @@ where
     RuntimeApi::Api: SupportedChainsApi<B>,
     RuntimeApi::Api: RandomnessPalletApi<B>,
     BE: Backend<B> + 'static,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
+    AccountId: Clone
+        + Display
+        + Codec
+        + Send
+        + 'static
+        + Sync
+        + Debug
+        + Into<[u8; 32]>
+        + PartialEq
+        + Eq
+        + std::hash::Hash,
 {
     /// Best attestation we have in the cache (latest)
     pub best_attestation: Option<SignedAttestation<HashFor<B>, AccountId>>,
@@ -78,7 +92,17 @@ where
     RuntimeApi::Api: SupportedChainsApi<B>,
     RuntimeApi::Api: RandomnessPalletApi<B>,
     BE: Backend<B> + 'static,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
+    AccountId: Clone
+        + Display
+        + Codec
+        + Send
+        + 'static
+        + Sync
+        + Debug
+        + Into<[u8; 32]>
+        + PartialEq
+        + Eq
+        + std::hash::Hash,
 {
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
     pub comms: AttestorComms<B, AccountId, RuntimeApi, BE>,
@@ -114,7 +138,17 @@ where
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
+    AccountId: Clone
+        + Display
+        + Codec
+        + Send
+        + 'static
+        + Sync
+        + Debug
+        + Into<[u8; 32]>
+        + PartialEq
+        + Eq
+        + std::hash::Hash,
 {
     pub fn new(params: WorkerParams<B, RA, BE, C, CIDP, AccountId>) -> Self {
         Worker {
@@ -226,12 +260,6 @@ where
     ) -> Result<(), Error> {
         let block_hash = self.backend.blockchain().info().best_hash;
 
-        // First check if we have this one already in our cache
-        if self.check_attestation_in_cache(&attestation, block_hash) {
-            info!(target: LOG_TARGET, "📝 Already have this attestation in cache");
-            return Ok(()); // we already have this attestation
-        }
-
         // Verify the attestation data
         self.verify_attestation_data(&attestation)?;
 
@@ -260,17 +288,20 @@ where
         // Get the blockchain info (current info)
         let blockchain_info = self.backend.blockchain().info();
 
+        info!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
         let runtime = self.runtime.runtime_api();
-        let is_attestor =
-            runtime.is_attestor(blockchain_info.best_hash, &attestation.attestor.clone())?;
-        debug!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
+        let is_attestor = runtime.is_attestor(
+            blockchain_info.finalized_hash,
+            &attestation.attestor.clone(),
+        )?;
+        info!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
 
         if !is_attestor {
             return Err(Error::NotAnAttestor);
         }
 
         let last_digest = runtime.last_digest(
-            blockchain_info.best_hash,
+            blockchain_info.finalized_hash,
             attestation.attestation_data.chain_id,
         )?;
 
@@ -283,46 +314,46 @@ where
         }
 
         // Get randomness from the attestation
-        info!(target: LOG_TARGET, "Getting randomness for attestation at epoch: {}", attestation.vrf_output.epoch);
+        info!(target: LOG_TARGET, "Getting randomness for attestation at epoch: {}", attestation.proof_of_inclusion.epoch);
         let runtime = self.runtime.runtime_api();
-        let randomness_from_attestation = runtime
-            .randomness_by_epoch_id(blockchain_info.best_hash, attestation.vrf_output.epoch)?;
+        let randomness_from_attestation = runtime.randomness_by_epoch_id(
+            blockchain_info.finalized_hash,
+            attestation.proof_of_inclusion.epoch,
+        )?;
 
-        let current_epoch = runtime.current_epoch(blockchain_info.best_hash)?;
+        let current_epoch = runtime.current_epoch(blockchain_info.finalized_hash)?;
         let two_epochs_ago = current_epoch.epoch_index.saturating_sub(2);
 
         let randomness_from_two_epochs_ago =
-            runtime.randomness_by_epoch_id(blockchain_info.best_hash, two_epochs_ago)?;
+            runtime.randomness_by_epoch_id(blockchain_info.finalized_hash, two_epochs_ago)?;
 
         // Enforce that an attestor can only submit an attestation if they signed the VRF output from two epochs ago
         // calculated from "now" which means the current epoch on a synced node
         if randomness_from_attestation != randomness_from_two_epochs_ago {
-            debug!(target: LOG_TARGET, "📝 Randomness from attestation: {:?}, randomness from two epochs ago: {:?}", randomness_from_attestation, randomness_from_two_epochs_ago);
+            info!(target: LOG_TARGET, "📝 Randomness from attestation: {:?}, randomness from two epochs ago: {:?}", randomness_from_attestation, randomness_from_two_epochs_ago);
             return Err(Error::InvalidAttestationVrfOuput);
         }
 
-        // Format the randomness as a number
-        let randomness_u256 = U256::from_little_endian(&randomness_from_attestation);
+        // Get the threshold and working set size
+        let runtime = self.runtime.runtime_api();
+        let threshold = runtime.comittee_set_size(blockchain_info.finalized_hash)?;
+        let working_set_size = runtime.working_set_size(blockchain_info.finalized_hash)?;
 
-        if attestation.vrf_output.vrf_number >= randomness_u256 {
-            debug!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
+        let is_included = vrf::verify_proof_of_inclusion(
+            threshold as u64,
+            working_set_size as u64,
+            &randomness_from_two_epochs_ago,
+            &attestation.proof_of_inclusion,
+            &AttestorId::from_public(attestation.attestor.clone().into()),
+            attestation.attestation_data.header_number,
+        )?;
 
-            // now check if the number that the attestor generated actually is correct ?
-            // otherwise, slash the attestor
-            let public_key =
-                sp_core::sr25519::Public::from_raw(attestation.attestor.clone().into());
-
-            let is_valid = sp_core::sr25519::Pair::verify(
-                &attestation.vrf_output.signature,
-                randomness_from_attestation,
-                &public_key,
-            );
-
-            debug!(target: LOG_TARGET, "📝 Vrf output for {:?} signature is valid: {is_valid}", attestation.attestor);
-        } else {
-            debug!(target: LOG_TARGET, "📝 Vrf output for {:?} is invalid ❌", attestation.attestor);
+        if !is_included {
+            info!(target: LOG_TARGET, "📝 Vrf output for {:?} is invalid ❌", attestation.attestor);
+            return Err(Error::InvalidAttestationVrfOuput);
         }
 
+        info!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
         Ok(())
     }
 
@@ -387,15 +418,19 @@ where
         // Check if the chain_id exists in the block_attestations
         if let Some(attestations) = self.block_attestations.get_mut(&chain_id) {
             // Get or initialize the attestations for the header number
-            let attestations_for_header =
-                attestations.entry(header_number).or_insert_with(Vec::new);
+            let attestations_for_header = attestations
+                .entry(header_number)
+                .or_insert_with(HashMap::new);
 
             info!(
                 target: LOG_TARGET,
                 "📝 Attestor({:?}) voted for round {:?}", attestor_id, (chain_id, header_number)
             );
-            // insert the attestation into the attestations for the header number
-            attestations_for_header.push((attestor_id, attestation.clone()));
+
+            let old_v = attestations_for_header.insert(attestor_id.clone(), attestation.clone());
+            if old_v.is_some() {
+                info!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_id, header_number));
+            }
 
             // If majority is reached, return a list of attestations to be submitted
             let (major_digest, major_count) =
@@ -403,7 +438,10 @@ where
 
             // TODO: should be per chain id
             let runtime = self.runtime.runtime_api();
-            let threshold = runtime.comittee_set_size(block_hash).unwrap_or(0);
+
+            // Majority is more than half of the committee set size
+            let comittee_set_size = runtime.comittee_set_size(block_hash)?;
+            let threshold = (comittee_set_size * 2 + 3 - 1) / 3; // equivalent to (2 * (b / 3)) + 1 with rounding
 
             info!(
                 target: LOG_TARGET,
@@ -424,7 +462,9 @@ where
             // Insert new attestation if it doesn't exist
             log::info!(target: LOG_TARGET, "📝 Inserting new attestation for round {:?}", round);
             let mut map = BTreeMap::new();
-            map.insert(header_number, vec![(attestor_id, attestation.clone())]);
+            let mut attestations = HashMap::new();
+            attestations.insert(attestor_id, attestation.clone());
+            map.insert(header_number, attestations);
             self.block_attestations.insert(chain_id, map);
         }
 
@@ -440,11 +480,18 @@ where
         attestations: Attestations<B, AccountId>,
         block_hash: HashFor<B>,
     ) -> Result<(), Error> {
+        let (major_digest, _) = find_major_digest::<B, AccountId>(&attestations);
+
+        // Filter attestations by major digest
+        // TODO: Can we do this in a more efficient way / place?
+        let attestations = attestations
+            .into_iter()
+            .filter(|(_, attestation)| attestation.digest() == major_digest.into())
+            .collect::<Vec<_>>();
+
         let an_attestation = attestations.iter().next().cloned().unwrap();
         let chain_id = an_attestation.1.attestation_data.chain_id;
         let header_number = an_attestation.1.attestation_data.header_number;
-
-        let (major_digest, _) = find_major_digest::<B, AccountId>(&attestations);
 
         // check if digest exists
         let runtime = self.runtime.runtime_api();
@@ -464,13 +511,6 @@ where
                 return Err(Error::DigestMissMatch);
             }
         };
-
-        // Filter attestations by major digest
-        // TODO: Can we do this in a more efficient way / place?
-        let attestations = attestations
-            .into_iter()
-            .filter(|(_, attestation)| attestation.digest() == major_digest.into())
-            .collect::<Vec<_>>();
 
         // here goes bls
         // contains attestorid, and attestation itself.
@@ -531,69 +571,10 @@ where
 
         Ok(())
     }
-
-    /// Check if the attestation is already in the cache
-    /// This is useful to avoid submitting the same attestation multiple times
-    /// It also checks if it's already included in the runtime
-    pub fn check_attestation_in_cache(
-        &self,
-        attestation: &Attestation<HashFor<B>, AccountId>,
-        block_hash: HashFor<B>,
-    ) -> bool {
-        let chain_id = attestation.attestation_data.chain_id;
-        let header_number = attestation.attestation_data.header_number;
-
-        let attestations = self.block_attestations.get(&chain_id);
-        if attestations.is_none() {
-            return false;
-        }
-
-        let attestations = attestations.unwrap().get(&header_number);
-        if attestations.is_none() {
-            return false;
-        }
-
-        if attestations
-            .unwrap()
-            .iter()
-            .any(|(_, att)| att == attestation)
-        {
-            info!(target: LOG_TARGET, "📝 Attestation is already in cache, no need to do anything here. Round: {:?}", (chain_id, header_number));
-            return true;
-        }
-
-        // check if attestor already pushed a similar message
-        if attestations
-            .unwrap()
-            .iter()
-            .any(|(attestor, _)| attestor == &attestation.attestor)
-        {
-            info!(target: LOG_TARGET, "📝 Attestor already submitted a similar attestation, no need to do anything here. Round: {:?}", (chain_id, header_number));
-            return true;
-        }
-
-        let runtime = self.runtime.runtime_api();
-        match runtime.contains_digest(block_hash, chain_id, attestation.digest()) {
-            Ok(true) => {
-                info!(target: LOG_TARGET, "📝 Attestation is already included in runtime, no need to do anything here. Round: {:?}", (chain_id, header_number));
-                true
-            }
-            Ok(false) => {
-                info!(target: LOG_TARGET, "📝 Attestation is not included in runtime, need to proceed");
-                false
-            }
-            Err(e) => {
-                error!(target: LOG_TARGET, "📝 Error while checking digest: {:?}", e);
-                false
-            }
-        }
-    }
 }
 
 /// Function to find the most frequently occurring digest
-fn find_major_digest<B, AccountId>(
-    attestations: &Vec<(AccountId, Attestation<HashFor<B>, AccountId>)>,
-) -> (HashFor<B>, usize)
+fn find_major_digest<B, AccountId>(attestations: &Attestations<B, AccountId>) -> (HashFor<B>, usize)
 where
     B: BlockT,
     H256: From<<B as BlockT>::Hash>,
@@ -601,7 +582,7 @@ where
     AccountId: Clone,
 {
     let mut digest_count: HashMap<HashFor<B>, usize> = HashMap::new();
-    for (_, attestation) in attestations {
+    for attestation in attestations.values() {
         let digest = attestation.digest();
         *digest_count.entry(HashFor::<B>::from(digest)).or_insert(0) += 1;
     }

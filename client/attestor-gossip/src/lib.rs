@@ -1,27 +1,28 @@
-use attestor_primitives::bls::{Bls, CryptoScheme};
-use attestor_primitives::{api::AttestorApi, Attestation as AttestationPrimitive, Digest};
 use parity_scale_codec::{Codec, Decode, Encode};
-use randomness_primitives::api::RandomnessPalletApi;
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
 use sc_utils::mpsc::{TracingUnboundedReceiver, TracingUnboundedSender};
+
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
-use sp_core::{H256, U256};
+use sp_core::H256;
 use sp_inherents::CreateInherentDataProviders;
-use sp_runtime::{
-    traits::{Block as BlockT, Header as HeaderT},
-    AccountId32,
-};
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
-use supported_chains_primitives::api::SupportedChainsApi;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
+
+use attestor_primitives::bls::{Bls, CryptoScheme};
+use attestor_primitives::{
+    api::AttestorApi, Attestation as AttestationPrimitive, AttestorId, Digest,
+};
+use randomness_primitives::api::RandomnessPalletApi;
+use supported_chains_primitives::api::SupportedChainsApi;
 
 pub mod inherent;
 pub mod validator;
@@ -40,7 +41,17 @@ where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     BE: Backend<B> + 'static,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
+    AccountId: Clone
+        + Display
+        + Codec
+        + Send
+        + 'static
+        + Sync
+        + Debug
+        + Into<[u8; 32]>
+        + PartialEq
+        + Eq
+        + std::hash::Hash,
 {
     pub gossip_engine: GossipEngine<B>,
     #[allow(dead_code)]
@@ -77,6 +88,8 @@ pub enum Error {
     ChainNotSupported,
     #[error("Sp api error")]
     SpApiError(#[from] sp_api::ApiError),
+    #[error("Vrf error")]
+    VrfError(#[from] vrf::Error),
 }
 
 #[derive(Debug, PartialEq)]
@@ -86,19 +99,6 @@ pub enum Action<H> {
 }
 
 pub type Round = u64;
-
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AttestorId(AccountId32);
-
-impl AttestorId {
-    pub fn new(id: AccountId32) -> Self {
-        Self(id)
-    }
-
-    pub fn from_public(public_key: [u8; 32]) -> Self {
-        Self(AccountId32::new(public_key))
-    }
-}
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Topic(u64);
@@ -114,7 +114,7 @@ pub struct Attestation<B, AccountId> {
     pub attestation_data: AttestationPrimitive<B>,
     pub attestor: AccountId,
     pub topic: Topic,
-    pub vrf_output: VrfOutput,
+    pub proof_of_inclusion: vrf::ProofOfInclusion,
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
 }
@@ -126,13 +126,6 @@ where
     pub fn digest(&self) -> Digest {
         self.attestation_data.digest()
     }
-}
-
-#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VrfOutput {
-    pub signature: sp_core::sr25519::Signature,
-    pub vrf_number: U256,
-    pub epoch: u64,
 }
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,7 +198,17 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     <B as BlockT>::Hash: From<H256>,
     CIDP: CreateInherentDataProviders<B, ()> + 'static,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + PartialEq,
+    AccountId: Clone
+        + Display
+        + Codec
+        + Send
+        + 'static
+        + Sync
+        + Debug
+        + Into<[u8; 32]>
+        + PartialEq
+        + Eq
+        + std::hash::Hash,
 {
     let AttestorGossipParams {
         client,

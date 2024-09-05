@@ -10,10 +10,9 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-attestor-primitives = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
-std = ["sp-std/std", "sp-api/std", "attestor-primitives/std"]
+std = ["sp-std/std", "sp-api/std"]

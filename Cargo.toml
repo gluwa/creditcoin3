@@ -260,6 +260,7 @@ cc-client = { path = "common/cc-client" }
 eth = { path = "common/eth" }
 mmr = { path = "common/mmr", features = ["par_mmr"] }
 utils = { path = "common/utils" }
+vrf = { path = "common/vrf" }
 
 attestation-blocks-online-builder = { path = "attestation-blocks-online-builder" }
 attestation-db = { path = "attestation-db" }

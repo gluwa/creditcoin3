@@ -1,6 +1,5 @@
 use anyhow::Result;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
-use creditcoin3_attestor_gossip::{Attestation, AttestorId, Topic};
 use exponential_backoff::Backoff;
 use kameo::{
     actor::Actor,
@@ -15,8 +14,9 @@ use cc_client::Client as CcClient;
 pub use cc_client::Error;
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId,
+    Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId,
 };
+use creditcoin3_attestor_gossip::{Attestation, Topic};
 
 pub type Randomness = [u8; 32];
 
@@ -34,7 +34,7 @@ struct SourceChainConfig {
     pub attestation_interval: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
@@ -160,10 +160,14 @@ impl<'a> Client {
         let signature_bls = self.bls_keypair.sign(msg);
 
         // Sign the VRF output
-        let vrf_output = self.cc_client.sign_babe_vrf().await.map_err(|e| {
-            error!("Error signing babe vrf: {:?}", e);
-            Error::FailedToSignBabeVrf
-        })?;
+        let vrf_output = self
+            .cc_client
+            .sign_babe_vrf(attestation.header_number)
+            .await
+            .map_err(|e| {
+                error!("Error signing babe vrf: {:?}", e);
+                Error::FailedToSignBabeVrf
+            })?;
 
         info!("attestation to submit: {:?}", attestation);
 
@@ -172,7 +176,7 @@ impl<'a> Client {
             attestation_data: attestation,
             attestor: self.cc_client.get_attestor_id(),
             topic: Topic::new(1),
-            vrf_output,
+            proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
         })
@@ -281,12 +285,14 @@ where
             return Ok(());
         }
 
-        self.submit_attestation(msg.attestation.unwrap())
-            .await
-            .map_err(|e| {
+        match self.submit_attestation(msg.attestation.unwrap()).await {
+            Ok(()) => {
+                info!("Attestation submitted successfully");
+            }
+            Err(e) => {
                 error!("Error submitting attestation: {:?}", e);
-                Error::FailedToSubmit
-            })?;
+            }
+        }
 
         Ok(())
     }
@@ -314,7 +320,7 @@ pub async fn check_attestation_inclusion(
         let last_digest = cc_client.fetch_last_digest(chain_id).await?;
 
         if let Some(last_digest) = last_digest {
-            info!(
+            debug!(
                 "Last digest: {:?}, attestation_digest: {:?}",
                 last_digest, attestation_digest
             );
