@@ -556,6 +556,7 @@ fn test_signing() {
 #[test]
 fn creating_checkpoint_works() {
     ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
         // Setup almost two full checkpoints of attestations, so that
         // the next attestation submitted triggers checkpoint creation.
         let attestor = Attestor::new(ATTESTOR_1);
@@ -624,6 +625,9 @@ fn creating_checkpoint_works() {
             digest: unwrapped_att.digest(),
             block_number: unwrapped_att.header_number(),
         };
+        System::assert_last_event(
+            crate::Event::CheckpointReached(chain_id, resulting_checkpoint.clone()).into(),
+        );
         assert_eq!(
             Attestation::checkpoints(chain_id, resulting_checkpoint.digest),
             Some(resulting_checkpoint)

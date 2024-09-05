@@ -236,7 +236,7 @@ pub mod pallet {
 
         BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>),
 
-        CheckpointReached(ChainId, SignedAttestation<T::Hash, T::AccountId>),
+        CheckpointReached(ChainId, AttestationCheckpoint),
 
         ComitteeSetSizeChanged(u32),
     }
@@ -799,13 +799,16 @@ pub mod pallet {
                 };
 
                 if i == num_to_condense - 1 {
-                    // For the very last attestation in the checkpoint we don't have
-                    // to add an attestations_rollback_record entry, since there
-                    // are no further possible errors.
                     let checkpoint = AttestationCheckpoint {
                         block_number: removed.header_number(),
                         digest: removed.digest(),
                     };
+
+                    Self::deposit_event(Event::<T>::CheckpointReached(
+                        chain_id,
+                        checkpoint.clone(),
+                    ));
+
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
                 }
             }
