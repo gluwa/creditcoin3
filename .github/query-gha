@@ -15,8 +15,9 @@ from github import Auth, Github
 
 
 OWNER_REPO=os.environ.get("OWNER_REPO", "gluwa/creditcoin3")
-PERIOD_START=datetime(2023, 10, 1, 0, 0, 0)
-PERIOD_END=datetime(2024, 4, 30, 23, 59, 59)
+PERIOD_START=datetime(2024, 8, 1, 0, 0, 0)
+PERIOD_END=datetime(2024, 8, 31, 23, 59, 59)
+DURATION_PER_JOB={}
 
 # Provide the GITHUB_TOKEN ENV variable to work around
 # API request limits for anonymous users
@@ -53,40 +54,52 @@ while start <= PERIOD_END:
     for workflow_run in repo.get_workflow_runs(created=f"{start_str}..{end_str}"):
         inspected_workflows += 1
 
-        # NOTE: GitHub's API doesn't allow filtering by name here!
-        #
-        # IMPORTANT: don't query other workflows b/c we're only interested in the
-        # integration-test-cli job which is in the CI workflow. This will also save
-        # us some API requests
-        if workflow_run.name != "CI":
-            continue
-
         # GitHub API doesn't support filtering by name so iterate over all jobs in a workflow
         # https://docs.github.com/en/rest/actions/workflow-jobs?apiVersion=2022-11-28#list-jobs-for-a-workflow-run
         for job in workflow_run.jobs():
-            # IMPORTANT: manually filter integration-test-cli b/c they take significant time
-            if job.name.find("integration-test-cli") > -1:
+            # IMPORTANT: count only jobs executed in GHA, not self-hosted
+            if "self-hosted" not in job.labels:
                 duration = job.completed_at - job.started_at
+
+                # TODO: should account for minute multipliers on Windows and MacOS
+                # mainly for release workflows if we keep these private, see
+                # https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions#minute-multipliers
 
                 overall_duration += duration
                 number_of_jobs += 1
+
+                # skip accumulating jobs which took no time
+                if duration == timedelta(seconds=0):
+                    continue
+
                 print(
                     gh.rate_limiting,
                     f"W: {workflow_run.id} @ {workflow_run.created_at} "
                     f"J: {job.id} ",
-                    job.started_at,
-                    job.completed_at,
                     job.name,
+                    duration,
+                    job.labels,
                 )
+
+                name = job.name.split(" ")[0]
+                if name not in DURATION_PER_JOB:
+                    DURATION_PER_JOB[name] = timedelta(seconds=0)
+                DURATION_PER_JOB[name] += duration
 
     start += timedelta(days=1)
 
 print(f"From: {PERIOD_START}")
 print(f"To  : {PERIOD_END}")
 print(f"Total workflow runs: {inspected_workflows} / {total_workflows}")
-print(f"Number of integration-test-cli jobs: {number_of_jobs}")
-print(f"Overall duration for integration-test-cli jobs: {overall_duration.total_seconds()} seconds")
-print(f"Overall duration for integration-test-cli jobs: {overall_duration.total_seconds() / 3600} hours")
+print(f"Number of jobs: {number_of_jobs}")
+print(f"Overall duration: {overall_duration.total_seconds()} seconds")
+print(f"Overall duration: {overall_duration.total_seconds() / 60} minutes")
+print(f"Overall duration: {overall_duration.total_seconds() / 3600} hours")
 
 if inspected_workflows != total_workflows:
     raise RuntimeError("Failed to inspect all workflows")
+
+print("==============================================================")
+print("========== Overall duration in minutes, Low -> High ==========")
+for job_name, duration in sorted(DURATION_PER_JOB.items(), key=lambda x: x[1]):
+    print(job_name, duration.total_seconds() / 60)
