@@ -82,12 +82,12 @@ pallet-evm-precompile-substrate-transfer = { workspace = true }
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
 
-# [dependencies.sp-io] 
-# default-features = false 
+# [dependencies.sp-io]
+# default-features = false
 # version = '3.0.0'
 
-# [dependencies.schnorrkel] 
-# default-features = false 
+# [dependencies.schnorrkel]
+# default-features = false
 # version = '0.11.4'
 
 [build-dependencies]
