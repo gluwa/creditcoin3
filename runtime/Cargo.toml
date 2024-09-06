@@ -76,18 +76,18 @@ pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
 # trigger the error -> the lang item is first defined in crate `sp_io` (which `frame_support` depends on)
-# pallet-evm-precompile-substrate-transfer = { workspace = true }
+pallet-evm-precompile-substrate-transfer = { workspace = true }
 
 # # Tracing
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
 
-# [dependencies.sp-io] 
-# default-features = false 
+# [dependencies.sp-io]
+# default-features = false
 # version = '3.0.0'
 
-# [dependencies.schnorrkel] 
-# default-features = false 
+# [dependencies.schnorrkel]
+# default-features = false
 # version = '0.11.4'
 
 [build-dependencies]
@@ -157,7 +157,7 @@ std = [
 	"pallet-hotfix-sufficients/std",
 	"creditcoin3-evm-tracer/std",
 	"creditcoin3-rpc-primitives-debug/std",
-	# "pallet-evm-precompile-substrate-transfer/std",
+	"pallet-evm-precompile-substrate-transfer/std",
 	# "sp-io/std",
 	# "schnorrkel/std",
 ]
