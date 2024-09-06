@@ -378,16 +378,28 @@ jobs:
         uses: gluwa/toolchain@dev
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
+          components: llvm-tools-preview
           target: wasm32-unknown-unknown
           profile: minimal
           override: true
       - uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        uses: gluwa/cargo@dev
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2.42.37
         with:
-          command: test
-          args: --features=runtime-benchmarks -- --test-threads 1
+          tool: cargo-llvm-cov
+
+      - name: Run tests
+        run: |
+          cargo llvm-cov --features=runtime-benchmarks \
+              --workspace --html --show-missing-lines --hide-instantiations \
+              --ignore-filename-regex "(tests.rs|mock.rs)"
+
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/llvm-cov/html/
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
