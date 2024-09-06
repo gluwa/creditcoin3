@@ -768,7 +768,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
 }
 
 #[test]
-fn submitting_attestation_works() {
+fn commit_attestation_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(ATTESTOR_1);
         let chain_id = 1;
@@ -796,7 +796,48 @@ fn submitting_attestation_works() {
 }
 
 #[test]
-fn submitting_duplicate_attestation_fails() {
+fn commit_attestation_should_error_when_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+
+        assert_noop!(
+            Attestation::commit_attestation(RuntimeOrigin::signed(ATTESTOR_1), attestation),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_should_error_when_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+
+        assert_noop!(
+            Attestation::commit_attestation(RuntimeOrigin::root(), attestation),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_should_error_when_chain_is_not_supported() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+
+        let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], chain_id, 1, None);
+
+        assert_noop!(
+            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
+            Error::<Test>::ChainNotSupported
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(ATTESTOR_1);
 
@@ -816,6 +857,20 @@ fn submitting_duplicate_attestation_fails() {
         assert_noop!(
             Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
             Error::<Test>::AttestationExists
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_should_error_when_it_cannot_validate_the_attestation() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+
+        // note: not calling register_attestor() will cause the validation to fail
+        assert_noop!(
+            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
+            Error::<Test>::InvalidAttestation
         );
     })
 }
