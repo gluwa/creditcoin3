@@ -1122,6 +1122,7 @@ jobs:
 
   audit:
     name: cargo audit
+    if: github.base_ref == 'dev'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
