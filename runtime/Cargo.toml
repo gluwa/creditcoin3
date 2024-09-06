@@ -75,11 +75,20 @@ pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
-pallet-evm-precompile-substrate-transfer = { workspace = true }
+# trigger the error -> the lang item is first defined in crate `sp_io` (which `frame_support` depends on)
+# pallet-evm-precompile-substrate-transfer = { workspace = true }
 
-# Tracing
+# # Tracing
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
+
+# [dependencies.sp-io] 
+# default-features = false 
+# version = '3.0.0'
+
+# [dependencies.schnorrkel] 
+# default-features = false 
+# version = '0.11.4'
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -148,27 +157,29 @@ std = [
 	"pallet-hotfix-sufficients/std",
 	"creditcoin3-evm-tracer/std",
 	"creditcoin3-rpc-primitives-debug/std",
-	"pallet-evm-precompile-substrate-transfer/std",
+	# "pallet-evm-precompile-substrate-transfer/std",
+	# "sp-io/std",
+	# "schnorrkel/std",
 ]
 runtime-benchmarks = [
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-system-benchmarking/runtime-benchmarks",
-	"frame-system/runtime-benchmarks",
-	"pallet-babe/runtime-benchmarks",
-	"pallet-bags-list/runtime-benchmarks",
-	"pallet-balances/runtime-benchmarks",
-	"pallet-fast-unstake/runtime-benchmarks",
-	"pallet-grandpa/runtime-benchmarks",
-	"pallet-identity/runtime-benchmarks",
-	"pallet-im-online/runtime-benchmarks",
-	"pallet-nomination-pools/runtime-benchmarks",
-	"pallet-offences/runtime-benchmarks",
-	"pallet-timestamp/runtime-benchmarks",
-	"pallet-staking/runtime-benchmarks",
-	"pallet-sudo/runtime-benchmarks",
-	"pallet-utility/runtime-benchmarks",
-	"pallet-proxy/runtime-benchmarks",
-	"pallet-ethereum/runtime-benchmarks",
-	"pallet-evm/runtime-benchmarks",
-	"pallet-hotfix-sufficients/runtime-benchmarks",
+	# "frame-benchmarking/runtime-benchmarks",
+	# "frame-system-benchmarking/runtime-benchmarks",
+	# "frame-system/runtime-benchmarks",
+	# "pallet-babe/runtime-benchmarks",
+	# "pallet-bags-list/runtime-benchmarks",
+	# "pallet-balances/runtime-benchmarks",
+	# "pallet-fast-unstake/runtime-benchmarks",
+	# "pallet-grandpa/runtime-benchmarks",
+	# "pallet-identity/runtime-benchmarks",
+	# "pallet-im-online/runtime-benchmarks",
+	# "pallet-nomination-pools/runtime-benchmarks",
+	# "pallet-offences/runtime-benchmarks",
+	# "pallet-timestamp/runtime-benchmarks",
+	# "pallet-staking/runtime-benchmarks",
+	# "pallet-sudo/runtime-benchmarks",
+	# "pallet-utility/runtime-benchmarks",
+	# "pallet-proxy/runtime-benchmarks",
+	# "pallet-ethereum/runtime-benchmarks",
+	# "pallet-evm/runtime-benchmarks",
+	# "pallet-hotfix-sufficients/runtime-benchmarks",
 ]
