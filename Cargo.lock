@@ -1548,7 +1548,7 @@ dependencies = [
  "creditcoin3-rpc-core-debug",
  "creditcoin3-rpc-core-types",
  "creditcoin3-rpc-primitives-debug",
- "ethereum 0.14.0",
+ "ethereum 0.15.0",
  "ethereum-types",
  "fc-api",
  "fc-consensus",
@@ -1576,7 +1576,7 @@ name = "creditcoin3-rpc-primitives-debug"
 version = "3.33.0"
 dependencies = [
  "environmental",
- "ethereum 0.14.0",
+ "ethereum 0.15.0",
  "ethereum-types",
  "hex",
  "parity-scale-codec",
@@ -1596,7 +1596,7 @@ dependencies = [
  "creditcoin3-rpc-core-trace",
  "creditcoin3-rpc-core-types",
  "creditcoin3-rpc-primitives-debug",
- "ethereum 0.14.0",
+ "ethereum 0.15.0",
  "ethereum-types",
  "fc-consensus",
  "fc-rpc",
@@ -1629,6 +1629,7 @@ version = "3.33.0"
 dependencies = [
  "creditcoin3-evm-tracer",
  "creditcoin3-rpc-primitives-debug",
+ "ethereum 0.15.0",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",
@@ -2518,7 +2519,7 @@ name = "evm-tracing-events"
 version = "3.33.0"
 dependencies = [
  "environmental",
- "ethereum 0.14.0",
+ "ethereum 0.15.0",
  "ethereum-types",
  "evm 0.39.1",
  "evm-gasometer 0.39.0",
