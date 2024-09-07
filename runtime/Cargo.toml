@@ -81,6 +81,7 @@ pallet-evm-precompile-substrate-transfer = { workspace = true }
 # # Tracing
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
+ethereum = { workspace = true }
 
 # [dependencies.sp-io]
 # default-features = false
@@ -160,6 +161,7 @@ std = [
 	"pallet-evm-precompile-substrate-transfer/std",
 	# "sp-io/std",
 	# "schnorrkel/std",
+	"ethereum/std",
 ]
 runtime-benchmarks = [
 	# "frame-benchmarking/runtime-benchmarks",
