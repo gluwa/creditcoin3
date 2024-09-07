@@ -74,6 +74,7 @@ pub use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::Multiplier;
+use ethereum::TransactionV2;
 
 mod precompiles;
 use precompiles::FrontierPrecompiles;
@@ -218,6 +219,18 @@ impl StaticLookup for NativeOrEvmAddressLookup {
 impl frame_system::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
+
+    type MultiBlockMigrator = ();
+
+    type SingleBlockMigrations = ();
+
+    type PreInherents = ();
+
+    type PostInherents = ();
+
+    type PostTransactions = ();
+
+    type RuntimeTask = RuntimeTask;
     /// The basic call filter to use in dispatchable.
     type BaseCallFilter = frame_support::traits::Everything;
     /// Block & extrinsics weights: base values and limits.
@@ -322,11 +335,13 @@ impl pallet_balances::Config for Runtime {
     type AccountStore = System;
     type ReserveIdentifier = [u8; 8];
     type RuntimeHoldReason = ();
-    type FreezeIdentifier = ();
+    
     type MaxLocks = MaxLocks;
     type MaxReserves = ();
-    type MaxHolds = ();
-    type MaxFreezes = ();
+    // type MaxHolds = ();
+    type RuntimeFreezeReason = RuntimeFreezeReason;
+	type FreezeIdentifier = RuntimeFreezeReason;
+	type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
 parameter_types! {
@@ -398,6 +413,7 @@ parameter_types! {
     pub const GasLimitPovSizeRatio: u64 = BLOCK_GAS_LIMIT.saturating_div(MAX_POV_SIZE);
     pub PrecompilesValue: FrontierPrecompiles<Runtime> = FrontierPrecompiles::<_>::new();
     pub WeightPerGas: Weight = Weight::from_parts(weight_per_gas(BLOCK_GAS_LIMIT, NORMAL_DISPATCH_RATIO, WEIGHT_MILLISECS_PER_BLOCK), 0);
+    pub SuicideQuickClearLimit: u32 = 0;
 }
 
 impl pallet_evm::Config for Runtime {
@@ -421,6 +437,7 @@ impl pallet_evm::Config for Runtime {
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
     type Timestamp = Timestamp;
     type WeightInfo = pallet_evm::weights::SubstrateWeight<Self>;
+    type SuicideQuickClearLimit = SuicideQuickClearLimit;
 }
 
 parameter_types! {
@@ -445,6 +462,8 @@ impl pallet_dynamic_fee::Config for Runtime {
 parameter_types! {
     pub DefaultBaseFeePerGas: U256 = U256::from(1_400_000_000_000_u128);
     pub DefaultElasticity: Permill = Permill::from_parts(125_000);
+    pub const MaxExposurePageSize: u32 = 64;
+    pub const MaxControllersInDeprecationBatch: u32 = 751;
 }
 
 pub struct BaseFeeThreshold;
@@ -572,8 +591,8 @@ impl pallet_staking::Config for Runtime {
     type SessionInterface = Self;
     type EraPayout = EraPayout;
     type NextNewSession = Session;
-    type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
-    type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
+    // type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
+    // type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
     type VoterList = VoterList;
     type TargetList = pallet_staking::UseValidatorsMap<Self>;
     type MaxUnlockingChunks = frame_support::traits::ConstU32<32>;
@@ -583,6 +602,10 @@ impl pallet_staking::Config for Runtime {
 
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
     type EventListeners = (); // TODO: should be pools when nomination pools are added
+
+    type MaxExposurePageSize = MaxExposurePageSize;
+    type MaxControllersInDeprecationBatch = MaxControllersInDeprecationBatch;
+    type DisablingStrategy = pallet_staking::UpToLimitDisablingStrategy;
 }
 
 pub type OnChainAccuracy = sp_runtime::Perbill;
@@ -757,28 +780,48 @@ impl InstanceFilter<RuntimeCall> for ProxyFilter {
     }
 }
 
+pub const UNITS: Balance = 1_000_000_000_000;
+pub const CENTS: Balance = UNITS / 30_000;
+pub const GRAND: Balance = CENTS * 100_000;
+pub const MILLICENTS: Balance = CENTS / 1_000;
+
+pub const fn deposit(items: u32, bytes: u32) -> Balance {
+    items as Balance * 2_000 * CENTS + (bytes as Balance) * 100 * MILLICENTS
+}
+
 parameter_types! {
     pub const BasicDeposit: Balance = 500;
     pub const FieldDeposit: Balance = 500;
     pub const SubAccountDeposit: Balance = 500;
     pub const MaxSubAccounts: u32 = 10;
-    pub const MaxAdditionalFields: u32 = 10;
     pub const MaxRegistrars: u32 = 15;
+    pub const ByteDeposit: Balance = deposit(0, 1); //todo ???
+    pub const MaxAdditionalFields: u32 = 100;
 }
 
 impl pallet_identity::Config for Runtime {
     type Currency = Balances;
     type BasicDeposit = BasicDeposit;
-    type FieldDeposit = FieldDeposit;
+    // type FieldDeposit = FieldDeposit;
     type SubAccountDeposit = SubAccountDeposit;
     type MaxSubAccounts = MaxSubAccounts;
-    type MaxAdditionalFields = MaxAdditionalFields;
+    // type MaxAdditionalFields = MaxAdditionalFields;
     type MaxRegistrars = MaxRegistrars;
     type RuntimeEvent = RuntimeEvent;
     type ForceOrigin = frame_system::EnsureRoot<AccountId>;
     type RegistrarOrigin = frame_system::EnsureRoot<AccountId>;
     type Slashed = ();
     type WeightInfo = ();
+
+    type ByteDeposit = ByteDeposit;
+    type IdentityInformation = pallet_identity::legacy::IdentityInfo<MaxAdditionalFields>;
+    type OffchainSignature = sp_runtime::MultiSignature;
+    type SigningPublicKey = <sp_runtime::MultiSignature as Verify>::Signer;
+    type UsernameAuthorityOrigin = frame_system::EnsureRoot<Self::AccountId>;
+    type PendingUsernameExpiration = ConstU32<{ 7 * DAYS }>;
+    type MaxSuffixLength =  ConstU32<7>;
+    type MaxUsernameLength = ConstU32<32>;
+
 }
 
 parameter_types! {
@@ -831,11 +874,107 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxPointsToBalance = MaxPointsToBalance;
     type BalanceToU256 = BalanceToU256;
     type U256ToBalance = U256ToBalance;
-    type Staking = Staking;
+    // type Staking = Staking;
     type PostUnbondingPoolsWindow = PostUnbondingPoolsWindow;
     type MaxMetadataLen = ConstU32<256>;
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
+    type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
+    type StakeAdapter = pallet_nomination_pools::adapter::TransferStake<Self, Staking>;
+    type RuntimeFreezeReason = RuntimeFreezeReason;
 }
+
+// #[frame_support::runtime]
+// mod runtime {
+//     #[runtime::runtime]
+// 	#[runtime::derive(
+// 		RuntimeCall,
+// 		RuntimeEvent,
+// 		RuntimeError,
+// 		RuntimeOrigin,
+// 		RuntimeFreezeReason,
+// 		RuntimeHoldReason,
+// 		RuntimeSlashReason,
+// 		RuntimeLockId,
+// 		RuntimeTask
+// 	)]
+// 	pub struct Runtime;
+
+//     #[runtime::pallet_index(0)]
+// 	pub type System = frame_system;
+
+//     #[runtime::pallet_index(1)]
+//     pub type Babe = pallet_babe;
+
+//     #[runtime::pallet_index(2)]
+//     pub type Timestamp = pallet_timestamp;
+
+//     #[runtime::pallet_index(3)]
+//     pub type Balances = pallet_balances;
+
+//     #[runtime::pallet_index(4)]
+//     pub type Authorship = pallet_authorship;
+
+//     #[runtime::pallet_index(5)]
+//     pub type Staking = pallet_staking;
+
+//     #[runtime::pallet_index(6)]
+//     pub type Offences = pallet_offences;
+
+//     #[runtime::pallet_index(7)]
+//     pub type Session = pallet_session;
+
+//     #[runtime::pallet_index(8)]
+//     pub type Grandpa = pallet_grandpa;
+
+//     #[runtime::pallet_index(9)]
+//     pub type ImOnline = pallet_im_online;
+
+//     #[runtime::pallet_index(10)]
+//     // pub type VoterList = pallet_bags_list::<Instance1>;
+//     pub type VoterList = pallet_bags_list;
+
+//     #[runtime::pallet_index(11)]
+//     pub type Historical = session_historical;
+
+//     #[runtime::pallet_index(12)]
+//     pub type TransactionPayment = pallet_transaction_payment;
+
+//     #[runtime::pallet_index(13)]
+//     pub type Sudo = pallet_sudo;
+
+//     #[runtime::pallet_index(14)]
+//     pub type Utility = pallet_utility;
+
+//     #[runtime::pallet_index(15)]
+//     pub type Proxy = pallet_proxy;
+
+//     #[runtime::pallet_index(16)]
+//     pub type Identity = pallet_identity;
+
+//     #[runtime::pallet_index(17)]
+//     pub type FastUnstake = pallet_fast_unstake;
+
+//     #[runtime::pallet_index(18)]
+//     pub type NominationPools = pallet_nomination_pools;
+
+//     #[runtime::pallet_index(19)]
+//     pub type Ethereum = pallet_ethereum;
+
+//     #[runtime::pallet_index(20)]
+//     pub type EVM = pallet_evm;
+
+//     #[runtime::pallet_index(21)]
+//     pub type EVMChainId = pallet_evm_chain_id;
+
+//     #[runtime::pallet_index(22)]
+//     pub type DynamicFee = pallet_dynamic_fee;
+
+//     #[runtime::pallet_index(23)]
+//     pub type BaseFee = pallet_base_fee;
+
+//     #[runtime::pallet_index(24)]
+//     pub type HotfixSufficients = pallet_hotfix_sufficients;
+// }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
@@ -1020,7 +1159,7 @@ impl_runtime_apis! {
             Executive::execute_block(block)
         }
 
-        fn initialize_block(header: &<Block as BlockT>::Header) {
+        fn initialize_block(header: &<Block as BlockT>::Header) -> sp_runtime::ExtrinsicInclusionMode {
             Executive::initialize_block(header)
         }
     }
@@ -1128,6 +1267,12 @@ impl_runtime_apis! {
     }
 
     impl fp_rpc::EthereumRuntimeRPCApi<Block> for Runtime {
+
+        fn initialize_pending_block(header: &<Block as BlockT>::Header){
+            //todo
+            todo!()
+            // pallet_ethereum::Pallet::<Runtime>::initialize_pending_block(header);
+        }
         fn chain_id() -> u64 {
             <Runtime as pallet_evm::Config>::ChainId::get()
         }
@@ -1436,6 +1581,23 @@ impl_runtime_apis! {
     }
 
     impl pallet_nomination_pools_runtime_api::NominationPoolsApi<Block, AccountId, Balance> for Runtime {
+
+        fn pool_pending_slash(pool_id: pallet_nomination_pools::PoolId) -> Balance {
+            NominationPools::api_pool_pending_slash(pool_id).into()
+        }
+
+        fn member_pending_slash(who: AccountId) -> Balance {
+            NominationPools::api_member_pending_slash(who).into()
+        }
+
+        fn pool_needs_delegate_migration(pool_id: pallet_nomination_pools::PoolId) -> bool {
+            NominationPools::api_pool_needs_delegate_migration(pool_id)
+        }
+
+        fn member_needs_delegate_migration(who: AccountId) -> bool {
+            NominationPools::api_member_needs_delegate_migration(who)
+        }
+
         fn pending_rewards(who: AccountId) -> Balance {
             NominationPools::api_pending_rewards(who).unwrap_or_default()
         }
@@ -1453,6 +1615,8 @@ impl_runtime_apis! {
         fn trace_transaction(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
+            // traced_transaction: &pallet_ethereum::Transaction,
+            
         ) -> Result<
             (),
             sp_runtime::DispatchError,
