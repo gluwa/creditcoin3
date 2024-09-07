@@ -335,7 +335,7 @@ impl pallet_balances::Config for Runtime {
     type AccountStore = System;
     type ReserveIdentifier = [u8; 8];
     type RuntimeHoldReason = ();
-    
+
     type MaxLocks = MaxLocks;
     type MaxReserves = ();
     // type MaxHolds = ();
@@ -1616,7 +1616,7 @@ impl_runtime_apis! {
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
             // traced_transaction: &pallet_ethereum::Transaction,
-            
+
         ) -> Result<
             (),
             sp_runtime::DispatchError,
