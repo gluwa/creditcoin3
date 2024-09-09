@@ -1,5 +1,6 @@
 use super::*;
 use mock::*;
+use randomness_primitives::provider::RandomnessPalletProvider;
 use sp_core::H256;
 
 #[test]
@@ -56,9 +57,24 @@ fn can_predict_next_epoch_change() {
         let last_seen_epoch_index = crate::LastSeenEpochIndex::<Test>::get();
         assert_eq!(last_seen_epoch_index, 2);
 
+        // assert on emited event
+        System::assert_last_event(
+            crate::Event::StoreRandomnessForEpoch {
+                epoch_index: 2,
+                randomness: crate::Pallet::<Test>::randomness_by_epoch_index(2),
+            }
+            .into(),
+        );
+
         assert_eq!(
             crate::RandomnessByEpochIndex::<Test>::get(2),
             pallet_babe::Randomness::<Test>::get()
+        );
+
+        // these two functions return the value from storage
+        assert_eq!(
+            crate::Pallet::<Test>::randomness_by_epoch_index(2),
+            crate::Pallet::<Test>::randomness_by_epoch_id(2)
         );
     })
 }
