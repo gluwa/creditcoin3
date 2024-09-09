@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use pallet_prover_primitives::Query;
 use sp_runtime_interface::runtime_interface;
 use sp_std::vec::Vec;
 
@@ -8,10 +9,10 @@ pub mod command;
 
 #[runtime_interface]
 pub trait HostApi {
-    fn verify_proof(proof: Vec<u8>) -> bool {
+    fn verify_proof(proof: Vec<u8>, query: Query) -> bool {
         #[cfg(target_arch = "x86_64")]
         {
-            match command::run_verifier(proof) {
+            match command::run_verifier(proof, query) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {:?}", r);
                     true
@@ -34,7 +35,7 @@ pub trait HostApi {
 
 #[runtime_interface]
 pub trait HostBenchmarkApi {
-    fn verify_proof(_proof: Vec<u8>) -> bool {
+    fn verify_proof(_proof: Vec<u8>, query: Query) -> bool {
         //benchmark tests are not able to read from file, so we need to substitute the file reading with a hardcoded proof
         let current_path_pwd = std::env::current_exe()
             .expect("should get current path")
@@ -50,7 +51,7 @@ pub trait HostBenchmarkApi {
         let proof = std::fs::read(proof_example.clone())
             .unwrap_or_else(|_| panic!("should read file from {}", proof_example));
 
-        match command::run_verifier(proof) {
+        match command::run_verifier(proof, query) {
             Ok(r) => {
                 log::debug!("result of verifying proof: {:?}", r);
                 true

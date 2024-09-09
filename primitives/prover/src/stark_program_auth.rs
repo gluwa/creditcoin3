@@ -7,7 +7,7 @@ pub type StarkProgramAuthHash = u64;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StarkProgramMetadata {
-    version: u8,
+    pub version: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +25,8 @@ impl StarkProgramMetadataStorage {
     const AUTH_HASH_V1_DEV: StarkProgramAuthHash = 18171554912147335677;
     const V2_DEV: u8 = 2;
     const AUTH_HASH_V2_DEV: StarkProgramAuthHash = 3438002004860300627;
+    const V3_DEV: u8 = 3;
+    const AUTH_HASH_V3_DEV: StarkProgramAuthHash = 617734937651202173;
 
     pub fn try_append(
         &mut self,
@@ -69,6 +71,12 @@ impl Default for StarkProgramMetadataStorage {
             Self::AUTH_HASH_V2_DEV,
             StarkProgramMetadata {
                 version: Self::V2_DEV,
+            },
+        );
+        map.insert(
+            Self::AUTH_HASH_V3_DEV,
+            StarkProgramMetadata {
+                version: Self::V3_DEV,
             },
         );
 

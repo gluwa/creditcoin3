@@ -6,9 +6,12 @@ use precompile_utils::{prelude::String, solidity::encode_arguments, solidity::Co
 use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_io::hashing::keccak_256;
+use sp_runtime_interface::pass_by::PassByCodec;
 use sp_std::vec::Vec;
 
-#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec, Default)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec, Default, PassByCodec,
+)]
 pub struct Query {
     pub chain_id: ChainId,
     pub height: u64,

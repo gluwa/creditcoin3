@@ -24,5 +24,5 @@ tracing = { workspace = true }
 
 # Local dependencies
 mmr = { workspace = true }
-prover-primitives = { workspace = true, features = ["std"] }
+pallet-prover-primitives = { workspace = true, features = ["std"] }
 utils = { workspace = true }

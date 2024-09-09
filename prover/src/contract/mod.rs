@@ -4,7 +4,7 @@ use tracing::info;
 
 use artifacts::ChainDeploymentArtifact;
 use eth::Client;
-use prover_primitives::Query;
+use pallet_prover_primitives::Query;
 
 use crate::EthClientArc;
 

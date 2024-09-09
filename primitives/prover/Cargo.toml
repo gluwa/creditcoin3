@@ -26,6 +26,7 @@ sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
+pallet-prover-primitives = { workspace = true, default-features = false }
 
 # Common dependencies
 mmr = { path = "../../common/mmr", default-features = false }
@@ -52,4 +53,5 @@ std = [
     "utils/std",
     "mmr/std",
     "precompile-utils/std",
+    "pallet-prover-primitives/std",
 ]

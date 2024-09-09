@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::info;
 
-use prover_primitives::{LayoutSegment, Query};
+use pallet_prover_primitives::{LayoutSegment, Query};
 
 use alloy::{
     network::EthereumWallet,

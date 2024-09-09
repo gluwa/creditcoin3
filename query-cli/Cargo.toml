@@ -18,5 +18,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 eth = { workspace = true }
 
 anyhow.workspace = true
-prover-primitives = { workspace = true, features = ["std"] }
+pallet-prover-primitives = { workspace = true }
 utils = { path = "../common/utils" }

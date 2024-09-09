@@ -7,7 +7,7 @@ use attestation_chain::{attestation_fragment::AttestationFragment, AttestationCh
 use attestor_primitives::Attestation as AttestationPrimitive;
 use eth::Client;
 use mmr::traits::MerkleTreeTrait;
-use prover_primitives::Query;
+use pallet_prover_primitives::Query;
 
 use crate::attestation::create_block_with_prev_digest;
 use crate::{postgres, AttestationCacheType, EthClientArc};

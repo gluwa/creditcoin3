@@ -113,7 +113,7 @@ impl<Q: ClaimQuery> Claim<Q> {
                             //                            let r_usize = r.start as usize..r.end as usize;
                             (proof_bytes[r.clone()] == rlp.as_raw()[r.clone()])
                                 .then_some(())
-                                .ok_or(ClaimValidationError::FieldNotValidated(
+                                .ok_or(FieldNotValidated(
                                     r.clone(),
                                     proof_bytes[r.clone()].to_vec(),
                                     rlp.as_raw()[r].to_vec(),

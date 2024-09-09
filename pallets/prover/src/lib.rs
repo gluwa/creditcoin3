@@ -23,12 +23,14 @@ pub mod pallet {
     use sp_std::vec::Vec;
     use supported_chains_primitives::provider::SupportedChainsProvider;
 
-    #[cfg(test)]
-    use crate::mock::verify_proof;
-    #[cfg(all(not(feature = "runtime-benchmarks"), not(test)))]
+    // #[cfg(test)]
+    // use crate::mock::verify_proof;
+    // #[cfg(all(not(feature = "runtime-benchmarks"), not(test)))]
+    // use proof_verifier::host_api::verify_proof;
+    // #[cfg(all(feature = "runtime-benchmarks", test))]
+    // use proof_verifier::host_benchmark_api::verify_proof;
+
     use proof_verifier::host_api::verify_proof;
-    #[cfg(all(feature = "runtime-benchmarks", not(test)))]
-    use proof_verifier::host_benchmark_api::verify_proof;
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
@@ -76,7 +78,7 @@ pub mod pallet {
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
 
             // Verify proof
-            let result = verify_proof(proof);
+            let result = verify_proof(proof, query.clone());
             ensure!(result, Error::<T>::InvalidProofSubmitted);
 
             let query_id = query.id();

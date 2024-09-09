@@ -13,9 +13,12 @@ version.workspace = true
 log = { workspace = true }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true }
-
+pallet-prover-primitives = { workspace = true, default-features = false}
+prover-primitives = { workspace = true, optional = true }
+serde_json = { workspace = true, default-features = false}
+hashbrown = { version = "0.14.5", default-features = false }
 tempfile = "3.10"
 
 [features]
 default = ["std"]
-std = ["sp-runtime-interface/std", "sp-std/std", "log/std"]
+std = ["sp-runtime-interface/std", "sp-std/std", "log/std", "prover-primitives/std", "serde_json/std",]

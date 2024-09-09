@@ -1,3 +1,6 @@
+use pallet_prover_primitives::Query;
+use prover_primitives::stark_program_auth::{StarkProgramAuth, StarkProgramMetadataStorage};
+use prover_primitives::types::{StoneProof, StoneProofJson};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::{env, fs, path::PathBuf};
@@ -11,7 +14,18 @@ fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     Ok(temp_file)
 }
 
-pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
+pub fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
+    use std::hash::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+
+    let mut hasher = DefaultHasher::new();
+    bytes[..].hash(&mut hasher);
+
+    hasher.finish()
+}
+
+pub fn run_verifier(proof: Vec<u8>, query: Query) -> Result<String, String> {
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // this code can be called from any directory within this project.
@@ -35,6 +49,25 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
     let temp_file_path = path.to_str().ok_or("Temp file not found".to_string())?;
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
+
+    let proof_json = fs::read_to_string(temp_file_path)
+        .map_err(|e| format!("Failed to read proof from temp file: {}", e))?;
+
+    let proof: StoneProofJson = serde_json::from_str(&proof_json)
+        .map_err(|e| format!("Failed to parse proof json: {}", e))?;
+
+    let stone_proof = StoneProof::from(proof);
+
+    let program_metadata_storage = StarkProgramMetadataStorage::default();
+
+    let metadata = StarkProgramAuth::authenticate(
+        &stone_proof,
+        &program_metadata_storage,
+        default_stark_program_auth_hasher,
+    )
+    .map_err(|e| format!("Failed to authenticate STARK program: {e:?}"));
+
+    log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
     // Execute the verifier command
     let output = Command::new(verifier_path)
@@ -78,6 +111,8 @@ pub fn find_project_root() -> Option<PathBuf> {
 pub mod tests {
     #[test]
     fn verify_works() {
+        use pallet_prover_primitives::Query;
+
         let project_root = crate::command::find_project_root()
             .ok_or("Could not find project root")
             .expect("project root to be found");
@@ -85,8 +120,18 @@ pub mod tests {
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
-        let result = super::run_verifier(proof_example);
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 1,
+            layout_segments: vec![],
+        };
 
-        assert!(result.is_ok())
+        let result = super::run_verifier(proof_example, query);
+
+        println!("result: {:?}", result);
+
+        assert!(result.is_ok());
+
     }
 }

@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tracing::debug;
 
 use eth::{evm, Client};
-use prover_primitives::{LayoutSegment, Query};
+use pallet_prover_primitives::{LayoutSegment, Query};
 use utils::block_item_traits::BlockItem;
 
 #[derive(Parser, Debug)]

@@ -3741,7 +3741,7 @@ dependencies = [
  "futures-util",
  "hex",
  "mmr",
- "prover-primitives",
+ "pallet-prover-primitives",
  "serde",
  "thiserror",
  "tokio",
@@ -8019,6 +8019,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-io",
+ "sp-runtime-interface",
  "sp-std",
 ]
 
@@ -8919,7 +8920,11 @@ dependencies = [
 name = "proof-verifier"
 version = "3.31.0"
 dependencies = [
+ "hashbrown 0.14.5",
  "log",
+ "pallet-prover-primitives",
+ "prover-primitives",
+ "serde_json",
  "sp-runtime-interface",
  "sp-std",
  "tempfile",
@@ -9017,6 +9022,7 @@ dependencies = [
  "hex",
  "mmr",
  "pallet-evm",
+ "pallet-prover-primitives",
  "parity-scale-codec",
  "proof",
  "prover-primitives",
@@ -9043,6 +9049,7 @@ dependencies = [
  "frame-support",
  "hashbrown 0.14.5",
  "mmr",
+ "pallet-prover-primitives",
  "parity-scale-codec",
  "precompile-utils",
  "rlp",
@@ -9073,7 +9080,7 @@ dependencies = [
  "anyhow",
  "clap",
  "eth",
- "prover-primitives",
+ "pallet-prover-primitives",
  "serde",
  "tokio",
  "tracing",
