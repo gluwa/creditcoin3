@@ -8,6 +8,8 @@ version = { workspace = true }
 license = "GPL-3.0-only"
 
 [dependencies]
+parity-scale-codec = { workspace = true }
+fp-storage = { workspace = true }
 futures = { workspace = true, features = ["compat"] }
 hex-literal = { workspace = true }
 jsonrpsee = { workspace = true, features = ["macros", "server"] }
