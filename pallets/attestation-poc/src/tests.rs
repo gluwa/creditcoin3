@@ -760,7 +760,8 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
             Attestation::attestations(chain_id, attestation.digest()),
             Some(attestation.clone())
         );
-        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 1);
+        // Shouldn't add first attestation for chain to checkpointing queue
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 0);
 
         // event
         System::assert_last_event(crate::Event::BlockAttested(chain_id, attestation).into());
@@ -787,7 +788,17 @@ fn commit_attestation_works() {
             attestation.clone()
         ));
 
-        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 1);
+        // The first attestation for a chain immediately creates a corresponding checkpoint
+        // rather than adding to the checkpointing queue.
+        let expected_checkpoint = AttestationCheckpoint {
+            block_number: attestation.header_number(),
+            digest: attestation.digest(),
+        };
+        assert_eq!(
+            Attestation::checkpoints(chain_id, expected_checkpoint.digest),
+            Some(expected_checkpoint)
+        );
+
         assert_eq!(
             Attestation::attestations(chain_id, attestation.digest()),
             Some(attestation)
@@ -904,11 +915,8 @@ fn submitting_attestation_chain_works() {
             attestation_2.clone()
         ));
 
-        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 2);
-        assert_eq!(
-            Attestation::checkpointing_queues(chain_id).front(),
-            Some(&attestation_1.digest())
-        );
+        // Only second attestation should have been added to a queue
+        assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 1);
         assert_eq!(
             Attestation::checkpointing_queues(chain_id).back(),
             Some(&attestation_2.digest())
@@ -1000,7 +1008,7 @@ fn creating_checkpoint_works() {
         let mut removed_by_checkpoint: Vec<H256> = Vec::new();
         let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
         let mut checkpoint_attestation: Option<SignedAttestation<H256, u64>> = None;
-        for i in 0..(att_per_check * 2) as usize {
+        for i in 0..(att_per_check * 2 + 1) as usize {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 chain_id,
@@ -1015,10 +1023,10 @@ fn creating_checkpoint_works() {
             ));
 
             match i {
-                i if i < (att_per_check - 1) as usize => {
+                i if i < att_per_check as usize && i != 0 => {
                     removed_by_checkpoint.push(attestation.digest());
                 }
-                i if i == (att_per_check - 1) as usize => {
+                i if i == att_per_check as usize => {
                     // End of first checkpoint interval
                     removed_by_checkpoint.push(attestation.digest());
                     checkpoint_attestation = Some(attestation);
@@ -1082,7 +1090,9 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
 
         let mut last_digest: Option<H256> = None;
         let mut attestations = Vec::new();
-        for i in 0..(att_per_check - 1) {
+        // Add initial attestation, which belongs to its own special checkpoint interval,
+        // as well as all but 1 of the attestations in the following interval.
+        for i in 0..att_per_check {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 chain_id,
@@ -1103,8 +1113,8 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
         // requiring that all previous state changes be rolled back.
         Attestation::break_checkpointing();
 
-        // Trigger checkpointing by adding more attestations
-        for i in att_per_check..(att_per_check * 2) {
+        // Trigger checkpointing by adding one more full interval of attestations
+        for i in (att_per_check + 1)..(att_per_check * 2 + 1) {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 chain_id,
@@ -1114,7 +1124,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
             last_digest = Some(attestation.digest());
 
             // Final attestation
-            if i == att_per_check * 2 - 1 {
+            if i == att_per_check * 2 {
                 // Before committing final attestation, queue should contain 2
                 // checkpoints worth of attestations - 1
                 assert_eq!(

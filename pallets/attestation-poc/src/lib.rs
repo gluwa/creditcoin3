@@ -445,26 +445,44 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
+            let previous_digest = Self::last_digest(chain_id);
+
+            // Store the attestation
             let digest = attestation.digest();
-
-            LastDigest::<T>::set(chain_id, Some(digest));
-
+            let header_number = attestation.header_number();
             Attestations::<T>::insert(chain_id, digest, &attestation);
+
+            // Update last digest
+            LastDigest::<T>::set(chain_id, Some(digest));
 
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
 
-            // Add to checkpointing queue
-            let mut queue = CheckpointingQueues::<T>::get(chain_id);
-            queue.push_back(digest);
+            match previous_digest {
+                None => {
+                    // Very first attestation should have a corresponding checkpoint
+                    // even though it doesn't condense any prior attestations.
+                    let checkpoint = AttestationCheckpoint {
+                        block_number: header_number,
+                        digest: digest,
+                    };
 
-            // Make checkpoint if necessary.
-            // The extrinsic didn't fail even if checkpointing failed. We want
-            // to keep the new attestation rather than removing it from storage
-            // via extrinsic rollback in the case of checkpointing failure.
-            if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
-                log::error!("Error: {:?}", e);
+                    Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                }
+                Some(_prev_digest) => {
+                    // Add to checkpointing queue
+                    let mut queue = CheckpointingQueues::<T>::get(chain_id);
+                    queue.push_back(digest);
+
+                    // Make checkpoint if necessary.
+                    // The extrinsic didn't fail even if checkpointing failed. We want
+                    // to keep the new attestation rather than removing it from storage
+                    // via extrinsic rollback in the case of checkpointing failure.
+                    if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
+                        log::error!("Error: {:?}", e);
+                    }
+                    CheckpointingQueues::<T>::insert(chain_id, queue);
+                }
             }
-            CheckpointingQueues::<T>::insert(chain_id, queue);
 
             Ok(())
         }
@@ -524,6 +542,7 @@ pub mod pallet {
 
             // Store the attestation
             let digest = attestation.digest();
+            let header_number = attestation.header_number();
             Attestations::<T>::insert(chain_id, digest, &attestation);
 
             // Update last digest
@@ -531,18 +550,32 @@ pub mod pallet {
 
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
 
-            // Add to checkpointing queue
-            let mut queue = CheckpointingQueues::<T>::get(chain_id);
-            queue.push_back(digest);
+            match previous_digest {
+                None => {
+                    // Very first attestation should have a corresponding checkpoint
+                    // even though it doesn't condense any prior attestations.
+                    let checkpoint = AttestationCheckpoint {
+                        block_number: header_number,
+                        digest: digest,
+                    };
 
-            // Make checkpoint if necessary.
-            // The extrinsic didn't fail even if checkpointing failed. We want
-            // to keep the new attestation rather than removing it from storage
-            // via extrinsic rollback in the case of checkpointing failure.
-            if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
-                log::error!("Error: {:?}", e);
+                    Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                }
+                Some(_prev_digest) => {
+                    // Add to checkpointing queue
+                    let mut queue = CheckpointingQueues::<T>::get(chain_id);
+                    queue.push_back(digest);
+
+                    // Make checkpoint if necessary.
+                    // The extrinsic didn't fail even if checkpointing failed. We want
+                    // to keep the new attestation rather than removing it from storage
+                    // via extrinsic rollback in the case of checkpointing failure.
+                    if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
+                        log::error!("Error: {:?}", e);
+                    }
+                    CheckpointingQueues::<T>::insert(chain_id, queue);
+                }
             }
-            CheckpointingQueues::<T>::insert(chain_id, queue);
 
             Ok(())
         }
@@ -752,7 +785,7 @@ pub mod pallet {
         // attestations for that prior interval into a single checkpoint.
         #[transactional]
         fn try_make_checkpoint(queue: &mut VecDeque<Digest>, chain_id: ChainId) -> DispatchResult {
-            let num_to_condense = T::DefaultAttestationsPerCheckpoint::get();
+            let num_to_condense = Self::attestation_checkpoint_interval(chain_id);
             // Only move forward if two full checkpoints of attestations are committed.
             if queue.len() < (num_to_condense * 2) as usize {
                 return Ok(());
