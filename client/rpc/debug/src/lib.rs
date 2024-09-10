@@ -30,7 +30,9 @@ use fc_rpc::{frontier_backend_client, internal_err, OverrideHandle};
 use fp_rpc::EthereumRuntimeRPCApi;
 use sc_client_api::backend::{Backend, StateBackend, StorageProvider};
 use sc_utils::mpsc::TracingUnboundedSender;
-use sp_api::{ApiExt, BlockId, Core, HeaderT, ProvideRuntimeApi};
+use sp_runtime::generic::BlockId;
+use sp_runtime::traits::Header as HeaderT;
+use sp_api::{ApiExt, Core, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{
     Backend as BlockchainBackend, Error as BlockChainError, HeaderBackend, HeaderMetadata,
@@ -332,7 +334,8 @@ where
         // Get parent blockid.
         let parent_block_hash = *header.parent_hash();
 
-        let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), hash);
+        // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), hash);
+        let schema = client.storage_schema::<B, C, BE>(hash);
 
         // Using storage overrides we align with `:ethereum_schema` which will result in proper
         // SCALE decoding in case of migration.
@@ -480,9 +483,16 @@ where
                 "Runtime api version call failed (trace)".to_string(),
             ));
         };
-
-        let schema =
-            fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), reference_hash);
+        
+        let x = client.storage(reference_hash, &sc_client_api::StorageKey(b":ethereum_schema".to_vec()));
+        let schema = match x {
+            Ok(Some(bytes)) => parity_scale_codec::Decode::decode(&mut &bytes.0[..])
+                .ok()
+                .unwrap_or(fp_storage::EthereumStorageSchema::Undefined),
+            _ => fp_storage::EthereumStorageSchema::Undefined,
+        };
+        // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), reference_hash);
+        
 
         // Get the block that contains the requested transaction. Using storage overrides we align
         // with `:ethereum_schema` which will result in proper SCALE decoding in case of migration.
