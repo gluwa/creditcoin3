@@ -699,6 +699,7 @@ jobs:
       matrix:
         include:
           # runners for other jobs (repurpose existing labels)
+          - proxy: attestator-network
           - proxy: benchmark
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
@@ -771,6 +772,7 @@ jobs:
       - benchmark
       - build-creditcoin-node
       - build-creditcoin-node-for-testing
+      - integration-test-attestator-network
       - integration-test-cli
       - clippy
       - check
@@ -784,6 +786,7 @@ jobs:
       matrix:
         include:
           # runners for other jobs (repurpose existing labels)
+          - proxy: attestator-network
           - proxy: benchmark
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
@@ -840,6 +843,97 @@ jobs:
         env:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  integration-test-attestator-network:
+    needs:
+      - build-creditcoin-node-for-testing
+    runs-on:
+      [
+        self-hosted,
+        "proxy-attestator-network",
+      ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Download attestor binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: attestor-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          # doesn't work
+          source ~/.bashrc
+          ~/.foundry/bin/foundryup
+
+          ~/.foundry/bin/anvil --block-time 6 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
+
+      - name: Start Attestation Zombienet
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          # adjust path to binary b/c running from the root dir of the repository
+          sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
+
+          ./target/release/attestor_zombienet --cc3-key "//Alice" --config-file attestor_zombienet/config.yaml &
+
+      - name: Wait for 5 attestors to be registered
+        run: |
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Run attestation tests
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:attestation
+
+      - name: Kill binaries
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 attestor_zombienet
+          killall -9 attestor
+          killall -9 creditcoin3-node
+
+      # keep this always as the last step
+      - name: Schedule self-hosted shutdown
+        if: always()
+        run: |
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
+
 
   integration-test-cli:
     if: github.base_ref == 'dev'

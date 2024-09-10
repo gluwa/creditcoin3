@@ -26,7 +26,7 @@ single_node: false
 ```bash
 cd ..
 cargo build --release
-./target/release/attestor_zombienet --cc3-key "//Bob" -c attestor_zombienet/config.yaml
+./target/release/attestor_zombienet --cc3-key "//Bob" --config-file attestor_zombienet/config.yaml
 ```
 
 Make sure to have a creditcoin3-next zombienet running and an anvil node. See [attestor docs](../attestor/README.md)
