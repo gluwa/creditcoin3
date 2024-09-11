@@ -20,7 +20,7 @@ describe('BlockAttested events', (): void => {
     });
 
     test('are emitted frequently enough and match Ethereum', async (): Promise<void> => {
-        const previousDigest = '';
+        let previousDigest = '';
         let previousHeader = 0;
         let attestedEvents = 0;
         const initialBlock = (await getChainStatus(api)).bestNumber;
@@ -38,7 +38,7 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [chainId, signedAttn] = event.data;
+                            const [chainId, signedAttn, digest] = event.data;
                             const data = signedAttn as AttestorPrimitivesSignedAttestation;
 
                             const chainAttestationInterval = (
@@ -55,15 +55,10 @@ describe('BlockAttested events', (): void => {
 
                             // recorded attestations should be linked to each other
                             if (previousDigest !== '') {
-                                expect(data.attestation.prevDigest).toBe(previousDigest);
-                                // todo: check on-chain storage as well ???
+                                expect(data.attestation.prevDigest.toString()).toBe(previousDigest);
                             }
                             // note: next attestation will point to the digest of the current one
-                            // previousDigest = data.digest().toString();
-                            // TODO:                   ^^^ method seems to not be available
-
-                            // TODO: do we do something with headerHash? For example query Anvil to
-                            // make sure that such block exists ?
+                            previousDigest = digest.toString();
 
                             attestedEvents++;
                         }

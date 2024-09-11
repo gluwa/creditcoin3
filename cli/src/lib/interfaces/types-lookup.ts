@@ -1024,7 +1024,7 @@ declare module '@polkadot/types/lookup' {
         readonly isInvulnerableUnregistered: boolean;
         readonly asInvulnerableUnregistered: AccountId32;
         readonly isBlockAttested: boolean;
-        readonly asBlockAttested: ITuple<[u64, AttestorPrimitivesSignedAttestation]>;
+        readonly asBlockAttested: ITuple<[u64, AttestorPrimitivesSignedAttestation, H256]>;
         readonly isCheckpointReached: boolean;
         readonly asCheckpointReached: ITuple<[u64, AttestorPrimitivesAttestationCheckpoint]>;
         readonly isComitteeSetSizeChanged: boolean;

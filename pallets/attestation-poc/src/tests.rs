@@ -764,7 +764,10 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 0);
 
         // event
-        System::assert_last_event(crate::Event::BlockAttested(chain_id, attestation).into());
+        let expected_digest = attestation.digest();
+        System::assert_last_event(
+            crate::Event::BlockAttested(chain_id, attestation, expected_digest).into(),
+        );
     })
 }
 

@@ -51,7 +51,7 @@ declare module '@polkadot/api-base/types/events' {
              **/
             AttestorRegistered: AugmentedEvent<ApiType, [AccountId32]>;
             AttestorUnregistered: AugmentedEvent<ApiType, [AccountId32]>;
-            BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
+            BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
             CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
             ComitteeSetSizeChanged: AugmentedEvent<ApiType, [u32]>;
             /**

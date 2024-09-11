@@ -822,7 +822,7 @@ export default {
             AttestorUnregistered: 'AccountId32',
             InvulnerableRegistered: 'AccountId32',
             InvulnerableUnregistered: 'AccountId32',
-            BlockAttested: '(u64,AttestorPrimitivesSignedAttestation)',
+            BlockAttested: '(u64,AttestorPrimitivesSignedAttestation,H256)',
             CheckpointReached: '(u64,AttestorPrimitivesAttestationCheckpoint)',
             ComitteeSetSizeChanged: 'u32',
         },

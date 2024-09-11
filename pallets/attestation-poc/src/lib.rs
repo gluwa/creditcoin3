@@ -232,7 +232,7 @@ pub mod pallet {
 
         InvulnerableUnregistered(T::AccountId),
 
-        BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>),
+        BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>, Digest),
 
         CheckpointReached(ChainId, AttestationCheckpoint),
 
@@ -455,7 +455,11 @@ pub mod pallet {
             // Update last digest
             LastDigest::<T>::set(chain_id, Some(digest));
 
-            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
+            Self::deposit_event(Event::<T>::BlockAttested(
+                chain_id,
+                attestation.clone(),
+                digest,
+            ));
 
             match previous_digest {
                 None => {
@@ -548,7 +552,7 @@ pub mod pallet {
             // Update last digest
             LastDigest::<T>::set(chain_id, Some(digest));
 
-            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation));
+            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation, digest));
 
             match previous_digest {
                 None => {
