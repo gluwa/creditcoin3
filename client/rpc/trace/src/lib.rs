@@ -809,7 +809,7 @@ where
 
         let height = *block_header.number();
         let substrate_parent_hash = *block_header.parent_hash();
-        
+
         let x = client.storage(substrate_hash, &StorageKey(b":ethereum_schema".to_vec()));
         let schema = match x {
             Ok(Some(bytes)) => parity_scale_codec::Decode::decode(&mut &bytes.0[..])

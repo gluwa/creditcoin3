@@ -483,7 +483,7 @@ where
                 "Runtime api version call failed (trace)".to_string(),
             ));
         };
-        
+
         let x = client.storage(reference_hash, &sc_client_api::StorageKey(b":ethereum_schema".to_vec()));
         let schema = match x {
             Ok(Some(bytes)) => parity_scale_codec::Decode::decode(&mut &bytes.0[..])
@@ -492,7 +492,7 @@ where
             _ => fp_storage::EthereumStorageSchema::Undefined,
         };
         // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), reference_hash);
-        
+
 
         // Get the block that contains the requested transaction. Using storage overrides we align
         // with `:ethereum_schema` which will result in proper SCALE decoding in case of migration.
