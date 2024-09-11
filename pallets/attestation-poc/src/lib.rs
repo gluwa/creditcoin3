@@ -463,7 +463,7 @@ pub mod pallet {
                     // even though it doesn't condense any prior attestations.
                     let checkpoint = AttestationCheckpoint {
                         block_number: header_number,
-                        digest: digest,
+                        digest,
                     };
 
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
@@ -556,7 +556,7 @@ pub mod pallet {
                     // even though it doesn't condense any prior attestations.
                     let checkpoint = AttestationCheckpoint {
                         block_number: header_number,
-                        digest: digest,
+                        digest,
                     };
 
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
