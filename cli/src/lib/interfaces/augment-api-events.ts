@@ -23,6 +23,7 @@ import type {
 import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeProxyFilter,
     EthereumLog,
@@ -51,8 +52,7 @@ declare module '@polkadot/api-base/types/events' {
             AttestorRegistered: AugmentedEvent<ApiType, [AccountId32]>;
             AttestorUnregistered: AugmentedEvent<ApiType, [AccountId32]>;
             BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
-            ChainBootstrapped: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
-            CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation]>;
+            CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
             ComitteeSetSizeChanged: AugmentedEvent<ApiType, [u32]>;
             /**
              * Emitted when an invulnerable is properly registered with the attestation system

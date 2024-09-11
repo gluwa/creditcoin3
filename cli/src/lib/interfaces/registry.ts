@@ -7,6 +7,7 @@ import '@polkadot/types/types/registry';
 
 import type {
     AttestorPrimitivesAttestation,
+    AttestorPrimitivesAttestationCheckpoint,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -228,6 +229,7 @@ import type {
 declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
         AttestorPrimitivesAttestation: AttestorPrimitivesAttestation;
+        AttestorPrimitivesAttestationCheckpoint: AttestorPrimitivesAttestationCheckpoint;
         AttestorPrimitivesSignedAttestation: AttestorPrimitivesSignedAttestation;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;

@@ -125,6 +125,16 @@ declare module '@polkadot/api-base/types/submittable' {
                 [AccountId32, U8aFixed]
             >;
             /**
+             * See [`Pallet::set_attestations_per_checkpoint`].
+             **/
+            setAttestationsPerCheckpoint: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    attestationsPerCheckpoint: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            /**
              * See [`Pallet::set_chain_attestation_interval`].
              **/
             setChainAttestationInterval: AugmentedSubmittable<

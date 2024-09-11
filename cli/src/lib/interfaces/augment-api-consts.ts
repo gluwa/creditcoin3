@@ -23,6 +23,7 @@ declare module '@polkadot/api-base/types/consts' {
         attestation: {
             committmentInterval: u64 & AugmentedConst<ApiType>;
             defaultAttestationInterval: u64 & AugmentedConst<ApiType>;
+            defaultAttestationsPerCheckpoint: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const

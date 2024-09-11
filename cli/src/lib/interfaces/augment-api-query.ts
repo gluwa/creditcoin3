@@ -11,6 +11,7 @@ import type { Bytes, Null, Option, U256, U8aFixed, Vec, bool, u128, u32, u64 } f
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
@@ -72,6 +73,12 @@ export type __QueryableStorageEntry<ApiType extends ApiTypes> = QueryableStorage
 declare module '@polkadot/api-base/types/storage' {
     interface AugmentedQueries<ApiType extends ApiTypes> {
         attestation: {
+            attestationCheckpointInterval: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             attestations: AugmentedQuery<
                 ApiType,
                 (
@@ -93,6 +100,21 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            checkpointingQueues: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<H256>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            checkpoints: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: H256 | string | Uint8Array,
+                ) => Observable<Option<AttestorPrimitivesAttestationCheckpoint>>,
+                [u64, H256]
+            > &
+                QueryableStorageEntry<ApiType, [u64, H256]>;
             comitteeSetSize: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
             /**
              * Counter for the related counted storage map
@@ -102,9 +124,9 @@ declare module '@polkadot/api-base/types/storage' {
             /**
              * Counter for the related counted storage map
              **/
-            counterForInvlunerables: AugmentedQuery<ApiType, () => Observable<u32>, []> &
+            counterForInvulnerables: AugmentedQuery<ApiType, () => Observable<u32>, []> &
                 QueryableStorageEntry<ApiType, []>;
-            invlunerables: AugmentedQuery<
+            invulnerables: AugmentedQuery<
                 ApiType,
                 (arg: AccountId32 | string | Uint8Array) => Observable<bool>,
                 [AccountId32]

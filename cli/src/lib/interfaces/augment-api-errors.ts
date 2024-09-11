@@ -46,6 +46,7 @@ declare module '@polkadot/api-base/types/errors' {
              * The chain is not supported
              **/
             ChainNotSupported: AugmentedError<ApiType>;
+            CheckpointCreationError: AugmentedError<ApiType>;
             /**
              * The call to attest_block failed, the block's cryptographic committments were invalid
              **/
@@ -57,10 +58,6 @@ declare module '@polkadot/api-base/types/errors' {
              * The invulnerable list is full
              **/
             InvulnerableListFull: AugmentedError<ApiType>;
-            /**
-             * The call to set_max_attestor_failed, most likely because the current list is longer than the new requested maximum
-             **/
-            MaxAttestorsCannotBeChanged: AugmentedError<ApiType>;
             /**
              * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
              **/
