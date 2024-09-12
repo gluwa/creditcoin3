@@ -287,7 +287,7 @@ fn testnet_genesis(
 
         // Consensus
         babe: BabeConfig {
-            epoch_config: Some(creditcoin3_runtime::BABE_GENESIS_EPOCH_CONFIG),
+            epoch_config: creditcoin3_runtime::BABE_GENESIS_EPOCH_CONFIG,
             ..Default::default()
         },
         grandpa: Default::default(),
