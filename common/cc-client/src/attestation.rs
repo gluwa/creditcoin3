@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sp_core::H256;
-use subxt::{error::Error as SubxtError, OnlineClient, SubstrateConfig};
+use subxt::error::Error as SubxtError;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -10,20 +10,26 @@ pub use subxt::utils::AccountId32;
 
 use attestor_primitives::{ChainId, SignedAttestation};
 
-use crate::cc3::attestation::events::BlockAttested;
-use crate::Client;
+use crate::cc3::{attestation::events::BlockAttested, randomness::events::StoreRandomnessForEpoch};
+
+use crate::{Client, Randomness};
+
+pub enum CcEvent {
+    BlockAttestedEvent(SignedAttestation<H256, AccountId32>),
+    RandomnessChangedEvent((u64, Randomness)),
+}
 
 const BUFFER_SIZE: usize = 100;
 
-/// `AttestationSubscription` is a struct that references to a receiving end of a channel where claims are pushed upon
+/// `Subscription` is a struct that references to a receiving end of a channel where claims are pushed upon
 /// It has a handle to cancel the subscription
 #[derive(Debug)]
-pub struct AttestationSubscription {
-    receiver: mpsc::Receiver<SignedAttestation<H256, AccountId32>>,
+pub struct Subscription {
+    receiver: mpsc::Receiver<CcEvent>,
     handle: JoinHandle<Result<(), Error>>,
 }
 
-impl AttestationSubscription {
+impl Subscription {
     /// Cancel the subscription
     pub fn cancel(&self) -> Result<()> {
         // Cancel the subscription task
@@ -33,7 +39,7 @@ impl AttestationSubscription {
     }
 
     /// Get the next proof
-    pub async fn next(&mut self) -> Option<SignedAttestation<H256, AccountId32>> {
+    pub async fn next(&mut self) -> Option<CcEvent> {
         // Receive the next proof from the channel
         self.receiver.recv().await
     }
@@ -42,7 +48,10 @@ impl AttestationSubscription {
 // See pallets/attestation-poc/lib.rs
 const ATTESTATION_MODULE: &str = "Attestation";
 const ATTESTATION_SUBMITTED_EVENT: &str = "BlockAttested";
-const ATTESTATION_SUBMISSION_EXT_INDEX: u8 = 9;
+
+// See pallet/randomness/lib.rs
+const RANDOMNESS_MODULE: &str = "Randomness";
+const RANDOMNESS_CHANGED_EVENT: &str = "StoreRandomnessForEpoch";
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -53,10 +62,7 @@ pub enum Error {
 }
 
 impl Client {
-    pub fn subscribe_attestations_submissions(
-        &self,
-        filter: ChainId,
-    ) -> Result<AttestationSubscription, Error> {
+    pub fn subscribe_events(&self, filter: ChainId) -> Result<Subscription, Error> {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
@@ -75,62 +81,70 @@ impl Client {
                 let block_hash = block.hash();
                 debug!("Block Hash: {block_hash}");
 
-                // Filter on a Claim Submission event
-                // If we found one, push it on the channel for the client to handle
-                let extrinsics: subxt::blocks::Extrinsics<
-                    SubstrateConfig,
-                    OnlineClient<SubstrateConfig>,
-                > = block.extrinsics().await?;
-                for extrinsic in extrinsics.iter() {
-                    let ext = extrinsic?;
+                let events = block.events().await?;
 
-                    match (ext.pallet_name()?, ext.variant_index()) {
-                        (ATTESTATION_MODULE, ATTESTATION_SUBMISSION_EXT_INDEX) => {
-                            let events = ext.events().await?;
+                for event in events.iter() {
+                    let event = event.unwrap();
+                    info!(
+                        "event pallet: {}, event variant: {}",
+                        event.pallet_name(),
+                        event.variant_name()
+                    );
 
-                            for event in events.iter() {
-                                if event.is_err() {
+                    match (event.pallet_name(), event.variant_name()) {
+                        (ATTESTATION_MODULE, ATTESTATION_SUBMITTED_EVENT) => {
+                            if let Ok(Some(evt)) = event.as_event::<BlockAttested>() {
+                                debug!("attestation chain_id: {:?}", evt.0);
+
+                                // If the filter is not empty, check if the chain_id is in the filter
+                                if filter != evt.0 {
                                     continue;
-                                };
+                                }
 
-                                let event = event?;
+                                let attestation: SignedAttestation<H256, AccountId32> =
+                                    evt.1.into();
 
-                                match (event.pallet_name(), event.variant_name()) {
-                                    (ATTESTATION_MODULE, ATTESTATION_SUBMITTED_EVENT) => {
-                                        if let Ok(Some(evt)) = event.as_event::<BlockAttested>() {
-                                            debug!("attestation chain_id: {:?}", evt.0);
+                                debug!("attestation digest: {:?}", attestation.digest());
 
-                                            // If the filter is not empty, check if the chain_id is in the filter
-                                            if filter != evt.0 {
-                                                continue;
-                                            }
-
-                                            let attestation: SignedAttestation<H256, AccountId32> =
-                                                evt.1.into();
-
-                                            debug!(
-                                                "attestation digest: {:?}",
-                                                attestation.digest()
-                                            );
-
-                                            if sender.send(attestation).await.is_err() {
-                                                // The receiver has been dropped
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    (_m, _e) => (),
+                                if sender
+                                    .send(CcEvent::BlockAttestedEvent(attestation))
+                                    .await
+                                    .is_err()
+                                {
+                                    // The receiver has been dropped
+                                    break;
                                 }
                             }
                         }
-                        (_m, _i) => (),
-                    };
+                        (RANDOMNESS_MODULE, RANDOMNESS_CHANGED_EVENT) => {
+                            if let Ok(Some(evt)) = event.as_event::<StoreRandomnessForEpoch>() {
+                                debug!(
+                                    "randomness epoch (index: {}, randomnes: {:?})",
+                                    evt.epoch_index, evt.randomness
+                                );
+
+                                if sender
+                                    .send(CcEvent::RandomnessChangedEvent((
+                                        evt.epoch_index,
+                                        evt.randomness,
+                                    )))
+                                    .await
+                                    .is_err()
+                                {
+                                    info!("The receiver has been dropped");
+                                    // The receiver has been dropped
+                                    break;
+                                }
+                            }
+                        }
+                        (_m, _e) => (),
+                    }
                 }
             }
 
             Ok(())
         });
 
-        Ok(AttestationSubscription { receiver, handle })
+        Ok(Subscription { receiver, handle })
     }
 }

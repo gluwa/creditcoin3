@@ -16,12 +16,6 @@ pub struct Attestor {
 
     #[arg(
         long,
-        help = "Start block for the source chain, if not provided it will start from the latest block. If provided, it will start from the provided block and subscribe to latest heads when it reached the latest head."
-    )]
-    eth_start_block: Option<u64>,
-
-    #[arg(
-        long,
         default_value = "ws://localhost:9944",
         help = "A Creditcoin3 url to a node with rpc and websocket enabled"
     )]
@@ -55,7 +49,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config = Config {
         eth_rpc_url: args.eth_rpc_url,
-        eth_start_block: args.eth_start_block,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
     };

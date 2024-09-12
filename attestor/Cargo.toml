@@ -38,6 +38,7 @@ eth = { workspace = true }
 mmr = { workspace = true, features = ["par_mmr"] }
 starknet-crypto = { workspace = true }
 utils = { path = "../common/utils", default-features = false }
+vrf = { workspace = true }
 
 # Workspace deps
 async-trait = { workspace = true }

@@ -6,7 +6,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-pub use cc_client::{AccountId32, Client as CcClient};
+pub use cc_client::{attestation::CcEvent, AccountId32, Client as CcClient};
 
 // pub type Randomness = [u8; 32];
 
@@ -100,30 +100,22 @@ impl Client {
         attestation_chan: mpsc::Sender<SignedAttestation<H256, AccountId32>>,
         filter: ChainId,
     ) -> Result<()> {
-        let mut subscription = self.cc_client.subscribe_attestations_submissions(filter)?;
+        let mut subscription = self.cc_client.subscribe_events(filter)?;
 
         // Process attestations in a loop
         loop {
-            tokio::select! {
-                attestation = subscription.next() => {
-                    match attestation {
-                        Some(attestation) => {
-                            // Process the attestation
-                            info!(
-                                "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
-                                attestation.chain_id(),
-                                attestation.header_number(),
-                                attestation.digest()
-                            );
-                            // Handle the claim processing logic here
-                            attestation_chan.send(attestation).await?;
-                        }
-                        None => break, // Exit loop if the subscription stream ends
-                    }
-                }
+            let event = subscription.next().await;
+            if let Some(CcEvent::BlockAttestedEvent(attestation)) = event {
+                // Process the attestation
+                info!(
+                    "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
+                    attestation.chain_id(),
+                    attestation.header_number(),
+                    attestation.digest()
+                );
+                // Handle the claim processing logic here
+                attestation_chan.send(attestation).await?;
             }
         }
-
-        Ok(())
     }
 }

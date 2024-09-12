@@ -124,7 +124,7 @@ impl Server {
         }
 
         // Create a channel for query submission
-        let (sender, mut receiver) = mpsc::channel(100);
+        let (sender, mut receiver) = mpsc::unbounded_channel();
 
         info!("Starting query submission subscription...");
         let eth_client_for_query_sub = Arc::new(self.cc3_client.clone());

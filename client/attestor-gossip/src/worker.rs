@@ -57,9 +57,6 @@ where
         + Eq
         + std::hash::Hash,
 {
-    /// Best attestation we have in the cache (latest)
-    pub best_attestation: Option<SignedAttestation<HashFor<B>, AccountId>>,
-
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
     pub comms: AttestorComms<B, AccountId, RuntimeApi, BE>,
 
@@ -152,7 +149,6 @@ where
 {
     pub fn new(params: WorkerParams<B, RA, BE, C, CIDP, AccountId>) -> Self {
         Worker {
-            best_attestation: None,
             comms: params.comms,
             runtime: params.runtime,
             client: params.client,
@@ -266,15 +262,18 @@ where
         // Verify the VRF output
         self.verify_vrf(&attestation)?;
 
-        let submitable_attestations = self.add_to_round(&attestation, block_hash)?;
+        let chain_id = attestation.attestation_data.chain_id;
+        let header_number = attestation.attestation_data.header_number;
 
-        // conclude round
-        // create the inherent
-        if let Some(submitable_attestations) = submitable_attestations {
-            info!(target: LOG_TARGET, "📝 Should be able to create the inherent now and submit the vote");
-            self.submit_attestation(submitable_attestations, block_hash)?;
-        } else {
-            info!(target: LOG_TARGET,"📝 cannot submit attestation");
+        self.add_to_round(attestation, block_hash)?;
+
+        match self.try_submit_attestation(chain_id, header_number, block_hash) {
+            Ok(()) => {
+                info!(target: LOG_TARGET, "📝 Successfully submitted attestation");
+            }
+            Err(e) => {
+                info!(target: LOG_TARGET, "📝 Failed to submit attestation err: {:?}", e);
+            }
         }
 
         Ok(())
@@ -294,7 +293,7 @@ where
             blockchain_info.finalized_hash,
             &attestation.attestor.clone(),
         )?;
-        info!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
+        debug!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
 
         if !is_attestor {
             return Err(Error::NotAnAttestor);
@@ -308,7 +307,7 @@ where
         let prev_digest = attestation.attestation_data.prev_digest;
 
         if last_digest != prev_digest {
-            debug!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, prev_digest);
+            info!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, prev_digest);
 
             return Err(Error::DigestMissMatch);
         }
@@ -336,12 +335,12 @@ where
 
         // Get the threshold and working set size
         let runtime = self.runtime.runtime_api();
-        let threshold = runtime.comittee_set_size(blockchain_info.finalized_hash)?;
+        let target_sample_size = runtime.comittee_set_size(blockchain_info.finalized_hash)?;
         let working_set_size = runtime.working_set_size(blockchain_info.finalized_hash)?;
 
         let is_included = vrf::verify_proof_of_inclusion(
-            threshold as u64,
-            working_set_size as u64,
+            working_set_size.into(),
+            target_sample_size.into(),
             &randomness_from_two_epochs_ago,
             &attestation.proof_of_inclusion,
             &AttestorId::from_public(attestation.attestor.clone().into()),
@@ -350,7 +349,7 @@ where
 
         if !is_included {
             info!(target: LOG_TARGET, "📝 Vrf output for {:?} is invalid ❌", attestation.attestor);
-            return Err(Error::InvalidAttestationVrfOuput);
+            return Err(Error::AttestorNotEligible);
         }
 
         info!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
@@ -372,7 +371,7 @@ where
         // Attestation block number mod chain_attestation_interval should be 0
         if attestation.attestation_data.header_number % chain_attestation_interval != 0 {
             debug!(target: LOG_TARGET, "📝 Attestation header number is invalid");
-            return Err(Error::AttestationToEarly);
+            return Err(Error::AttestationTooEarly);
         }
 
         Ok(())
@@ -382,9 +381,9 @@ where
     /// If the attestation is too old, it will be skipped
     fn add_to_round(
         &mut self,
-        attestation: &Attestation<HashFor<B>, AccountId>,
+        attestation: Attestation<HashFor<B>, AccountId>,
         block_hash: HashFor<B>,
-    ) -> Result<Option<Attestations<B, AccountId>>, Error> {
+    ) -> Result<(), Error> {
         let chain_id = attestation.attestation_data.chain_id;
         let header_number = attestation.attestation_data.header_number;
         let round = (chain_id, header_number);
@@ -396,23 +395,29 @@ where
         let last_digest = runtime.last_digest(block_hash, chain_id)?;
 
         let mut target_block = 0;
-        if let Some(last_digest) = last_digest {
-            let last_attestation = runtime.get(block_hash, chain_id, last_digest)?;
 
-            if let Some(last_attestation) = last_attestation {
+        if let Some(last_digest) = last_digest {
+            if let Some(last_attestation) = runtime.get(block_hash, chain_id, last_digest)? {
                 let last_header = last_attestation.attestation.header_number;
                 let round = (chain_id, last_header);
 
                 let interval = runtime
                     .chain_attestation_interval(block_hash, chain_id)?
                     .ok_or(Error::AttestationHeaderNumberInvalid)?;
-                target_block = last_header + interval;
-                // skip if the attestation is too old
-                if header_number < last_header {
+
+                // Skip if the attestation is too old
+                if header_number <= last_header {
                     info!(target: LOG_TARGET, "📝 Attestation is too old, round {:?} already concluded on chain", round);
-                    return Ok(None);
+                    return Err(Error::AttestationTooOld);
                 }
+
+                target_block = last_header + interval;
             }
+        }
+
+        if header_number > target_block {
+            info!(target: LOG_TARGET, "📝 Attestation is too early, round {:?} not yet concluded on chain", round);
+            return Err(Error::AttestationTooEarly);
         }
 
         // Check if the chain_id exists in the block_attestations
@@ -427,36 +432,9 @@ where
                 "📝 Attestor({:?}) voted for round {:?}", attestor_id, (chain_id, header_number)
             );
 
-            let old_v = attestations_for_header.insert(attestor_id.clone(), attestation.clone());
-            if old_v.is_some() {
+            let old_vote = attestations_for_header.insert(attestor_id.clone(), attestation);
+            if old_vote.is_some() {
                 info!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_id, header_number));
-            }
-
-            // If majority is reached, return a list of attestations to be submitted
-            let (major_digest, major_count) =
-                find_major_digest::<B, AccountId>(attestations_for_header);
-
-            // TODO: should be per chain id
-            let runtime = self.runtime.runtime_api();
-
-            // Majority is more than half of the committee set size
-            let comittee_set_size = runtime.comittee_set_size(block_hash)?;
-            let threshold = (comittee_set_size * 2 + 3 - 1) / 3; // equivalent to (2 * (b / 3)) + 1 with rounding
-
-            info!(
-                target: LOG_TARGET,
-                "📝 Majority for round {:?}, digest: {:?}, count: {:?}, threshold: {:?}",
-                round,
-                major_digest,
-                major_count,
-                threshold
-            );
-            // If we can't find a majority voting on the same digest, we can't continue
-            // Also check if the target attestation to be submitted is the same as the last attestation + interval
-            // Only then we can submit the attestation
-            if (major_count as u32) >= threshold && target_block == header_number {
-                info!(target: LOG_TARGET, "📝 Majority found for round {:?}", round);
-                return Ok(Some(attestations_for_header.clone()));
             }
         } else {
             // Insert new attestation if it doesn't exist
@@ -468,26 +446,65 @@ where
             self.block_attestations.insert(chain_id, map);
         }
 
-        Ok(None)
+        Ok(())
     }
 
     /// In practice, this method would:
     /// 1. Gather all attesations for a round, create a BLS signature
     /// 2. Submit the inherent transaction containing the attestation
     /// 3. Flush memory
-    fn submit_attestation(
+    fn try_submit_attestation(
         &mut self,
-        attestations: Attestations<B, AccountId>,
+        chain_id: ChainId,
+        header_number: u64,
         block_hash: HashFor<B>,
     ) -> Result<(), Error> {
-        let (major_digest, _) = find_major_digest::<B, AccountId>(&attestations);
+        let round = (chain_id, header_number);
+
+        let attestations = self
+            .block_attestations
+            .get(&chain_id)
+            .ok_or(Error::Other(
+                "Error fetching attestations for chain id".to_string(),
+            ))?
+            .to_owned();
+
+        let block_attestations = attestations
+            .get(&header_number)
+            .ok_or(Error::Other(
+                "Error fetching attestation for block".to_string(),
+            ))?
+            .to_owned();
+
+        let (major_digest, _) = find_major_digest::<B, AccountId>(&block_attestations);
+
+        // Majority is more than half of the committee set size
+        let runtime = self.runtime.runtime_api();
+        let comittee_set_size = runtime.comittee_set_size(block_hash)?;
+        let threshold = (comittee_set_size * 2 + 3 - 1) / 3; // equivalent to (2 * (b / 3)) + 1 with rounding
 
         // Filter attestations by major digest
         // TODO: Can we do this in a more efficient way / place?
-        let attestations = attestations
+        let attestations = block_attestations
             .into_iter()
             .filter(|(_, attestation)| attestation.digest() == major_digest.into())
             .collect::<Vec<_>>();
+
+        info!(
+            target: LOG_TARGET,
+            "📝 Majority for round {:?}, digest: {:?}, count: {:?}, threshold: {:?}",
+            round,
+            major_digest,
+            attestations.len(),
+            threshold
+        );
+        // If we can't find a majority voting on the same digest, we can't continue
+        // Also check if the target attestation to be submitted is the same as the last attestation + interval
+        // Only then we can submit the attestation
+        if attestations.len() < threshold.try_into().unwrap() {
+            info!(target: LOG_TARGET, "📝 Majority not reached for round {:?}", round);
+            return Ok(());
+        }
 
         let an_attestation = attestations.iter().next().cloned().unwrap();
         let chain_id = an_attestation.1.attestation_data.chain_id;
@@ -544,26 +561,25 @@ where
         let attestation = SignedAttestation {
             attestation: an_attestation.clone().1.attestation_data,
             signature: aggregated_signature,
-            // digest: major_digest,
             attestors,
         };
 
-        // Some safety check
-        if self.best_attestation == Some(attestation.clone()) {
-            info!(target: LOG_TARGET, "📝 Best attestation already submitted");
-            return Err(Error::ErrorCreatingInherent);
-        }
-
         let _ = match self.inherent_provider.0.lock() {
-            Ok(mut provider) => provider.create(attestation.clone()),
+            Ok(mut provider) => match provider.create(attestation.clone()) {
+                Ok(()) => {
+                    info!(target: LOG_TARGET, "📝 Inherent created");
+                    Ok(())
+                }
+                Err(e) => {
+                    error!(target: LOG_TARGET, "📝 Error creating inherent: {:?}", e);
+                    Err(Error::ErrorCreatingInherent)
+                }
+            },
             Err(e) => {
                 error!("error acquiring lock, {:?}", e);
                 Ok(())
             }
         };
-
-        // Update best attestation
-        self.best_attestation = Some(attestation);
 
         // Flush memory
         let block_attestations = self.block_attestations.get_mut(&chain_id).unwrap();

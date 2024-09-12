@@ -132,7 +132,7 @@ impl GluwaPublicProverContract {
     pub async fn subscribe_query_submissions(
         &self,
         client: &Client,
-        query_channel: mpsc::Sender<Query>,
+        query_channel: mpsc::UnboundedSender<Query>,
     ) -> Result<()> {
         info!(
             "Subscribing to query submissions for contract with address: {}",
@@ -172,7 +172,7 @@ impl GluwaPublicProverContract {
                         .collect::<Vec<_>>(),
                 };
 
-                query_channel.send(query).await?;
+                query_channel.send(query)?;
             }
         }
     }

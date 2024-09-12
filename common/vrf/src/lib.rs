@@ -64,8 +64,8 @@ pub enum Error {
 /// # Arguments
 ///
 /// * `epoch` - The current epoch for which the proof is being generated.
-/// * `attestor_set_size` - The size of the attestor set.
-/// * `threshold` - The threshold value for selection.
+/// * `working_set_size` - The size of the attestor set.
+/// * `target_sample_size` - The target sample size for the attestor set.
 /// * `randomness` - A source of randomness used in VRF.
 /// * `keys` - The SR25519 key pair of the attestor.
 /// * `attestor_id` - The ID of the attestor.
@@ -75,12 +75,12 @@ pub enum Error {
 ///
 /// Returns a `ProofOfInclusion` if successful, or an `Error` if the attestor is not selected or there is an issue with the VRF process.
 pub fn make_proof_of_inclusion(
-    epoch: u64,
-    attestor_set_size: u64,
-    threshold: u64,
+    working_set_size: u64,
+    target_sample_size: u64,
     randomness: &Randomness,
     keys: &sr25519::Pair,
     attestor_id: &AttestorId,
+    epoch: u64,
     source_block_height: u64,
 ) -> Result<ProofOfInclusion, Error> {
     // Create the transcript
@@ -91,8 +91,8 @@ pub fn make_proof_of_inclusion(
 
     // Convert the random bytes to a u128
     let random = u128::from_le_bytes(random);
-    // Check if the random number is less than the threshold
-    let threshold = calculate_threshold(threshold as u128, attestor_set_size as u128);
+    // Check if the random number is less than the target_sample_size
+    let threshold = calculate_threshold(target_sample_size as u128, working_set_size as u128);
     if random > threshold {
         info!(
             "attestor was not selected, random: {}, threshold: {}",
@@ -124,8 +124,8 @@ pub fn make_proof_of_inclusion(
 ///
 /// # Arguments
 ///
-/// * `threshold` - The threshold value for attestor selection.
-/// * `attestor_set_size` - The size of the attestor set.
+/// * `working_set_size` - The size of the attestor set.
+/// * `target_sample_size` - The threshold value for attestor selection.
 /// * `randomness` - A source of randomness used in VRF.
 /// * `proof_of_inclusion` - The proof of inclusion to verify.
 /// * `attestor_id` - The ID of the attestor.
@@ -135,8 +135,8 @@ pub fn make_proof_of_inclusion(
 ///
 /// Returns `Ok(true)` if the proof is valid and the attestor was selected, otherwise `Ok(false)`.
 pub fn verify_proof_of_inclusion(
-    threshold: u64,
-    attestor_set_size: u64,
+    working_set_size: u64,
+    target_sample_size: u64,
     randomness: &Randomness,
     proof_of_inclusion: &ProofOfInclusion,
     attestor_id: &AttestorId,
@@ -177,7 +177,7 @@ pub fn verify_proof_of_inclusion(
 
     let random_pub = u128::from_le_bytes(random_pub);
 
-    let threshold = calculate_threshold(threshold as u128, attestor_set_size as u128);
+    let threshold = calculate_threshold(target_sample_size as u128, working_set_size as u128);
     if random_pub > threshold {
         info!(
             "attestor was not selected, random: {}, threshold: {}",
@@ -233,8 +233,11 @@ fn make_transcript(
 ///
 /// Returns the threshold value as a `u128`.
 fn calculate_threshold(target_sample_size: u128, working_size: u128) -> u128 {
+    if working_size == 0 {
+        return 0;
+    }
     // Calculate the threshold
-    (MAX_U128 / working_size) * target_sample_size
+    (MAX_U128 / working_size).saturating_mul(target_sample_size)
 }
 
 #[cfg(test)]
@@ -250,7 +253,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let threshold = 100;
-        let attestor_set_size = 100;
+        let working_set_size = 100;
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
@@ -258,19 +261,19 @@ mod tests {
         let epoch = 1;
 
         let proof_of_inclusion = make_proof_of_inclusion(
-            epoch,
-            attestor_set_size,
+            working_set_size,
             threshold,
             &randomness,
             &keys,
             &attestor_id,
+            epoch,
             source_block_height,
         )
         .unwrap();
 
         assert!(verify_proof_of_inclusion(
             threshold,
-            attestor_set_size,
+            working_set_size,
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
@@ -284,7 +287,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let threshold = 1;
-        let attestor_set_size = u64::MAX;
+        let working_set_size = u64::MAX;
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
@@ -292,12 +295,12 @@ mod tests {
         let epoch = 1;
 
         let res = make_proof_of_inclusion(
-            epoch,
-            attestor_set_size,
+            working_set_size,
             threshold,
             &randomness,
             &keys,
             &attestor_id,
+            epoch,
             source_block_height,
         );
 
@@ -309,7 +312,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let threshold = 100;
-        let attestor_set_size = 100;
+        let working_set_size = 100;
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
@@ -317,12 +320,12 @@ mod tests {
         let epoch = 1;
 
         let proof_of_inclusion = make_proof_of_inclusion(
-            epoch,
             threshold,
-            attestor_set_size,
+            working_set_size,
             &randomness,
             &keys,
             &attestor_id,
+            epoch,
             source_block_height,
         )
         .unwrap();
@@ -332,7 +335,7 @@ mod tests {
 
         assert!(!verify_proof_of_inclusion(
             threshold,
-            attestor_set_size,
+            working_set_size,
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
@@ -345,7 +348,7 @@ mod tests {
 
         assert!(!verify_proof_of_inclusion(
             threshold,
-            attestor_set_size,
+            working_set_size,
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
@@ -364,5 +367,29 @@ mod tests {
         let threshold = calculate_threshold(target_sample_size, working_size);
 
         assert_eq!(threshold, 340282366920938463463374607431768211400);
+
+        let target_sample_size = 3;
+        let working_size = 1;
+
+        let threshold = calculate_threshold(target_sample_size, working_size);
+        assert!(threshold > 0);
+
+        let target_sample_size = 1;
+        let working_size = 1;
+
+        let threshold = calculate_threshold(target_sample_size, working_size);
+        assert!(threshold > 0);
+
+        let target_sample_size = 0;
+        let working_size = 0;
+
+        let threshold = calculate_threshold(target_sample_size, working_size);
+        assert_eq!(threshold, 0);
+
+        let target_sample_size = 0;
+        let working_size = 1;
+
+        let threshold = calculate_threshold(target_sample_size, working_size);
+        assert_eq!(threshold, 0);
     }
 }

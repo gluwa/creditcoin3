@@ -69,7 +69,7 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
 
 pub async fn subscribe_query_submission(
     eth_client: EthClientArc,
-    query_channel: mpsc::Sender<Query>,
+    query_channel: mpsc::UnboundedSender<Query>,
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await?;
 

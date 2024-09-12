@@ -29,7 +29,7 @@ where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: AttestorApi<B, HashFor<B>, A>,
     BE: Backend<B> + 'static,
-    A: Clone + Codec,
+    A: Clone + Codec + PartialEq,
 {
     pub fn new(backend: Arc<BE>, runtime_api: Arc<RA>) -> Self {
         Self {
@@ -40,7 +40,14 @@ where
     }
 
     // Create an attestation adds it to the queue
-    pub fn create(&mut self, attestation: SignedAttestation<HashFor<B>, A>) -> Result<()> {
+    pub fn create(
+        &mut self,
+        attestation: SignedAttestation<HashFor<B>, A>,
+    ) -> Result<(), InherentError> {
+        if self.attestation_queue.contains(&attestation) {
+            return Err(InherentError::NotValid);
+        }
+
         self.attestation_queue.push_back(attestation);
 
         Ok(())
@@ -72,7 +79,7 @@ where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: AttestorApi<B, HashFor<B>, A>,
     BE: Backend<B> + 'static,
-    A: Clone + Codec,
+    A: Clone + Codec + PartialEq,
 {
     pub fn new(backend: Arc<BE>, runtime_api: Arc<RA>) -> Self {
         AsyncProvider(Arc::new(Mutex::new(Provider::new(backend, runtime_api))))
@@ -86,7 +93,7 @@ where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: AttestorApi<B, HashFor<B>, A>,
     BE: Backend<B> + 'static,
-    A: Send + Sync + Encode + Clone + Codec,
+    A: Send + Sync + Encode + Clone + Codec + PartialEq,
 {
     async fn provide_inherent_data(
         &self,

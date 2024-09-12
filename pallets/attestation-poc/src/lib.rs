@@ -488,7 +488,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(9)]
-        #[pallet::weight(<T as Config>::WeightInfo::commit_attestation(attestation.attestors.len() as u32))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(attestation.attestors.len() as u32), DispatchClass::Mandatory))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
@@ -628,7 +628,6 @@ pub mod pallet {
 
                 Some(Call::commit_attestation { attestation })
             } else {
-                log::info!("No attestation data provided");
                 None
             }
         }

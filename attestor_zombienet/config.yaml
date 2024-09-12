@@ -3,6 +3,5 @@ default_command: "../target/release/attestor"
 run: true
 default_args:
   - "-v"
-  - "--eth-start-block=0"
-num_attestors: 5
+num_attestors: 20
 single_node: true

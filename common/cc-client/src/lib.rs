@@ -99,7 +99,7 @@ impl<'a> Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random a time + the current block number (where it was calculated from)
-    pub(crate) async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64)> {
+    pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64)> {
         let epoch_index = self
             .api
             .storage()
@@ -212,15 +212,12 @@ impl<'a> Client {
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_babe_vrf(&self, for_block_height: u64) -> Result<ProofOfInclusion, Error> {
-        let (randomness, epoch_index) =
-            self.fetch_babe_randomness_two_epoch_ego()
-                .await
-                .map_err(|e| {
-                    error!("Error getting babe vrf output: {:?}", e);
-                    Error::FailedToGetBabeVrf
-                })?;
-
+    pub async fn sign_babe_vrf(
+        &self,
+        randomness: Randomness,
+        epoch_index: u64,
+        for_block_height: u64,
+    ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
         let committee_size = self._fetch_comittee_size().await.map_err(|e| {
             error!("Error getting committee size: {:?}", e);
@@ -236,13 +233,16 @@ impl<'a> Client {
             })?
             .ok_or(Error::FailedToGetAttestorWorkingSetSize)?;
 
+        info!("Comittee set size: {}", committee_size);
+        info!("Attestor working set size: {}", attestor_working_set_size);
+
         let proof_of_inclusion = make_proof_of_inclusion(
-            epoch_index,
-            u64::from(committee_size),
             u64::from(attestor_working_set_size),
+            u64::from(committee_size),
             &randomness,
             &self.pair,
             &self.get_attestor_id(),
+            epoch_index,
             for_block_height,
         )
         .map_err(|e| {

@@ -68,8 +68,10 @@ pub enum Error {
     InvalidAttestationDataSignature,
     #[error("Invalid attestation vrf output")]
     InvalidAttestationVrfOuput,
+    #[error("Attestation to old")]
+    AttestationTooOld,
     #[error("Attestation to early")]
-    AttestationToEarly,
+    AttestationTooEarly,
     #[error("Attestation header number invalid")]
     AttestationHeaderNumberInvalid,
     #[error("Error creating inherent data")]
@@ -90,6 +92,10 @@ pub enum Error {
     SpApiError(#[from] sp_api::ApiError),
     #[error("Vrf error")]
     VrfError(#[from] vrf::Error),
+    #[error("Attestor not eligible")]
+    AttestorNotEligible,
+    #[error("Other error: {0}")]
+    Other(String),
 }
 
 #[derive(Debug, PartialEq)]

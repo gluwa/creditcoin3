@@ -8,15 +8,17 @@ use kameo::{
 use serde::Serialize;
 use sp_core::H256;
 use std::{thread, time::Duration};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use cc_client::Client as CcClient;
-pub use cc_client::Error;
+use cc_client::{attestation::CcEvent, AccountId32, Client as CcClient, Error};
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId,
+    SignedAttestation,
 };
 use creditcoin3_attestor_gossip::{Attestation, Topic};
+use vrf::ProofOfInclusion;
 
 pub type Randomness = [u8; 32];
 
@@ -145,6 +147,22 @@ impl<'a> Client {
             .await
     }
 
+    pub async fn subscribe_randomness_change(
+        &self,
+        randomness_event_channel: mpsc::UnboundedSender<(u64, Randomness)>,
+        filter: ChainId,
+    ) -> Result<()> {
+        let mut subscription = self.cc_client.subscribe_events(filter)?;
+
+        // Process attestations in a loop
+        loop {
+            let event = subscription.next().await;
+            if let Some(CcEvent::RandomnessChangedEvent((epoch, randomness))) = event {
+                randomness_event_channel.send((epoch, randomness))?;
+            }
+        }
+    }
+
     pub async fn sign_attestation<H>(
         &self,
         attestation: AttestationPrimitive<H>,
@@ -160,15 +178,7 @@ impl<'a> Client {
         let signature_bls = self.bls_keypair.sign(msg);
 
         // Sign the VRF output
-        let vrf_output = self
-            .cc_client
-            .sign_babe_vrf(attestation.header_number)
-            .await
-            .map_err(|e| {
-                error!("Error signing babe vrf: {:?}", e);
-                Error::FailedToSignBabeVrf
-            })?;
-
+        let vrf_output = self.sign_vrf_for_header(attestation.header_number).await?;
         info!("attestation to submit: {:?}", attestation);
 
         // Create final attestation object
@@ -180,6 +190,47 @@ impl<'a> Client {
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
         })
+    }
+
+    pub async fn sign_vrf_for_header(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
+        let (randomness, epoch_index) = self
+            .cc_client
+            .fetch_babe_randomness_two_epoch_ego()
+            .await
+            .map_err(|e| {
+                error!("Error getting babe vrf output: {:?}", e);
+                Error::FailedToGetBabeVrf
+            })?;
+
+        self.cc_client
+            .sign_babe_vrf(randomness, epoch_index, header_number)
+            .await
+    }
+
+    pub async fn sign_vrf_for_header_at_epoch_randmoness(
+        &self,
+        randomess: Randomness,
+        epoch_index: u64,
+        header_number: u64,
+    ) -> Result<ProofOfInclusion, Error> {
+        self.cc_client
+            .sign_babe_vrf(randomess, epoch_index, header_number)
+            .await
+    }
+
+    pub async fn get_last_attestation(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        let last_digest = self.cc_client.fetch_last_digest(chain_id).await?;
+        if let Some(digest) = last_digest {
+            Ok(self
+                .cc_client
+                .get_attestation_by_digest(chain_id, digest)
+                .await?)
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn submit_attestation<H>(
@@ -285,16 +336,12 @@ where
             return Ok(());
         }
 
-        match self.submit_attestation(msg.attestation.unwrap()).await {
-            Ok(()) => {
-                info!("Attestation submitted successfully");
-            }
-            Err(e) => {
+        self.submit_attestation(msg.attestation.unwrap())
+            .await
+            .map_err(|e| {
                 error!("Error submitting attestation: {:?}", e);
-            }
-        }
-
-        Ok(())
+                Error::CannotAttest
+            })
     }
 }
 
@@ -309,7 +356,7 @@ pub async fn check_attestation_inclusion(
     chain_id: ChainId,
     attestation_digest: H256,
 ) -> Result<bool> {
-    let retries = 4;
+    let retries = 6;
     let min = Duration::from_secs(6);
     // Retry 10 times with 6 seconds interval (blocktime is 6 seconds)
     let backoff = Backoff::new(retries, min, min);
