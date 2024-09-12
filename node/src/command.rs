@@ -241,7 +241,7 @@ pub fn run() -> sc_cli::Result<()> {
                     fc_db::Backend::KeyValue(kv) => std::sync::Arc::new(kv),
                     _ => panic!("Only fc_db::Backend::KeyValue supported"),
                 };
-                cmd.run(client, frontier_backend)
+                cmd.run(client, *frontier_backend)
             })
         }
         None => {
