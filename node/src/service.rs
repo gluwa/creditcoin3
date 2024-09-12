@@ -2,7 +2,7 @@
 
 use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 
-use fc_rpc::StorageOverrideHandler;
+use fc_rpc::{StorageOverride, StorageOverrideHandler};
 use futures::{channel::mpsc, prelude::*};
 // Substrate
 use sc_client_api::{Backend, BlockBackend};
@@ -10,7 +10,7 @@ use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
 use sc_executor::NativeExecutionDispatch;
 use sc_network::NotificationMetrics;
-use sc_network_sync::warp::WarpSyncParams;
+use sc_network_sync::WarpSyncParams;
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
@@ -80,7 +80,7 @@ pub fn new_partial<RuntimeApi, Executor, BIQ>(
             GrandpaLinkHalf<FullClient<RuntimeApi, Executor>>,
             BabeLink<Block>,
             FrontierBackend,
-            Arc<fc_rpc::OverrideHandle<Block>>,
+            Arc<dyn StorageOverride<Block>>,
             Option<BabeWorkerHandle<Block>>,
         ),
     >,
@@ -396,13 +396,15 @@ where
         &config.chain_spec,
     );
 
+    use sc_network_sync::strategy::warp::WarpSyncProvider;
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
         net_config.add_notification_protocol(sc_consensus_grandpa::grandpa_peers_set_config(
             grandpa_protocol_name.clone(),
+            
         ));
-        let warp_sync: Arc<dyn sc_network::config::WarpSyncProvider<Block>> =
+        let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
                 backend.clone(),
                 grandpa_link.shared_authority_set().clone(),
@@ -740,6 +742,7 @@ where
                 shared_voter_state,
                 telemetry: telemetry.as_ref().map(|x| x.handle()),
                 offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
+
             })?;
 
         // the GRANDPA voter task is considered infallible, i.e.

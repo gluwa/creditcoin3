@@ -2,6 +2,7 @@ pub mod consensus_data_provider;
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use fc_rpc::StorageOverride;
 use jsonrpsee::RpcModule;
 // Substrate
 use sc_client_api::{
@@ -49,7 +50,7 @@ pub struct EthDeps<B: BlockT, C, P, A: ChainApi, CT, CIDP> {
     /// Frontier Backend.
     pub frontier_backend: Arc<dyn fc_api::Backend<B>>,
     /// Ethereum data access overrides.
-    pub overrides: Arc<OverrideHandle<B>>,
+    pub overrides: Arc<dyn StorageOverride<B>>,
     /// Cache for Ethereum block data.
     pub block_data_cache: Arc<EthBlockDataCacheTask<B>>,
     /// EthFilterApi pool.
