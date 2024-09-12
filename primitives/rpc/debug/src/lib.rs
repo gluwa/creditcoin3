@@ -35,7 +35,7 @@ sp_api::decl_runtime_apis! {
         #[changed_in(4)]
         fn trace_transaction(
             extrinsics: Vec<Block::Extrinsic>,
-            transaction: &Transaction,
+            transaction: &LegacyTransaction,
         ) -> Result<(), sp_runtime::DispatchError>;
 
         fn trace_transaction(
