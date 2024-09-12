@@ -24,7 +24,7 @@ use creditcoin3_runtime::opaque::Block;
 use crate::client::{FullBackend, FullClient};
 
 /// Frontier DB backend type.
-// pub type FrontierBackend = fc_db::Backend<Block>;
+pub type FrontierBackend<ClientX> = fc_db::Backend<Block, ClientX>;
 
 pub fn db_config_dir(config: &Configuration) -> PathBuf {
     config.base_path.config_dir(config.chain_spec.id())
