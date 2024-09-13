@@ -4,9 +4,7 @@ pragma solidity >=0.8.3;
 /// @dev The Deposit precompile address
 address constant SUBSTRATE_TRANSFER_ADDRESS = 0x0000000000000000000000000000000000000Fd1;
 
-SubstrateTransfer constant SUBSTRATE_TRANSFER_ADRRESS = SubstrateTransfer(
-    SUBSTRATE_TRANSFER_ADDRESS
-);
+SubstrateTransfer constant SUBSTRATE_TRANSFER_ADRRESS = SubstrateTransfer(SUBSTRATE_TRANSFER_ADDRESS);
 
 /// @title SubstrateTransfer interface
 interface SubstrateTransfer {
