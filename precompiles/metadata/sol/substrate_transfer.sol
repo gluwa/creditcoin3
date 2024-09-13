@@ -9,7 +9,7 @@ SubstrateTransfer constant SUBSTRATE_TRANSFER_ADRRESS = SubstrateTransfer(SUBSTR
 /// @title SubstrateTransfer interface
 interface SubstrateTransfer {
     /// @dev Event emitted when a transfer has been performed.
-    /// @param from Address which tokens are sent from
+    /// @param from Address which tokens are sent from.
     /// @param destination The Substrate address receiving the tokens.
     /// @param amount The amount of tokens transferred.
     event Transfer(address indexed from, bytes32 indexed destination, uint256 amount);
