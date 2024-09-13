@@ -456,22 +456,27 @@ where
     } = new_frontier_partial(&eth_config)?;
 
     let mut net_config = sc_network::config::FullNetworkConfiguration::<_, _, Net>::new(&config.network);
+    let peer_store_handle = net_config.peer_store_handle();
     let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
         &client.block_hash(0)?.expect("Genesis block exists; qed"),
         &config.chain_spec,
+    );
+
+    let metrics = NotificationMetrics::new(None);// todo add registry
+
+    let (grandpa_protocol_config, grandpa_notification_service) =
+    sc_consensus_grandpa::grandpa_peers_set_config::<_, Net>(
+        grandpa_protocol_name.clone(),
+        metrics.clone(),
+        Arc::clone(&peer_store_handle),
     );
 
     use sc_network_sync::strategy::warp::WarpSyncProvider;
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
-        let metrics = NotificationMetrics::new(None);// todo add registry
-        // net_config.add_notification_protocol(sc_consensus_grandpa::grandpa_peers_set_config(
-        //     grandpa_protocol_name.clone(),
-        //     metrics,
-        //     Default::default(),
-        //     //TODO???? need to figure out how to get set peer_store_hadnle
-        // ));
+        
+        net_config.add_notification_protocol(grandpa_protocol_config);
         let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
                 backend.clone(),
@@ -508,7 +513,7 @@ where
                 transaction_pool: Some(OffchainTransactionPoolFactory::new(
                     transaction_pool.clone(),
                 )),
-                network_provider: Arc::new(network),
+                network_provider: Arc::new(network.clone()),
                 enable_http_requests: true,
                 custom_extensions: |_| vec![],
             })
@@ -803,25 +808,25 @@ where
         // been tested extensively yet and having most nodes in a network run it
         // could lead to finality stalls.
         todo!();
-        // let grandpa_voter =
-        //     sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
-        //         config: grandpa_config,
-        //         link: grandpa_link,
-        //         network,
-        //         sync: sync_service,
-        //         voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
-        //         prometheus_registry,
-        //         shared_voter_state,
-        //         telemetry: telemetry.as_ref().map(|x| x.handle()),
-        //         offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
+        let grandpa_voter =
+            sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
+                config: grandpa_config,
+                link: grandpa_link,
+                network,
+                sync: sync_service,
+                voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
+                prometheus_registry,
+                shared_voter_state,
+                telemetry: telemetry.as_ref().map(|x| x.handle()),
+                offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
+                notification_service: grandpa_notification_service,
+            })?;
 
-        //     })?;
-
-        // // the GRANDPA voter task is considered infallible, i.e.
-        // // if it fails we take down the service with it.
-        // task_manager
-        //     .spawn_essential_handle()
-        //     .spawn_blocking("grandpa-voter", None, grandpa_voter);
+        // the GRANDPA voter task is considered infallible, i.e.
+        // if it fails we take down the service with it.
+        task_manager
+            .spawn_essential_handle()
+            .spawn_blocking("grandpa-voter", None, grandpa_voter);
     }
 
     network_starter.start_network();
