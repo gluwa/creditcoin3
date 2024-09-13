@@ -12,7 +12,7 @@ interface SubstrateTransfer {
     /// @param from Address which tokens are sent from
     /// @param destination The Substrate address receiving the tokens.
     /// @param amount The amount of tokens transferred.
-    event Transfer(address from, bytes32 indexed destination, uint256 amount);
+    event Transfer(address indexed from, bytes32 indexed destination, uint256 amount);
 
     /// @dev Function to transfer tokens to a Substrate address.
     /// @param destination The Substrate address receiving the tokens.
