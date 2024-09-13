@@ -81,6 +81,7 @@ pub fn new_partial<RuntimeApi, Executor, BIQ>(
             BabeLink<Block>,
             FrontierBackend<FullClient<RuntimeApi, Executor>>,
             FrontierBackend<FullClient<RuntimeApi, Executor>>,
+            FrontierBackend<FullClient<RuntimeApi, Executor>>,
             Arc<dyn StorageOverride<Block>>,
             Option<BabeWorkerHandle<Block>>,
         ),
@@ -210,6 +211,35 @@ where
         }
     };
 
+    let frontier_backend_3 = match eth_config.frontier_backend_type {
+        BackendType::KeyValue => FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
+            Arc::clone(&client),
+            &config.database,
+            &db_config_dir(config),
+        )?)),
+        BackendType::Sql => {
+            let db_path = db_config_dir(config).join("sql");
+            std::fs::create_dir_all(&db_path).expect("failed creating sql db directory");
+            let backend = futures::executor::block_on(fc_db::sql::Backend::new(
+                fc_db::sql::BackendConfig::Sqlite(fc_db::sql::SqliteBackendConfig {
+                    path: Path::new("sqlite:///")
+                        .join(db_path)
+                        .join("frontier.db3")
+                        .to_str()
+                        .unwrap(),
+                    create_if_missing: true,
+                    thread_count: eth_config.frontier_sql_backend_thread_count,
+                    cache_size: eth_config.frontier_sql_backend_cache_size,
+                }),
+                eth_config.frontier_sql_backend_pool_size,
+                std::num::NonZeroU32::new(eth_config.frontier_sql_backend_num_ops_timeout),
+                overrides.clone(),
+            ))
+            .unwrap_or_else(|err| panic!("failed creating sql backend: {:?}", err));
+            FrontierBackend::Sql(sc_service::Arc::new(backend))
+        }
+    };
+
     let babe_config = sc_consensus_babe::configuration(&*client)?;
     let (babe_block_import, babe_link) =
         sc_consensus_babe::block_import(babe_config, grandpa_block_import.clone(), client.clone())?;
@@ -251,6 +281,7 @@ where
             babe_link,
             frontier_backend,
             frontier_backend_2,
+            frontier_backend_3,
             overrides,
             babe_worker,
         ),
@@ -378,7 +409,7 @@ where
 }
 
 /// Builds a new service for a full client.
-pub async fn new_full<RuntimeApi, Executor>(
+pub async fn new_full<RuntimeApi, Executor, Net>(
     mut config: Configuration,
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
@@ -388,6 +419,7 @@ where
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
     Executor: NativeExecutionDispatch + 'static,
+    Net: sc_network::service::traits::NetworkBackend<Block, Hash>,
 {
     let build_import_queue = if sealing.is_some() {
         build_manual_seal_import_queue::<RuntimeApi, Executor>
@@ -411,6 +443,7 @@ where
                 babe_link,
                 frontier_backend,
                 frontier_backend_2,
+                frontier_backend_3,
                 overrides,
                 babe_worker,
             ),
@@ -422,7 +455,7 @@ where
         fee_history_cache_limit,
     } = new_frontier_partial(&eth_config)?;
 
-    let mut net_config = sc_network::config::FullNetworkConfiguration::new(&config.network);
+    let mut net_config = sc_network::config::FullNetworkConfiguration::<_, _, Net>::new(&config.network);
     let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
         &client.block_hash(0)?.expect("Genesis block exists; qed"),
         &config.chain_spec,
@@ -464,24 +497,25 @@ where
         })?;
 
     if config.offchain_worker.enabled {
-        task_manager.spawn_handle().spawn(
-            "offchain-workers-runner",
-            "offchain-worker",
-            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-                runtime_api_provider: client.clone(),
-                is_validator: config.role.is_authority(),
-                keystore: Some(keystore_container.keystore()),
-                offchain_db: backend.offchain_storage(),
-                transaction_pool: Some(OffchainTransactionPoolFactory::new(
-                    transaction_pool.clone(),
-                )),
-                network_provider: network.clone(),
-                enable_http_requests: true,
-                custom_extensions: |_| vec![],
-            })
-            .run(client.clone(), task_manager.spawn_handle())
-            .boxed(),
-        );
+        todo!();
+        // task_manager.spawn_handle().spawn(
+        //     "offchain-workers-runner",
+        //     "offchain-worker",
+        //     sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+        //         runtime_api_provider: client.clone(),
+        //         is_validator: config.role.is_authority(),
+        //         keystore: Some(keystore_container.keystore()),
+        //         offchain_db: backend.offchain_storage(),
+        //         transaction_pool: Some(OffchainTransactionPoolFactory::new(
+        //             transaction_pool.clone(),
+        //         )),
+        //         network_provider: network.clone(),
+        //         enable_http_requests: true,
+        //         custom_extensions: |_| vec![],
+        //     })
+        //     .run(client.clone(), task_manager.spawn_handle())
+        //     .boxed(),
+        // );
     }
 
     let role = config.role.clone();
@@ -578,7 +612,6 @@ where
         );
         let justification_stream = grandpa_link.justification_stream();
         let shared_voter_state = shared_voter_state.clone();
-
         Box::new(
             move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
                 let eth_deps = rpc::EthDeps {
@@ -590,9 +623,13 @@ where
                     enable_dev_signer,
                     network: network.clone(),
                     sync: sync_service.clone(),
+                    // frontier_backend: match frontier_backend {
+                    //     fc_db::Backend::KeyValue(b) => b,
+                    //     fc_db::Backend::Sql(b) => b,
+                    // },
                     frontier_backend: match frontier_backend {
-                        fc_db::Backend::KeyValue(b) => b,
-                        fc_db::Backend::Sql(b) => b,
+                        fc_db::Backend::KeyValue(_) => todo!(),
+                        fc_db::Backend::Sql(_) => todo!(),
                     },
                     overrides: overrides.clone(),
                     block_data_cache: block_data_cache.clone(),
@@ -661,7 +698,7 @@ where
         &task_manager,
         client.clone(),
         backend,
-        frontier_backend,
+        frontier_backend_3,
         filter_pool,
         overrides,
         fee_history_cache,
@@ -766,25 +803,26 @@ where
         // and vote data availability than the observer. The observer has not
         // been tested extensively yet and having most nodes in a network run it
         // could lead to finality stalls.
-        let grandpa_voter =
-            sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
-                config: grandpa_config,
-                link: grandpa_link,
-                network,
-                sync: sync_service,
-                voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
-                prometheus_registry,
-                shared_voter_state,
-                telemetry: telemetry.as_ref().map(|x| x.handle()),
-                offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
+        todo!();
+        // let grandpa_voter =
+        //     sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
+        //         config: grandpa_config,
+        //         link: grandpa_link,
+        //         network,
+        //         sync: sync_service,
+        //         voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
+        //         prometheus_registry,
+        //         shared_voter_state,
+        //         telemetry: telemetry.as_ref().map(|x| x.handle()),
+        //         offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
 
-            })?;
+        //     })?;
 
-        // the GRANDPA voter task is considered infallible, i.e.
-        // if it fails we take down the service with it.
-        task_manager
-            .spawn_essential_handle()
-            .spawn_blocking("grandpa-voter", None, grandpa_voter);
+        // // the GRANDPA voter task is considered infallible, i.e.
+        // // if it fails we take down the service with it.
+        // task_manager
+        //     .spawn_essential_handle()
+        //     .spawn_blocking("grandpa-voter", None, grandpa_voter);
     }
 
     network_starter.start_network();
@@ -890,7 +928,7 @@ pub async fn build_full(
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>(
+    new_full::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor, sc_network::NetworkWorker<_, _>,>(
         config, eth_config, sealing,
     )
     .await
