@@ -432,10 +432,13 @@ where
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
-        net_config.add_notification_protocol(sc_consensus_grandpa::grandpa_peers_set_config(
-            grandpa_protocol_name.clone(),
-            
-        ));
+        let metrics = NotificationMetrics::new(None);// todo add registry
+        // net_config.add_notification_protocol(sc_consensus_grandpa::grandpa_peers_set_config(
+        //     grandpa_protocol_name.clone(),
+        //     metrics,
+        //     Default::default(),
+        //     //TODO???? need to figure out how to get set peer_store_hadnle
+        // ));
         let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
                 backend.clone(),
