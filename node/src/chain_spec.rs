@@ -4,6 +4,7 @@ use std::{
 };
 
 use hex_literal::hex;
+use sc_service::NoExtension;
 use serde::{Deserialize, Serialize};
 // Substrate
 use sc_chain_spec::{ChainSpecBuilder, ChainType, Properties};
@@ -28,7 +29,7 @@ use creditcoin3_runtime::{
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
 
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
-pub type ChainSpec = sc_service::GenericChainSpec<RuntimeGenesisConfig>;
+pub type ChainSpec = sc_service::GenericChainSpec;
 
 /// Specialized `ChainSpec` for development.
 pub type DevChainSpec = sc_service::GenericChainSpec<DevGenesisExt>;
@@ -150,7 +151,7 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> ChainSpec {
         SS58Prefix::get() as u64,
     );
 
-    return ChainSpec::builder(wasm_binary, rgc)
+    return ChainSpec::builder(wasm_binary, None)
         .with_name("Development")
         .with_id("dev")
         .with_chain_type(ChainType::Development)
@@ -242,7 +243,7 @@ pub fn local_testnet_config() -> ChainSpec {
         SS58Prefix::get() as u64,
     );
 
-    return ChainSpec::builder(wasm_binary, rgc)
+    return ChainSpec::builder(wasm_binary, None)
         .with_name("Local Testnet")
         .with_id("local_testnet")
         .with_chain_type(ChainType::Local)
