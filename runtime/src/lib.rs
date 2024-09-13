@@ -1271,6 +1271,7 @@ impl_runtime_apis! {
         fn initialize_pending_block(header: &<Block as BlockT>::Header){
             //todo
             todo!()
+            //new method arrived
             // pallet_ethereum::Pallet::<Runtime>::initialize_pending_block(header);
         }
         fn chain_id() -> u64 {
