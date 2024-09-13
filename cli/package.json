@@ -47,12 +47,12 @@
         "typescript": "^5.5.2"
     },
     "dependencies": {
-        "@polkadot/api": "^10.13.1",
-        "@polkadot/types-augment": "^10.13.1",
+        "@polkadot/api": "^13.0.1",
+        "@polkadot/types-augment": "^13.0.1",
         "cli-table3": "^0.6.3",
         "commander": "^12.1.0",
         "ethers": "^6.13.0",
-        "execa": "5.1.1",
+        "execa": "6.1.0",
         "js-guid": "^1.0.0",
         "prompts": "^2.4.2",
         "time-delta": "^1.0.0"
