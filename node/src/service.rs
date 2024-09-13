@@ -481,6 +481,7 @@ where
         Some(WarpSyncParams::WithProvider(warp_sync))
     };
 
+    todo!();
     let metrics = NotificationMetrics::new(None);// todo add registry
     let (network, system_rpc_tx, tx_handler_controller, network_starter, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
@@ -498,24 +499,24 @@ where
 
     if config.offchain_worker.enabled {
         todo!();
-        // task_manager.spawn_handle().spawn(
-        //     "offchain-workers-runner",
-        //     "offchain-worker",
-        //     sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-        //         runtime_api_provider: client.clone(),
-        //         is_validator: config.role.is_authority(),
-        //         keystore: Some(keystore_container.keystore()),
-        //         offchain_db: backend.offchain_storage(),
-        //         transaction_pool: Some(OffchainTransactionPoolFactory::new(
-        //             transaction_pool.clone(),
-        //         )),
-        //         network_provider: network.clone(),
-        //         enable_http_requests: true,
-        //         custom_extensions: |_| vec![],
-        //     })
-        //     .run(client.clone(), task_manager.spawn_handle())
-        //     .boxed(),
-        // );
+        task_manager.spawn_handle().spawn(
+            "offchain-workers-runner",
+            "offchain-worker",
+            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+                runtime_api_provider: client.clone(),
+                is_validator: config.role.is_authority(),
+                keystore: Some(keystore_container.keystore()),
+                offchain_db: backend.offchain_storage(),
+                transaction_pool: Some(OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                )),
+                network_provider: Arc::new(network),
+                enable_http_requests: true,
+                custom_extensions: |_| vec![],
+            })
+            .run(client.clone(), task_manager.spawn_handle())
+            .boxed(),
+        );
     }
 
     let role = config.role.clone();
