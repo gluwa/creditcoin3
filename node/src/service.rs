@@ -497,6 +497,7 @@ where
         })?;
 
     if config.offchain_worker.enabled {
+        todo!();
         // task_manager.spawn_handle().spawn(
         //     "offchain-workers-runner",
         //     "offchain-worker",
@@ -802,6 +803,7 @@ where
         // and vote data availability than the observer. The observer has not
         // been tested extensively yet and having most nodes in a network run it
         // could lead to finality stalls.
+        todo!();
         // let grandpa_voter =
         //     sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
         //         config: grandpa_config,
