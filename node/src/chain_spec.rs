@@ -6,7 +6,7 @@ use std::{
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
 // Substrate
-use sc_chain_spec::{ChainType, Properties};
+use sc_chain_spec::{ChainSpecBuilder, ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
@@ -115,118 +115,185 @@ pub fn mainnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
 }
 
-pub fn mainnet_config() -> Result<ChainSpec, String> {
-    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
-}
-
-pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
+pub fn development_config(enable_manual_seal: Option<bool>) -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
-    DevChainSpec::from_genesis(
-        // Name
-        "Development",
-        // ID
-        "dev",
-        ChainType::Development,
-        move || {
-            DevGenesisExt {
-                genesis_config: testnet_genesis(
-                    wasm_binary,
-                    // Sudo account (Alice)
-                    get_account_id_from_seed::<sr25519::Public>("Alice"),
-                    // Pre-funded accounts
-                    vec![
-                        get_account_id_from_seed::<sr25519::Public>("Alice"),
-                        get_account_id_from_seed::<sr25519::Public>("Bob"),
-                        get_account_id_from_seed::<sr25519::Public>("Charlie"),
-                        get_account_id_from_seed::<sr25519::Public>("Dave"),
-                        get_account_id_from_seed::<sr25519::Public>("Eve"),
-                        get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-                        eth_acct(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
-                    ],
-                    vec![
-                        hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
-                        hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
-                        hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
-                        hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
-                        hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
-                        hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
-                    ],
-                    // Initial PoA authorities
-                    vec![authority_keys_from_seed("Alice")],
-                    // Ethereum chain ID
-                    SS58Prefix::get() as u64,
-                ),
-                enable_manual_seal,
-            }
-        },
-        // Bootnodes
-        vec![],
-        // Telemetry
-        None,
-        // Protocol ID
-        None,
-        // Fork ID
-        None,
-        // Properties
-        Some(properties()),
-        // Extensions
-        None,
-    )
+    let rgc = testnet_genesis(
+        wasm_binary,
+        // Sudo account (Alice)
+        get_account_id_from_seed::<sr25519::Public>("Alice"),
+        // Pre-funded accounts
+        vec![
+            get_account_id_from_seed::<sr25519::Public>("Alice"),
+            get_account_id_from_seed::<sr25519::Public>("Bob"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie"),
+            get_account_id_from_seed::<sr25519::Public>("Dave"),
+            get_account_id_from_seed::<sr25519::Public>("Eve"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+            eth_acct(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
+        ],
+        vec![
+            hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+            hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+            hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+            hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+            hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+            hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+        ],
+        // Initial PoA authorities
+        vec![authority_keys_from_seed("Alice")],
+        // Ethereum chain ID
+        SS58Prefix::get() as u64,
+    );
+
+    return ChainSpec::builder(wasm_binary, rgc)
+        .with_name("Development")
+        .with_id("dev")
+        .with_chain_type(ChainType::Development)
+        .with_properties(properties())
+        .build();
+
+    // DevChainSpec::from_genesis(
+    //     // Name
+    //     "Development",
+    //     // ID
+    //     "dev",
+    //     ChainType::Development,
+    //     move || {
+    //         DevGenesisExt {
+    //             genesis_config: testnet_genesis(
+    //                 wasm_binary,
+    //                 // Sudo account (Alice)
+    //                 get_account_id_from_seed::<sr25519::Public>("Alice"),
+    //                 // Pre-funded accounts
+    //                 vec![
+    //                     get_account_id_from_seed::<sr25519::Public>("Alice"),
+    //                     get_account_id_from_seed::<sr25519::Public>("Bob"),
+    //                     get_account_id_from_seed::<sr25519::Public>("Charlie"),
+    //                     get_account_id_from_seed::<sr25519::Public>("Dave"),
+    //                     get_account_id_from_seed::<sr25519::Public>("Eve"),
+    //                     get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+    //                     eth_acct(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")), // Alith
+    //                 ],
+    //                 vec![
+    //                     hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+    //                     hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+    //                     hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+    //                     hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+    //                     hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+    //                     hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+    //                 ],
+    //                 // Initial PoA authorities
+    //                 vec![authority_keys_from_seed("Alice")],
+    //                 // Ethereum chain ID
+    //                 SS58Prefix::get() as u64,
+    //             ),
+    //             enable_manual_seal,
+    //         }
+    //     },
+    //     // Bootnodes
+    //     vec![],
+    //     // Telemetry
+    //     None,
+    //     // Protocol ID
+    //     None,
+    //     // Fork ID
+    //     None,
+    //     // Properties
+    //     Some(properties()),
+    //     // Extensions
+    //     None,
+    // )
 }
 
 pub fn local_testnet_config() -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
-    ChainSpec::from_genesis(
-        // Name
-        "Local Testnet",
-        // ID
-        "local_testnet",
-        ChainType::Local,
-        move || {
-            testnet_genesis(
-                wasm_binary,
-                // Initial PoA authorities
-                // Sudo account (Alice)
-                get_account_id_from_seed::<sr25519::Public>("Alice"),
-                // Pre-funded accounts
-                vec![
-                    get_account_id_from_seed::<sr25519::Public>("Alice"),
-                    get_account_id_from_seed::<sr25519::Public>("Bob"),
-                    get_account_id_from_seed::<sr25519::Public>("Charlie"),
-                    get_account_id_from_seed::<sr25519::Public>("Dave"),
-                    get_account_id_from_seed::<sr25519::Public>("Eve"),
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-                ],
-                vec![
-                    hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
-                    hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
-                    hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
-                    hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
-                    hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
-                    hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
-                ],
-                vec![
-                    authority_keys_from_seed("Alice"),
-                    authority_keys_from_seed("Bob"),
-                ],
-                SS58Prefix::get() as u64,
-            )
-        },
-        // Bootnodes
-        vec![],
-        // Telemetry
-        None,
-        // Protocol ID
-        None,
-        // Fork ID
-        None,
-        // Properties
-        Some(properties()),
-        // Extensions
-        None,
-    )
+    let rgc = testnet_genesis(
+        wasm_binary,
+        // Initial PoA authorities
+        // Sudo account (Alice)
+        get_account_id_from_seed::<sr25519::Public>("Alice"),
+        // Pre-funded accounts
+        vec![
+            get_account_id_from_seed::<sr25519::Public>("Alice"),
+            get_account_id_from_seed::<sr25519::Public>("Bob"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie"),
+            get_account_id_from_seed::<sr25519::Public>("Dave"),
+            get_account_id_from_seed::<sr25519::Public>("Eve"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+        ],
+        vec![
+            hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+            hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+            hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+            hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+            hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+            hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+        ],
+        vec![
+            authority_keys_from_seed("Alice"),
+            authority_keys_from_seed("Bob"),
+        ],
+        SS58Prefix::get() as u64,
+    );
+
+    return ChainSpec::builder(wasm_binary, rgc)
+        .with_name("Local Testnet")
+        .with_id("local_testnet")
+        .with_chain_type(ChainType::Local)
+        .with_properties(properties())
+        .build();
+
+    // ChainSpec::from_genesis(
+    //     // Name
+    //     "Local Testnet",
+    //     // ID
+    //     "local_testnet",
+    //     ChainType::Local,
+    //     move || {
+    //         testnet_genesis(
+    //             wasm_binary,
+    //             // Initial PoA authorities
+    //             // Sudo account (Alice)
+    //             get_account_id_from_seed::<sr25519::Public>("Alice"),
+    //             // Pre-funded accounts
+    //             vec![
+    //                 get_account_id_from_seed::<sr25519::Public>("Alice"),
+    //                 get_account_id_from_seed::<sr25519::Public>("Bob"),
+    //                 get_account_id_from_seed::<sr25519::Public>("Charlie"),
+    //                 get_account_id_from_seed::<sr25519::Public>("Dave"),
+    //                 get_account_id_from_seed::<sr25519::Public>("Eve"),
+    //                 get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+    //             ],
+    //             vec![
+    //                 hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+    //                 hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+    //                 hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+    //                 hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+    //                 hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+    //                 hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+    //             ],
+    //             vec![
+    //                 authority_keys_from_seed("Alice"),
+    //                 authority_keys_from_seed("Bob"),
+    //             ],
+    //             SS58Prefix::get() as u64,
+    //         )
+    //     },
+    //     // Bootnodes
+    //     vec![],
+    //     // Telemetry
+    //     None,
+    //     // Protocol ID
+    //     None,
+    //     // Fork ID
+    //     None,
+    //     // Properties
+    //     Some(properties()),
+    //     // Extensions
+    //     None,
+    // )
 }
 
 fn genesis_account(balance: U256) -> fp_evm::GenesisAccount {
@@ -264,7 +331,7 @@ fn testnet_genesis(
         // System
         system: SystemConfig {
             // Add Wasm runtime to storage.
-            code: wasm_binary.to_vec(),
+            // code: wasm_binary.to_vec(), //todo! double check this. seems field does not exist indeed
             ..Default::default()
         },
         sudo: SudoConfig {
