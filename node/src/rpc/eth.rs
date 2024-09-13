@@ -28,6 +28,7 @@ pub use fc_rpc::{EthBlockDataCacheTask, EthConfig};
 pub use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
 // pub use fc_storage::overrides_handle;
 use fp_rpc::{ConvertTransaction, ConvertTransactionRuntimeApi, EthereumRuntimeRPCApi};
+use sc_network::service::traits::NetworkService as NetworkServiceTrait;
 
 /// Extra dependencies for Ethereum compatibility.
 pub struct EthDeps<B: BlockT, C, P, A: ChainApi, CT, CIDP> {
@@ -44,7 +45,7 @@ pub struct EthDeps<B: BlockT, C, P, A: ChainApi, CT, CIDP> {
     /// Whether to enable dev signer
     pub enable_dev_signer: bool,
     /// Network service
-    pub network: Arc<NetworkService<B, B::Hash>>,
+    pub network: Arc<dyn NetworkServiceTrait>,
     /// Chain syncing service
     pub sync: Arc<SyncingService<B>>,
     /// Frontier Backend.
