@@ -481,7 +481,6 @@ where
         Some(WarpSyncParams::WithProvider(warp_sync))
     };
 
-    todo!();
     let metrics = NotificationMetrics::new(None);// todo add registry
     let (network, system_rpc_tx, tx_handler_controller, network_starter, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
@@ -498,7 +497,6 @@ where
         })?;
 
     if config.offchain_worker.enabled {
-        todo!();
         task_manager.spawn_handle().spawn(
             "offchain-workers-runner",
             "offchain-worker",
