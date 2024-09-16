@@ -80,7 +80,7 @@ pub fn new_partial<RuntimeApi, Executor, BIQ>(
             GrandpaLinkHalf<FullClient<RuntimeApi, Executor>>,
             BabeLink<Block>,
             //important to use Arc and have only one instance of frontier_backend
-            //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring 
+            //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
             Arc<FrontierBackend<FullClient<RuntimeApi, Executor>>>,
             Arc<dyn StorageOverride<Block>>,
             Option<BabeWorkerHandle<Block>>,
