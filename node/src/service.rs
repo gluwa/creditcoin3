@@ -627,13 +627,9 @@ where
                     enable_dev_signer,
                     network: network.clone(),
                     sync: sync_service.clone(),
-                    // frontier_backend: match frontier_backend {
-                    //     fc_db::Backend::KeyValue(b) => b,
-                    //     fc_db::Backend::Sql(b) => b,
-                    // },
-                    frontier_backend: match frontier_backend {
-                        fc_db::Backend::KeyValue(_) => todo!(),
-                        fc_db::Backend::Sql(_) => todo!(),
+                    frontier_backend: match &frontier_backend {
+                        fc_db::Backend::KeyValue(b) => b.clone(),
+                        fc_db::Backend::Sql(b) => b.clone(),
                     },
                     overrides: overrides.clone(),
                     block_data_cache: block_data_cache.clone(),
