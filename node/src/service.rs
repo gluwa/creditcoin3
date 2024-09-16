@@ -79,9 +79,9 @@ pub fn new_partial<RuntimeApi, Executor, BIQ>(
             BoxBlockImport,
             GrandpaLinkHalf<FullClient<RuntimeApi, Executor>>,
             BabeLink<Block>,
-            FrontierBackend<FullClient<RuntimeApi, Executor>>,
-            FrontierBackend<FullClient<RuntimeApi, Executor>>,
-            FrontierBackend<FullClient<RuntimeApi, Executor>>,
+            //important to use Arc and have only one instance of frontier_backend
+            //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring 
+            Arc<FrontierBackend<FullClient<RuntimeApi, Executor>>>,
             Arc<dyn StorageOverride<Block>>,
             Option<BabeWorkerHandle<Block>>,
         ),
@@ -182,64 +182,6 @@ where
         }
     };
 
-    let frontier_backend_2 = match eth_config.frontier_backend_type {
-        BackendType::KeyValue => FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
-            Arc::clone(&client),
-            &config.database,
-            &db_config_dir(config),
-        )?)),
-        BackendType::Sql => {
-            let db_path = db_config_dir(config).join("sql");
-            std::fs::create_dir_all(&db_path).expect("failed creating sql db directory");
-            let backend = futures::executor::block_on(fc_db::sql::Backend::new(
-                fc_db::sql::BackendConfig::Sqlite(fc_db::sql::SqliteBackendConfig {
-                    path: Path::new("sqlite:///")
-                        .join(db_path)
-                        .join("frontier.db3")
-                        .to_str()
-                        .unwrap(),
-                    create_if_missing: true,
-                    thread_count: eth_config.frontier_sql_backend_thread_count,
-                    cache_size: eth_config.frontier_sql_backend_cache_size,
-                }),
-                eth_config.frontier_sql_backend_pool_size,
-                std::num::NonZeroU32::new(eth_config.frontier_sql_backend_num_ops_timeout),
-                overrides.clone(),
-            ))
-            .unwrap_or_else(|err| panic!("failed creating sql backend: {:?}", err));
-            FrontierBackend::Sql(sc_service::Arc::new(backend))
-        }
-    };
-
-    let frontier_backend_3 = match eth_config.frontier_backend_type {
-        BackendType::KeyValue => FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
-            Arc::clone(&client),
-            &config.database,
-            &db_config_dir(config),
-        )?)),
-        BackendType::Sql => {
-            let db_path = db_config_dir(config).join("sql");
-            std::fs::create_dir_all(&db_path).expect("failed creating sql db directory");
-            let backend = futures::executor::block_on(fc_db::sql::Backend::new(
-                fc_db::sql::BackendConfig::Sqlite(fc_db::sql::SqliteBackendConfig {
-                    path: Path::new("sqlite:///")
-                        .join(db_path)
-                        .join("frontier.db3")
-                        .to_str()
-                        .unwrap(),
-                    create_if_missing: true,
-                    thread_count: eth_config.frontier_sql_backend_thread_count,
-                    cache_size: eth_config.frontier_sql_backend_cache_size,
-                }),
-                eth_config.frontier_sql_backend_pool_size,
-                std::num::NonZeroU32::new(eth_config.frontier_sql_backend_num_ops_timeout),
-                overrides.clone(),
-            ))
-            .unwrap_or_else(|err| panic!("failed creating sql backend: {:?}", err));
-            FrontierBackend::Sql(sc_service::Arc::new(backend))
-        }
-    };
-
     let babe_config = sc_consensus_babe::configuration(&*client)?;
     let (babe_block_import, babe_link) =
         sc_consensus_babe::block_import(babe_config, grandpa_block_import.clone(), client.clone())?;
@@ -279,9 +221,7 @@ where
             block_import,
             grandpa_link,
             babe_link,
-            frontier_backend,
-            frontier_backend_2,
-            frontier_backend_3,
+            Arc::new(frontier_backend),
             overrides,
             babe_worker,
         ),
@@ -442,8 +382,8 @@ where
                 grandpa_link,
                 babe_link,
                 frontier_backend,
-                frontier_backend_2,
-                frontier_backend_3,
+                // frontier_backend_2,
+                // frontier_backend_3,
                 overrides,
                 babe_worker,
             ),
@@ -556,7 +496,7 @@ where
                     task_manager: &task_manager,
                     client: client.clone(),
                     substrate_backend: backend.clone(),
-                    frontier_backend: Arc::new(frontier_backend_2),
+                    frontier_backend: frontier_backend.clone(),
                     filter_pool: filter_pool.clone(),
                     overrides: overrides.clone(),
                     fee_history_limit,
@@ -581,7 +521,7 @@ where
         let max_past_logs = eth_config.max_past_logs;
         let execute_gas_limit_multiplier = eth_config.execute_gas_limit_multiplier;
         let filter_pool = filter_pool.clone();
-        // let frontier_backend = frontier_backend.clone();
+        let frontier_backend = frontier_backend.clone();
         let pubsub_notification_sinks = pubsub_notification_sinks.clone();
         let overrides = overrides.clone();
         let fee_history_cache = fee_history_cache.clone();
@@ -627,7 +567,7 @@ where
                     enable_dev_signer,
                     network: network.clone(),
                     sync: sync_service.clone(),
-                    frontier_backend: match &frontier_backend {
+                    frontier_backend: match &*frontier_backend {
                         fc_db::Backend::KeyValue(b) => b.clone(),
                         fc_db::Backend::Sql(b) => b.clone(),
                     },
@@ -698,7 +638,7 @@ where
         &task_manager,
         client.clone(),
         backend,
-        frontier_backend_3,
+        frontier_backend,
         filter_pool,
         overrides,
         fee_history_cache,
@@ -942,7 +882,8 @@ pub fn new_chain_ops(
         Arc<FullBackend>,
         BasicQueue<Block>,
         TaskManager,
-        FrontierBackend<Client>,
+        Arc<FrontierBackend<Client>>, //important to return Arc and use only one instance of frontier_backend
+        //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
     ),
     ServiceError,
 > {
