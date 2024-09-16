@@ -27,6 +27,11 @@ cargo build --release
 ```
 
 To execute the chain, run:
+error:
+Service(Client(Storage("wasm call error Other: Exported method GenesisBuilder_get_preset is not found")))
+
+need to fix with
+https://substrate.stackexchange.com/questions/10690/building-a-chain-specification-with-raw-gives-me-wasm-call-error-other-expo
 
 ```bash
 ./target/release/creditcoin3-node --dev
