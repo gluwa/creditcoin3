@@ -153,7 +153,7 @@ pub async fn spawn_frontier_tasks<RuntimeApi, Executor>(
     task_manager: &TaskManager,
     client: Arc<FullClient<RuntimeApi, Executor>>,
     backend: Arc<FullBackend>,
-    frontier_backend: fc_db::Backend<Block, FullClient<RuntimeApi, Executor>>,
+    frontier_backend: Arc<fc_db::Backend<Block, FullClient<RuntimeApi, Executor>>>,
     filter_pool: Option<FilterPool>,
     // overrides: Arc<OverrideHandle<Block>>,
     overrides: Arc<dyn StorageOverride<Block>>,
@@ -172,7 +172,7 @@ pub async fn spawn_frontier_tasks<RuntimeApi, Executor>(
     Executor: NativeExecutionDispatch + 'static,
 {
     // Spawn main mapping sync worker background task.
-    match frontier_backend {
+    match &*frontier_backend {
         fc_db::Backend::KeyValue(b) => {
             task_manager.spawn_essential_handle().spawn(
                 "frontier-mapping-sync-worker",
