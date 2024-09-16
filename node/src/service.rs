@@ -475,7 +475,7 @@ where
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
-        
+
         net_config.add_notification_protocol(grandpa_protocol_config);
         let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
@@ -807,7 +807,6 @@ where
         // and vote data availability than the observer. The observer has not
         // been tested extensively yet and having most nodes in a network run it
         // could lead to finality stalls.
-        todo!();
         let grandpa_voter =
             sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
                 config: grandpa_config,
