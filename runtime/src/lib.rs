@@ -19,6 +19,10 @@ use sp_core::{
     crypto::{ByteArray, KeyTypeId},
     OpaqueMetadata, H160, H256, U256,
 };
+use frame_support::{
+	genesis_builder_helper::{build_state, get_preset},
+	// traits::VariantCountOf,
+};
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
@@ -1681,6 +1685,20 @@ impl_runtime_apis! {
             }
         }
     }
+
+    impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
+		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+			build_state::<RuntimeGenesisConfig>(config)
+		}
+
+		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+			get_preset::<RuntimeGenesisConfig>(id, |_| None)
+		}
+
+		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
+			vec![]
+		}
+	}
 
 }
 
