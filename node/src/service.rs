@@ -807,7 +807,6 @@ where
         // and vote data availability than the observer. The observer has not
         // been tested extensively yet and having most nodes in a network run it
         // could lead to finality stalls.
-        todo!();
         let grandpa_voter =
             sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
                 config: grandpa_config,
