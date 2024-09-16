@@ -61,7 +61,9 @@ impl SubstrateCli for Cli {
         let ret = match id {
             "dev" => {
                 let enable_manual_seal = self.sealing.map(|_| true);
-                Box::new(chain_spec::development_config(enable_manual_seal))
+                let x = Box::new(chain_spec::development_config(enable_manual_seal));
+                // panic!("eeeeeee");
+                x
             }
             "devnet" => Box::new(chain_spec::devnet_config()?),
             "testnet" => Box::new(chain_spec::testnet_config()?),
