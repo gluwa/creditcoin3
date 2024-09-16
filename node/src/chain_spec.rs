@@ -147,10 +147,13 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> ChainSpec {
         SS58Prefix::get() as u64,
     );
 
+    let config_json = serde_json::to_value(&rgc).expect("Could not build genesis config.");
+
     return ChainSpec::builder(wasm_binary, None)
         .with_name("Development")
         .with_id("dev")
         .with_chain_type(ChainType::Development)
+        .with_genesis_config(config_json)
         .with_properties(properties())
         .build();
 
@@ -239,10 +242,13 @@ pub fn local_testnet_config() -> ChainSpec {
         SS58Prefix::get() as u64,
     );
 
+    let config_json = serde_json::to_value(&rgc).expect("Could not build genesis config.");
+
     return ChainSpec::builder(wasm_binary, None)
         .with_name("Local Testnet")
         .with_id("local_testnet")
         .with_chain_type(ChainType::Local)
+        .with_genesis_config(config_json)
         .with_properties(properties())
         .build();
 
