@@ -58,10 +58,12 @@ impl SubstrateCli for Cli {
     }
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn ChainSpec>, String> {
-        Ok(match id {
+        let ret = match id {
             "dev" => {
                 let enable_manual_seal = self.sealing.map(|_| true);
-                Box::new(chain_spec::development_config(enable_manual_seal))
+                let x = Box::new(chain_spec::development_config(enable_manual_seal));
+                // panic!("eeeeeee");
+                x
             }
             "devnet" => Box::new(chain_spec::devnet_config()?),
             "testnet" => Box::new(chain_spec::testnet_config()?),
@@ -71,7 +73,8 @@ impl SubstrateCli for Cli {
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
             )?),
-        })
+        };
+        Ok(ret)
     }
 }
 
@@ -238,11 +241,12 @@ pub fn run() -> sc_cli::Result<()> {
             runner.sync_run(|mut config| {
                 let (client, _, _, _, frontier_backend) =
                     service::new_chain_ops(&mut config, &cli.eth)?;
-                let frontier_backend = match frontier_backend {
-                    fc_db::Backend::KeyValue(kv) => std::sync::Arc::new(kv),
+                let binding = frontier_backend.clone();
+                let frontier_backend = match &*binding {
+                    fc_db::Backend::KeyValue(kv) => kv,
                     _ => panic!("Only fc_db::Backend::KeyValue supported"),
                 };
-                cmd.run(client, frontier_backend)
+                cmd.run(client, frontier_backend.clone())
             })
         }
         None => {
