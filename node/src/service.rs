@@ -475,7 +475,7 @@ where
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
-        
+
         net_config.add_notification_protocol(grandpa_protocol_config);
         let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
