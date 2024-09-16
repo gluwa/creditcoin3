@@ -19,6 +19,7 @@ scale-info = { workspace = true }
 smallvec = "1.13.2"
 
 # Substrate
+sp-genesis-builder = { workspace = true }
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-babe = { workspace = true }
