@@ -1,4 +1,4 @@
-import timeDelta = require('time-delta');
+import * as timeDelta from 'time-delta';
 
 import { ApiPromise } from '@polkadot/api';
 import { BN } from '..';

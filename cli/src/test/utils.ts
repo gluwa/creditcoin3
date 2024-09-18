@@ -1,7 +1,8 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import execa = require('execa');
-import fs = require('fs');
-import os = require('os');
-import path = require('path');
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 import { commandSync } from 'execa';
 
