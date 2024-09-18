@@ -1,4 +1,5 @@
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABI = require('./artifacts/SubstrateTransfer.json');
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
