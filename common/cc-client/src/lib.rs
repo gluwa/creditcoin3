@@ -216,7 +216,6 @@ impl<'a> Client {
         &self,
         randomness: Randomness,
         epoch_index: u64,
-        for_block_height: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
         let committee_size = self._fetch_comittee_size().await.map_err(|e| {
@@ -243,10 +242,9 @@ impl<'a> Client {
             &self.pair,
             &self.get_attestor_id(),
             epoch_index,
-            for_block_height,
         )
         .map_err(|e| {
-            error!("Error getting babe vrf output: {:?}", e);
+            error!("Error creating proof of inclusion: {:?}", e);
             Error::FailedToGetBabeVrf
         })?;
 
@@ -423,6 +421,8 @@ pub enum Error {
     CannotAttest,
     #[error("Failed to submit RPC")]
     FailedToSubmit,
+    #[error("Attetation not included in block")]
+    AttestationNotIncluded,
     #[error("Failed to get Babe VRF")]
     FailedToGetBabeVrf,
     #[error("Failed to get block number")]

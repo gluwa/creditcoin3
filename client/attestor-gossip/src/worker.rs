@@ -344,7 +344,6 @@ where
             &randomness_from_two_epochs_ago,
             &attestation.proof_of_inclusion,
             &AttestorId::from_public(attestation.attestor.clone().into()),
-            attestation.attestation_data.header_number,
         )?;
 
         if !is_included {

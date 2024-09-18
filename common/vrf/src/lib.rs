@@ -81,10 +81,9 @@ pub fn make_proof_of_inclusion(
     keys: &sr25519::Pair,
     attestor_id: &AttestorId,
     epoch: u64,
-    source_block_height: u64,
 ) -> Result<ProofOfInclusion, Error> {
     // Create the transcript
-    let transcript = make_transcript(randomness, attestor_id, source_block_height);
+    let transcript = make_transcript(randomness, attestor_id);
 
     // Create the random number
     let random = keys.make_bytes(VRF_CONTEXT, &transcript);
@@ -129,7 +128,6 @@ pub fn make_proof_of_inclusion(
 /// * `randomness` - A source of randomness used in VRF.
 /// * `proof_of_inclusion` - The proof of inclusion to verify.
 /// * `attestor_id` - The ID of the attestor.
-/// * `source_block_height` - The block height used for generating the transcript.
 ///
 /// # Returns
 ///
@@ -140,13 +138,8 @@ pub fn verify_proof_of_inclusion(
     randomness: &Randomness,
     proof_of_inclusion: &ProofOfInclusion,
     attestor_id: &AttestorId,
-    source_block_height: u64,
 ) -> Result<bool, Error> {
-    let vrf_input = VrfSignData::new(make_transcript(
-        randomness,
-        attestor_id,
-        source_block_height,
-    ));
+    let vrf_input = VrfSignData::new(make_transcript(randomness, attestor_id));
 
     let vrf_signature = VrfSignature {
         output: VrfOutput(
@@ -206,15 +199,10 @@ pub fn verify_proof_of_inclusion(
 /// # Returns
 ///
 /// Returns a `VrfTranscript` object to be used in the VRF process.
-fn make_transcript(
-    randomness: &Randomness,
-    attestor_id: &AttestorId,
-    source_block_height: u64,
-) -> VrfTranscript {
+fn make_transcript(randomness: &Randomness, attestor_id: &AttestorId) -> VrfTranscript {
     VrfTranscript::new(
         b"attestation_engine",
         &[
-            (b"source_block_height", &source_block_height.encode()),
             (b"randomness", randomness.as_ref()),
             (b"id", &attestor_id.encode()),
         ],
@@ -257,7 +245,6 @@ mod tests {
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
-        let source_block_height = 1;
         let epoch = 1;
 
         let proof_of_inclusion = make_proof_of_inclusion(
@@ -267,7 +254,6 @@ mod tests {
             &keys,
             &attestor_id,
             epoch,
-            source_block_height,
         )
         .unwrap();
 
@@ -277,7 +263,6 @@ mod tests {
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
-            source_block_height
         )
         .unwrap());
     }
@@ -291,7 +276,6 @@ mod tests {
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
-        let source_block_height = 1;
         let epoch = 1;
 
         let res = make_proof_of_inclusion(
@@ -301,7 +285,6 @@ mod tests {
             &keys,
             &attestor_id,
             epoch,
-            source_block_height,
         );
 
         assert_eq!(res, Err(Error::NotSelected));
@@ -316,7 +299,6 @@ mod tests {
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
-        let source_block_height = 1;
         let epoch = 1;
 
         let proof_of_inclusion = make_proof_of_inclusion(
@@ -326,24 +308,10 @@ mod tests {
             &keys,
             &attestor_id,
             epoch,
-            source_block_height,
         )
         .unwrap();
 
-        // Increase the source block height to make the attestor not selected
-        let source_block_height = 2;
-
-        assert!(!verify_proof_of_inclusion(
-            threshold,
-            working_set_size,
-            &randomness,
-            &proof_of_inclusion,
-            &attestor_id,
-            source_block_height
-        )
-        .unwrap());
-
-        // Or change randomness
+        // Change randomness
         let randomness = Randomness::from(H256::random());
 
         assert!(!verify_proof_of_inclusion(
@@ -352,7 +320,6 @@ mod tests {
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
-            source_block_height
         )
         .unwrap());
     }

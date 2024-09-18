@@ -1,13 +1,18 @@
 use anyhow::Result;
+use attestor_primitives::Attestation;
 use eth::Client;
 use kameo::spawn;
-use tokio::sync::mpsc;
-use tracing::{debug, info};
+use sp_core::H256;
+use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
+use tracing::{debug, error, info};
 
 pub mod attestation;
 pub mod cc3;
 pub mod eth_sub;
 pub mod merkle;
+
+use cc_client::attestation::CcEvent;
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
@@ -35,83 +40,137 @@ impl Server {
         Server { config }
     }
 
-    /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&self) -> Result<()> {
         let eth_client = Client::new(&self.config.eth_rpc_url, &String::new()).await?;
-
         let chain_id = eth_client.get_chain_id().await?;
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
         let cc3_client =
             cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id).await?;
-
         cc3_client.init().await?;
 
         let attestation_interval = cc3_client.get_attestation_interval();
-        debug!("----- Attestation interval: {:?}", attestation_interval);
 
-        let chain_key = cc3_client.get_chain_key();
-        debug!("----- Chain key: {:?}", chain_key);
+        let (mut attestation_tx, mut attestation_rx) = tokio::sync::mpsc::channel(1);
 
-        let (sender, mut receiver) = mpsc::unbounded_channel();
-        let cc3_client_for_t1 = cc3_client.clone();
-        tokio::spawn(async move {
-            cc3_client_for_t1
-                .subscribe_randomness_change(sender, chain_id)
-                .await
-        });
+        // Start with an empty task
+        let mut task: JoinHandle<_> = tokio::spawn(async {});
+        // Check eligibility and start subscription if we are eligible
+        // Otherwise, we will wait for the next randomness change event
+        if cc3_client.sign_vrf().await.is_ok() {
+            info!("Attestor eligible to start attesting!");
+            task = subscribe_to_new_heads_task(
+                eth_client.clone(),
+                cc3_client.clone(),
+                attestation_tx.clone(),
+                attestation_interval,
+            )
+            .await?;
+        } else {
+            info!("Going to sleep because we are not eligible this epoch...");
+        }
 
-        let cc_client_clone = cc3_client.clone();
+        // Start cc3 event subscription
+        let mut event_sub = cc3_client.cc_client.subscribe_events(chain_id)?;
+
         loop {
-            // We use this as a trigger to restart the attestation process
-            // Eligibility for attestation is determined ever epoch change
-            // Randomness is refreshed every epoch change, this is the trigger
-            while let Some(randomness) = receiver.recv().await {
-                let last_attestation = cc_client_clone
-                    .get_last_attestation(cc_client_clone.get_chain_key())
-                    .await?;
+            // Biased tokio select, we will prioritze listening to randomness changed events
+            // because this will re-evaluate the eligibility for attestors
+            tokio::select! {
+                biased;
 
-                let target_header = if let Some(last_attestation) = last_attestation {
-                    info!("Last attestation: {:?}", last_attestation);
-                    last_attestation.header_number() + attestation_interval
-                } else {
-                    info!("No last attestation found, starting from 0");
-                    0
-                };
-
-                match cc_client_clone.sign_vrf_for_header(target_header).await {
-                    Ok(_) => {
-                        info!(
-                            "Attestor selected for attesting in this epoch slot: {}",
-                            randomness.0
-                        );
-                        // Create an Actor reference for the cc3 client
-                        let cc3_client = spawn(cc_client_clone.clone());
-                        let eth_client = eth_client.clone();
-
-                        // Create an attestor
-                        let attestor = spawn(attestation::Attestor::default());
+                Some(event) = event_sub.next() => {
+                    if let CcEvent::RandomnessChangedEvent((epoch, randomness)) = event {
+                        // Abort the previous task otherwise we will end up with multiple subscriptions
+                        task.abort();
 
                         info!(
-                            "Subscribing to new heads at target block: {}",
-                            target_header
+                            "Randomness changed: epoch {}, randomness: {}",
+                            epoch,
+                            hex::encode(randomness)
                         );
-                        // Subscribe to new eth head given the attestor and cc3 client
-                        eth_sub::subscribe_to_new_heads(
-                            eth_client,
-                            attestor,
-                            cc3_client,
-                            target_header,
-                            attestation_interval,
-                        )
-                        .await?;
-                    }
-                    Err(e) => {
-                        info!("Attestor not selected in this epoch slot.");
-                        debug!("Error: {:?}", e);
+
+                        // Re-evaluate eligibility and start a new subscription
+                        if cc3_client.sign_vrf().await.is_ok() {
+                            info!("Attestor eligible to start attesting!");
+
+                            // reopen the channel
+                            info!("Reopening attestation channel");
+                            (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(1);
+
+                            info!("Starting new subscription task");
+                            task = subscribe_to_new_heads_task(
+                                eth_client.clone(),
+                                cc3_client.clone(),
+                                attestation_tx.clone(),
+                                attestation_interval,
+                            ).await?;
+                        } else {
+                            info!("Going to sleep because we are not eligible this epoch...");
+                            // drain channel
+                            attestation_rx.close();
+                            while (attestation_rx.recv().await).is_some() {
+                                info!("Draining attestation channel");
+                            }
+                        }
+                    };
+                },
+                Some(attestation) = attestation_rx.recv() => {
+                    info!("Received attestation to submit");
+                    if let Some(attestation_to_submit) = attestation {
+                        match cc3_client.submit_attestation(attestation_to_submit).await
+                        {
+                            Ok(()) => {}
+                            Err(e) => {
+                                error!("Failed to submit attestation: {:?}", e);
+                            }
+                        }
                     }
                 }
-            }
+            };
         }
     }
+}
+
+/// Subscribes to new Ethereum heads and starts the attestation process.
+async fn subscribe_to_new_heads_task(
+    eth_client: Client,
+    cc3_client: cc3::Client,
+    sender: Sender<Option<Attestation<H256>>>,
+    attestation_interval: u64,
+) -> Result<JoinHandle<()>> {
+    let attestor = spawn(attestation::Attestor::default());
+
+    let last_attestation = cc3_client
+        .get_last_attestation(cc3_client.get_chain_key())
+        .await?;
+
+    let target_header = if let Some(last_attestation) = last_attestation {
+        info!(
+            "Last finalized attestation digest: {}",
+            last_attestation.digest()
+        );
+        last_attestation.header_number() + attestation_interval
+    } else {
+        info!("No last attestation found, starting from 0");
+        0
+    };
+
+    Ok(tokio::spawn(async move {
+        info!(
+            "Subscribing to new heads at target block: {}",
+            target_header
+        );
+        if let Err(e) = eth_sub::subscribe_to_new_heads(
+            eth_client,
+            attestor,
+            sender,
+            target_header,
+            attestation_interval,
+        )
+        .await
+        {
+            debug!("Error in subscribing to new heads: {:?}", e);
+        }
+    }))
 }

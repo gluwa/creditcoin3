@@ -85,7 +85,7 @@ impl Client {
 
                 for event in events.iter() {
                     let event = event.unwrap();
-                    info!(
+                    debug!(
                         "event pallet: {}, event variant: {}",
                         event.pallet_name(),
                         event.variant_name()
@@ -131,7 +131,7 @@ impl Client {
                                     .await
                                     .is_err()
                                 {
-                                    info!("The receiver has been dropped");
+                                    debug!("The receiver has been dropped");
                                     // The receiver has been dropped
                                     break;
                                 }

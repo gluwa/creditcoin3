@@ -1,17 +1,12 @@
 use anyhow::Result;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use exponential_backoff::Backoff;
-use kameo::{
-    actor::Actor,
-    message::{Context, Message},
-};
 use serde::Serialize;
 use sp_core::H256;
 use std::{thread, time::Duration};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use cc_client::{attestation::CcEvent, AccountId32, Client as CcClient, Error};
+use cc_client::{AccountId32, Client as CcClient, Error};
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId,
@@ -147,22 +142,6 @@ impl<'a> Client {
             .await
     }
 
-    pub async fn subscribe_randomness_change(
-        &self,
-        randomness_event_channel: mpsc::UnboundedSender<(u64, Randomness)>,
-        filter: ChainId,
-    ) -> Result<()> {
-        let mut subscription = self.cc_client.subscribe_events(filter)?;
-
-        // Process attestations in a loop
-        loop {
-            let event = subscription.next().await;
-            if let Some(CcEvent::RandomnessChangedEvent((epoch, randomness))) = event {
-                randomness_event_channel.send((epoch, randomness))?;
-            }
-        }
-    }
-
     pub async fn sign_attestation<H>(
         &self,
         attestation: AttestationPrimitive<H>,
@@ -178,8 +157,7 @@ impl<'a> Client {
         let signature_bls = self.bls_keypair.sign(msg);
 
         // Sign the VRF output
-        let vrf_output = self.sign_vrf_for_header(attestation.header_number).await?;
-        info!("attestation to submit: {:?}", attestation);
+        let vrf_output = self.sign_vrf().await?;
 
         // Create final attestation object
         Ok(Attestation {
@@ -192,7 +170,7 @@ impl<'a> Client {
         })
     }
 
-    pub async fn sign_vrf_for_header(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
+    pub async fn sign_vrf(&self) -> Result<ProofOfInclusion, Error> {
         let (randomness, epoch_index) = self
             .cc_client
             .fetch_babe_randomness_two_epoch_ego()
@@ -202,20 +180,15 @@ impl<'a> Client {
                 Error::FailedToGetBabeVrf
             })?;
 
-        self.cc_client
-            .sign_babe_vrf(randomness, epoch_index, header_number)
-            .await
+        self.cc_client.sign_babe_vrf(randomness, epoch_index).await
     }
 
     pub async fn sign_vrf_for_header_at_epoch_randmoness(
         &self,
         randomess: Randomness,
         epoch_index: u64,
-        header_number: u64,
     ) -> Result<ProofOfInclusion, Error> {
-        self.cc_client
-            .sign_babe_vrf(randomess, epoch_index, header_number)
-            .await
+        self.cc_client.sign_babe_vrf(randomess, epoch_index).await
     }
 
     pub async fn get_last_attestation(
@@ -244,6 +217,7 @@ impl<'a> Client {
         // because we have a different mapping in cc next
         attestation.chain_id = self.chain_config.chain_key;
         let chain_id = attestation.chain_id;
+        let round = (chain_id, attestation.header_number);
 
         if attestation.header_number % self.chain_config.attestation_interval != 0 {
             warn!(
@@ -261,26 +235,27 @@ impl<'a> Client {
         // Get the digest of the attestation
         let attestation_digest = attestation.digest();
 
-        // check if attestation already exists
-        // if yes, don't submit
-        let exists = self
-            .cc_client
-            .chain_attestation_exists(chain_id, attestation_digest)
-            .await?;
-
-        if exists {
-            warn!("Attestation already exists, skipping...");
-            return Ok(());
-        }
-
-        // Get the last digest from the chain
-        // and set it as the previous digest of the attestation
-        let prev_digest = self.cc_client.fetch_last_digest(chain_id).await?;
-        attestation.prev_digest = prev_digest;
-
         let mut inclusion = false;
         while !inclusion {
-            info!("Trying to submit attestation...");
+            // check if attestation already exists
+            // if yes, don't submit
+            let exists = self
+                .cc_client
+                .chain_attestation_exists(chain_id, attestation_digest)
+                .await?;
+
+            if exists {
+                warn!("Attestation already exists, skipping... round: {:?}", round);
+                return Ok(());
+            }
+
+            // Get the last digest from the chain
+            // and set it as the previous digest of the attestation
+            let prev_digest = self.cc_client.fetch_last_digest(chain_id).await?;
+            attestation.prev_digest = prev_digest;
+            info!("Updating previous digest for attestation to submit");
+
+            info!("Trying to submit attestation... round: {:?}", round);
             let attestation = self
                 .sign_attestation(attestation.clone())
                 .await
@@ -303,45 +278,12 @@ impl<'a> Client {
                     .await?;
         }
 
-        info!("✅ Attestation with digest {attestation_digest} included in chain");
+        info!(
+            "✅ Attestation for round {:?} with digest {attestation_digest} included in chain",
+            round
+        );
 
         Ok(())
-    }
-}
-
-impl Actor for Client {}
-
-// AttestationSubmit is a message that can be sent to submit an attestation over rpc to the cc3 node
-// It holds the attestation data to be signed by the attestor before submitting
-pub struct AttestationSubmit<H> {
-    pub attestation: Option<AttestationPrimitive<H>>,
-}
-
-impl<H> Message<AttestationSubmit<H>> for Client
-where
-    H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
-{
-    type Reply = Result<(), Error>;
-
-    /// Main attestation handler
-    /// This function will check eligibility for submitting attestations if eligible it will sign and submit to cc3
-    async fn handle(
-        &mut self,
-        msg: AttestationSubmit<H>,
-        _ctx: Context<'_, Self, Self::Reply>,
-    ) -> Self::Reply {
-        // If attestation is none, return
-        if msg.attestation.is_none() {
-            warn!("Attestation data is none, skipping...");
-            return Ok(());
-        }
-
-        self.submit_attestation(msg.attestation.unwrap())
-            .await
-            .map_err(|e| {
-                error!("Error submitting attestation: {:?}", e);
-                Error::CannotAttest
-            })
     }
 }
 
@@ -364,18 +306,15 @@ pub async fn check_attestation_inclusion(
     info!("Validating attestation submission now...");
     for duration in &backoff {
         // get last digest from cc3
-        let last_digest = cc_client.fetch_last_digest(chain_id).await?;
+        let digest_exists = cc_client
+            .chain_attestation_exists(chain_id, attestation_digest)
+            .await?;
 
-        if let Some(last_digest) = last_digest {
-            debug!(
-                "Last digest: {:?}, attestation_digest: {:?}",
-                last_digest, attestation_digest
-            );
-            if last_digest == attestation_digest {
-                debug!("Attestation confirmed on chain");
-                return Ok(true);
-            }
+        if digest_exists {
+            debug!("Attestation confirmed on chain");
+            return Ok(true);
         }
+
         thread::sleep(duration);
     }
 
