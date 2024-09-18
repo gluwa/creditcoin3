@@ -20,8 +20,9 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{Query, VerifierExitStatus};
     use sp_core::H256;
-    use sp_std::vec::Vec;
+    use sp_std::prelude::*;
     use supported_chains_primitives::provider::SupportedChainsProvider;
+    //use prover_primitives::
 
     // #[cfg(test)]
     // use crate::mock::verify_proof;
@@ -52,6 +53,15 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
+    #[pallet::storage]
+    #[pallet::getter(fn stark_program_metadata)]
+    pub type StarkProgramMetadata<T: Config> =
+        StorageMap<Hasher = Blake2_128Concat, Key = u8, Value = u64, QueryKind = ValueQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn last_version)]
+    pub type LastVersion<T: Config> = StorageValue<_, u8, ValueQuery>;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -60,6 +70,8 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         QueryVerified(H256, T::AccountId, VerifierExitStatus),
+
+        MetadataSet(u8, u64),
     }
 
     #[pallet::error]
@@ -91,6 +103,29 @@ pub mod pallet {
             ));
 
             QueryResultById::<T>::insert(query_id, VerifierExitStatus::Success);
+
+            Ok(())
+        }
+
+        #[pallet::call_index(1)]
+        #[pallet::weight(10_000)]
+        pub fn set_stark_program_metadata(
+            origin: OriginFor<T>,
+            program_auth_hash: u64,
+            program_version: u8,
+        ) -> DispatchResult {
+            let _ = ensure_root(origin)?;
+
+            ensure!(
+                !StarkProgramMetadata::<T>::contains_key(program_version),
+                "Program version already exists"
+            );
+
+            StarkProgramMetadata::<T>::insert(program_version, program_auth_hash);
+
+            LastVersion::<T>::put(program_version);
+
+            Self::deposit_event(Event::<T>::MetadataSet(program_version, program_auth_hash));
 
             Ok(())
         }
