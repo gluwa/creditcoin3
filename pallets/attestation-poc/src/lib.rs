@@ -534,7 +534,7 @@ pub mod pallet {
                     attestation.attestation.header_number
                 );
 
-                if attestation.attestation.header_number < prev_block_number + interval {
+                if attestation.attestation.header_number != prev_block_number + interval {
                     debug!(
                         "Block number is not at the interval, expected: {:?}, got: {:?}",
                         prev_block_number + interval,
@@ -810,7 +810,9 @@ pub mod pallet {
                 };
                 checkpointing_rollback.push(to_be_removed);
 
-                let removed = match Attestations::<T>::take(chain_id, to_be_removed) {
+                // TODO: Should use `take` rather than `get` when checkpoint use in prover is complete.
+                // Until then, removing attestations from storage breaks proving.
+                let removed = match Attestations::<T>::get(chain_id, to_be_removed) {
                     Some(attestation) => attestation,
                     None => {
                         for digest in checkpointing_rollback {
