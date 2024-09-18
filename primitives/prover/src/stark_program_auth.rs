@@ -12,8 +12,8 @@ pub struct StarkProgramMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StarkProgramMetadataStorage {
-    map: HashMap<StarkProgramAuthHash, StarkProgramMetadata>,
-    last_version: u8,
+    pub map: HashMap<StarkProgramAuthHash, StarkProgramMetadata>,
+    pub last_version: u8,
 }
 
 impl JsonSerializable for StarkProgramMetadataStorage {}
@@ -82,7 +82,7 @@ impl Default for StarkProgramMetadataStorage {
 
         Self {
             map,
-            last_version: Self::V2_DEV,
+            last_version: Self::V3_DEV,
         }
     }
 }
