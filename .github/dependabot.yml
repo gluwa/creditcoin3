@@ -10,6 +10,7 @@ updates:
     rebase-strategy: "disabled"
     groups:
       all-dependencies:
+        dependency-type: "production"
         applies-to: version-updates
 
   # Maintain dependencies for Docker images
@@ -21,6 +22,7 @@ updates:
     rebase-strategy: "disabled"
     groups:
       all-dependencies:
+        dependency-type: "production"
         applies-to: version-updates
 
   # Maintain dependencies for Rust
