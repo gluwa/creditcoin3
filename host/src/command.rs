@@ -1,10 +1,17 @@
+use anyhow::Result;
 use pallet_prover_primitives::Query;
-use prover_primitives::stark_program_auth::{StarkProgramAuth, StarkProgramMetadataStorage};
+use prover_primitives::stark_program_auth::{
+    StarkProgramAuth, StarkProgramMetadata, StarkProgramMetadataStorage,
+};
 use prover_primitives::types::{StoneProof, StoneProofJson};
+use sp_runtime_interface::sp_wasm_interface::anyhow;
+use std::collections::HashMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::{env, fs, path::PathBuf};
+use subxt::{OnlineClient, SubstrateConfig};
 use tempfile::NamedTempFile;
+use tokio::runtime::Runtime;
 
 const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
 
@@ -12,6 +19,57 @@ fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
     temp_file.write_all(proof)?;
     Ok(temp_file)
+}
+
+#[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
+pub mod cc3 {}
+
+pub struct Client {
+    url: String,
+    api: OnlineClient<SubstrateConfig>,
+}
+
+impl Client {
+    pub async fn new(url: &str) -> Result<Self> {
+        let api = if url.contains("ws") || url.contains("http") {
+            OnlineClient::<SubstrateConfig>::from_insecure_url(&url).await?
+        } else {
+            OnlineClient::<SubstrateConfig>::from_url(&url).await?
+        };
+
+        Ok(Self {
+            url: url.to_string(),
+            api,
+        })
+    }
+
+    pub(crate) async fn fetch_stark_program_metadata(&self) -> Result<StarkProgramMetadataStorage> {
+        let last_version = self
+            .api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&cc3::storage().prover().last_version())
+            .await?
+            .unwrap_or(1);
+
+        let mut map = HashMap::default();
+
+        for i in 1..=last_version {
+            let stark_program_metadata = self
+                .api
+                .storage()
+                .at_latest()
+                .await?
+                .fetch(&cc3::storage().prover().stark_program_metadata(i))
+                .await?
+                .unwrap_or(0);
+
+            map.insert(stark_program_metadata, StarkProgramMetadata { version: i });
+        }
+
+        Ok(StarkProgramMetadataStorage { map, last_version })
+    }
 }
 
 pub fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
@@ -26,6 +84,19 @@ pub fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
 }
 
 pub fn run_verifier(proof: Vec<u8>, query: Query) -> Result<String, String> {
+    let rt = Runtime::new().unwrap();
+
+    let program_metadata_storage = rt.block_on(async {
+        let cc_client = Client::new("ws://localhost:9944")
+            .await
+            .expect("Client to be created");
+
+        cc_client
+            .fetch_stark_program_metadata()
+            .await
+            .expect("Metadata to be fetched")
+    });
+
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // this code can be called from any directory within this project.
@@ -50,16 +121,17 @@ pub fn run_verifier(proof: Vec<u8>, query: Query) -> Result<String, String> {
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
+    // Read the proof from the temporary file
     let proof_json = fs::read_to_string(temp_file_path)
         .map_err(|e| format!("Failed to read proof from temp file: {}", e))?;
 
+    // Parse the proof JSON
     let proof: StoneProofJson = serde_json::from_str(&proof_json)
         .map_err(|e| format!("Failed to parse proof json: {}", e))?;
 
     let stone_proof = StoneProof::from(proof);
 
-    let program_metadata_storage = StarkProgramMetadataStorage::default();
-
+    // Authenticate the STARK program
     let metadata = StarkProgramAuth::authenticate(
         &stone_proof,
         &program_metadata_storage,
@@ -132,6 +204,5 @@ pub mod tests {
         println!("result: {:?}", result);
 
         assert!(result.is_ok());
-
     }
 }
