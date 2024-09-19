@@ -12,15 +12,13 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
 
+use frame_support::genesis_builder_helper::{build_state, get_preset};
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
 use sp_core::{
     crypto::{ByteArray, KeyTypeId},
     OpaqueMetadata, H160, H256, U256,
-};
-use frame_support::{
-	genesis_builder_helper::{build_state, get_preset},
 };
 use sp_runtime::{
     generic, impl_opaque_keys,
@@ -69,6 +67,7 @@ use pallet_evm::{
 use pallet_session::historical as session_historical;
 
 // A few exports that help ease life for downstream crates.
+use ethereum::TransactionV2;
 pub use frame_system::Call as SystemCall;
 pub use pallet_babe::AuthorityId as BabeId;
 pub use pallet_balances::Call as BalancesCall;
@@ -77,7 +76,6 @@ pub use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::Multiplier;
-use ethereum::TransactionV2;
 
 mod precompiles;
 use precompiles::FrontierPrecompiles;
@@ -342,8 +340,8 @@ impl pallet_balances::Config for Runtime {
     type MaxLocks = MaxLocks;
     type MaxReserves = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
-	type FreezeIdentifier = RuntimeFreezeReason;
-	type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
+    type FreezeIdentifier = RuntimeFreezeReason;
+    type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
 parameter_types! {
@@ -817,9 +815,8 @@ impl pallet_identity::Config for Runtime {
     type SigningPublicKey = <sp_runtime::MultiSignature as Verify>::Signer;
     type UsernameAuthorityOrigin = frame_system::EnsureRoot<Self::AccountId>;
     type PendingUsernameExpiration = ConstU32<{ 7 * DAYS }>;
-    type MaxSuffixLength =  ConstU32<7>;
+    type MaxSuffixLength = ConstU32<7>;
     type MaxUsernameLength = ConstU32<32>;
-
 }
 
 parameter_types! {
@@ -1586,18 +1583,18 @@ impl_runtime_apis! {
     }
 
     impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
-		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
-			build_state::<RuntimeGenesisConfig>(config)
-		}
+        fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+            build_state::<RuntimeGenesisConfig>(config)
+        }
 
-		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, |_| None)
-		}
+        fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+            get_preset::<RuntimeGenesisConfig>(id, |_| None)
+        }
 
-		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			vec![]
-		}
-	}
+        fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
+            vec![]
+        }
+    }
 
 }
 
