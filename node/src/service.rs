@@ -400,7 +400,9 @@ where
         &config.chain_spec,
     );
 
-    let metrics = NotificationMetrics::new(None);// todo add registry
+    let metrics = Net::register_notification_metrics(
+		config.prometheus_config.as_ref().map(|cfg| &cfg.registry),
+	);
 
     let (grandpa_protocol_config, grandpa_notification_service) =
     sc_consensus_grandpa::grandpa_peers_set_config::<_, Net>(
@@ -424,7 +426,7 @@ where
         Some(WarpSyncParams::WithProvider(warp_sync))
     };
 
-    let metrics = NotificationMetrics::new(None);// todo add registry
+    let metrics = Net::register_notification_metrics(config.prometheus_registry());
     let (network, system_rpc_tx, tx_handler_controller, network_starter, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
             config: &config,
