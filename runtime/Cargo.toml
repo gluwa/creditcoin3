@@ -84,14 +84,6 @@ creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
 ethereum = { workspace = true }
 
-# [dependencies.sp-io]
-# default-features = false
-# version = '3.0.0'
-
-# [dependencies.schnorrkel]
-# default-features = false
-# version = '0.11.4'
-
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
 
@@ -160,8 +152,6 @@ std = [
 	"creditcoin3-evm-tracer/std",
 	"creditcoin3-rpc-primitives-debug/std",
 	"pallet-evm-precompile-substrate-transfer/std",
-	# "sp-io/std",
-	# "schnorrkel/std",
 	"ethereum/std",
 ]
 runtime-benchmarks = [

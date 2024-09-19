@@ -47,7 +47,6 @@ use substrate_prometheus_endpoint::{
 };
 
 use ethereum_types::H256;
-// use fc_rpc::OverrideHandle;
 use fp_rpc::EthereumRuntimeRPCApi;
 
 use creditcoin3_client_evm_tracing::{
@@ -810,16 +809,6 @@ where
 
         let height = *block_header.number();
         let substrate_parent_hash = *block_header.parent_hash();
-
-        // let x = client.storage(substrate_hash, &StorageKey(b":ethereum_schema".to_vec()));
-        // let schema = match x {
-        //     Ok(Some(bytes)) => parity_scale_codec::Decode::decode(&mut &bytes.0[..])
-        //         .ok()
-        //         .unwrap_or(fp_storage::EthereumStorageSchema::Undefined),
-        //     _ => fp_storage::EthereumStorageSchema::Undefined,
-        // };
-        // let schema =
-        //     fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), substrate_hash);
 
         // Get Ethereum block data.
         let (eth_block, eth_transactions) = match (
