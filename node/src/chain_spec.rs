@@ -203,7 +203,6 @@ pub fn local_testnet_config() -> ChainSpec {
         .with_genesis_config(config_json)
         .with_properties(properties())
         .build();
-    
 }
 
 fn genesis_account(balance: U256) -> fp_evm::GenesisAccount {
