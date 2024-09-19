@@ -39,9 +39,7 @@ mod eth;
 
 use crate::client::RuntimeApiCollection;
 
-pub use self::eth::{
-    consensus_data_provider::BabeConsensusDataProvider, create_eth, EthDeps,
-};
+pub use self::eth::{consensus_data_provider::BabeConsensusDataProvider, create_eth, EthDeps};
 
 type HasherFor<Block> = <<Block as BlockT>::Header as HeaderT>::Hashing;
 
