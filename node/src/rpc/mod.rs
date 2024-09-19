@@ -28,7 +28,6 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
-// use fc_rpc::OverrideHandle;
 use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
 use sc_client_api::BlockOf;
 use sp_block_builder::BlockBuilder;
@@ -94,7 +93,6 @@ pub struct SpawnTasksParams<'a, B: BlockT, C, BE> {
     pub frontier_backend: Arc<fc_db::Backend<B, C>>,
     pub filter_pool: Option<FilterPool>,
     pub overrides: Arc<dyn StorageOverride<B>>,
-    // pub overrides: Arc<OverrideHandle<B>>,
     pub fee_history_limit: u64,
     pub fee_history_cache: FeeHistoryCache,
 }
