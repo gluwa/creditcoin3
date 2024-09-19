@@ -1,4 +1,6 @@
 use anyhow::Result;
+use hex::ToHex;
+use sp_core::H256;
 use tracing::{debug, info};
 
 use attestation_chain::{attestation_fragment::AttestationFragment, AttestationChainParams};
@@ -91,7 +93,12 @@ pub async fn get_for_claim(
     ));
 
     // First digest is the start checkpoint
-    let mut start_digest = start_checkpoint.prev_digest.clone().unwrap_or_default();
+    let mut start_digest = start_checkpoint
+        .prev_digest
+        // If the start checkpoint has no prev digest, use the zero digest
+        // Only in the case of the first checkpoint
+        .unwrap_or(H256::zero().encode_hex());
+
     info!(
         "Start digest: {}, End digest: {}",
         start_digest, end_checkpoint.digest
