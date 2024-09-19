@@ -1,7 +1,7 @@
 use anyhow::Result;
 use pallet_prover_primitives::Query;
 use prover_primitives::stark_program_auth::{
-    StarkProgramAuth, StarkProgramMetadata, StarkProgramMetadataStorage,
+    StarkProgramAuth, StarkProgramAuthHash, StarkProgramMetadata, StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{StoneProof, StoneProofJson};
 use sp_runtime_interface::sp_wasm_interface::anyhow;
@@ -9,9 +9,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::{env, fs, path::PathBuf};
-use subxt::{OnlineClient, SubstrateConfig};
 use tempfile::NamedTempFile;
-use tokio::runtime::Runtime;
 
 const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
 
@@ -19,57 +17,6 @@ fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
     temp_file.write_all(proof)?;
     Ok(temp_file)
-}
-
-#[subxt::subxt(runtime_metadata_path = "artifacts/metadata.scale")]
-pub mod cc3 {}
-
-pub struct Client {
-    url: String,
-    api: OnlineClient<SubstrateConfig>,
-}
-
-impl Client {
-    pub async fn new(url: &str) -> Result<Self> {
-        let api = if url.contains("ws") || url.contains("http") {
-            OnlineClient::<SubstrateConfig>::from_insecure_url(&url).await?
-        } else {
-            OnlineClient::<SubstrateConfig>::from_url(&url).await?
-        };
-
-        Ok(Self {
-            url: url.to_string(),
-            api,
-        })
-    }
-
-    pub(crate) async fn fetch_stark_program_metadata(&self) -> Result<StarkProgramMetadataStorage> {
-        let last_version = self
-            .api
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&cc3::storage().prover().last_version())
-            .await?
-            .unwrap_or(1);
-
-        let mut map = HashMap::default();
-
-        for i in 1..=last_version {
-            let stark_program_metadata = self
-                .api
-                .storage()
-                .at_latest()
-                .await?
-                .fetch(&cc3::storage().prover().stark_program_metadata(i))
-                .await?
-                .unwrap_or(0);
-
-            map.insert(stark_program_metadata, StarkProgramMetadata { version: i });
-        }
-
-        Ok(StarkProgramMetadataStorage { map, last_version })
-    }
 }
 
 pub fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
@@ -83,20 +30,12 @@ pub fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-pub fn run_verifier(proof: Vec<u8>, query: Query) -> Result<String, String> {
-    let rt = Runtime::new().unwrap();
-
-    let program_metadata_storage = rt.block_on(async {
-        let cc_client = Client::new("ws://localhost:9944")
-            .await
-            .expect("Client to be created");
-
-        cc_client
-            .fetch_stark_program_metadata()
-            .await
-            .expect("Metadata to be fetched")
-    });
-
+pub fn run_verifier(
+    proof: Vec<u8>,
+    _query: Query,
+    metadata: Vec<(u8, u64)>,
+    last_version: u8,
+) -> Result<String, String> {
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // this code can be called from any directory within this project.
@@ -130,6 +69,19 @@ pub fn run_verifier(proof: Vec<u8>, query: Query) -> Result<String, String> {
         .map_err(|e| format!("Failed to parse proof json: {}", e))?;
 
     let stone_proof = StoneProof::from(proof);
+
+    // Prepare cairo program metadata
+    let map: HashMap<StarkProgramAuthHash, StarkProgramMetadata> = metadata
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                v as StarkProgramAuthHash,
+                StarkProgramMetadata { version: k },
+            )
+        })
+        .collect();
+
+    let program_metadata_storage = StarkProgramMetadataStorage { map, last_version };
 
     // Authenticate the STARK program
     let metadata = StarkProgramAuth::authenticate(
@@ -199,7 +151,11 @@ pub mod tests {
             layout_segments: vec![],
         };
 
-        let result = super::run_verifier(proof_example, query);
+        let metadata = vec![];
+
+        let last_version = 0;
+
+        let result = super::run_verifier(proof_example, query, metadata, last_version);
 
         println!("result: {:?}", result);
 
