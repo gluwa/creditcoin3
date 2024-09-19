@@ -382,8 +382,6 @@ where
                 grandpa_link,
                 babe_link,
                 frontier_backend,
-                // frontier_backend_2,
-                // frontier_backend_3,
                 overrides,
                 babe_worker,
             ),
