@@ -16,6 +16,7 @@ rlp = { version = "0.5.2", default-features = false }
 
 # Workspace dependencies
 frame-support = { workspace = true, default-features = false }
+pallet-prover-primitives = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
 precompile-utils = { workspace = true }
 scale-info = { workspace = true, default-features = false }
@@ -26,7 +27,6 @@ sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
-pallet-prover-primitives = { workspace = true, default-features = false }
 
 # Common dependencies
 mmr = { path = "../../common/mmr", default-features = false }

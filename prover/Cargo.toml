@@ -61,8 +61,8 @@ attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 eth = { workspace = true }
 mmr = { workspace = true }
-proof = { workspace = true }
 pallet-prover-primitives = { workspace = true }
+proof = { workspace = true }
 prover-primitives = { workspace = true }
 serde_json.workspace = true
 utils = { workspace = true }

@@ -17,8 +17,8 @@ precompile-utils = { workspace = true }
 scale-info = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
-sp-std = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true, default-features = false }
+sp-std = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]

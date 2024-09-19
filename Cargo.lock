@@ -8922,7 +8922,6 @@ version = "3.31.0"
 dependencies = [
  "anyhow",
  "hashbrown 0.14.5",
- "hex",
  "log",
  "pallet-prover-primitives",
  "prover-primitives",
