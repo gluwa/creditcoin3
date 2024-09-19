@@ -8929,9 +8929,7 @@ dependencies = [
  "serde_json",
  "sp-runtime-interface",
  "sp-std",
- "subxt",
  "tempfile",
- "tokio",
 ]
 
 [[package]]

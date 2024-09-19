@@ -121,11 +121,11 @@ mod tests {
     #[test]
     fn append_metadata_test() {
         let mut map = StarkProgramMetadataStorage::default();
-        map.try_append(42, StarkProgramMetadata { version: 3 })
+        map.try_append(42, StarkProgramMetadata { version: 4 })
             .unwrap();
         assert_eq!(
             map.metadata(&42),
-            Some(&StarkProgramMetadata { version: 3 })
+            Some(&StarkProgramMetadata { version: 4 })
         );
 
         assert!(map
