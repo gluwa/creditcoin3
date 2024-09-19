@@ -27,7 +27,6 @@ use creditcoin3_client_evm_tracing::{formatters::ResponseFormatter, types::singl
 use creditcoin3_rpc_core_types::{RequestBlockId, RequestBlockTag};
 use creditcoin3_rpc_primitives_debug::{DebugRuntimeApi, TracerInput};
 use ethereum_types::H256;
-// use fc_rpc::{frontier_backend_client, internal_err, OverrideHandle};
 use fc_rpc::{frontier_backend_client, internal_err};
 use fp_rpc::EthereumRuntimeRPCApi;
 use sc_client_api::backend::{Backend, StateBackend, StorageProvider};
@@ -336,9 +335,6 @@ where
         // Get parent blockid.
         let parent_block_hash = *header.parent_hash();
 
-        // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), hash);
-        // let schema = client.storage_schema::<B, C, BE>(hash);
-
         // Using storage overrides we align with `:ethereum_schema` which will result in proper
         // SCALE decoding in case of migration.
         let statuses = overrides
@@ -477,16 +473,6 @@ where
                 "Runtime api version call failed (trace)".to_string(),
             ));
         };
-
-        // let x = client.storage(reference_hash, &sc_client_api::StorageKey(b":ethereum_schema".to_vec()));
-        // let schema = match x {
-        //     Ok(Some(bytes)) => parity_scale_codec::Decode::decode(&mut &bytes.0[..])
-        //         .ok()
-        //         .unwrap_or(fp_storage::EthereumStorageSchema::Undefined),
-        //     _ => fp_storage::EthereumStorageSchema::Undefined,
-        // };
-        // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), reference_hash);
-
 
         // Get the block that contains the requested transaction. Using storage overrides we align
         // with `:ethereum_schema` which will result in proper SCALE decoding in case of migration.
