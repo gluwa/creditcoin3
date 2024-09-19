@@ -24,23 +24,26 @@
 //! - For each traced block an async task responsible to wait for a permit, spawn a blocking
 //!   task and waiting for the result, then send it to the main `CacheTask`.
 
+use fc_storage::StorageOverride;
 use futures::{select, stream::FuturesUnordered, FutureExt, StreamExt};
 use std::{collections::BTreeMap, future::Future, marker::PhantomData, sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot, Semaphore},
     time::sleep,
 };
-use fc_storage::StorageOverride;
 use tracing::{instrument, Instrument};
 
-use sc_client_api::{backend::{Backend, StateBackend, StorageProvider}, StorageKey};
+use sc_client_api::{
+    backend::{Backend, StateBackend, StorageProvider},
+    StorageKey,
+};
 use sc_utils::mpsc::TracingUnboundedSender;
-use sp_runtime::traits::{Header as HeaderT};
 use sp_api::{ApiExt, Core, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{
     Backend as BlockchainBackend, Error as BlockChainError, HeaderBackend, HeaderMetadata,
 };
+use sp_runtime::traits::Header as HeaderT;
 use sp_runtime::traits::{BlakeTwo256, Block as BlockT};
 use substrate_prometheus_endpoint::{
     register, Counter, PrometheusError, Registry as PrometheusRegistry, U64,
@@ -812,17 +815,17 @@ where
 
         // Get Ethereum block data.
         let (eth_block, eth_transactions) = match (
-			overrides.current_block(substrate_hash),
-			overrides.current_transaction_statuses(substrate_hash),
-		) {
-			(Some(a), Some(b)) => (a, b),
-			_ => {
-				return Err(format!(
-					"Failed to get Ethereum block data for Substrate block {}",
-					substrate_hash
-				))
-			}
-		};
+            overrides.current_block(substrate_hash),
+            overrides.current_transaction_statuses(substrate_hash),
+        ) {
+            (Some(a), Some(b)) => (a, b),
+            _ => {
+                return Err(format!(
+                    "Failed to get Ethereum block data for Substrate block {}",
+                    substrate_hash
+                ))
+            }
+        };
 
         let eth_block_hash = eth_block.header.hash();
         let eth_tx_hashes = eth_transactions
