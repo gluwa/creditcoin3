@@ -154,11 +154,13 @@ where
 
     let overrides = Arc::new(StorageOverrideHandler::new(client.clone()));
     let frontier_backend = match eth_config.frontier_backend_type.clone() {
-        BackendType::KeyValue => FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
-            Arc::clone(&client),
-            &config.database,
-            &db_config_dir(config),
-        )?)),
+        BackendType::KeyValue => {
+            FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
+                Arc::clone(&client),
+                &config.database,
+                &db_config_dir(config),
+            )?))
+        }
         BackendType::Sql => {
             let db_path = db_config_dir(config).join("sql");
             std::fs::create_dir_all(&db_path).expect("failed creating sql db directory");
@@ -393,7 +395,8 @@ where
         fee_history_cache_limit,
     } = new_frontier_partial(&eth_config)?;
 
-    let mut net_config = sc_network::config::FullNetworkConfiguration::<_, _, Net>::new(&config.network);
+    let mut net_config =
+        sc_network::config::FullNetworkConfiguration::<_, _, Net>::new(&config.network);
     let peer_store_handle = net_config.peer_store_handle();
     let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
         &client.block_hash(0)?.expect("Genesis block exists; qed"),
@@ -401,21 +404,20 @@ where
     );
 
     let metrics = Net::register_notification_metrics(
-		config.prometheus_config.as_ref().map(|cfg| &cfg.registry),
-	);
+        config.prometheus_config.as_ref().map(|cfg| &cfg.registry),
+    );
 
     let (grandpa_protocol_config, grandpa_notification_service) =
-    sc_consensus_grandpa::grandpa_peers_set_config::<_, Net>(
-        grandpa_protocol_name.clone(),
-        metrics.clone(),
-        Arc::clone(&peer_store_handle),
-    );
+        sc_consensus_grandpa::grandpa_peers_set_config::<_, Net>(
+            grandpa_protocol_name.clone(),
+            metrics.clone(),
+            Arc::clone(&peer_store_handle),
+        );
 
     use sc_network_sync::strategy::warp::WarpSyncProvider;
     let warp_sync_params = if sealing.is_some() {
         None
     } else {
-
         net_config.add_notification_protocol(grandpa_protocol_config);
         let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
@@ -438,7 +440,7 @@ where
             block_announce_validator_builder: None,
             warp_sync_params,
             block_relay: None,
-			metrics,
+            metrics,
         })?;
 
     if config.offchain_worker.enabled {
@@ -867,9 +869,11 @@ pub async fn build_full(
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor, sc_network::NetworkWorker<_, _>,>(
-        config, eth_config, sealing,
-    )
+    new_full::<
+        creditcoin3_runtime::RuntimeApi,
+        TemplateRuntimeExecutor,
+        sc_network::NetworkWorker<_, _>,
+    >(config, eth_config, sealing)
     .await
 }
 
@@ -883,7 +887,7 @@ pub fn new_chain_ops(
         BasicQueue<Block>,
         TaskManager,
         Arc<FrontierBackend<Client>>, //important to return Arc and use only one instance of frontier_backend
-        //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
+                                      //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
     ),
     ServiceError,
 > {
