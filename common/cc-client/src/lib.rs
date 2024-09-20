@@ -16,11 +16,13 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use cc3::runtime_types::attestor_primitives::{
-    Attestation as CcAttestation, SignedAttestation as CcSignedAttestation,
+    Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
+    SignedAttestation as CcSignedAttestation,
 };
 
 use attestor_primitives::{
-    Attestation, AttestorId, BlsPublicKey, BlsSignature, ChainId, Digest, SignedAttestation,
+    Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainId, Digest,
+    SignedAttestation,
 };
 use creditcoin3_attestor_gossip::Attestation as RpcAttestation;
 use vrf::{make_proof_of_inclusion, ProofOfInclusion};
@@ -308,6 +310,24 @@ impl<'a> Client {
         Ok(result.map(Into::into))
     }
 
+    pub async fn get_checkpoint_by_digest(
+        &self,
+        chain_id: ChainId,
+        digest: Digest,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        let storage_query = cc3::storage().attestation().checkpoints(chain_id, digest);
+
+        let result = self
+            .api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result.map(Into::into))
+    }
+
     pub async fn submit_attestation<H, A>(&self, attestation: RpcAttestation<H, A>) -> Result<()>
     where
         H: Serialize,
@@ -411,6 +431,16 @@ where
             header_hash: attestation.header_hash,
             root: attestation.root,
             prev_digest: attestation.prev_digest.map(Into::into),
+        }
+    }
+}
+
+impl From<CcAttestationCheckpoint> for AttestationCheckpoint {
+    fn from(checkpoint: CcAttestationCheckpoint) -> Self {
+        AttestationCheckpoint {
+            block_number: checkpoint.block_number,
+            digest: checkpoint.digest,
+            prev_digest: checkpoint.prev_digest,
         }
     }
 }
