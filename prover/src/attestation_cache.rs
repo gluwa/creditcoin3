@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     cc3,
-    postgres::{attestation, blockwithdigests, db::PgPool},
+    postgres::{attestation, blockwithdigest, db::PgPool},
     AttestationCacheType, CcClientArc,
 };
 
@@ -33,7 +33,7 @@ where
     H: AsRef<[u8]> + Clone + Copy,
     A: AsRef<[u8]> + Clone,
 {
-    pub async fn get_checkpoint_by_digest(
+    pub async fn get_attestation_by_digest(
         &self,
         digest: Digest,
     ) -> Result<attestation::Attestation> {
@@ -43,13 +43,13 @@ where
         Ok(attestation)
     }
 
-    pub async fn digest_exists(&self, digest: Digest) -> Result<bool> {
+    pub async fn attestation_digest_exists(&self, digest: Digest) -> Result<bool> {
         let mut connection = self.pool.get().await?;
 
         attestation::exists_by_digest(&mut connection, digest.encode_hex()).await
     }
 
-    pub async fn get_by_header_number(
+    pub async fn get_attestation_by_header_number(
         &self,
         header_number: i64,
         chain_id: i64,
@@ -61,19 +61,19 @@ where
         Ok(attestation)
     }
 
-    pub async fn insert(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
+    pub async fn insert_attestation(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
         attestation::insert(&mut connection, attestation.into()).await?;
 
         Ok(())
     }
 
-    pub async fn first_checkpoint_exists(&self, chain_id: ChainId) -> Result<bool> {
+    pub async fn first_attestation_exists(&self, chain_id: ChainId) -> Result<bool> {
         let mut connection = self.pool.get().await?;
         attestation::first_digest_exists(&mut connection, chain_id).await
     }
 
-    pub async fn last_synced_attestation_checkpoint(
+    pub async fn last_synced_attestation(
         &self,
         chain_id: ChainId,
     ) -> Result<Option<attestation::Attestation>> {
@@ -86,18 +86,18 @@ where
         chain_id: ChainId,
         start: u64,
         end: u64,
-    ) -> Result<Vec<blockwithdigests::BlockWithDigests>> {
+    ) -> Result<Vec<blockwithdigest::BlockWithDigest>> {
         let mut connection = self.pool.get().await?;
-        blockwithdigests::get_attestation_range(&mut connection, chain_id, start as i64, end as i64)
+        blockwithdigest::get_blocks_in_range(&mut connection, chain_id, start as i64, end as i64)
             .await
     }
 
     pub async fn upsert_fragment(
         &self,
-        fragment: &Vec<blockwithdigests::BlockWithDigests>,
+        fragment: &Vec<blockwithdigest::BlockWithDigest>,
     ) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        blockwithdigests::upsert_attestation(&mut connection, fragment).await
+        blockwithdigest::upsert_fragment_blocks(&mut connection, fragment).await
     }
 }
 
@@ -119,14 +119,14 @@ pub async fn sync_cache(
     while let Some(attestation) = attestation_rx.recv().await {
         // check if exists in cache
         if attestations_cache
-            .digest_exists(attestation.digest())
+            .attestation_digest_exists(attestation.digest())
             .await?
         {
             warn!("Attestation already exists in cache, skipping");
             continue;
         }
 
-        attestations_cache.insert(attestation).await?;
+        attestations_cache.insert_attestation(attestation).await?;
     }
 
     sync_handle.await??;
@@ -155,12 +155,11 @@ pub async fn build_historical_cache_for_chain(
         .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
 
     // Check if the first digest exists (one with prev_digest = Null) (meaning the front of the chain)
-    let head_of_chain_exists = attestations_cache.first_checkpoint_exists(chain).await?;
+    let head_of_chain_exists = attestations_cache.first_attestation_exists(chain).await?;
 
     // Fetch the last synced attestation from the cache
-    let last_attestation_synced_in_cache = attestations_cache
-        .last_synced_attestation_checkpoint(chain)
-        .await?;
+    let last_attestation_synced_in_cache =
+        attestations_cache.last_synced_attestation(chain).await?;
 
     if !head_of_chain_exists && last_attestation_synced_in_cache.is_some() {
         let digest = H256::from_slice(
@@ -188,7 +187,7 @@ pub async fn build_historical_cache_for_chain(
         let digest = last_chain_attestation.attestation.digest();
 
         // Check if the digest already exists in the cache
-        let exists_in_cache = attestations_cache.digest_exists(digest).await?;
+        let exists_in_cache = attestations_cache.attestation_digest_exists(digest).await?;
         info!(
             "Checking if digest {} exists in cache: {}",
             digest, exists_in_cache
@@ -214,7 +213,7 @@ pub async fn build_historical_cache_for_chain(
                 last_chain_attestation.header_number(),
             );
             attestations_cache
-                .insert(last_chain_attestation.clone())
+                .insert_attestation(last_chain_attestation.clone())
                 .await?;
         }
 

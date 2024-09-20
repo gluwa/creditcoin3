@@ -9,7 +9,7 @@ use eth::Client;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::Query;
 
-use crate::attestation::create_block_attestation;
+use crate::attestation::create_block_with_prev_digest;
 use crate::{postgres, AttestationCacheType, EthClientArc};
 
 // Get the attestation fragment for a claim
@@ -27,11 +27,11 @@ pub async fn get_for_claim(
     let (lower_bound, upper_bound) = get_interval_bounds(query.height, interval);
 
     // Get the checkpoints for the interval
-    let start_checkpoint = attestation_cache
-        .get_by_header_number(lower_bound as i64, chain_id as i64)
+    let start_attestation = attestation_cache
+        .get_attestation_by_header_number(lower_bound as i64, chain_id as i64)
         .await?;
-    let end_checkpoint = attestation_cache
-        .get_by_header_number(upper_bound as i64, chain_id as i64)
+    let end_attestation = attestation_cache
+        .get_attestation_by_header_number(upper_bound as i64, chain_id as i64)
         .await?;
 
     // Get fragment from cache
@@ -40,7 +40,7 @@ pub async fn get_for_claim(
         .await?;
 
     // If the fragment is not in the cache, create it
-    let attestations = if db_fragment.is_empty() {
+    let fragment_blocks = if db_fragment.is_empty() {
         construct_fragment(eth_client, chain_id, lower_bound, upper_bound).await?
     } else {
         db_fragment
@@ -48,43 +48,46 @@ pub async fn get_for_claim(
 
     info!(
         "Attestation fragment found in cache, fragment length: {}",
-        attestations.len()
+        fragment_blocks.len()
     );
 
-    // Check if the first attestation digest matches the start checkpoint digest
-    let first_attestation = attestations
+    // Check if the first block digest matches the start checkpoint digest
+    let first_fragment_block = fragment_blocks
         .first()
-        .ok_or_else(|| anyhow::anyhow!("No first attestation found"))?;
-    info!("First attestation digest: {}", first_attestation.digest);
+        .ok_or_else(|| anyhow::anyhow!("No first block found"))?;
+    info!(
+        "First fragment block digest: {}",
+        first_fragment_block.digest
+    );
 
-    if start_checkpoint.digest.as_bytes() != first_attestation.digest.as_bytes() {
+    if start_attestation.digest.as_bytes() != first_fragment_block.digest.as_bytes() {
         debug!(
-            "Start checkpoint digest: {}, first attestation digest: {}",
-            start_checkpoint.digest, first_attestation.digest
+            "Start attestation digest: {}, first attestation digest: {}",
+            start_attestation.digest, first_fragment_block.digest
         );
         return Err(anyhow::anyhow!(
-            "Start checkpoint digest does not match first attestation digest"
+            "Start attestation digest does not match first fragment block digest"
         ));
     };
 
-    // Check if the last attestation digest matches the end checkpoint digest
-    let last_attestation = attestations
+    // Check if the last block digest matches the end attestation digest
+    let last_fragment_block = fragment_blocks
         .last()
-        .ok_or_else(|| anyhow::anyhow!("No last attestation found"))?;
-    info!("Last attestation digest: {}", last_attestation.digest);
+        .ok_or_else(|| anyhow::anyhow!("No last block found"))?;
+    info!("Last fragment block digest: {}", last_fragment_block.digest);
 
-    if end_checkpoint.digest.as_bytes() != last_attestation.digest.as_bytes() {
+    if end_attestation.digest.as_bytes() != last_fragment_block.digest.as_bytes() {
         debug!(
-            "End checkpoint digest: {}, last attestation digest: {}",
-            end_checkpoint.digest, last_attestation.digest
+            "End attestation digest: {}, last fragment block digest: {}",
+            end_attestation.digest, last_fragment_block.digest
         );
         return Err(anyhow::anyhow!(
-            "End checkpoint digest does not match last attestation digest"
+            "End attestation digest does not match last fragment block digest"
         ));
     };
 
     // Everything checks out, upsert the fragment in the Database so the next time we don't have to create it
-    attestation_cache.upsert_fragment(&attestations).await?;
+    attestation_cache.upsert_fragment(&fragment_blocks).await?;
 
     // Create the attestation fragment object
     let mut attestation_fragment = AttestationFragment::new(AttestationChainParams::new(
@@ -93,7 +96,7 @@ pub async fn get_for_claim(
     ));
 
     // First digest is the start checkpoint
-    let mut start_digest = start_checkpoint
+    let mut start_digest = start_attestation
         .prev_digest
         // If the start checkpoint has no prev digest, use the zero digest
         // Only in the case of the first checkpoint
@@ -101,21 +104,21 @@ pub async fn get_for_claim(
 
     info!(
         "Start digest: {}, End digest: {}",
-        start_digest, end_checkpoint.digest
+        start_digest, end_attestation.digest
     );
-    for attestation in &attestations {
-        let block_attestation = create_block_attestation(attestation, &start_digest)?;
+    for fragment_block in &fragment_blocks {
+        let block_with_prev_digest = create_block_with_prev_digest(fragment_block, &start_digest)?;
         info!(
-            "Appending block attestation for chain_id: {}, block: {:?}",
-            chain_id, block_attestation
+            "Appending block to fragment. chain_id: {}, block: {:?}",
+            chain_id, block_with_prev_digest
         );
 
         // Update the digest
-        start_digest = hex::encode(block_attestation.digest.to_bytes_be());
+        start_digest = hex::encode(block_with_prev_digest.digest.to_bytes_be());
         info!("Hex start digest (updated): {:?}", start_digest);
 
         attestation_fragment
-            .try_append_block(block_attestation)
+            .try_append_block(block_with_prev_digest)
             .map_err(|e| anyhow::anyhow!("Error appending block to fragment: {:?}", e))?;
     }
 
@@ -127,21 +130,21 @@ pub async fn get_for_claim(
     Ok(attestation_fragment)
 }
 
-// Construct a list of attestations for a given chain_id and interval
-// This function will query the source chain for the blocks in the interval and then generate the attestations
-// They are mapped to the database model and returned
+// Construct a list of blocks for a given chain_id and interval. This function will query
+// the source chain for the blocks in the interval and then generate digests for those
+// blocks. They are mapped to the database model and returned.
 async fn construct_fragment(
     eth_client: &Client,
     chain_id: u64,
     lower_bound: u64,
     upper_bound: u64,
-) -> Result<Vec<postgres::blockwithdigests::BlockWithDigests>> {
+) -> Result<Vec<postgres::blockwithdigest::BlockWithDigest>> {
     info!(
         "Attestation fragment not found in cache, creating fragment for chain_id: {}, lower_bound: {}, upper_bound: {}",
         chain_id, lower_bound, upper_bound
     );
 
-    let mut attestations = vec![];
+    let mut fragment_blocks = vec![];
     // Get every block for upper_bound to lower_bound from eth client
     // TODO: This should be done in parallel
     let mut prev_digest = None;
@@ -160,18 +163,18 @@ async fn construct_fragment(
             root: mt.root().0.to_bytes_be(),
         };
 
-        // Get the digest of the attestation
+        // Get the digest of the source chain block
         let digest = attestation_primitive.digest();
         debug!(
-            "Attestation for chain_id: {}, header_number: {}, digest: {}",
+            "Block with digest for chain_id: {}, header_number: {}, digest: {}",
             chain_id, attestation_primitive.header_number, digest
         );
 
         // Update the prev_digest
         prev_digest = Some(digest);
 
-        // Create attestation for each block
-        let attestation = postgres::blockwithdigests::BlockWithDigests {
+        // Convert each block to type including digest
+        let block_with_digest = postgres::blockwithdigest::BlockWithDigest {
             chain_id: chain_id as i64,
             header_number: attestation_primitive.header_number as i64,
             digest: hex::encode(digest.as_bytes()),
@@ -184,10 +187,10 @@ async fn construct_fragment(
             merkle_root: hex::encode(mt.root().0.to_bytes_be()),
         };
 
-        attestations.push(attestation);
+        fragment_blocks.push(block_with_digest);
     }
 
-    Ok(attestations)
+    Ok(fragment_blocks)
 }
 
 fn get_interval_bounds(number: u64, interval: u64) -> (u64, u64) {

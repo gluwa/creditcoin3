@@ -14,8 +14,8 @@ pub enum ConversionError {
     InvalidDigest,
 }
 
-pub fn create_block_attestation(
-    attestation: &postgres::blockwithdigests::BlockWithDigests,
+pub fn create_block_with_prev_digest(
+    attestation: &postgres::blockwithdigest::BlockWithDigest,
     prev_digest: &str,
 ) -> Result<Block> {
     let root = Felt::from_hex(&attestation.merkle_root)?;
