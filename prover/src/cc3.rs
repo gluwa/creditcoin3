@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::{ChainId, Digest, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainId, Digest, SignedAttestation};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use thiserror::Error;
@@ -62,6 +62,16 @@ impl<'a> Client {
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
         self.cc_client
             .get_attestation_by_digest(chain_id, digest)
+            .await
+    }
+
+    pub async fn get_checkpoint_by_digest(
+        &self,
+        chain_id: ChainId,
+        digest: Digest,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        self.cc_client
+            .get_checkpoint_by_digest(chain_id, digest)
             .await
     }
 
