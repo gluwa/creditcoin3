@@ -32,8 +32,7 @@ impl AttestationCheckpoint {
     }
 }
 
-#[allow(dead_code)]
-pub async fn get_by_digest(
+pub async fn _get_by_digest(
     connection: &mut AsyncPgConnection,
     digest: String,
 ) -> Result<AttestationCheckpoint> {
@@ -44,8 +43,7 @@ pub async fn get_by_digest(
         .await?)
 }
 
-#[allow(dead_code)]
-pub async fn get_by_block_number(
+pub async fn _get_by_block_number(
     connection: &mut AsyncPgConnection,
     block_number: i64,
     chain_id: i64,
@@ -58,8 +56,7 @@ pub async fn get_by_block_number(
         .await?)
 }
 
-#[allow(dead_code)]
-pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
+pub async fn _exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
     Ok(diesel::select(diesel_exists(
         attestation_checkpoint_table
             .filter(attestationcheckpoint::digest.eq(digest.to_lowercase())),
@@ -68,8 +65,7 @@ pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String
     .await?)
 }
 
-#[allow(dead_code)]
-pub async fn insert(
+pub async fn _insert(
     connection: &mut AsyncPgConnection,
     checkpoint: AttestationCheckpoint,
 ) -> Result<()> {
@@ -81,8 +77,7 @@ pub async fn insert(
     Ok(())
 }
 
-#[allow(dead_code)]
-pub async fn first_checkpoint_cached(
+pub async fn _first_checkpoint_cached(
     connection: &mut AsyncPgConnection,
     chain_id: u64,
 ) -> Result<bool> {
