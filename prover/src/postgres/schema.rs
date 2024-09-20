@@ -13,11 +13,26 @@ diesel::table! {
         digest -> Varchar,
         #[max_length = 64]
         prev_digest -> Nullable<Varchar>,
+        #[max_length = 192]
+        signature -> Varchar,
+        attestors -> Array<Nullable<Text>>,
     }
 }
 
 diesel::table! {
     attestationcheckpoint (id) {
+        id -> Int4,
+        chain_id -> Int8,
+        block_number -> Int8,
+        #[max_length = 64]
+        digest -> Varchar,
+        #[max_length = 64]
+        prev_digest -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    blockwithdigests (id) {
         id -> Int4,
         chain_id -> Int8,
         header_number -> Int8,
@@ -29,10 +44,7 @@ diesel::table! {
         digest -> Varchar,
         #[max_length = 64]
         prev_digest -> Nullable<Varchar>,
-        #[max_length = 192]
-        signature -> Varchar,
-        attestors -> Array<Nullable<Text>>,
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(attestation, attestationcheckpoint,);
+diesel::allow_tables_to_appear_in_same_query!(attestation, attestationcheckpoint, blockwithdigests,);

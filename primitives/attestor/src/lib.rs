@@ -173,6 +173,7 @@ where
 pub struct AttestationCheckpoint {
     pub block_number: u64,
     pub digest: Digest,
+    pub prev_digest: Option<Digest>,
 }
 
 pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {

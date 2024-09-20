@@ -1,5 +1,6 @@
 pub mod attestation;
-pub mod checkpoints;
+pub mod attestationcheckpoint;
+pub mod blockwithdigests;
 pub mod db;
 pub mod schema;
 

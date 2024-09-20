@@ -1,23 +1,15 @@
 use anyhow::Result;
-use diesel::dsl::{exists as diesel_exists, select as diesel_select};
+use diesel::dsl::exists as diesel_exists;
 use diesel::prelude::*;
+use diesel::result::Error as DieselError;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 
+use attestor_primitives::SignedAttestation;
+
 use super::schema::attestation::{self, dsl::attestation as attestation_table};
 
-#[derive(
-    Serialize,
-    Deserialize,
-    Debug,
-    Insertable,
-    Queryable,
-    Selectable,
-    Clone,
-    AsChangeset,
-    PartialEq,
-    Eq,
-)]
+#[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
 #[diesel(table_name = attestation)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Attestation {
@@ -26,12 +18,44 @@ pub struct Attestation {
     pub header_hash: String,
     pub merkle_root: String,
     pub digest: String,
+    pub prev_digest: Option<String>,
+    pub signature: String,
+    pub attestors: Vec<Option<String>>,
 }
 
-pub async fn _create_attestation(
+pub async fn get_by_digest(
     connection: &mut AsyncPgConnection,
-    attestation: Attestation,
-) -> Result<()> {
+    digest: String,
+) -> Result<Attestation> {
+    Ok(attestation_table
+        .select(Attestation::as_select())
+        .filter(attestation::digest.eq(digest))
+        .first(connection)
+        .await?)
+}
+
+pub async fn get_by_header_number(
+    connection: &mut AsyncPgConnection,
+    header_number: i64,
+    chain_id: i64,
+) -> Result<Attestation> {
+    Ok(attestation_table
+        .select(Attestation::as_select())
+        .filter(attestation::header_number.eq(header_number))
+        .filter(attestation::chain_id.eq(chain_id))
+        .first(connection)
+        .await?)
+}
+
+pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
+    Ok(diesel::select(diesel_exists(
+        attestation_table.filter(attestation::digest.eq(digest.to_lowercase())),
+    ))
+    .get_result(connection)
+    .await?)
+}
+
+pub async fn insert(connection: &mut AsyncPgConnection, attestation: Attestation) -> Result<()> {
     diesel::insert_into(attestation_table)
         .values(attestation)
         .execute(connection)
@@ -40,41 +64,63 @@ pub async fn _create_attestation(
     Ok(())
 }
 
-pub async fn _exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
-    Ok(diesel_select(diesel_exists(
-        attestation_table.filter(attestation::digest.eq(digest)),
+pub async fn first_digest_exists(
+    connection: &mut AsyncPgConnection,
+    chain_id: u64,
+) -> Result<bool> {
+    Ok(diesel::select(diesel_exists(
+        attestation_table
+            .filter(attestation::chain_id.eq(super::convert(chain_id)))
+            .filter(attestation::prev_digest.is_null()),
     ))
     .get_result(connection)
     .await?)
 }
 
-// Get Attestation for a range of header numbers
-pub async fn get_attestation_range(
+pub async fn last_synced(
     connection: &mut AsyncPgConnection,
     chain_id: u64,
-    start: i64,
-    end: i64,
-) -> Result<Vec<Attestation>> {
-    Ok(attestation_table
+) -> Result<Option<Attestation>> {
+    match attestation_table
+        .order(attestation::header_number.asc())
         .filter(attestation::chain_id.eq(super::convert(chain_id)))
-        .filter(attestation::header_number.ge(start))
-        .filter(attestation::header_number.le(end))
         .select(Attestation::as_select())
-        .load(connection)
-        .await?)
+        .first(connection)
+        // Why does this not work?
+        // .optional()
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
-// Upsert fragment
-pub async fn upsert_attestation(
-    connection: &mut AsyncPgConnection,
-    attestations: &Vec<Attestation>,
-) -> Result<()> {
-    diesel::insert_into(attestation_table)
-        .values(attestations)
-        .on_conflict(attestation::digest)
-        .do_nothing()
-        .execute(connection)
-        .await?;
-
-    Ok(())
+// Mapper from the signed attestation to the db type
+impl<H, A> From<SignedAttestation<H, A>> for Attestation
+where
+    H: AsRef<[u8]> + Clone + Copy,
+    A: AsRef<[u8]> + Clone,
+{
+    fn from(value: SignedAttestation<H, A>) -> Self {
+        Attestation {
+            chain_id: super::convert(value.attestation.chain_id),
+            header_number: super::convert(value.attestation.header_number),
+            header_hash: hex::encode(value.attestation.header_hash),
+            merkle_root: hex::encode(value.attestation.root),
+            digest: hex::encode(value.digest()),
+            prev_digest: value.attestation.prev_digest.map(hex::encode),
+            signature: hex::encode(value.signature),
+            attestors: value
+                .attestors
+                .iter()
+                .map(|a| Some(hex::encode(a)))
+                .collect(),
+        }
+    }
 }

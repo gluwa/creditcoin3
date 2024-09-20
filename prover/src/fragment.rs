@@ -135,7 +135,7 @@ async fn construct_fragment(
     chain_id: u64,
     lower_bound: u64,
     upper_bound: u64,
-) -> Result<Vec<postgres::attestation::Attestation>> {
+) -> Result<Vec<postgres::blockwithdigests::BlockWithDigests>> {
     info!(
         "Attestation fragment not found in cache, creating fragment for chain_id: {}, lower_bound: {}, upper_bound: {}",
         chain_id, lower_bound, upper_bound
@@ -171,7 +171,7 @@ async fn construct_fragment(
         prev_digest = Some(digest);
 
         // Create attestation for each block
-        let attestation = postgres::attestation::Attestation {
+        let attestation = postgres::blockwithdigests::BlockWithDigests {
             chain_id: chain_id as i64,
             header_number: attestation_primitive.header_number as i64,
             digest: hex::encode(digest.as_bytes()),

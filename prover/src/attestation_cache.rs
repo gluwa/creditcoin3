@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     cc3,
-    postgres::{attestation, checkpoints, db::PgPool},
+    postgres::{attestation, blockwithdigests, db::PgPool},
     AttestationCacheType, CcClientArc,
 };
 
@@ -36,9 +36,9 @@ where
     pub async fn get_checkpoint_by_digest(
         &self,
         digest: Digest,
-    ) -> Result<checkpoints::AttestationCheckpoint> {
+    ) -> Result<attestation::Attestation> {
         let mut connection = self.pool.get().await?;
-        let attestation = checkpoints::get_by_digest(&mut connection, digest.encode_hex()).await?;
+        let attestation = attestation::get_by_digest(&mut connection, digest.encode_hex()).await?;
 
         Ok(attestation)
     }
@@ -46,39 +46,39 @@ where
     pub async fn digest_exists(&self, digest: Digest) -> Result<bool> {
         let mut connection = self.pool.get().await?;
 
-        checkpoints::exists_by_digest(&mut connection, digest.encode_hex()).await
+        attestation::exists_by_digest(&mut connection, digest.encode_hex()).await
     }
 
     pub async fn get_by_header_number(
         &self,
         header_number: i64,
         chain_id: i64,
-    ) -> Result<checkpoints::AttestationCheckpoint> {
+    ) -> Result<attestation::Attestation> {
         let mut connection = self.pool.get().await?;
         let attestation =
-            checkpoints::get_by_header_number(&mut connection, header_number, chain_id).await?;
+            attestation::get_by_header_number(&mut connection, header_number, chain_id).await?;
 
         Ok(attestation)
     }
 
     pub async fn insert(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        checkpoints::insert(&mut connection, attestation.into()).await?;
+        attestation::insert(&mut connection, attestation.into()).await?;
 
         Ok(())
     }
 
     pub async fn first_checkpoint_exists(&self, chain_id: ChainId) -> Result<bool> {
         let mut connection = self.pool.get().await?;
-        checkpoints::first_digest_exists(&mut connection, chain_id).await
+        attestation::first_digest_exists(&mut connection, chain_id).await
     }
 
     pub async fn last_synced_attestation_checkpoint(
         &self,
         chain_id: ChainId,
-    ) -> Result<Option<checkpoints::AttestationCheckpoint>> {
+    ) -> Result<Option<attestation::Attestation>> {
         let mut connection = self.pool.get().await?;
-        checkpoints::last_synced(&mut connection, chain_id).await
+        attestation::last_synced(&mut connection, chain_id).await
     }
 
     pub async fn get_attestation_fragment(
@@ -86,15 +86,18 @@ where
         chain_id: ChainId,
         start: u64,
         end: u64,
-    ) -> Result<Vec<attestation::Attestation>> {
+    ) -> Result<Vec<blockwithdigests::BlockWithDigests>> {
         let mut connection = self.pool.get().await?;
-        attestation::get_attestation_range(&mut connection, chain_id, start as i64, end as i64)
+        blockwithdigests::get_attestation_range(&mut connection, chain_id, start as i64, end as i64)
             .await
     }
 
-    pub async fn upsert_fragment(&self, fragment: &Vec<attestation::Attestation>) -> Result<()> {
+    pub async fn upsert_fragment(
+        &self,
+        fragment: &Vec<blockwithdigests::BlockWithDigests>,
+    ) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        attestation::upsert_attestation(&mut connection, fragment).await
+        blockwithdigests::upsert_attestation(&mut connection, fragment).await
     }
 }
 

@@ -15,7 +15,7 @@ pub enum ConversionError {
 }
 
 pub fn create_block_attestation(
-    attestation: &postgres::attestation::Attestation,
+    attestation: &postgres::blockwithdigests::BlockWithDigests,
     prev_digest: &str,
 ) -> Result<Block> {
     let root = Felt::from_hex(&attestation.merkle_root)?;
@@ -35,8 +35,8 @@ pub fn create_block_attestation(
     })
 }
 
-impl From<crate::postgres::checkpoints::AttestationCheckpoint> for Block {
-    fn from(attestation: crate::postgres::checkpoints::AttestationCheckpoint) -> Self {
+impl From<crate::postgres::attestation::Attestation> for Block {
+    fn from(attestation: crate::postgres::attestation::Attestation) -> Self {
         debug!("Converting attestation to block: {:?}", attestation);
         debug!("merkle_root : {:?}", attestation.merkle_root);
         debug!("tx_root str: {:?}", attestation.merkle_root.as_str());
@@ -73,7 +73,7 @@ fn hex_to_felt(hex: &str) -> anyhow::Result<FieldElement, String> {
 
 #[test]
 fn test_from_attestation_to_block() {
-    let attestation = crate::postgres::checkpoints::AttestationCheckpoint {
+    let attestation = crate::postgres::attestation::Attestation {
         chain_id: 1,
         header_number: 1,
         header_hash: "1234".to_string(),
