@@ -17,7 +17,7 @@ CREATE INDEX attestation_idx_header_number ON Attestation (header_number);
 CREATE INDEX attestation_idx_digest ON Attestation (digest);
 
 -- Create table for source chain blocks included in fragments
-CREATE TABLE BlockWithDigests (
+CREATE TABLE BlockWithDigest (
     ID SERIAL PRIMARY KEY,
     chain_id BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
@@ -27,9 +27,9 @@ CREATE TABLE BlockWithDigests (
     prev_digest VARCHAR(64) UNIQUE
 );
 
-CREATE INDEX block_with_digests_idx_chain_id ON BlockWithDigests (chain_id);
-CREATE INDEX block_with_digests_idx_header_number ON BlockWithDigests (header_number);
-CREATE INDEX block_with_digests_idx_digest ON BlockWithDigests (digest);
+CREATE INDEX block_with_digest_idx_chain_id ON BlockWithDigest (chain_id);
+CREATE INDEX block_with_digest_idx_header_number ON BlockWithDigest (header_number);
+CREATE INDEX block_with_digest_idx_digest ON BlockWithDigest (digest);
 
 -- Create table for AttestationCheckpoints
 CREATE TABLE AttestationCheckpoint (

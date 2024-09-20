@@ -32,7 +32,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    blockwithdigests (id) {
+    blockwithdigest (id) {
         id -> Int4,
         chain_id -> Int8,
         header_number -> Int8,
@@ -47,4 +47,4 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(attestation, attestationcheckpoint, blockwithdigests,);
+diesel::allow_tables_to_appear_in_same_query!(attestation, attestationcheckpoint, blockwithdigest,);
