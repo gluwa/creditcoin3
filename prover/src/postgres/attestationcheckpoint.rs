@@ -22,7 +22,7 @@ pub struct AttestationCheckpoint {
 
 impl AttestationCheckpoint {
     // Mapper from the OnChainCheckpoint to the db type
-    pub fn from_on_chain(value: OnChainCheckpoint, chain_id: i64) -> Self {
+    pub fn from_on_chain(value: &OnChainCheckpoint, chain_id: i64) -> Self {
         AttestationCheckpoint {
             chain_id,
             block_number: super::convert(value.block_number),
