@@ -1,7 +1,6 @@
 use anyhow::Result;
 use attestor_primitives::{ChainId, Digest, SignedAttestation};
 use hex::ToHex;
-use sp_core::H256;
 use std::marker::PhantomData;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -134,6 +133,18 @@ pub async fn sync_cache(
     Ok(())
 }
 
+/// This process has two main procedures that are quite similar. First, get the last
+/// attestation committed on chain and step backwards along the attestation chain
+/// using `prev_digest` fields. When we run out of attestations to sync, the
+/// final attestation's `prev_digest` field should point to the first checkpoint.
+///
+/// In our second procedure, we step backwards through checkpoints, again using
+/// `prev_digest` fields, until we hit the first checkpoint.
+///
+/// Upon the successful conclusion of cache building the digest of the most recent
+/// checkpoint will be recorded in the `successfully_cached_through` table. Future
+/// cache building passes then stop early when encountering a checkpoint matching
+/// that digest.
 pub async fn build_historical_cache_for_chain(
     chain: ChainId,
     attestations_cache: AttestationCacheType,
@@ -157,29 +168,10 @@ pub async fn build_historical_cache_for_chain(
     // Check if the first digest exists (one with prev_digest = Null) (meaning the front of the chain)
     let head_of_chain_exists = attestations_cache.first_attestation_exists(chain).await?;
 
-    // Fetch the last synced attestation from the cache
-    let last_attestation_synced_in_cache =
-        attestations_cache.last_synced_attestation(chain).await?;
-
-    if !head_of_chain_exists && last_attestation_synced_in_cache.is_some() {
-        let digest = H256::from_slice(
-            &hex::decode(
-                last_attestation_synced_in_cache
-                    .unwrap()
-                    .prev_digest
-                    .unwrap(),
-            )
-            .map_err(|e| anyhow::anyhow!("Error decoding prev_digest: {:?}", e))?,
-        );
-        info!("Head of chain not found in cache, but last attestation found in cache, starting to sync from: {}", digest);
-
-        // fetch last attestation from on-chain
-        last_chain_attestation = cc3_client
-            .get_attestation_by_digest(chain, digest)
-            .await
-            .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
-            .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
-    }
+    info!(
+        "Starting to sync from: {}",
+        last_chain_attestation.attestation.digest()
+    );
 
     let mut fetch_more = true;
     // Fetch more historical attestations
