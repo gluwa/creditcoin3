@@ -43,3 +43,10 @@ CREATE TABLE AttestationCheckpoint (
 CREATE INDEX attestation_checkpoint_idx_chain_id ON AttestationCheckpoint (chain_id);
 CREATE INDEX attestation_checkpoint_idx_block_number ON AttestationCheckpoint (block_number);
 CREATE INDEX attestation_checkpoint_idx_digest ON AttestationCheckpoint (digest);
+
+-- Create table for last checkpoint we know the local cache is fully caught up to
+CREATE TABLE FullyCachedThrough (
+   onerow_id BOOL PRIMARY KEY DEFAULT true, 
+   digest VARCHAR(64) NOT NULL UNIQUE,
+   CONSTRAINT onerow_uni CHECK (onerow_id)
+);

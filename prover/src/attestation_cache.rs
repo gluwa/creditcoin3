@@ -142,7 +142,7 @@ pub async fn sync_cache(
 /// `prev_digest` fields, until we hit the first checkpoint.
 ///
 /// Upon the successful conclusion of cache building the digest of the most recent
-/// checkpoint will be recorded in the `successfully_cached_through` table. Future
+/// checkpoint will be recorded in the `FullyCachedThrough` table. Future
 /// cache building passes then stop early when encountering a checkpoint matching
 /// that digest.
 pub async fn build_historical_cache_for_chain(
