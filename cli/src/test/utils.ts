@@ -6,7 +6,7 @@ import path = require('path');
 import { commandSync } from 'execa';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
-import { ApiPromise, expectNoDispatchError, newApi } from '../lib';
+import { ApiPromise, expectNoEventError, expectNoDispatchError, newApi } from '../lib';
 import { getChainStatus } from '../lib/chain/status';
 
 export const describeIf = (condition: boolean, name: string, fn: any) =>
@@ -25,6 +25,8 @@ export const extractFee = async (
     status: any,
 ): Promise<void> => {
     expectNoDispatchError(api, dispatchError);
+    if (events) events.forEach((event) => expectNoEventError(api, event));
+
     if (status.isInBlock) {
         const balancesWithdraw = events.find(({ event: { method, section } }) => {
             return section === 'balances' && method === 'Withdraw';
