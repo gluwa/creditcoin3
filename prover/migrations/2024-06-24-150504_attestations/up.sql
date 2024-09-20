@@ -1,5 +1,5 @@
--- Create table for AttestationCheckpoint
-CREATE TABLE AttestationCheckpoint (
+-- Create table for Attestation
+CREATE TABLE Attestation (
     id SERIAL PRIMARY KEY,
     chain_id BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
@@ -12,9 +12,9 @@ CREATE TABLE AttestationCheckpoint (
 );
 
 -- Create indexes on chain_id, header_number, and digest
-CREATE INDEX signed_attestation_idx_chain_id ON AttestationCheckpoint (chain_id);
-CREATE INDEX signed_attestation_idx_header_number ON AttestationCheckpoint (header_number);
-CREATE INDEX signed_attestation_idx_digest ON AttestationCheckpoint (digest);
+CREATE INDEX attestation_idx_chain_id ON Attestation (chain_id);
+CREATE INDEX attestation_idx_header_number ON Attestation (header_number);
+CREATE INDEX attestation_idx_digest ON Attestation (digest);
 
 -- Create table for source chain blocks included in fragments
 CREATE TABLE BlockWithDigests (
