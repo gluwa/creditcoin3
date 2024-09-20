@@ -173,7 +173,7 @@ pub async fn build_historical_cache_for_chain(
         );
         info!("Head of chain not found in cache, but last attestation found in cache, starting to sync from: {}", digest);
 
-        // fetch last attestation from cache
+        // fetch last attestation from on-chain
         last_chain_attestation = cc3_client
             .get_attestation_by_digest(chain, digest)
             .await
