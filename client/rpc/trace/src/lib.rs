@@ -33,9 +33,7 @@ use tokio::{
 };
 use tracing::{instrument, Instrument};
 
-use sc_client_api::{
-    backend::{Backend, StateBackend, StorageProvider},
-};
+use sc_client_api::backend::{Backend, StateBackend, StorageProvider};
 use sc_utils::mpsc::TracingUnboundedSender;
 use sp_api::{ApiExt, Core, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder;
