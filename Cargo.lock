@@ -1051,9 +1051,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.16"
+version = "4.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed6719fffa43d0d87e5fd8caeab59be1554fb028cd30edc88fc4369b17971019"
+checksum = "3e5a21b8495e732f1b3c364c9949b201ca7bae518c502c80256c96ad79eaf6ac"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1061,9 +1061,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.15"
+version = "4.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "216aec2b177652e3846684cbfe25c9964d18ec45234f0f5da5157b207ed1aab6"
+checksum = "8cf2dd12af7a047ad9d6da2b6b249759a22a7abc0f474c1dae1777afa4b21a73"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "bip32",
  "clap",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-client-evm-tracing"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-rpc-primitives-debug",
  "ethereum-types",
@@ -1398,7 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-evm-tracer"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-primitives-ext",
  "ethereum-types",
@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-primitives-ext"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "ethereum-types",
  "evm-tracing-events",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-debug"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-types",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-trace"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-types",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-types"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "ethereum-types",
  "serde",
@@ -1543,7 +1543,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-debug"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-debug",
@@ -1576,7 +1576,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-primitives-debug"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "environmental",
  "ethereum 0.15.0",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-trace"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-trace",
@@ -1630,7 +1630,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "creditcoin3-evm-tracer",
  "creditcoin3-rpc-primitives-debug",
@@ -2522,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "evm-tracing-events"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "environmental",
  "ethereum 0.15.0",
@@ -3470,7 +3470,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.33.0"
+version = "3.35.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -9374,9 +9374,9 @@ dependencies = [
 
 [[package]]
 name = "similar-asserts"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e041bb827d1bfca18f213411d51b665309f1afb37a04a5d1464530e13779fc0f"
+checksum = "cfe85670573cd6f0fa97940f26e7e6601213c3b0555246c24234131f88c5709e"
 dependencies = [
  "console",
  "similar",

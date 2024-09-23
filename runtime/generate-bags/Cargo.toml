@@ -12,4 +12,4 @@ repository.workspace = true
 [dependencies]
 creditcoin3-runtime = { path = "../" }
 generate-bags = { workspace = true }
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.17", features = ["derive"] }

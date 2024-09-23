@@ -8,6 +8,10 @@ updates:
       interval: "monthly"
     open-pull-requests-limit: 5
     rebase-strategy: "disabled"
+    groups:
+      all-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
 
   # Maintain dependencies for Docker images
   - package-ecosystem: "docker"
@@ -16,126 +20,58 @@ updates:
       interval: "monthly"
     open-pull-requests-limit: 5
     rebase-strategy: "disabled"
+    groups:
+      all-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
 
   # Maintain dependencies for Rust
   # Note: Dependabot can't recursively search directories at the moment
   - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/node"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/runtime"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/runtime/generate-bags"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/client/evm-tracing"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/client/rpc-core/debug"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/client/rpc-core/trace"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/client/rpc-core/types"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/client/rpc/debug"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/client/rpc/trace"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/node/cli-opt"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/precompiles/substrate-transfer"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/primitives/account"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/primitives/core"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/primitives/ext"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/primitives/rpc/debug"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/primitives/rpc/evm-tracing-events"
-    schedule:
-      interval: "monthly"
-
-  - package-ecosystem: "cargo"
-    directory: "/runtime/evm_tracer"
+    directories:
+      - "/"
+      - "/client/evm-tracing"
+      - "/client/rpc-core/debug"
+      - "/client/rpc-core/trace"
+      - "/client/rpc-core/types"
+      - "/client/rpc/debug"
+      - "/client/rpc/trace"
+      - "/node"
+      - "/node/cli-opt"
+      - "/precompiles/substrate-transfer"
+      - "/primitives/account"
+      - "/primitives/core"
+      - "/primitives/ext"
+      - "/primitives/rpc/debug"
+      - "/primitives/rpc/evm-tracing-events"
+      - "/runtime"
+      - "/runtime/evm_tracer"
+      - "/runtime/generate-bags"
+    groups:
+      prod-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+      dev-dependencies:
+        dependency-type: "development"
+        applies-to: version-updates
     schedule:
       interval: "monthly"
 
   # Maintain dependencies for Node.js
   - package-ecosystem: "npm"
-    directory: "/testing"
-    schedule:
-      interval: "monthly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
+    directories:
+      - "/cli"
+      - "/docs/smart-contract-development/with-hardhat"
+      - "/docs/smart-contract-development/with-ethers.js"
+      - "/testing"
+    groups:
+      prod-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+      dev-dependencies:
+        dependency-type: "development"
+        applies-to: version-updates
 
-  - package-ecosystem: "npm"
-    directory: "/cli"
-    schedule:
-      interval: "monthly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
-
-  - package-ecosystem: "npm"
-    directory: "/docs/smart-contract-development/with-hardhat"
-    schedule:
-      interval: "monthly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
-
-  - package-ecosystem: "npm"
-    directory: "/docs/smart-contract-development/with-ethers.js"
     schedule:
       interval: "monthly"
     ignore:
