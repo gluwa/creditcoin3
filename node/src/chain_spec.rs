@@ -4,10 +4,9 @@ use std::{
 };
 
 use hex_literal::hex;
-use sc_service::NoExtension;
 use serde::{Deserialize, Serialize};
 // Substrate
-use sc_chain_spec::{ChainSpecBuilder, ChainType, Properties};
+use sc_chain_spec::{ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
@@ -116,7 +115,7 @@ pub fn mainnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
 }
 
-pub fn development_config(enable_manual_seal: Option<bool>) -> ChainSpec {
+pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
     let rgc = testnet_genesis(
@@ -149,13 +148,13 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> ChainSpec {
 
     let config_json = serde_json::to_value(&rgc).expect("Could not build genesis config.");
 
-    return ChainSpec::builder(wasm_binary, None)
+    ChainSpec::builder(wasm_binary, None)
         .with_name("Development")
         .with_id("dev")
         .with_chain_type(ChainType::Development)
         .with_genesis_config(config_json)
         .with_properties(properties())
-        .build();
+        .build()
 }
 
 pub fn local_testnet_config() -> ChainSpec {
@@ -192,13 +191,13 @@ pub fn local_testnet_config() -> ChainSpec {
 
     let config_json = serde_json::to_value(&rgc).expect("Could not build genesis config.");
 
-    return ChainSpec::builder(wasm_binary, None)
+    ChainSpec::builder(wasm_binary, None)
         .with_name("Local Testnet")
         .with_id("local_testnet")
         .with_chain_type(ChainType::Local)
         .with_genesis_config(config_json)
         .with_properties(properties())
-        .build();
+        .build()
 }
 
 fn genesis_account(balance: U256) -> fp_evm::GenesisAccount {
@@ -216,7 +215,7 @@ fn eth_acct(b: [u8; 20]) -> AccountId {
 
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
-    wasm_binary: &[u8],
+    _wasm_binary: &[u8],
     sudo_key: AccountId,
     endowed_accounts: Vec<AccountId>,
     endowed_evm_accounts: Vec<[u8; 20]>,
