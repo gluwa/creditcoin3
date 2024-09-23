@@ -9,7 +9,6 @@ use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
 use sc_executor::NativeExecutionDispatch;
-use sc_network::NotificationMetrics;
 use sc_network_sync::WarpSyncParams;
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
@@ -63,6 +62,7 @@ where
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
+#[allow(deprecated)]
 pub fn new_partial<RuntimeApi, Executor, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
@@ -153,7 +153,7 @@ where
     )?;
 
     let overrides = Arc::new(StorageOverrideHandler::new(client.clone()));
-    let frontier_backend = match eth_config.frontier_backend_type.clone() {
+    let frontier_backend = match eth_config.frontier_backend_type {
         BackendType::KeyValue => {
             FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
                 Arc::clone(&client),

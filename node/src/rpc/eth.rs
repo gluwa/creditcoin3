@@ -10,7 +10,6 @@ use sc_client_api::{
     client::BlockchainEvents,
     AuxStore, UsageProvider,
 };
-use sc_network::NetworkService;
 use sc_network_sync::SyncingService;
 use sc_rpc::SubscriptionTaskExecutor;
 use sc_transaction_pool::{ChainApi, Pool};
