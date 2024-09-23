@@ -30,9 +30,6 @@ use creditcoin3_runtime::{
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
 pub type ChainSpec = sc_service::GenericChainSpec;
 
-/// Specialized `ChainSpec` for development.
-pub type DevChainSpec = sc_service::GenericChainSpec<DevGenesisExt>;
-
 /// Extension for the dev genesis config to support a custom changes to the genesis state.
 #[derive(Serialize, Deserialize)]
 pub struct DevGenesisExt {
@@ -150,7 +147,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
         SS58Prefix::get() as u64,
     );
 
-    let config_json = serde_json::to_value(&rgc).expect("Could not build genesis config.");
+    let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 
     ChainSpec::builder(wasm_binary, None)
         .with_name("Development")
@@ -193,7 +190,7 @@ pub fn local_testnet_config() -> ChainSpec {
         SS58Prefix::get() as u64,
     );
 
-    let config_json = serde_json::to_value(&rgc).expect("Could not build genesis config.");
+    let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 
     ChainSpec::builder(wasm_binary, None)
         .with_name("Local Testnet")
