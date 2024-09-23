@@ -108,6 +108,12 @@ parameter_types! {
 }
 
 impl frame_system::Config for Runtime {
+    type PreInherents = ();
+    type PostInherents = ();
+    type PostTransactions = ();
+    type RuntimeTask = RuntimeTask;
+    type MultiBlockMigrator = ();
+    type SingleBlockMigrations = ();
     type BaseCallFilter = Everything;
     type DbWeight = ();
     type RuntimeOrigin = RuntimeOrigin;
@@ -161,7 +167,11 @@ impl pallet_balances::Config for Runtime {
     type RuntimeHoldReason = ();
     type FreezeIdentifier = ();
     type MaxFreezes = ();
-    type MaxHolds = ();
+    // type MaxHolds = ();
+
+    type RuntimeFreezeReason = RuntimeFreezeReason;
+    // type FreezeIdentifier = RuntimeFreezeReason;
+    // type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
@@ -187,6 +197,8 @@ parameter_types! {
         let block_gas_limit = BlockGasLimit::get().min(u64::MAX.into()).low_u64();
         block_gas_limit.saturating_div(BLOCK_STORAGE_LIMIT)
     };
+
+    pub SuicideQuickClearLimit: u32 = 0;
 }
 
 impl pallet_evm::Config for Runtime {
@@ -210,6 +222,7 @@ impl pallet_evm::Config for Runtime {
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
     type Timestamp = Timestamp;
     type WeightInfo = pallet_evm::weights::SubstrateWeight<Runtime>;
+    type SuicideQuickClearLimit = SuicideQuickClearLimit;
 }
 
 // Configure a mock runtime to test the pallet.
