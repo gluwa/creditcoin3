@@ -190,7 +190,7 @@ pub fn run() -> sc_cli::Result<()> {
 
             let runner = cli.create_runner(cmd)?;
             match cmd {
-                BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| cmd.run::<Block, ()>(config)),
+                BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| cmd.run::<sp_runtime::traits::HashingFor<Block>, ()>(config)),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
                     cmd.run(client)
