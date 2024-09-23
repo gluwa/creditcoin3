@@ -9,7 +9,6 @@ use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
 use sc_executor::NativeExecutionDispatch;
-use sc_network::NotificationMetrics;
 use sc_network_sync::WarpSyncParams;
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
