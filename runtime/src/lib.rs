@@ -51,7 +51,7 @@ use frame_support::{
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
-use pallet_transaction_payment::{ConstFeeMultiplier};
+use pallet_transaction_payment::ConstFeeMultiplier;
 // Frontier
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
