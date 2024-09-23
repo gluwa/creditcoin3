@@ -830,8 +830,8 @@ impl pallet_fast_unstake::Config for Runtime {
     type MaxErasToCheckPerBlock = MaxErasToCheckPerBlock;
     type WeightInfo = ();
     type Staking = Staking;
-    #[cfg(feature = "runtime-benchmarks")]
-    type MaxBackersPerValidator = ConstU32<10000>;
+    // #[cfg(feature = "runtime-benchmarks")]
+    // type MaxBackersPerValidator = ConstU32<10000>;
 }
 
 parameter_types! {
