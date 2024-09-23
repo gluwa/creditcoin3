@@ -35,7 +35,6 @@ use tracing::{instrument, Instrument};
 
 use sc_client_api::{
     backend::{Backend, StateBackend, StorageProvider},
-    StorageKey,
 };
 use sc_utils::mpsc::TracingUnboundedSender;
 use sp_api::{ApiExt, Core, ProvideRuntimeApi};
