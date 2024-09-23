@@ -7,7 +7,11 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     cc3,
-    postgres::{attestation, blockwithdigest, db::PgPool},
+    postgres::{
+        attestation, blockwithdigest,
+        db::PgPool,
+        fullycachedthrough::{self, currently_cached_through, mark_fully_cached_through},
+    },
     AttestationCacheType, CcClientArc,
 };
 
@@ -98,6 +102,16 @@ where
         let mut connection = self.pool.get().await?;
         blockwithdigest::upsert_fragment_blocks(&mut connection, fragment).await
     }
+
+    pub async fn currently_cached_through(&self) -> Result<Option<String>> {
+        let mut connection = self.pool.get().await?;
+        Ok(currently_cached_through(&mut connection).await)
+    }
+
+    pub async fn mark_fully_cached_through(&self, cached_up_to: String) -> Result<()> {
+        let mut connection = self.pool.get().await?;
+        mark_fully_cached_through(&mut connection, cached_up_to).await
+    }
 }
 
 pub async fn sync_cache(
@@ -165,8 +179,9 @@ pub async fn build_historical_cache_for_chain(
         .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
         .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
 
-    // Check if the first digest exists (one with prev_digest = Null) (meaning the front of the chain)
-    let head_of_chain_exists = attestations_cache.first_attestation_exists(chain).await?;
+    // All checkpoints prior to this one don't need to be cached.
+    // We already have them!
+    let fully_cached_through = attestations_cache.currently_cached_through().await?;
 
     info!(
         "Starting to sync from: {}",
