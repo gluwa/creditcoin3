@@ -1,6 +1,7 @@
 use anyhow::Result;
-use attestor_primitives::{ChainId, Digest, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainId, Digest, SignedAttestation};
 use hex::ToHex;
+use sp_core::H256;
 use std::marker::PhantomData;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -8,9 +9,13 @@ use tracing::{debug, error, info, warn};
 use crate::{
     cc3,
     postgres::{
-        attestation, blockwithdigest,
+        attestation,
+        attestationcheckpoint::{self, AttestationCheckpoint as DbCheckpoint},
+        blockwithdigest,
         db::PgPool,
-        fullycachedthrough::{self, currently_cached_through, mark_fully_cached_through},
+        fullycachedthrough::{
+            currently_cached_through, mark_fully_cached_through, FullyCachedThrough,
+        },
     },
     AttestationCacheType, CcClientArc,
 };
@@ -52,6 +57,12 @@ where
         attestation::exists_by_digest(&mut connection, digest.encode_hex()).await
     }
 
+    pub async fn checkpoint_digest_exists(&self, digest: Digest) -> Result<bool> {
+        let mut connection = self.pool.get().await?;
+
+        attestationcheckpoint::exists_by_digest(&mut connection, digest.encode_hex()).await
+    }
+
     pub async fn get_attestation_by_header_number(
         &self,
         header_number: i64,
@@ -67,6 +78,18 @@ where
     pub async fn insert_attestation(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
         attestation::insert(&mut connection, attestation.into()).await?;
+
+        Ok(())
+    }
+
+    pub async fn insert_checkpoint(
+        &self,
+        checkpoint: AttestationCheckpoint,
+        chain_id: ChainId,
+    ) -> Result<()> {
+        let mut connection = self.pool.get().await?;
+        let db_checkpoint = DbCheckpoint::from_on_chain(&checkpoint, chain_id);
+        attestationcheckpoint::insert(&mut connection, db_checkpoint).await?;
 
         Ok(())
     }
@@ -103,12 +126,12 @@ where
         blockwithdigest::upsert_fragment_blocks(&mut connection, fragment).await
     }
 
-    pub async fn currently_cached_through(&self) -> Result<Option<String>> {
+    pub async fn currently_cached_through(&self) -> Result<Option<FullyCachedThrough>> {
         let mut connection = self.pool.get().await?;
         Ok(currently_cached_through(&mut connection).await)
     }
 
-    pub async fn mark_fully_cached_through(&self, cached_up_to: String) -> Result<()> {
+    pub async fn mark_fully_cached_through(&self, cached_up_to: H256) -> Result<()> {
         let mut connection = self.pool.get().await?;
         mark_fully_cached_through(&mut connection, cached_up_to).await
     }
@@ -167,73 +190,136 @@ pub async fn build_historical_cache_for_chain(
     info!("Building historical cache for chain: {}", chain);
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
 
-    if last_digest.is_none() {
-        error!("No historical attestations found for chain: {}", chain);
-        return Ok(());
-    }
+    let last_digest = match last_digest {
+        Some(digest) => {
+            info!("Starting to sync from: {}", digest);
+            digest
+        }
+        None => {
+            error!("No historical attestations found for chain: {}", chain);
+            return Ok(());
+        }
+    };
 
-    // Get the last attestation
-    let mut last_chain_attestation = cc3_client
-        .get_attestation_by_digest(chain, last_digest.unwrap())
-        .await
-        .map_err(|e| anyhow::anyhow!("Error fetching last attestation: {:?}", e))?
-        .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
-
-    // All checkpoints prior to this one don't need to be cached.
-    // We already have them!
-    let fully_cached_through = attestations_cache.currently_cached_through().await?;
-
-    info!(
-        "Starting to sync from: {}",
-        last_chain_attestation.attestation.digest()
-    );
-
-    let mut fetch_more = true;
-    // Fetch more historical attestations
-    while fetch_more {
-        let digest = last_chain_attestation.attestation.digest();
-
-        // Check if the digest already exists in the cache
-        let exists_in_cache = attestations_cache.attestation_digest_exists(digest).await?;
-        info!(
-            "Checking if digest {} exists in cache: {}",
-            digest, exists_in_cache
-        );
-
-        // Check if the digest already exists in the cache and the first digest exists
-        // If this digest exists in the cache and the first digest exists, we can stop fetching more
-        // because it means we have fetched all the historical attestations
-        if exists_in_cache && head_of_chain_exists {
-            info!(
-                "Digest {} already exists in cache, skipping insertion",
-                digest
-            );
-            fetch_more = false;
+    let mut maybe_digest = Some(last_digest);
+    loop {
+        // Fetch next attestation to put in cache
+        let attestation = match maybe_digest {
+            Some(digest) => {
+                info!("Fetching attestation with digest: {}", digest);
+                let att_fetch_outcome = cc3_client.get_attestation_by_digest(chain, digest).await?;
+                match att_fetch_outcome {
+                    Some(attestation) => attestation,
+                    None => {
+                        info!("Couldn't fetch attestation with given digest: {:?} \nChecking if digest matches
+                        a checkpoint instead.", digest);
+                        break;
+                    }
+                }
+            }
+            None => {
+                info!("Reached the front of the chain, stopping fetching more historical attestations");
+                attestations_cache
+                    .mark_fully_cached_through(last_digest)
+                    .await?;
+                break;
+            }
         };
+
+        // Traverse backwards along attestation chain. We update this here
+        // rather than at the end of the loop to avoid an unnecessary clone()
+        maybe_digest = attestation.attestation.prev_digest;
+
+        // Check if the attestation already exists in the cache
+        let exists_in_cache = attestations_cache
+            .attestation_digest_exists(attestation.attestation.digest())
+            .await?;
+        info!(
+            "Checking if attestation {} exists in cache: {}",
+            attestation.attestation.digest(),
+            exists_in_cache
+        );
 
         if !exists_in_cache {
             // Insert the attestation into the cache
             info!(
                 "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
-                digest,
-                last_chain_attestation.chain_id(),
-                last_chain_attestation.header_number(),
+                attestation.attestation.digest(),
+                attestation.chain_id(),
+                attestation.header_number(),
+            );
+            attestations_cache.insert_attestation(attestation).await?;
+        } else {
+            info!(
+                "Digest {} already exists in cache, skipping insertion",
+                attestation.attestation.digest()
+            );
+        }
+    }
+
+    // All checkpoints prior to this one don't need to be cached.
+    // We already have them!
+    let fully_cached_through = attestations_cache.currently_cached_through().await?;
+
+    // If digest is full after finishing syncing attestations, then that
+    // means `prev_digest` of the final attestation pointed to the first
+    // checkpoint. Thus we have at least one checkpoint to be cached. We
+    // continue by caching all checkpoints starting with the first.
+    while let Some(digest) = maybe_digest {
+        if Some(digest.into()) == fully_cached_through {
+            info!(
+                "Current digest matches the last digest up to which we have already cached all checkpoints {}.\n
+                Stopping fetching more historical checkpoints",
+                digest
             );
             attestations_cache
-                .insert_attestation(last_chain_attestation.clone())
+                .mark_fully_cached_through(last_digest)
                 .await?;
+            break;
         }
 
-        // Fetch the next attestation
-        if let Some(prev_digest) = last_chain_attestation.attestation.prev_digest {
-            info!("Fetching attestation with prev_digest: {}", prev_digest);
-            last_chain_attestation = cc3_client
-                .get_attestation_by_digest(chain, prev_digest)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("Last attestation not found"))?;
+        // Check whether digest matches a checkpoint on-chain
+        let checkpoint = cc3_client
+            .get_checkpoint_by_digest(chain, digest)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Checkpoint corresponding to digest not found. Digest: {:?}",
+                    digest
+                )
+            })?;
+
+        // Check if checkpoint is already cached
+        let exists_in_cache = attestations_cache.checkpoint_digest_exists(digest).await?;
+        info!(
+            "Checking if checkpoint {} exists in cache: {}",
+            digest, exists_in_cache
+        );
+
+        // Traverse backwards along the checkpoint chain.
+        maybe_digest = checkpoint.prev_digest;
+
+        // Insert checkpoint into cache if not present
+        if !exists_in_cache {
+            info!(
+                "Inserting checkpoint with digest({}) for chain: {}, blocknumber: {} into cache",
+                digest, chain, checkpoint.block_number,
+            );
+            attestations_cache
+                .insert_checkpoint(checkpoint, chain)
+                .await?;
         } else {
+            info!(
+                "Checkpoint {} already exists in cache, skipping insertion",
+                digest
+            );
+        }
+
+        if let None = maybe_digest {
             info!("Reached the front of the chain, stopping fetching more historical attestations");
-            fetch_more = false;
+            attestations_cache
+                .mark_fully_cached_through(last_digest)
+                .await?;
         }
     }
 

@@ -22,9 +22,9 @@ pub struct AttestationCheckpoint {
 
 impl AttestationCheckpoint {
     // Mapper from the OnChainCheckpoint to the db type
-    pub fn from_on_chain(value: &OnChainCheckpoint, chain_id: i64) -> Self {
+    pub fn from_on_chain(value: &OnChainCheckpoint, chain_id: u64) -> Self {
         AttestationCheckpoint {
-            chain_id,
+            chain_id: super::convert(chain_id),
             block_number: super::convert(value.block_number),
             digest: hex::encode(value.digest),
             prev_digest: value.prev_digest.map(hex::encode),
@@ -56,7 +56,7 @@ pub async fn _get_by_block_number(
         .await?)
 }
 
-pub async fn _exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
+pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String) -> Result<bool> {
     Ok(diesel::select(diesel_exists(
         attestation_checkpoint_table
             .filter(attestationcheckpoint::digest.eq(digest.to_lowercase())),
@@ -65,7 +65,7 @@ pub async fn _exists_by_digest(connection: &mut AsyncPgConnection, digest: Strin
     .await?)
 }
 
-pub async fn _insert(
+pub async fn insert(
     connection: &mut AsyncPgConnection,
     checkpoint: AttestationCheckpoint,
 ) -> Result<()> {
