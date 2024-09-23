@@ -61,8 +61,7 @@ impl SubstrateCli for Cli {
         let ret = match id {
             "dev" => {
                 let enable_manual_seal = self.sealing.map(|_| true);
-                let chain_spec = Box::new(chain_spec::development_config(enable_manual_seal));
-                chain_spec
+                Box::new(chain_spec::development_config(enable_manual_seal))
             }
             "devnet" => Box::new(chain_spec::devnet_config()?),
             "testnet" => Box::new(chain_spec::testnet_config()?),
@@ -190,7 +189,9 @@ pub fn run() -> sc_cli::Result<()> {
 
             let runner = cli.create_runner(cmd)?;
             match cmd {
-                BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| cmd.run::<sp_runtime::traits::HashingFor<Block>, ()>(config)),
+                BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| {
+                    cmd.run::<sp_runtime::traits::HashingFor<Block>, ()>(config)
+                }),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
                     cmd.run(client)

@@ -51,7 +51,7 @@ use frame_support::{
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
-use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
+use pallet_transaction_payment::{ConstFeeMultiplier};
 // Frontier
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
@@ -66,7 +66,7 @@ use pallet_evm::{
 use pallet_session::historical as session_historical;
 
 // A few exports that help ease life for downstream crates.
-use ethereum::TransactionV2;
+// use ethereum::TransactionV2;
 pub use frame_system::Call as SystemCall;
 pub use pallet_babe::AuthorityId as BabeId;
 pub use pallet_balances::Call as BalancesCall;
@@ -372,7 +372,7 @@ parameter_types! {
 
 impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
+    type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
     type OperationalFeeMultiplier = ConstU8<1u8>;
     type WeightToFee = WeightToCtcFee<Runtime>;
     type LengthToFee = ConstantMultiplier<u128, ConstU128<1_500_000_000u128>>;
@@ -1165,7 +1165,7 @@ impl_runtime_apis! {
 
     impl fp_rpc::EthereumRuntimeRPCApi<Block> for Runtime {
 
-        fn initialize_pending_block(header: &<Block as BlockT>::Header){
+        fn initialize_pending_block(_header: &<Block as BlockT>::Header){
             //todo
             todo!()
             //new method arrived
@@ -1481,11 +1481,11 @@ impl_runtime_apis! {
     impl pallet_nomination_pools_runtime_api::NominationPoolsApi<Block, AccountId, Balance> for Runtime {
 
         fn pool_pending_slash(pool_id: pallet_nomination_pools::PoolId) -> Balance {
-            NominationPools::api_pool_pending_slash(pool_id).into()
+            NominationPools::api_pool_pending_slash(pool_id)
         }
 
         fn member_pending_slash(who: AccountId) -> Balance {
-            NominationPools::api_member_pending_slash(who).into()
+            NominationPools::api_member_pending_slash(who)
         }
 
         fn pool_needs_delegate_migration(pool_id: pallet_nomination_pools::PoolId) -> bool {
