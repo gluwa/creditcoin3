@@ -62,6 +62,7 @@ where
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
+#[allow(deprecated)]
 pub fn new_partial<RuntimeApi, Executor, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
@@ -152,7 +153,7 @@ where
     )?;
 
     let overrides = Arc::new(StorageOverrideHandler::new(client.clone()));
-    let frontier_backend = match eth_config.frontier_backend_type.clone() {
+    let frontier_backend = match eth_config.frontier_backend_type {
         BackendType::KeyValue => {
             FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
                 Arc::clone(&client),
