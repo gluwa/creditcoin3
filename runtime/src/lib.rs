@@ -4,7 +4,7 @@
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
 #![allow(clippy::new_without_default, clippy::or_fun_call)]
-#![cfg_attr(feature = "runtime-benchmarks", deny(unused_crate_dependencies))]
+// #![cfg_attr(feature = "runtime-benchmarks", deny(unused_crate_dependencies))]
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
@@ -12,16 +12,13 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
 
+use frame_support::genesis_builder_helper::{build_state, get_preset};
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
 use sp_core::{
     crypto::{ByteArray, KeyTypeId},
     OpaqueMetadata, H160, H256, U256,
-};
-use frame_support::{
-	genesis_builder_helper::{build_state, get_preset},
-	// traits::VariantCountOf,
 };
 use sp_runtime::{
     generic, impl_opaque_keys,
@@ -69,6 +66,7 @@ use pallet_evm::{
 use pallet_session::historical as session_historical;
 
 // A few exports that help ease life for downstream crates.
+use ethereum::TransactionV2;
 pub use frame_system::Call as SystemCall;
 pub use pallet_babe::AuthorityId as BabeId;
 pub use pallet_balances::Call as BalancesCall;
@@ -77,7 +75,6 @@ pub use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 pub use pallet_staking::StakerStatus;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::Multiplier;
-use ethereum::TransactionV2;
 
 mod precompiles;
 use precompiles::FrontierPrecompiles;
@@ -339,10 +336,9 @@ impl pallet_balances::Config for Runtime {
 
     type MaxLocks = MaxLocks;
     type MaxReserves = ();
-    // type MaxHolds = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
-	type FreezeIdentifier = RuntimeFreezeReason;
-	type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
+    type FreezeIdentifier = RuntimeFreezeReason;
+    type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
 pub const TARGET_FEE_CREDO: Balance = 10_000_000_000_000_000;
@@ -591,8 +587,6 @@ impl pallet_staking::Config for Runtime {
     type SessionInterface = Self;
     type EraPayout = EraPayout;
     type NextNewSession = Session;
-    // type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
-    // type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
     type VoterList = VoterList;
     type TargetList = pallet_staking::UseValidatorsMap<Self>;
     type MaxUnlockingChunks = frame_support::traits::ConstU32<32>;
@@ -802,10 +796,8 @@ parameter_types! {
 impl pallet_identity::Config for Runtime {
     type Currency = Balances;
     type BasicDeposit = BasicDeposit;
-    // type FieldDeposit = FieldDeposit;
     type SubAccountDeposit = SubAccountDeposit;
     type MaxSubAccounts = MaxSubAccounts;
-    // type MaxAdditionalFields = MaxAdditionalFields;
     type MaxRegistrars = MaxRegistrars;
     type RuntimeEvent = RuntimeEvent;
     type ForceOrigin = frame_system::EnsureRoot<AccountId>;
@@ -819,9 +811,8 @@ impl pallet_identity::Config for Runtime {
     type SigningPublicKey = <sp_runtime::MultiSignature as Verify>::Signer;
     type UsernameAuthorityOrigin = frame_system::EnsureRoot<Self::AccountId>;
     type PendingUsernameExpiration = ConstU32<{ 7 * DAYS }>;
-    type MaxSuffixLength =  ConstU32<7>;
+    type MaxSuffixLength = ConstU32<7>;
     type MaxUsernameLength = ConstU32<32>;
-
 }
 
 parameter_types! {
@@ -839,8 +830,8 @@ impl pallet_fast_unstake::Config for Runtime {
     type MaxErasToCheckPerBlock = MaxErasToCheckPerBlock;
     type WeightInfo = ();
     type Staking = Staking;
-    #[cfg(feature = "runtime-benchmarks")]
-    type MaxBackersPerValidator = ConstU32<10000>;
+    // #[cfg(feature = "runtime-benchmarks")]
+    // type MaxBackersPerValidator = ConstU32<10000>;
 }
 
 parameter_types! {
@@ -874,7 +865,6 @@ impl pallet_nomination_pools::Config for Runtime {
     type MaxPointsToBalance = MaxPointsToBalance;
     type BalanceToU256 = BalanceToU256;
     type U256ToBalance = U256ToBalance;
-    // type Staking = Staking;
     type PostUnbondingPoolsWindow = PostUnbondingPoolsWindow;
     type MaxMetadataLen = ConstU32<256>;
     type MaxUnbonding = <Self as pallet_staking::Config>::MaxUnlockingChunks;
@@ -882,99 +872,6 @@ impl pallet_nomination_pools::Config for Runtime {
     type StakeAdapter = pallet_nomination_pools::adapter::TransferStake<Self, Staking>;
     type RuntimeFreezeReason = RuntimeFreezeReason;
 }
-
-// #[frame_support::runtime]
-// mod runtime {
-//     #[runtime::runtime]
-// 	#[runtime::derive(
-// 		RuntimeCall,
-// 		RuntimeEvent,
-// 		RuntimeError,
-// 		RuntimeOrigin,
-// 		RuntimeFreezeReason,
-// 		RuntimeHoldReason,
-// 		RuntimeSlashReason,
-// 		RuntimeLockId,
-// 		RuntimeTask
-// 	)]
-// 	pub struct Runtime;
-
-//     #[runtime::pallet_index(0)]
-// 	pub type System = frame_system;
-
-//     #[runtime::pallet_index(1)]
-//     pub type Babe = pallet_babe;
-
-//     #[runtime::pallet_index(2)]
-//     pub type Timestamp = pallet_timestamp;
-
-//     #[runtime::pallet_index(3)]
-//     pub type Balances = pallet_balances;
-
-//     #[runtime::pallet_index(4)]
-//     pub type Authorship = pallet_authorship;
-
-//     #[runtime::pallet_index(5)]
-//     pub type Staking = pallet_staking;
-
-//     #[runtime::pallet_index(6)]
-//     pub type Offences = pallet_offences;
-
-//     #[runtime::pallet_index(7)]
-//     pub type Session = pallet_session;
-
-//     #[runtime::pallet_index(8)]
-//     pub type Grandpa = pallet_grandpa;
-
-//     #[runtime::pallet_index(9)]
-//     pub type ImOnline = pallet_im_online;
-
-//     #[runtime::pallet_index(10)]
-//     // pub type VoterList = pallet_bags_list::<Instance1>;
-//     pub type VoterList = pallet_bags_list;
-
-//     #[runtime::pallet_index(11)]
-//     pub type Historical = session_historical;
-
-//     #[runtime::pallet_index(12)]
-//     pub type TransactionPayment = pallet_transaction_payment;
-
-//     #[runtime::pallet_index(13)]
-//     pub type Sudo = pallet_sudo;
-
-//     #[runtime::pallet_index(14)]
-//     pub type Utility = pallet_utility;
-
-//     #[runtime::pallet_index(15)]
-//     pub type Proxy = pallet_proxy;
-
-//     #[runtime::pallet_index(16)]
-//     pub type Identity = pallet_identity;
-
-//     #[runtime::pallet_index(17)]
-//     pub type FastUnstake = pallet_fast_unstake;
-
-//     #[runtime::pallet_index(18)]
-//     pub type NominationPools = pallet_nomination_pools;
-
-//     #[runtime::pallet_index(19)]
-//     pub type Ethereum = pallet_ethereum;
-
-//     #[runtime::pallet_index(20)]
-//     pub type EVM = pallet_evm;
-
-//     #[runtime::pallet_index(21)]
-//     pub type EVMChainId = pallet_evm_chain_id;
-
-//     #[runtime::pallet_index(22)]
-//     pub type DynamicFee = pallet_dynamic_fee;
-
-//     #[runtime::pallet_index(23)]
-//     pub type BaseFee = pallet_base_fee;
-
-//     #[runtime::pallet_index(24)]
-//     pub type HotfixSufficients = pallet_hotfix_sufficients;
-// }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
@@ -1616,7 +1513,6 @@ impl_runtime_apis! {
         fn trace_transaction(
             extrinsics: Vec<<Block as BlockT>::Extrinsic>,
             traced_transaction: &EthereumTransaction,
-            // traced_transaction: &pallet_ethereum::Transaction,
 
         ) -> Result<
             (),
@@ -1683,18 +1579,18 @@ impl_runtime_apis! {
     }
 
     impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
-		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
-			build_state::<RuntimeGenesisConfig>(config)
-		}
+        fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+            build_state::<RuntimeGenesisConfig>(config)
+        }
 
-		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, |_| None)
-		}
+        fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+            get_preset::<RuntimeGenesisConfig>(id, |_| None)
+        }
 
-		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			vec![]
-		}
-	}
+        fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
+            vec![]
+        }
+    }
 
 }
 

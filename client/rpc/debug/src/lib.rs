@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with Moonbeam.  If not, see <http://www.gnu.org/licenses/>.
 pub use creditcoin3_rpc_core_debug::{DebugServer, TraceParams};
+use fc_storage::StorageOverride;
 use futures::StreamExt;
 use jsonrpsee::core::{async_trait, RpcResult};
-use fc_storage::StorageOverride;
 
 use tokio::{
     self,
@@ -27,18 +27,17 @@ use creditcoin3_client_evm_tracing::{formatters::ResponseFormatter, types::singl
 use creditcoin3_rpc_core_types::{RequestBlockId, RequestBlockTag};
 use creditcoin3_rpc_primitives_debug::{DebugRuntimeApi, TracerInput};
 use ethereum_types::H256;
-// use fc_rpc::{frontier_backend_client, internal_err, OverrideHandle};
 use fc_rpc::{frontier_backend_client, internal_err};
 use fp_rpc::EthereumRuntimeRPCApi;
 use sc_client_api::backend::{Backend, StateBackend, StorageProvider};
 use sc_utils::mpsc::TracingUnboundedSender;
-use sp_runtime::generic::BlockId;
-use sp_runtime::traits::Header as HeaderT;
 use sp_api::{ApiExt, Core, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{
     Backend as BlockchainBackend, Error as BlockChainError, HeaderBackend, HeaderMetadata,
 };
+use sp_runtime::generic::BlockId;
+use sp_runtime::traits::Header as HeaderT;
 use sp_runtime::traits::{BlakeTwo256, Block as BlockT, UniqueSaturatedInto};
 use std::{future::Future, marker::PhantomData, sync::Arc};
 
@@ -336,9 +335,6 @@ where
         // Get parent blockid.
         let parent_block_hash = *header.parent_hash();
 
-        // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), hash);
-        // let schema = client.storage_schema::<B, C, BE>(hash);
-
         // Using storage overrides we align with `:ethereum_schema` which will result in proper
         // SCALE decoding in case of migration.
         let statuses = overrides
@@ -477,16 +473,6 @@ where
                 "Runtime api version call failed (trace)".to_string(),
             ));
         };
-
-        // let x = client.storage(reference_hash, &sc_client_api::StorageKey(b":ethereum_schema".to_vec()));
-        // let schema = match x {
-        //     Ok(Some(bytes)) => parity_scale_codec::Decode::decode(&mut &bytes.0[..])
-        //         .ok()
-        //         .unwrap_or(fp_storage::EthereumStorageSchema::Undefined),
-        //     _ => fp_storage::EthereumStorageSchema::Undefined,
-        // };
-        // let schema = fc_storage::onchain_storage_schema::<B, C, BE>(client.as_ref(), reference_hash);
-
 
         // Get the block that contains the requested transaction. Using storage overrides we align
         // with `:ethereum_schema` which will result in proper SCALE decoding in case of migration.
