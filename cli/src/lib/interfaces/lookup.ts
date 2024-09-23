@@ -851,6 +851,7 @@ export default {
     AttestorPrimitivesAttestationCheckpoint: {
         blockNumber: 'u64',
         digest: 'H256',
+        prevDigest: 'Option<H256>',
     },
     /**
      * Lookup98: pallet_supported_chains::pallet::Event<T>
