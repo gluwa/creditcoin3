@@ -142,27 +142,69 @@ pub async fn sync_cache(
     attestations_cache: &AttestationCacheType,
     cc3_client: &cc3::Client,
 ) -> Result<()> {
-    // Start subscription for new attestations
-    let (attestation_tx, mut attestation_rx) = mpsc::channel(100);
-    debug!("Created cache buffer with size: {}", 100);
+    let buffer_size = 100;
+    // Start subscription for new attestations and checkpoints
+    let (attestation_tx, mut attestation_rx) = mpsc::channel(buffer_size);
+    debug!(
+        "Created attestation cache buffer with size: {}",
+        buffer_size
+    );
+
+    let (checkpoint_tx, mut checkpoint_rx) = mpsc::channel(buffer_size);
+    debug!(
+        "Created attestation checkpoint cache buffer with size: {}",
+        buffer_size
+    );
 
     // Run sub in background and allow server to continue doing other work
     let client = cc3_client.clone();
-    let sync_handle =
-        tokio::spawn(async move { client.start_attestation_sub(attestation_tx, chain_id).await });
+    let sync_handle = tokio::spawn(async move {
+        client
+            .start_attestation_sub(attestation_tx, checkpoint_tx, chain_id)
+            .await
+    });
 
-    // Wait on the channel for new attestations
-    while let Some(attestation) = attestation_rx.recv().await {
-        // check if exists in cache
-        if attestations_cache
-            .attestation_digest_exists(attestation.digest())
-            .await?
-        {
-            warn!("Attestation already exists in cache, skipping");
-            continue;
+    // Wait on the channels for new attestations and checkpoints
+    loop {
+        tokio::select! {
+            maybe_attestation = attestation_rx.recv() => {
+                let attestation = match maybe_attestation {
+                    Some(attestation) => attestation,
+                    None => { break; },
+                };
+                // check if exists in cache
+                if attestations_cache
+                    .attestation_digest_exists(attestation.digest())
+                    .await?
+                {
+                    warn!("Attestation already exists in cache, skipping");
+                    continue;
+                }
+
+                attestations_cache.insert_attestation(attestation).await?;
+            },
+            maybe_checkpoint = checkpoint_rx.recv() => {
+                let (checkpoint, chain_id) = match maybe_checkpoint {
+                    Some(checkpoint_and_id) => checkpoint_and_id,
+                    None => { break; },
+                };
+
+                // check if exists in cache
+                if attestations_cache
+                    .checkpoint_digest_exists(checkpoint.digest)
+                    .await?
+                {
+                    warn!("Checkpoint already exists in cache, skipping");
+                    continue;
+                }
+
+                attestations_cache.insert_checkpoint(checkpoint.clone(), chain_id).await?;
+
+                attestations_cache
+                    .mark_fully_cached_through(checkpoint.digest)
+                    .await?;
+            }
         }
-
-        attestations_cache.insert_attestation(attestation).await?;
     }
 
     sync_handle.await??;

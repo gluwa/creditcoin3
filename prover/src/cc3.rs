@@ -108,6 +108,7 @@ impl Client {
     pub async fn start_attestation_sub(
         &self,
         attestation_chan: mpsc::Sender<SignedAttestation<H256, AccountId32>>,
+        checkpoint_chan: mpsc::Sender<(AttestationCheckpoint, ChainId)>,
         filter: ChainId,
     ) -> Result<()> {
         let mut subscription = self.cc_client.subscribe_events(filter)?;
@@ -115,16 +116,29 @@ impl Client {
         // Process attestations in a loop
         loop {
             let event = subscription.next().await;
-            if let Some(CcEvent::BlockAttestedEvent(attestation)) = event {
-                // Process the attestation
-                info!(
-                    "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
-                    attestation.chain_id(),
-                    attestation.header_number(),
-                    attestation.digest()
-                );
-                // Handle the claim processing logic here
-                attestation_chan.send(attestation).await?;
+            match event {
+                Some(CcEvent::BlockAttestedEvent(attestation)) => {
+                    // Process the attestation
+                    info!(
+                        "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
+                        attestation.chain_id(),
+                        attestation.header_number(),
+                        attestation.digest()
+                    );
+                    // Handle the claim processing logic here
+                    attestation_chan.send(attestation).await?;
+                }
+                Some(CcEvent::CheckpointReachedEvent(checkpoint, chain_id)) => {
+                    info!(
+                        "Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
+                        chain_id,
+                        checkpoint.block_number,
+                        checkpoint.digest,
+                    );
+                    // Handle processing checkpoint here
+                    checkpoint_chan.send((checkpoint, chain_id)).await?;
+                }
+                _ => (),
             }
         }
     }

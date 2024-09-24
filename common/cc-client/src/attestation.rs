@@ -8,15 +8,19 @@ use tracing::{debug, info};
 
 pub use subxt::utils::AccountId32;
 
-use attestor_primitives::{ChainId, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainId, SignedAttestation};
 
-use crate::cc3::{attestation::events::BlockAttested, randomness::events::StoreRandomnessForEpoch};
+use crate::cc3::{
+    attestation::events::BlockAttested, attestation::events::CheckpointReached,
+    randomness::events::StoreRandomnessForEpoch,
+};
 
 use crate::{Client, Randomness};
 
 pub enum CcEvent {
     BlockAttestedEvent(SignedAttestation<H256, AccountId32>),
     RandomnessChangedEvent((u64, Randomness)),
+    CheckpointReachedEvent(AttestationCheckpoint, ChainId),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -48,6 +52,7 @@ impl Subscription {
 // See pallets/attestation-poc/lib.rs
 const ATTESTATION_MODULE: &str = "Attestation";
 const ATTESTATION_SUBMITTED_EVENT: &str = "BlockAttested";
+const CHECKPOINT_REACHED_EVENT: &str = "CheckpointReached";
 
 // See pallet/randomness/lib.rs
 const RANDOMNESS_MODULE: &str = "Randomness";
@@ -132,6 +137,29 @@ impl Client {
                                     .is_err()
                                 {
                                     debug!("The receiver has been dropped");
+                                    // The receiver has been dropped
+                                    break;
+                                }
+                            }
+                        }
+                        (ATTESTATION_MODULE, CHECKPOINT_REACHED_EVENT) => {
+                            if let Ok(Some(evt)) = event.as_event::<CheckpointReached>() {
+                                debug!("Checkpoint chain_id: {:?}", evt.0);
+
+                                // If the filter is not empty, check if the chain_id is in the filter
+                                if filter != evt.0 {
+                                    continue;
+                                }
+
+                                let checkpoint: AttestationCheckpoint = evt.1.into();
+
+                                debug!("Checkpoint digest: {:?}", checkpoint.digest);
+
+                                if sender
+                                    .send(CcEvent::CheckpointReachedEvent(checkpoint, evt.0))
+                                    .await
+                                    .is_err()
+                                {
                                     // The receiver has been dropped
                                     break;
                                 }
