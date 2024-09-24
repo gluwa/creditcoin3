@@ -44,8 +44,9 @@ CREATE INDEX attestation_checkpoint_idx_chain_id ON AttestationCheckpoint (chain
 CREATE INDEX attestation_checkpoint_idx_block_number ON AttestationCheckpoint (block_number);
 CREATE INDEX attestation_checkpoint_idx_digest ON AttestationCheckpoint (digest);
 
--- Create table for last checkpoint we know the local cache is fully caught up to
-CREATE TABLE FullyCachedThrough (
+-- Create table storing the checkpoint we've successfully cached up to.
+-- All history before this checkpoint is locally stored.
+CREATE TABLE CachedUpTo (
    onerow_id BOOL PRIMARY KEY DEFAULT true, 
    digest VARCHAR(64) NOT NULL UNIQUE,
    CONSTRAINT onerow_uni CHECK (onerow_id)

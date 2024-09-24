@@ -12,10 +12,8 @@ use crate::{
         attestation,
         attestationcheckpoint::{self, AttestationCheckpoint as DbCheckpoint},
         blockwithdigest,
+        cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
         db::PgPool,
-        fullycachedthrough::{
-            currently_cached_through, mark_fully_cached_through, FullyCachedThrough,
-        },
     },
     AttestationCacheType, CcClientArc,
 };
@@ -126,14 +124,14 @@ where
         blockwithdigest::upsert_fragment_blocks(&mut connection, fragment).await
     }
 
-    pub async fn currently_cached_through(&self) -> Result<Option<FullyCachedThrough>> {
+    pub async fn currently_cached_up_to(&self) -> Result<Option<CachedUpTo>> {
         let mut connection = self.pool.get().await?;
-        Ok(currently_cached_through(&mut connection).await)
+        Ok(currently_cached_up_to(&mut connection).await)
     }
 
-    pub async fn mark_fully_cached_through(&self, cached_up_to: H256) -> Result<()> {
+    pub async fn mark_cached_up_to(&self, cached_up_to: H256) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        mark_fully_cached_through(&mut connection, cached_up_to).await
+        mark_cached_up_to(&mut connection, cached_up_to).await
     }
 }
 
@@ -196,7 +194,7 @@ pub async fn sync_cache(
                 attestations_cache.insert_checkpoint(checkpoint.clone(), chain_id).await?;
 
                 attestations_cache
-                    .mark_fully_cached_through(checkpoint.digest)
+                    .mark_cached_up_to(checkpoint.digest)
                     .await?;
             }
         }
@@ -212,11 +210,11 @@ pub async fn sync_cache(
 /// using `prev_digest` fields. When we run out of attestations to sync, the
 /// final attestation's `prev_digest` field should point to the first checkpoint.
 ///
-/// In our second procedure, we step backwards through checkpoints, again using
-/// `prev_digest` fields, until we hit the first checkpoint.
+/// Secondly, we step backwards through checkpoints, again using `prev_digest` fields.
+/// We stop when we reach the very first checkpoint.
 ///
 /// Upon the successful conclusion of cache building the digest of the most recent
-/// checkpoint will be recorded in the `FullyCachedThrough` table. Future
+/// checkpoint will be recorded in the `CachedUpTo` table. Future
 /// cache building passes then stop early when encountering a checkpoint matching
 /// that digest.
 pub async fn build_historical_cache_for_chain(
@@ -281,9 +279,7 @@ async fn cache_historical_attestations(
             }
         } else {
             info!("Reached the front of the chain, stopping fetching more historical attestations");
-            attestations_cache
-                .mark_fully_cached_through(last_digest)
-                .await?;
+            attestations_cache.mark_cached_up_to(last_digest).await?;
             return Ok(false);
         };
 
@@ -327,7 +323,7 @@ async fn cache_historical_checkpoints(
     chain: ChainId,
 ) -> Result<()> {
     // All checkpoints prior to this one don't need to be cached. We already have them!
-    let fully_cached_through = attestations_cache.currently_cached_through().await?;
+    let fully_cached_through = attestations_cache.currently_cached_up_to().await?;
 
     // If digest is full after finishing syncing attestations, then that
     // means `prev_digest` of the final attestation pointed to the first
@@ -340,9 +336,7 @@ async fn cache_historical_checkpoints(
                 Stopping fetching more historical checkpoints",
                 digest
             );
-            attestations_cache
-                .mark_fully_cached_through(last_digest)
-                .await?;
+            attestations_cache.mark_cached_up_to(last_digest).await?;
             return Ok(());
         }
 
@@ -385,9 +379,7 @@ async fn cache_historical_checkpoints(
 
         if maybe_digest.is_none() {
             info!("Reached the front of the chain, stopping fetching more historical attestations");
-            attestations_cache
-                .mark_fully_cached_through(last_digest)
-                .await?;
+            attestations_cache.mark_cached_up_to(last_digest).await?;
         }
     }
 

@@ -1,8 +1,8 @@
 pub mod attestation;
 pub mod attestationcheckpoint;
 pub mod blockwithdigest;
+pub mod cachedupto;
 pub mod db;
-pub mod fullycachedthrough;
 pub mod schema;
 
 #[must_use]

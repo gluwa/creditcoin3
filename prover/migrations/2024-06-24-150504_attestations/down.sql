@@ -22,5 +22,5 @@ DROP TABLE IF EXISTS Attestation;
 -- Drop the table for AttestationCheckpoint
 DROP TABLE IF EXISTS AttestationCheckpoint;
 
--- Drop the table for FullyCachedThrough
-DROP TABLE IF EXISTS FullyCachedThrough;
+-- Drop the table for CachedUpTo
+DROP TABLE IF EXISTS CachedUpTo;

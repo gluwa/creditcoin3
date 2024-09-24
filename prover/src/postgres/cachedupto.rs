@@ -4,8 +4,8 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 
-use super::schema::fullycachedthrough::onerow_id;
-use super::schema::fullycachedthrough::{self, dsl::fullycachedthrough as cache_state_table};
+use super::schema::cachedupto::onerow_id;
+use super::schema::cachedupto::{self, dsl::cachedupto as cache_state_table};
 
 #[derive(
     Serialize,
@@ -19,18 +19,15 @@ use super::schema::fullycachedthrough::{self, dsl::fullycachedthrough as cache_s
     PartialEq,
     Eq,
 )]
-#[diesel(table_name = fullycachedthrough)]
+#[diesel(table_name = cachedupto)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct FullyCachedThrough {
+pub struct CachedUpTo {
     pub onerow_id: bool,
     pub digest: String,
 }
 
-pub async fn mark_fully_cached_through(
-    connection: &mut AsyncPgConnection,
-    digest: H256,
-) -> Result<()> {
-    let new_cached_through: FullyCachedThrough = digest.into();
+pub async fn mark_cached_up_to(connection: &mut AsyncPgConnection, digest: H256) -> Result<()> {
+    let new_cached_through: CachedUpTo = digest.into();
     diesel::insert_into(cache_state_table)
         .values(&new_cached_through)
         .on_conflict(onerow_id)
@@ -42,11 +39,9 @@ pub async fn mark_fully_cached_through(
     Ok(())
 }
 
-pub async fn currently_cached_through(
-    connection: &mut AsyncPgConnection,
-) -> Option<FullyCachedThrough> {
+pub async fn currently_cached_up_to(connection: &mut AsyncPgConnection) -> Option<CachedUpTo> {
     match cache_state_table
-        .select(FullyCachedThrough::as_select())
+        .select(CachedUpTo::as_select())
         .first(connection)
         .await
     {
@@ -56,9 +51,9 @@ pub async fn currently_cached_through(
 }
 
 // Mapper from on-chain digest type (H256) to DB digest type (String)
-impl From<H256> for FullyCachedThrough {
+impl From<H256> for CachedUpTo {
     fn from(digest: H256) -> Self {
-        FullyCachedThrough {
+        CachedUpTo {
             onerow_id: true,
             digest: hex::encode(digest),
         }

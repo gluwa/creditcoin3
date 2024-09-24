@@ -48,7 +48,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    fullycachedthrough (onerow_id) {
+    cachedupto (onerow_id) {
         onerow_id -> Bool,
         #[max_length = 64]
         digest -> Varchar,
@@ -59,5 +59,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     attestation,
     attestationcheckpoint,
     blockwithdigest,
-    fullycachedthrough,
+    cachedupto,
 );
