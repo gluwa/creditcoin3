@@ -880,8 +880,6 @@ jobs:
         run: |
           # first install it
           curl -L https://foundry.paradigm.xyz | bash
-          # doesn't work
-          source ~/.bashrc
           ~/.foundry/bin/foundryup
 
           ~/.foundry/bin/anvil --block-time 6 &
