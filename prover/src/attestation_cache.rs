@@ -168,10 +168,8 @@ pub async fn sync_cache(
     loop {
         tokio::select! {
             maybe_attestation = attestation_rx.recv() => {
-                let attestation = match maybe_attestation {
-                    Some(attestation) => attestation,
-                    None => { break; },
-                };
+                let Some(attestation) = maybe_attestation else { break; };
+
                 // check if exists in cache
                 if attestations_cache
                     .attestation_digest_exists(attestation.digest())
@@ -184,10 +182,7 @@ pub async fn sync_cache(
                 attestations_cache.insert_attestation(attestation).await?;
             },
             maybe_checkpoint = checkpoint_rx.recv() => {
-                let (checkpoint, chain_id) = match maybe_checkpoint {
-                    Some(checkpoint_and_id) => checkpoint_and_id,
-                    None => { break; },
-                };
+                let Some((checkpoint, chain_id)) = maybe_checkpoint else { break; };
 
                 // check if exists in cache
                 if attestations_cache
@@ -232,45 +227,69 @@ pub async fn build_historical_cache_for_chain(
     info!("Building historical cache for chain: {}", chain);
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
 
-    let last_digest = match last_digest {
-        Some(digest) => {
-            info!("Starting to sync from: {}", digest);
-            digest
-        }
-        None => {
-            error!("No historical attestations found for chain: {}", chain);
-            return Ok(());
-        }
+    let last_digest = if let Some(digest) = last_digest {
+        info!("Starting to sync from: {}", digest);
+        digest
+    } else {
+        error!("No historical attestations found for chain: {}", chain);
+        return Ok(());
     };
 
     let mut maybe_digest = Some(last_digest);
+
+    cache_historical_attestations(
+        &mut maybe_digest,
+        last_digest,
+        cc3_client.clone(),
+        attestations_cache.clone(),
+        chain,
+    )
+    .await?;
+
+    cache_historical_checkpoints(
+        &mut maybe_digest,
+        last_digest,
+        cc3_client,
+        attestations_cache,
+        chain,
+    )
+    .await?;
+
+    info!("Finished building historical cache for chain: {}", chain);
+
+    Ok(())
+}
+
+async fn cache_historical_attestations(
+    maybe_digest: &mut Option<H256>,
+    last_digest: H256,
+    cc3_client: CcClientArc,
+    attestations_cache: AttestationCacheType,
+    chain: ChainId,
+) -> Result<bool> {
     loop {
         // Fetch next attestation to put in cache
-        let attestation = match maybe_digest {
-            Some(digest) => {
-                info!("Fetching attestation with digest: {}", digest);
-                let att_fetch_outcome = cc3_client.get_attestation_by_digest(chain, digest).await?;
-                match att_fetch_outcome {
-                    Some(attestation) => attestation,
-                    None => {
-                        info!("Couldn't fetch attestation with given digest: {:?} \nChecking if digest matches
-                        a checkpoint instead.", digest);
-                        break;
-                    }
-                }
+        let attestation = if let Some(digest) = maybe_digest {
+            info!("Fetching attestation with digest: {}", digest);
+            let att_fetch_outcome = cc3_client.get_attestation_by_digest(chain, *digest).await?;
+            if let Some(attestation) = att_fetch_outcome {
+                attestation
+            } else {
+                info!("Couldn't fetch attestation with given digest: {:?} \nChecking if digest matches
+                a checkpoint instead.", digest);
+                return Ok(true);
             }
-            None => {
-                info!("Reached the front of the chain, stopping fetching more historical attestations");
-                attestations_cache
-                    .mark_fully_cached_through(last_digest)
-                    .await?;
-                break;
-            }
+        } else {
+            info!("Reached the front of the chain, stopping fetching more historical attestations");
+            attestations_cache
+                .mark_fully_cached_through(last_digest)
+                .await?;
+            return Ok(false);
         };
 
         // Traverse backwards along attestation chain. We update this here
         // rather than at the end of the loop to avoid an unnecessary clone()
-        maybe_digest = attestation.attestation.prev_digest;
+        *maybe_digest = attestation.attestation.prev_digest;
 
         // Check if the attestation already exists in the cache
         let exists_in_cache = attestations_cache
@@ -282,7 +301,12 @@ pub async fn build_historical_cache_for_chain(
             exists_in_cache
         );
 
-        if !exists_in_cache {
+        if exists_in_cache {
+            info!(
+                "Digest {} already exists in cache, skipping insertion",
+                attestation.attestation.digest()
+            );
+        } else {
             // Insert the attestation into the cache
             info!(
                 "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
@@ -291,23 +315,25 @@ pub async fn build_historical_cache_for_chain(
                 attestation.header_number(),
             );
             attestations_cache.insert_attestation(attestation).await?;
-        } else {
-            info!(
-                "Digest {} already exists in cache, skipping insertion",
-                attestation.attestation.digest()
-            );
         }
     }
+}
 
-    // All checkpoints prior to this one don't need to be cached.
-    // We already have them!
+async fn cache_historical_checkpoints(
+    maybe_digest: &mut Option<H256>,
+    last_digest: H256,
+    cc3_client: CcClientArc,
+    attestations_cache: AttestationCacheType,
+    chain: ChainId,
+) -> Result<()> {
+    // All checkpoints prior to this one don't need to be cached. We already have them!
     let fully_cached_through = attestations_cache.currently_cached_through().await?;
 
     // If digest is full after finishing syncing attestations, then that
     // means `prev_digest` of the final attestation pointed to the first
     // checkpoint. Thus we have at least one checkpoint to be cached. We
     // continue by caching all checkpoints starting with the first.
-    while let Some(digest) = maybe_digest {
+    while let Some(digest) = *maybe_digest {
         if Some(digest.into()) == fully_cached_through {
             info!(
                 "Current digest matches the last digest up to which we have already cached all checkpoints {}.\n
@@ -317,7 +343,7 @@ pub async fn build_historical_cache_for_chain(
             attestations_cache
                 .mark_fully_cached_through(last_digest)
                 .await?;
-            break;
+            return Ok(());
         }
 
         // Check whether digest matches a checkpoint on-chain
@@ -339,10 +365,15 @@ pub async fn build_historical_cache_for_chain(
         );
 
         // Traverse backwards along the checkpoint chain.
-        maybe_digest = checkpoint.prev_digest;
+        *maybe_digest = checkpoint.prev_digest;
 
         // Insert checkpoint into cache if not present
-        if !exists_in_cache {
+        if exists_in_cache {
+            info!(
+                "Checkpoint {} already exists in cache, skipping insertion",
+                digest
+            );
+        } else {
             info!(
                 "Inserting checkpoint with digest({}) for chain: {}, blocknumber: {} into cache",
                 digest, chain, checkpoint.block_number,
@@ -350,22 +381,15 @@ pub async fn build_historical_cache_for_chain(
             attestations_cache
                 .insert_checkpoint(checkpoint, chain)
                 .await?;
-        } else {
-            info!(
-                "Checkpoint {} already exists in cache, skipping insertion",
-                digest
-            );
         }
 
-        if let None = maybe_digest {
+        if maybe_digest.is_none() {
             info!("Reached the front of the chain, stopping fetching more historical attestations");
             attestations_cache
                 .mark_fully_cached_through(last_digest)
                 .await?;
         }
     }
-
-    info!("Finished building historical cache for chain: {}", chain);
 
     Ok(())
 }
