@@ -548,9 +548,8 @@ jobs:
           path: |
             head-node.log
             release-node.log
-            # disabled until we have mainnet and testnet
-            # metadata-cmp-with-mainnet.txt
-            # metadata-cmp-with-testnet.txt
+            metadata-cmp-with-mainnet.txt
+            metadata-cmp-with-testnet.txt
 
   unit-test-cli:
     runs-on: ubuntu-24.04
