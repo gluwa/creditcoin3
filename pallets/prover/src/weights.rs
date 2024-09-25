@@ -72,4 +72,26 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(13))
 			.saturating_add(T::DbWeight::get().writes(6))
 	}
+	/// Storage: `Prover::StarkProgramMetadata` (r:1 w:1)
+	/// Proof: `Prover::StarkProgramMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Prover::LastVersion` (r:0 w:1)
+	/// Proof: `Prover::LastVersion` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn set_stark_program_metadata() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `161`
+		//  Estimated: `3626`
+		// Minimum execution time: 8_103_000 picoseconds.
+		Weight::from_parts(8_715_000, 0)
+			.saturating_add(Weight::from_parts(0, 3626))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
 }

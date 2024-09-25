@@ -60,13 +60,8 @@ pub fn run_verifier(
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
-    // Read the proof from the temporary file
-    let proof_json = fs::read_to_string(temp_file_path)
-        .map_err(|e| format!("Failed to read proof from temp file: {}", e))?;
-
-    // Parse the proof JSON
-    let proof: StoneProofJson = serde_json::from_str(&proof_json)
-        .map_err(|e| format!("Failed to parse proof json: {}", e))?;
+    let proof: StoneProofJson =
+        serde_json::from_slice(&proof).map_err(|e| format!("Failed to parse proof json: {}", e))?;
 
     let stone_proof = StoneProof::from(proof);
 

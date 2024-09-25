@@ -32,6 +32,7 @@ pub mod pallet {
 
     pub trait WeightInfo {
         fn submit_proof() -> Weight;
+        fn set_stark_program_metadata() -> Weight;
     }
 
     #[pallet::storage]
@@ -79,37 +80,16 @@ pub mod pallet {
             // Pre eliminary check
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
 
-            #[cfg(not(test))]
             let metadata = StarkProgramMetadata::<T>::iter().collect::<Vec<(u8, u64)>>();
 
-            #[cfg(not(test))]
             let last_version = LastVersion::<T>::get();
 
-            // have to do this weird thing for now to use different functions for tests,
-            // benchmarks and regular execution
-            // ToDo: remove fn verify_proof from mock and benchmarks and reuse the correct fn in all places
-
-            // Verify proof during regular execution
-            #[cfg(all(not(feature = "runtime-benchmarks"), not(test)))]
             let result = proof_verifier::host_api::verify_proof(
                 proof,
                 query.clone(),
                 metadata,
                 last_version,
             );
-
-            // Verify proof for runtime benchmarks
-            #[cfg(feature = "runtime-benchmarks")]
-            let result = proof_verifier::host_benchmark_api::verify_proof(
-                proof,
-                query.clone(),
-                metadata,
-                last_version,
-            );
-
-            // Verify proof for tests
-            #[cfg(test)]
-            let result = crate::mock::verify_proof(proof);
 
             ensure!(result, Error::<T>::InvalidProofSubmitted);
 
@@ -128,7 +108,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight({10_000})]
+        #[pallet::weight(<T as Config>::WeightInfo::set_stark_program_metadata())]
         pub fn set_stark_program_metadata(
             origin: OriginFor<T>,
             program_auth_hash: u64,
