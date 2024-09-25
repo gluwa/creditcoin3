@@ -107,8 +107,8 @@ impl<'a> Client {
 impl Client {
     pub async fn start_attestation_sub(
         &self,
-        attestation_chan: mpsc::Sender<SignedAttestation<H256, AccountId32>>,
-        checkpoint_chan: mpsc::Sender<(AttestationCheckpoint, ChainId)>,
+        attestation_chan: mpsc::UnboundedSender<SignedAttestation<H256, AccountId32>>,
+        checkpoint_chan: mpsc::UnboundedSender<(AttestationCheckpoint, ChainId)>,
         filter: ChainId,
     ) -> Result<()> {
         let mut subscription = self.cc_client.subscribe_events(filter)?;
@@ -126,7 +126,7 @@ impl Client {
                         attestation.digest()
                     );
                     // Handle the claim processing logic here
-                    attestation_chan.send(attestation).await?;
+                    attestation_chan.send(attestation)?;
                 }
                 Some(CcEvent::CheckpointReachedEvent(checkpoint, chain_id)) => {
                     info!(
@@ -136,7 +136,7 @@ impl Client {
                         checkpoint.digest,
                     );
                     // Handle processing checkpoint here
-                    checkpoint_chan.send((checkpoint, chain_id)).await?;
+                    checkpoint_chan.send((checkpoint, chain_id))?;
                 }
                 _ => (),
             }

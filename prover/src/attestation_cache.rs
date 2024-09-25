@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     cc3,
     postgres::{
-        attestation,
+        self, attestation,
         attestationcheckpoint::{self, AttestationCheckpoint as DbCheckpoint},
         blockwithdigest,
         cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
@@ -87,7 +87,17 @@ where
     ) -> Result<()> {
         let mut connection = self.pool.get().await?;
         let db_checkpoint = DbCheckpoint::from_on_chain(&checkpoint, chain_id);
+        let checkpoint_block_number = db_checkpoint.block_number;
         attestationcheckpoint::insert(&mut connection, db_checkpoint).await?;
+
+        // Checkpoints should be strictly from earlier block numbers than attestations. So
+        // we remove all attestations older than this new checkpoint from storage.
+        attestation::remove_all_before(
+            &mut connection,
+            checkpoint_block_number,
+            postgres::convert(chain_id),
+        )
+        .await?;
 
         Ok(())
     }
@@ -140,19 +150,12 @@ pub async fn sync_cache(
     attestations_cache: &AttestationCacheType,
     cc3_client: &cc3::Client,
 ) -> Result<()> {
-    let buffer_size = 100;
     // Start subscription for new attestations and checkpoints
-    let (attestation_tx, mut attestation_rx) = mpsc::channel(buffer_size);
-    debug!(
-        "Created attestation cache buffer with size: {}",
-        buffer_size
-    );
+    let (attestation_tx, mut attestation_rx) = mpsc::unbounded_channel();
+    debug!("Created unbounded attestation cache buffer",);
 
-    let (checkpoint_tx, mut checkpoint_rx) = mpsc::channel(buffer_size);
-    debug!(
-        "Created attestation checkpoint cache buffer with size: {}",
-        buffer_size
-    );
+    let (checkpoint_tx, mut checkpoint_rx) = mpsc::unbounded_channel();
+    debug!("Created unbounded attestation checkpoint cache buffer",);
 
     // Run sub in background and allow server to continue doing other work
     let client = cc3_client.clone();
@@ -323,14 +326,14 @@ async fn cache_historical_checkpoints(
     chain: ChainId,
 ) -> Result<()> {
     // All checkpoints prior to this one don't need to be cached. We already have them!
-    let fully_cached_through = attestations_cache.currently_cached_up_to().await?;
+    let cached_up_to = attestations_cache.currently_cached_up_to().await?;
 
     // If digest is full after finishing syncing attestations, then that
     // means `prev_digest` of the final attestation pointed to the first
     // checkpoint. Thus we have at least one checkpoint to be cached. We
     // continue by caching all checkpoints starting with the first.
     while let Some(digest) = *maybe_digest {
-        if Some(digest.into()) == fully_cached_through {
+        if Some(digest.into()) == cached_up_to {
             info!(
                 "Current digest matches the last digest up to which we have already cached all checkpoints {}.\n
                 Stopping fetching more historical checkpoints",

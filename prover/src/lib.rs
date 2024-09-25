@@ -84,16 +84,8 @@ impl Server {
                 anyhow::anyhow!("Chain id not found for eth chain id: {}", eth_chain_id)
             })?;
 
-        // Build historical cache first before starting the subscription for new attestations & claims
-        info!("Building historical cache for chain with id: {}", chain_id);
-        attestation_cache::build_historical_cache_for_chain(
-            chain_id,
-            attestations_cache.clone(),
-            cc3_client.clone(),
-        )
-        .await?;
-
-        // Sync the cache
+        // Sync the cache. We start this first to avoid any window where a new attestation could be
+        // missed while the historical cache is being built.
         info!("Starting cache live sync");
         let sync_attestations_cache = attestations_cache.clone();
         let sync_cc3_client = cc3_client.clone();
@@ -102,6 +94,15 @@ impl Server {
                 .await
                 .expect("Failed to sync cache");
         });
+
+        // Build historical cache
+        info!("Building historical cache for chain with id: {}", chain_id);
+        attestation_cache::build_historical_cache_for_chain(
+            chain_id,
+            attestations_cache.clone(),
+            cc3_client.clone(),
+        )
+        .await?;
 
         let cc_eth_client = Arc::new(self.cc3_client.clone());
 

@@ -101,6 +101,20 @@ pub async fn last_synced(
     }
 }
 
+pub async fn remove_all_before(
+    connection: &mut AsyncPgConnection,
+    block_number: i64,
+    chain_id: i64,
+) -> Result<()> {
+    let delete_target = attestation_table
+        .filter(attestation::header_number.lt(block_number))
+        .filter(attestation::chain_id.eq(chain_id));
+
+    diesel::delete(delete_target).execute(connection).await?;
+
+    Ok(())
+}
+
 // Mapper from the signed attestation to the db type
 impl<H, A> From<SignedAttestation<H, A>> for Attestation
 where

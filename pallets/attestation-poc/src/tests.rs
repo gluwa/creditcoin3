@@ -1046,13 +1046,9 @@ fn creating_checkpoint_works() {
             att_per_check as usize
         );
 
-        // TODO: Uncomment this once removing attestations from storage is enabled again.
-        // This will happen when checkpoints are fully implemented.
-        /*
         for removed_digest in removed_by_checkpoint {
             assert_eq!(Attestation::attestations(chain_id, removed_digest), None);
         }
-        */
 
         for kept_attestation in kept_after_checkpoint {
             assert_eq!(
