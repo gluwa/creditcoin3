@@ -148,6 +148,7 @@ pub async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> an
 
 #[cfg(test)]
 mod tests {
+    use super::ClaimProver;
     use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
     use attestation_chain::AttestationChainParams;
     use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
@@ -801,7 +802,6 @@ mod tests {
         block: OrderedBlock,
     ) -> CairoVerifierOutput {
         use attestation_db::AttestationDB;
-        const SCRIPT_SOURCE: &str = "../cairo/scripts/verify_merkle_proof.sh";
 
         let attestation_chain_params = ETH_ATTESTATION_CHAIN_PARAMS_DEV;
         let db_url = "../data/db";
@@ -832,7 +832,7 @@ mod tests {
 
         let output = match cairo_output_or_stone_proof {
             either::Left((mut stone_proof, stone_proof_dir)) => {
-                crate::run_stone_verify_script(SCRIPT_SOURCE, &stone_proof_dir)
+                crate::run_stone_verify_script(ClaimProver::script_source(), &stone_proof_dir)
                     .await
                     .unwrap();
                 println!("{}", "CLAIMER: proof stone-verified".bold().green());
