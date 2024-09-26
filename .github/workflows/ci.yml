@@ -160,6 +160,51 @@ jobs:
         run: |
           ./.github/check-bootnodes.sh
 
+  sanity-test-stone-binaries:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      - run: pip install -r prover/requirements.txt
+
+      - name: setup Cairo program used for testing
+        working-directory: ./cairo/testing/
+        run: |
+          # compile the Cairo program
+          cairo-compile fibonacci.cairo --output fibonacci_compiled.json --proof_mode
+
+          # Run the compiled program to generate the prover input files:
+          cairo-run \
+            --program=fibonacci_compiled.json \
+            --layout=small \
+            --program_input=fibonacci_input.json \
+            --air_public_input=fibonacci_public_input.json \
+            --air_private_input=fibonacci_private_input.json \
+            --trace_file=fibonacci_trace.bin \
+            --memory_file=fibonacci_memory.bin \
+            --print_output \
+            --proof_mode
+
+      - name: Execute stone prover binary
+        working-directory: ./cairo/testing/
+        run: |
+          ../stone-prover/cpu_air_prover \
+            --out_file=fibonacci_proof.json \
+            --private_input_file=fibonacci_private_input.json \
+            --public_input_file=fibonacci_public_input.json \
+            --prover_config_file=cpu_air_prover_config.json \
+            --parameter_file=cpu_air_params.json
+
+      - name: Execute stone verifier binary
+        working-directory: ./cairo/testing/
+        run: |
+          ../stone-verifier/cpu_air_verifier --in_file=fibonacci_proof.json
+
 #  sanity-test-cli:
 #    runs-on: ubuntu-24.04
 #    steps:
@@ -231,6 +276,7 @@ jobs:
         run: |
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
+
 
   fmt:
     name: Rustfmt
