@@ -104,3 +104,14 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+
+  # Maintain dependencies for Cairo and Python
+  - package-ecosystem: "pip"
+    directories:
+      - "/prover"
+    groups:
+      prod-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+    schedule:
+      interval: "monthly"
