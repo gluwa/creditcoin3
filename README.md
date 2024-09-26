@@ -37,6 +37,12 @@ https://substrate.stackexchange.com/questions/10690/building-a-chain-specificati
 ./target/release/creditcoin3-node --dev
 ```
 
+chopsticks:
+https://github.com/AcalaNetwork/chopsticks/
+```bash
+npx @acala-network/chopsticks@latest --config=/Users/mykyta/dev/gluwa/cc3.yml
+```
+
 _WARNING: running natively on Windows [is unsupported](https://github.com/gluwa/creditcoin/security/advisories/GHSA-cx5c-xwcv-vhmq)._
 
 The node also supports to use manual seal (to produce block manually through RPC).
