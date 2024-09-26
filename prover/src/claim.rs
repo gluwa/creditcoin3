@@ -114,7 +114,7 @@ pub async fn _dummy_process(
 
     let current_dir = std::env::current_dir()?;
     let proof_example_path = if current_dir.ends_with("creditcoin3-next") {
-        "prover/proof_example.json"
+        "cairo/stone-verifier/proof_example.json"
     } else {
         "proof_example.json"
     };
