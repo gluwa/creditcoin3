@@ -44,7 +44,7 @@ pub trait HostBenchmarkApi {
 
         let proof_example = current_path_pwd.replace(
             "target/release/creditcoin3-node",
-            "host/stone-verifier/proof_example.json",
+            "cairo/stone-verifier/proof_example.json",
         );
 
         let proof = std::fs::read(proof_example.clone())

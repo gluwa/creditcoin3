@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::{env, fs, path::PathBuf};
 use tempfile::NamedTempFile;
 
-const VERIFIER_COMMAND: &str = "host/stone-verifier/cpu_air_verifier";
+const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
 
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
@@ -15,7 +15,7 @@ pub fn run_verifier(proof: Vec<u8>) -> Result<String, String> {
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // this code can be called from any directory within this project.
-    // Here we find $PROJECT_ROOT/host/stone_verifier/cpu_air_verifier (where the stone verifier binary is located)
+    // Here we find $PROJECT_ROOT/cairo/stone_verifier/cpu_air_verifier (where the stone verifier binary is located)
     // TODO: make building creditcoin3 also build the cpu_air_verifier and add it to the path so we can drop this locator
     let project_root = find_project_root().ok_or("Could not find project root")?;
     let verifier_path = project_root.join(VERIFIER_COMMAND);
@@ -81,7 +81,7 @@ pub mod tests {
         let project_root = crate::command::find_project_root()
             .ok_or("Could not find project root")
             .expect("project root to be found");
-        let proof_path = project_root.join("host/stone-verifier/proof_example.json");
+        let proof_path = project_root.join("cairo/stone-verifier/proof_example.json");
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
