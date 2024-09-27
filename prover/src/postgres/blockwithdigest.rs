@@ -56,7 +56,7 @@ pub async fn get_blocks_in_range(
     end: i64,
 ) -> Result<Vec<BlockWithDigest>> {
     Ok(blocks_table
-        .filter(blockwithdigest::chain_id.eq(super::convert(chain_id)))
+        .filter(blockwithdigest::chain_id.eq(super::to_storage_type(chain_id)))
         .filter(blockwithdigest::header_number.ge(start))
         .filter(blockwithdigest::header_number.le(end))
         .select(BlockWithDigest::as_select())

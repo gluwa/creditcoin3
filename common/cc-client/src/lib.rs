@@ -274,6 +274,22 @@ impl<'a> Client {
         Ok(result)
     }
 
+    pub async fn chain_checkpoint_interval(&self, chain_id: ChainId) -> Result<Option<u32>> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestation_checkpoint_interval(chain_id);
+
+        let result = self
+            .api
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
+    }
+
     pub async fn chain_attestation_exists(
         &self,
         chain_id: ChainId,

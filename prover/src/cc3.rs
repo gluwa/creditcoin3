@@ -79,6 +79,10 @@ impl<'a> Client {
         self.cc_client.chain_attestation_interval(chain_id).await
     }
 
+    pub async fn get_chain_checkpoint_interval(&self, chain_id: ChainId) -> Result<Option<u32>> {
+        self.cc_client.chain_checkpoint_interval(chain_id).await
+    }
+
     pub async fn get_chain_key(&self, chain_id: ChainId) -> Result<Option<u64>> {
         match chain_id {
             1 => {

@@ -42,8 +42,6 @@ diesel::table! {
         merkle_root -> Varchar,
         #[max_length = 64]
         digest -> Varchar,
-        #[max_length = 64]
-        prev_digest -> Nullable<Varchar>,
     }
 }
 

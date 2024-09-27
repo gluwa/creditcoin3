@@ -24,15 +24,28 @@ pub async fn process(
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
-    let interval = cc3_client
+    let attestation_interval = cc3_client
         .get_attestation_chain_interval(query.chain_id)
         .await?
         .unwrap_or(0);
-    info!("Got attestation chain interval: {:?}", interval);
+    info!("Got attestation chain interval: {:?}", attestation_interval);
+
+    let checkpoint_interval = cc3_client
+        .get_chain_checkpoint_interval(query.chain_id)
+        .await?
+        .unwrap_or(0);
+    info!("Got chain checkpoint interval: {:?}", checkpoint_interval);
 
     // Get the attestation fragment
-    let attestation_fragment: AttestationFragment =
-        fragment::get_for_claim(&eth_client, query, attestation_cache, interval).await?;
+    let attestation_fragment: AttestationFragment = fragment::get_for_claim(
+        &eth_client,
+        query,
+        attestation_cache,
+        attestation_interval,
+        checkpoint_interval,
+    )
+    .await?;
+    let fragment_length = attestation_fragment.blocks().len();
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
@@ -59,7 +72,7 @@ pub async fn process(
     let cairo_output_of_stone_proof = match cairo_generate_proof(
         AttestationChainParams::new(
             0,
-            interval
+            fragment_length
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("Failed to convert interval to u32"))?,
         ),

@@ -23,8 +23,7 @@ CREATE TABLE BlockWithDigest (
     header_number BIGINT NOT NULL,
     header_hash VARCHAR(64) NOT NULL,
     merkle_root VARCHAR(64) NOT NULL,
-    digest VARCHAR(64) NOT NULL UNIQUE,
-    prev_digest VARCHAR(64) UNIQUE
+    digest VARCHAR(64) NOT NULL UNIQUE
 );
 
 CREATE INDEX block_with_digest_idx_chain_id ON BlockWithDigest (chain_id);

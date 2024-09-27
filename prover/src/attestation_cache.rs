@@ -49,6 +49,14 @@ where
         Ok(attestation)
     }
 
+    pub async fn get_checkpoint_by_digest(&self, digest: Digest) -> Result<DbCheckpoint> {
+        let mut connection = self.pool.get().await?;
+        let checkpoint =
+            attestationcheckpoint::get_by_digest(&mut connection, digest.encode_hex()).await?;
+
+        Ok(checkpoint)
+    }
+
     pub async fn attestation_digest_exists(&self, digest: Digest) -> Result<bool> {
         let mut connection = self.pool.get().await?;
 
@@ -95,7 +103,7 @@ where
         attestation::remove_all_before(
             &mut connection,
             checkpoint_block_number,
-            postgres::convert(chain_id),
+            postgres::to_storage_type(chain_id),
         )
         .await?;
 

@@ -70,7 +70,7 @@ pub async fn first_digest_exists(
 ) -> Result<bool> {
     Ok(diesel::select(diesel_exists(
         attestation_table
-            .filter(attestation::chain_id.eq(super::convert(chain_id)))
+            .filter(attestation::chain_id.eq(super::to_storage_type(chain_id)))
             .filter(attestation::prev_digest.is_null()),
     ))
     .get_result(connection)
@@ -83,7 +83,7 @@ pub async fn last_synced(
 ) -> Result<Option<Attestation>> {
     match attestation_table
         .order(attestation::header_number.asc())
-        .filter(attestation::chain_id.eq(super::convert(chain_id)))
+        .filter(attestation::chain_id.eq(super::to_storage_type(chain_id)))
         .select(Attestation::as_select())
         .first(connection)
         // Why does this not work?
@@ -123,8 +123,8 @@ where
 {
     fn from(value: SignedAttestation<H, A>) -> Self {
         Attestation {
-            chain_id: super::convert(value.attestation.chain_id),
-            header_number: super::convert(value.attestation.header_number),
+            chain_id: super::to_storage_type(value.attestation.chain_id),
+            header_number: super::to_storage_type(value.attestation.header_number),
             header_hash: hex::encode(value.attestation.header_hash),
             merkle_root: hex::encode(value.attestation.root),
             digest: hex::encode(value.digest()),

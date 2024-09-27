@@ -24,15 +24,15 @@ impl AttestationCheckpoint {
     // Mapper from the OnChainCheckpoint to the db type
     pub fn from_on_chain(value: &OnChainCheckpoint, chain_id: u64) -> Self {
         AttestationCheckpoint {
-            chain_id: super::convert(chain_id),
-            block_number: super::convert(value.block_number),
+            chain_id: super::to_storage_type(chain_id),
+            block_number: super::to_storage_type(value.block_number),
             digest: hex::encode(value.digest),
             prev_digest: value.prev_digest.map(hex::encode),
         }
     }
 }
 
-pub async fn _get_by_digest(
+pub async fn get_by_digest(
     connection: &mut AsyncPgConnection,
     digest: String,
 ) -> Result<AttestationCheckpoint> {
@@ -83,7 +83,7 @@ pub async fn _first_checkpoint_cached(
 ) -> Result<bool> {
     Ok(diesel::select(diesel_exists(
         attestation_checkpoint_table
-            .filter(attestationcheckpoint::chain_id.eq(super::convert(chain_id)))
+            .filter(attestationcheckpoint::chain_id.eq(super::to_storage_type(chain_id)))
             .filter(attestationcheckpoint::prev_digest.is_null()),
     ))
     .get_result(connection)
