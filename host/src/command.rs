@@ -79,12 +79,14 @@ pub fn run_verifier(
     let program_metadata_storage = StarkProgramMetadataStorage { map, last_version };
 
     // Authenticate the STARK program
-    let metadata = StarkProgramAuth::authenticate(
+    let metadata = match StarkProgramAuth::authenticate(
         &stone_proof,
         &program_metadata_storage,
         default_stark_program_auth_hasher,
-    )
-    .map_err(|e| format!("Failed to authenticate STARK program: {e:?}"));
+    ) {
+        Ok(metadata) => metadata,
+        Err(e) => return Err(format!("Failed to authenticate STARK program: {:?}", e)),
+    };
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
@@ -130,7 +132,7 @@ pub fn find_project_root() -> Option<PathBuf> {
 pub mod tests {
     #[test]
     fn verify_works() {
-        use pallet_prover_primitives::Query;
+        use pallet_prover_primitives::{Query, STARK_PROGRAM_V3_HASH};
 
         let project_root = crate::command::find_project_root()
             .ok_or("Could not find project root")
@@ -146,9 +148,9 @@ pub mod tests {
             layout_segments: vec![],
         };
 
-        let metadata = vec![];
+        let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
-        let last_version = 0;
+        let last_version = 1;
 
         let result = super::run_verifier(proof_example, query, metadata, last_version);
 

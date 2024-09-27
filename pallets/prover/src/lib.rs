@@ -68,6 +68,8 @@ pub mod pallet {
     #[pallet::error]
     pub enum Error<T> {
         InvalidProofSubmitted,
+
+        StarkMetadataNotSet,
     }
 
     #[pallet::call]
@@ -81,6 +83,8 @@ pub mod pallet {
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
 
             let metadata = StarkProgramMetadata::<T>::iter().collect::<Vec<(u8, u64)>>();
+
+            ensure!(!metadata.is_empty(), Error::<T>::StarkMetadataNotSet);
 
             let last_version = LastVersion::<T>::get();
 

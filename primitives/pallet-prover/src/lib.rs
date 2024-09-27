@@ -9,6 +9,8 @@ use sp_io::hashing::keccak_256;
 use sp_runtime_interface::pass_by::PassByCodec;
 use sp_std::vec::Vec;
 
+pub const STARK_PROGRAM_V3_HASH: u64 = 617734937651202173;
+
 #[derive(
     Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec, Default, PassByCodec,
 )]
