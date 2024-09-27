@@ -89,7 +89,7 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
             1
         ));
 
-        let proof = std::fs::read("../../host/stone-verifier/proof_example.json")
+        let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
             .expect("Proof example to be there");
 
         let query = Query {
@@ -123,7 +123,7 @@ fn submit_proof_should_err_and_when_input_is_valid_but_stark_metadata_not_set() 
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let proof = std::fs::read("../../host/stone-verifier/proof_example.json")
+        let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
             .expect("Proof example to be there");
 
         let query = Query {
@@ -154,7 +154,7 @@ fn submit_proof_should_err_and_when_input_is_valid_but_stark_metadata_set_incorr
             1
         ));
 
-        let proof = std::fs::read("../../host/stone-verifier/proof_example.json")
+        let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
             .expect("Proof example to be there");
 
         let query = Query {
