@@ -19,6 +19,7 @@ scale-info = { workspace = true }
 smallvec = "1.13.2"
 
 # Substrate
+sp-genesis-builder = { workspace = true }
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-babe = { workspace = true }
@@ -75,11 +76,13 @@ pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
+# trigger the error -> the lang item is first defined in crate `sp_io` (which `frame_support` depends on)
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 
-# Tracing
+# # Tracing
 creditcoin3-evm-tracer = { workspace = true, optional = true }
 creditcoin3-rpc-primitives-debug = { workspace = true }
+ethereum = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -149,6 +152,7 @@ std = [
 	"creditcoin3-evm-tracer/std",
 	"creditcoin3-rpc-primitives-debug/std",
 	"pallet-evm-precompile-substrate-transfer/std",
+	"ethereum/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

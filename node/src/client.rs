@@ -1,4 +1,5 @@
 // Substrate
+#[allow(deprecated)]
 use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion};
 // Local
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Nonce};
@@ -8,6 +9,7 @@ use crate::eth::EthCompatRuntimeApiCollection;
 /// Full backend.
 pub type FullBackend = sc_service::TFullBackend<Block>;
 /// Full client.
+#[allow(deprecated)]
 pub type FullClient<RuntimeApi, Executor> =
     sc_service::TFullClient<Block, RuntimeApi, NativeElseWasmExecutor<Executor>>;
 
