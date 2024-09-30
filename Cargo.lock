@@ -8000,6 +8000,7 @@ dependencies = [
  "parity-scale-codec",
  "precompile-utils",
  "proof-verifier",
+ "prover-primitives",
  "scale-info",
  "serde",
  "sp-core",

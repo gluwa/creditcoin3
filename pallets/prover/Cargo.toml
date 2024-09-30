@@ -45,6 +45,7 @@ assert_matches = { workspace = true }
 env_logger = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-supported-chains = { workspace = true }
+prover-primitives = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]

@@ -23,10 +23,10 @@ impl StarkProgramMetadataStorage {
 
     const V1_DEV: u8 = 1;
     const AUTH_HASH_V1_DEV: StarkProgramAuthHash = 18171554912147335677;
-    const V2_DEV: u8 = 2;
-    const AUTH_HASH_V2_DEV: StarkProgramAuthHash = 3438002004860300627;
-    const V3_DEV: u8 = 3;
-    const AUTH_HASH_V3_DEV: StarkProgramAuthHash = 617734937651202173;
+    pub const V2_DEV: u8 = 2;
+    pub const AUTH_HASH_V2_DEV: StarkProgramAuthHash = 3438002004860300627;
+    pub const V3_DEV: u8 = 3;
+    pub const AUTH_HASH_V3_DEV: StarkProgramAuthHash = 617734937651202173;
 
     pub fn try_append(
         &mut self,
