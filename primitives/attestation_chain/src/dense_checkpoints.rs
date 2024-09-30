@@ -58,6 +58,7 @@ impl DenseCheckpoints {
         Ok(output)
     }
 
+    #[cfg(test)]
     pub fn any(&self, cp: &AttestationCheckpoint, params: &AttestationChainParams) -> bool {
         cp_index(params, cp)
             .map(|index| {

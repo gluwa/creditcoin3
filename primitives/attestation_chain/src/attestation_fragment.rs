@@ -6,15 +6,15 @@ use utils::json_serializable::JsonSerializable;
 
 #[derive(Debug, Clone)]
 pub struct AttestationFragment {
-    params: AttestationChainParams,
+    fragment_length: usize,
     blocks: Vec<Block>,
 }
 
 impl AttestationFragment {
-    pub fn new(params: AttestationChainParams) -> Self {
+    pub fn new(fragment_length: usize) -> Self {
         Self {
-            params,
-            blocks: Vec::with_capacity(params.fragment_size()),
+            fragment_length,
+            blocks: Vec::with_capacity(fragment_length),
         }
     }
 
@@ -45,17 +45,27 @@ impl AttestationFragment {
         self.len() == 0
     }
     pub fn is_full(&self) -> bool {
-        self.len() == self.params.fragment_size()
+        self.len() == self.fragment_length
     }
+    // With variable interval length, calculating the start of an interval is more
+    // involved and costly. We do this once in get_interval_bounds() of fragment.rs
+    // Here we assume that the fragment was filled with the appropriate blocks rather
+    // than trying to re-calculate the interval from scratch.
     pub fn interval(&self) -> Option<AttestationInterval> {
-        self.tail()
-            .and_then(|tail| self.params.interval_for(tail.n() + 1))
+        self.tail().and_then(|tail| {
+            Some(AttestationInterval(
+                tail.n() + 1,
+                tail.n() + self.fragment_length as u64,
+            ))
+        })
     }
 
+    // TODO: Appears to be completely vestigial. Only used in early prototype crates.
+    // Not used in the current prover. Remove after those crates are cleaned up.
     pub fn next(&self) -> Option<Self> {
         self.is_full().then(|| {
-            let mut next = Self::new(self.params);
-            next.try_append_block(self.blocks[self.params.fragment_size() - 1].clone())
+            let mut next = Self::new(self.fragment_length);
+            next.try_append_block(self.blocks[self.fragment_length - 1].clone())
                 .expect("can append block to empty fragment");
             next
         })
@@ -64,9 +74,6 @@ impl AttestationFragment {
     pub fn try_append_block(&mut self, block: Block) -> Result<&Block, AttestationFragmentError> {
         if self.is_full() {
             return Err(AttestationFragmentError::FragmentIsFull);
-        }
-        if self.is_empty() && !self.params.is_aligned(block.n()) {
-            return Err(AttestationFragmentError::MisalignedBlock(Box::new(block)));
         }
 
         let block = self
@@ -85,14 +92,10 @@ impl AttestationFragment {
         }
     }
 
-    pub fn attestation_slice_for(
-        &self,
-        block_number: u64,
-        upper_bound: Option<u64>,
-    ) -> Option<FragmentSlice> {
+    pub fn blocks_slice_for(&self, block_number: u64) -> Option<FragmentSlice> {
         let tail = self.tail().map(Block::n)?;
         let head = self.head().map(Block::n)?;
-        let upper_bound = core::cmp::min(head, upper_bound.unwrap_or(head));
+        let upper_bound = core::cmp::min(head, head);
 
         (tail < block_number && head >= block_number).then_some(FragmentSlice(
             &self.blocks[(block_number - tail - 1) as usize..(upper_bound + 1 - tail) as usize],
@@ -171,7 +174,7 @@ impl TryFrom<(AttestationFragmentSerializable, AttestationChainParams)> for Atte
     fn try_from(
         chain_json_with_params: (AttestationFragmentSerializable, AttestationChainParams),
     ) -> Result<Self, Self::Error> {
-        let mut chain = Self::new(chain_json_with_params.1);
+        let mut chain = Self::new(chain_json_with_params.1.interval);
 
         for b in chain_json_with_params
             .0

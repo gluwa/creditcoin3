@@ -38,8 +38,8 @@ impl AttestationJsonDB {
 
         let state_path = local_path.clone() + Self::STATE_STORAGE_LOCATION;
         let state = AttestationJsonDBState::try_from_file(&state_path).unwrap_or_default();
-        let mut recent_fragment = AttestationFragment::new(params);
-        let tmp_fragment = AttestationFragment::new(params);
+        let mut recent_fragment = AttestationFragment::new(params.fragment_size());
+        let tmp_fragment = AttestationFragment::new(params.fragment_size());
 
         let mut this = Self {
             params,
@@ -123,7 +123,7 @@ impl AttestationDB for AttestationJsonDB {
     fn reset(&mut self) -> Result<(), AttestationDbError> {
         std::fs::remove_dir_all(&self.local_path).map_err(|_| AttestationDbError::ResetFailure)?;
 
-        *self.recent_fragment_mut() = AttestationFragment::new(self.params);
+        *self.recent_fragment_mut() = AttestationFragment::new(self.params.fragment_size());
         self.state = Default::default();
 
         // self.state.to_file(&self.state_path)

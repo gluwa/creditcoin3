@@ -330,29 +330,6 @@ impl AttestationCheckpoints {
     //     self.tail = Some(scp);
     //     Ok(())
     // }
-
-    pub fn any(&self, checkpoint: &AttestationCheckpoint) -> bool {
-        let found_stabilized = match StabilizedCheckpoint::try_create(*checkpoint, &self.params) {
-            Ok(scp) => {
-                //                    println!("index: {:?}", scp.index());
-                //                    println!("stabilized: {:?}", self.stabilized[scp.index()]);
-                let scp_index = scp.index(&self.params);
-                if scp_index < self.stabilized.len() {
-                    self.stabilized[scp_index]
-                        .as_ref()
-                        .map(|scp| &scp.0 == checkpoint)
-                        .unwrap_or(false)
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        };
-        found_stabilized || self.dense_checkpoints.any(checkpoint, &self.params)
-    }
-    pub fn verify_claim_continuity(&self, checkpoint_for_claim: &AttestationCheckpoint) -> bool {
-        self.any(checkpoint_for_claim)
-    }
 }
 
 impl AttestationCheckpoints {

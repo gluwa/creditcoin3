@@ -3,7 +3,7 @@ use hex::ToHex;
 use sp_core::H256;
 use tracing::{debug, info};
 
-use attestation_chain::{attestation_fragment::AttestationFragment, AttestationChainParams};
+use attestation_chain::attestation_fragment::AttestationFragment;
 use attestor_primitives::Attestation as AttestationPrimitive;
 use eth::Client;
 use mmr::traits::MerkleTreeTrait;
@@ -98,10 +98,9 @@ pub async fn get_for_claim(
     attestation_cache.upsert_fragment(&fragment_blocks).await?;
 
     // Create the attestation fragment object
-    let mut attestation_fragment = AttestationFragment::new(AttestationChainParams::new(
-        0,
-        usize::try_from(attestation_interval).expect("Interval is too large"),
-    ));
+    let mut attestation_fragment = AttestationFragment::new(
+        usize::try_from(upper_bound - lower_bound).expect("Interval is too large"),
+    );
 
     // First digest is the start checkpoint
     let mut start_digest = start_attestation

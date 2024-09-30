@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::ops::Range;
 use tracing::info;
 
-use attestation_chain::{attestation_fragment::AttestationFragment, AttestationChainParams};
+use attestation_chain::attestation_fragment::AttestationFragment;
 use pallet_prover_primitives::Query;
 use proof::cairo_generate_proof;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
@@ -45,7 +45,6 @@ pub async fn process(
         checkpoint_interval,
     )
     .await?;
-    let fragment_length = attestation_fragment.blocks().len();
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
@@ -70,12 +69,6 @@ pub async fn process(
     info!("Generating proof for query with id: {:?}", query_id);
     // Generate proof
     let cairo_output_of_stone_proof = match cairo_generate_proof(
-        AttestationChainParams::new(
-            0,
-            fragment_length
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert interval to u32"))?,
-        ),
         claim_serializable,
         &attestation_fragment,
         block,
