@@ -95,10 +95,9 @@ impl AttestationFragment {
     pub fn blocks_slice_for(&self, block_number: u64) -> Option<FragmentSlice> {
         let tail = self.tail().map(Block::n)?;
         let head = self.head().map(Block::n)?;
-        let upper_bound = core::cmp::min(head, head);
 
         (tail < block_number && head >= block_number).then_some(FragmentSlice(
-            &self.blocks[(block_number - tail - 1) as usize..(upper_bound + 1 - tail) as usize],
+            &self.blocks[(block_number - tail - 1) as usize..(head + 1 - tail) as usize],
         ))
     }
 }
