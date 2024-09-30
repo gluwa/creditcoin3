@@ -1,9 +1,9 @@
 #![cfg(feature = "runtime-benchmarks")]
 
-use super::*;
+use super::{Pallet as Prover, *};
 use frame_benchmarking::{account, benchmarks};
 use frame_system::RawOrigin;
-use pallet_prover_primitives::{Query, VerifierExitStatus};
+use pallet_prover_primitives::{Query, VerifierExitStatus, STARK_PROGRAM_V3_HASH};
 use sp_std::vec;
 
 benchmarks! {
@@ -19,6 +19,9 @@ benchmarks! {
         let query_id = query.id();
 
         let proof = vec![0; 745676];
+
+        let _ = Prover::<T>::set_stark_program_metadata(RawOrigin::Root.into(), STARK_PROGRAM_V3_HASH, 1);
+
     }: _(RawOrigin::Signed(who.clone()), proof, query)
     verify {
         assert_eq!(QueryResultById::<T>::get(query_id), Some(VerifierExitStatus::Success));
