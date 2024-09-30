@@ -53,7 +53,7 @@ fn submit_proof_should_error_when_proof_is_empty() {
 
 // this test additionally logs an error since it's unable to verify the proof
 #[test]
-fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid_and_stark_metadata_is_set() {
+fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
@@ -119,7 +119,7 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
 }
 
 #[test]
-fn submit_proof_should_err_and_when_input_is_valid_but_stark_metadata_not_set() {
+fn submit_proof_should_error_when_stark_metadata_not_set() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
@@ -144,7 +144,7 @@ fn submit_proof_should_err_and_when_input_is_valid_but_stark_metadata_not_set() 
 }
 
 #[test]
-fn submit_proof_should_err_and_when_input_is_valid_but_stark_metadata_set_incorrectly() {
+fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
