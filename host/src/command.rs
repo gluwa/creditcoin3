@@ -133,7 +133,8 @@ pub fn find_project_root() -> Option<PathBuf> {
 pub mod tests {
     #[test]
     fn verify_works() {
-        use pallet_prover_primitives::{Query, STARK_PROGRAM_V3_HASH};
+        use pallet_prover_primitives::Query;
+        use prover_primitives::stark_program_auth::StarkProgramMetadataStorage;
 
         let project_root = crate::command::find_project_root()
             .ok_or("Could not find project root")
@@ -149,9 +150,8 @@ pub mod tests {
             layout_segments: vec![],
         };
 
-        let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
-
-        let last_version = 1;
+        let metadata = vec![(1, StarkProgramMetadataStorage::AUTH_HASH_V3_DEV)];
+        let last_version = StarkProgramMetadataStorage::V3_DEV;
 
         let result = super::run_verifier(proof_example, query, metadata, last_version);
 

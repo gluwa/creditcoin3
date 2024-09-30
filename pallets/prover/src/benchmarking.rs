@@ -20,7 +20,7 @@ benchmarks! {
 
         let proof = vec![0; 745676];
 
-        let _ = Prover::<T>::set_stark_program_metadata(RawOrigin::Root.into(), STARK_PROGRAM_V3_HASH, 1);
+        let _ = Prover::<T>::set_stark_program_metadata(RawOrigin::Root.into(), STARK_PROGRAM_V3_HASH, 3);
 
     }: _(RawOrigin::Signed(who.clone()), proof, query)
     verify {

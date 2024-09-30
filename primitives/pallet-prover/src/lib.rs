@@ -9,6 +9,8 @@ use sp_io::hashing::keccak_256;
 use sp_runtime_interface::pass_by::PassByCodec;
 use sp_std::vec::Vec;
 
+// duplicate with constants in StarkProgramMetadataStorage
+// primitives/prover/src/stark_program_auth.rs, CSUB-1303
 pub const STARK_PROGRAM_V3_HASH: u64 = 617734937651202173;
 
 #[derive(

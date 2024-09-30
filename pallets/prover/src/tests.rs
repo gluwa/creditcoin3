@@ -1,7 +1,7 @@
 use self::mock::PROVER_3;
 
 use super::*;
-use pallet_prover_primitives::{Query, VerifierExitStatus, STARK_PROGRAM_V3_HASH};
+use pallet_prover_primitives::{Query, VerifierExitStatus};
 use prover_primitives::stark_program_auth::StarkProgramMetadataStorage;
 
 use frame_support::pallet_prelude::DispatchError::Other;
@@ -61,8 +61,8 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            STARK_PROGRAM_V3_HASH,
-            1
+            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
+            StarkProgramMetadataStorage::V3_DEV
         ));
 
         let proof = b"abcd".to_vec();
@@ -87,8 +87,8 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            STARK_PROGRAM_V3_HASH,
-            1
+            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
+            StarkProgramMetadataStorage::V3_DEV
         ));
 
         let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
