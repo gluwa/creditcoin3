@@ -5,6 +5,7 @@ name: BENCHMARKS
 on:
   pull_request:
     branches: [testnet]
+  workflow_dispatch:
 
 env:
   RUNNER_VM_NAME: "github-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
@@ -14,7 +15,7 @@ jobs:
   check-if-needed:
     # To avoid endless loop in CI skip this job on the commit which
     # auto-updates the weights and is generated further below.
-    if: ${{ github.event_name == 'pull_request' && github.triggering_actor != 'gluwa-bot' }}
+    if: ${{ github.triggering_actor != 'gluwa-bot' }}
     runs-on: ubuntu-24.04
     outputs:
       needs-bench: ${{ steps.version-check.outputs.needs_bench }}
