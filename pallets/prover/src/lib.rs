@@ -88,6 +88,15 @@ pub mod pallet {
 
             let last_version = StarkProgramVersion::<T>::get();
 
+            #[cfg(feature = "runtime-benchmarks")]
+            let result = proof_verifier::host_benchmark_api::verify_proof(
+                proof,
+                query.clone(),
+                metadata,
+                last_version,
+            );
+
+            #[cfg(not(feature = "runtime-benchmarks"))]
             let result = proof_verifier::host_api::verify_proof(
                 proof,
                 query.clone(),
