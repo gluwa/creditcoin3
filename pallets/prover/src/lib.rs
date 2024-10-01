@@ -51,7 +51,7 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn last_version)]
-    pub type LastVersion<T: Config> = StorageValue<_, u8, ValueQuery>;
+    pub type StarkProgramVersion<T: Config> = StorageValue<_, u8, ValueQuery>;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -62,7 +62,7 @@ pub mod pallet {
     pub enum Event<T: Config> {
         QueryVerified(H256, T::AccountId, VerifierExitStatus),
 
-        MetadataSet(u8, u64),
+        StarkProgramMetadataSet(u8, u64),
     }
 
     #[pallet::error]
@@ -86,7 +86,7 @@ pub mod pallet {
 
             ensure!(!metadata.is_empty(), Error::<T>::StarkMetadataNotSet);
 
-            let last_version = LastVersion::<T>::get();
+            let last_version = StarkProgramVersion::<T>::get();
 
             let result = proof_verifier::host_api::verify_proof(
                 proof,
@@ -127,9 +127,12 @@ pub mod pallet {
 
             StarkProgramMetadata::<T>::insert(program_version, program_auth_hash);
 
-            LastVersion::<T>::put(program_version);
+            StarkProgramVersion::<T>::put(program_version);
 
-            Self::deposit_event(Event::<T>::MetadataSet(program_version, program_auth_hash));
+            Self::deposit_event(Event::<T>::StarkProgramMetadataSet(
+                program_version,
+                program_auth_hash,
+            ));
 
             Ok(())
         }

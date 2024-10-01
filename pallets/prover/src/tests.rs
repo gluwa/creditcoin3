@@ -123,8 +123,9 @@ fn submit_proof_should_error_when_stark_metadata_not_set() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
-            .expect("Proof example to be there");
+        // using some random incorrect proof because the verification will error out at
+        // metadata not set before reaching the proof part
+        let proof = vec![0; 10];
 
         let query = Query {
             chain_id: 1,

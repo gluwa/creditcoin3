@@ -1,15 +1,20 @@
 use anyhow::Result;
+use sp_runtime_interface::sp_wasm_interface::anyhow;
+use std::{
+    collections::HashMap,
+    env, fs,
+    hash::{DefaultHasher, Hash, Hasher},
+    io::Write,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+use tempfile::NamedTempFile;
+
 use pallet_prover_primitives::Query;
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthHash, StarkProgramMetadata, StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{StoneProof, StoneProofJson};
-use sp_runtime_interface::sp_wasm_interface::anyhow;
-use std::collections::HashMap;
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::{env, fs, path::PathBuf};
-use tempfile::NamedTempFile;
 
 const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
 
@@ -20,10 +25,6 @@ fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
 }
 
 pub fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
-    use std::hash::DefaultHasher;
-    use std::hash::Hash;
-    use std::hash::Hasher;
-
     let mut hasher = DefaultHasher::new();
     bytes[..].hash(&mut hasher);
 
@@ -153,8 +154,6 @@ pub mod tests {
         let last_version = 1;
 
         let result = super::run_verifier(proof_example, query, metadata, last_version);
-
-        println!("result: {:?}", result);
 
         assert!(result.is_ok());
     }
