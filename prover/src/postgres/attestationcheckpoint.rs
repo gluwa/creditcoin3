@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use attestor_primitives::AttestationCheckpoint as OnChainCheckpoint;
 
 use super::schema::attestationcheckpoint::{
-    self, dsl::attestationcheckpoint as attestation_checkpoint_table,
+    self, digest as SchemaDigest, dsl::attestationcheckpoint as attestation_checkpoint_table,
 };
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
@@ -70,6 +70,8 @@ pub async fn insert(
 ) -> Result<()> {
     diesel::insert_into(attestation_checkpoint_table)
         .values(checkpoint)
+        .on_conflict(SchemaDigest)
+        .do_nothing()
         .execute(connection)
         .await?;
 

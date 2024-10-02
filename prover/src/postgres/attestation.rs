@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use attestor_primitives::SignedAttestation;
 
-use super::schema::attestation::{self, dsl::attestation as attestation_table};
+use super::schema::attestation::{
+    self, digest as SchemaDigest, dsl::attestation as attestation_table,
+};
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
 #[diesel(table_name = attestation)]
@@ -58,6 +60,8 @@ pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String
 pub async fn insert(connection: &mut AsyncPgConnection, attestation: Attestation) -> Result<()> {
     diesel::insert_into(attestation_table)
         .values(attestation)
+        .on_conflict(SchemaDigest)
+        .do_nothing()
         .execute(connection)
         .await?;
 
