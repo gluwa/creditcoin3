@@ -224,9 +224,9 @@ async fn get_interval_bounds(
     // block.
     let (total_interval, is_checkpoint_fragment) =
         if let Some(latest_checkpoint) = maybe_latest_checkpoint {
-            let hex_digest = H256::from_slice(latest_checkpoint.digest.as_bytes());
+            info!("Latest checkpoint: {:?}", latest_checkpoint.digest);
             let last_checkpoint = attestation_cache
-                .get_checkpoint_by_digest(hex_digest)
+                .get_checkpoint_by_digest(latest_checkpoint.digest)
                 .await?;
             latest_checkpoint_height = postgres::from_storage_type(last_checkpoint.block_number);
             if latest_checkpoint_height >= query_height {

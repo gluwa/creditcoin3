@@ -2,6 +2,7 @@ use anyhow::Result;
 use diesel::dsl::exists as diesel_exists;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use hex::ToHex;
 use serde::{Deserialize, Serialize};
 
 use attestor_primitives::AttestationCheckpoint as OnChainCheckpoint;
@@ -25,7 +26,7 @@ impl AttestationCheckpoint {
         AttestationCheckpoint {
             chain_id: super::to_storage_type(chain_id),
             block_number: super::to_storage_type(value.block_number),
-            digest: hex::encode(value.digest),
+            digest: value.digest.encode_hex(),
         }
     }
 }
@@ -36,7 +37,7 @@ pub async fn get_by_digest(
 ) -> Result<AttestationCheckpoint> {
     Ok(attestation_checkpoint_table
         .select(AttestationCheckpoint::as_select())
-        .filter(attestationcheckpoint::digest.eq(digest))
+        .filter(attestationcheckpoint::digest.eq(digest.to_lowercase()))
         .first(connection)
         .await?)
 }

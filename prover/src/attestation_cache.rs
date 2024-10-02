@@ -54,10 +54,9 @@ where
         Ok(attestation)
     }
 
-    pub async fn get_checkpoint_by_digest(&self, digest: Digest) -> Result<DbCheckpoint> {
+    pub async fn get_checkpoint_by_digest(&self, digest: String) -> Result<DbCheckpoint> {
         let mut connection = self.pool.get().await?;
-        let checkpoint =
-            attestationcheckpoint::get_by_digest(&mut connection, digest.encode_hex()).await?;
+        let checkpoint = attestationcheckpoint::get_by_digest(&mut connection, digest).await?;
 
         Ok(checkpoint)
     }
