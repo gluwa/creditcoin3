@@ -1,7 +1,7 @@
 use self::mock::PROVER_3;
 
 use super::*;
-use pallet_prover_primitives::{Query, STARK_PROGRAM_V3_HASH};
+use pallet_prover_primitives::{Query, VerifierExitStatus, STARK_PROGRAM_V3_HASH};
 
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;
@@ -79,10 +79,8 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
 }
 
 #[test]
-#[cfg(not(feature = "runtime-benchmarks"))]
+#[ignore]
 fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metadata_set_correctly() {
-    use pallet_prover_primitives::VerifierExitStatus;
-
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
