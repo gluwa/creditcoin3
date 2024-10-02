@@ -48,10 +48,10 @@ pub async fn get_for_claim(
         .await?;
 
     // If not all fragment blocks are in the cache, then add them.
-    let fragment_blocks = if db_fragment.len() != (upper_bound - lower_bound) as usize {
-        construct_fragment(db_fragment, eth_client, chain_id, lower_bound, upper_bound).await?
-    } else {
+    let fragment_blocks = if db_fragment.len() as u64 == upper_bound - lower_bound {
         db_fragment
+    } else {
+        construct_fragment(db_fragment, eth_client, chain_id, lower_bound, upper_bound).await?
     };
 
     info!(
@@ -153,14 +153,13 @@ async fn construct_fragment(
     );
 
     let mut fragment_blocks = vec![];
-    // Get every block for upper_bound to lower_bound from eth client
+    // Get every block from upper_bound to lower_bound from eth client
     // TODO: This should be done in parallel
     let mut prev_digest = None;
     for block_number in lower_bound..=upper_bound {
         if let Some(block) = already_in_cache
             .iter()
-            .filter(|block| postgres::from_storage_type(block.header_number) == block_number)
-            .next()
+            .find(|block| postgres::from_storage_type(block.header_number) == block_number)
         {
             fragment_blocks.push(block.clone());
             continue;
@@ -230,7 +229,7 @@ async fn get_interval_bounds(
             latest_checkpoint_height = postgres::from_storage_type(last_checkpoint.block_number);
             if latest_checkpoint_height >= query_height {
                 // Query is in checkpoint fragment
-                (attestation_interval * checkpoint_interval as u64, true)
+                (attestation_interval * u64::from(checkpoint_interval), true)
             } else {
                 (attestation_interval, false)
             }

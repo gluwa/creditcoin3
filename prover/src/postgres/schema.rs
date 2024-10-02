@@ -26,8 +26,6 @@ diesel::table! {
         block_number -> Int8,
         #[max_length = 64]
         digest -> Varchar,
-        #[max_length = 64]
-        prev_digest -> Nullable<Varchar>,
     }
 }
 

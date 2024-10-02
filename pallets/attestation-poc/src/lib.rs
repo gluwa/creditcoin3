@@ -468,7 +468,6 @@ pub mod pallet {
                     let checkpoint = AttestationCheckpoint {
                         block_number: header_number,
                         digest,
-                        prev_digest: None,
                     };
 
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
@@ -562,7 +561,6 @@ pub mod pallet {
                     let checkpoint = AttestationCheckpoint {
                         block_number: header_number,
                         digest,
-                        prev_digest: None,
                     };
 
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
@@ -827,7 +825,6 @@ pub mod pallet {
                     let checkpoint = AttestationCheckpoint {
                         block_number: removed.header_number(),
                         digest: removed.digest(),
-                        prev_digest: removed.attestation.prev_digest,
                     };
 
                     Self::deposit_event(Event::<T>::CheckpointReached(

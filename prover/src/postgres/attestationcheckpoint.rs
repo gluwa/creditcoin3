@@ -17,7 +17,6 @@ pub struct AttestationCheckpoint {
     pub chain_id: i64,
     pub block_number: i64,
     pub digest: String,
-    pub prev_digest: Option<String>,
 }
 
 impl AttestationCheckpoint {
@@ -27,7 +26,6 @@ impl AttestationCheckpoint {
             chain_id: super::to_storage_type(chain_id),
             block_number: super::to_storage_type(value.block_number),
             digest: hex::encode(value.digest),
-            prev_digest: value.prev_digest.map(hex::encode),
         }
     }
 }
@@ -75,17 +73,4 @@ pub async fn insert(
         .await?;
 
     Ok(())
-}
-
-pub async fn _first_checkpoint_cached(
-    connection: &mut AsyncPgConnection,
-    chain_id: u64,
-) -> Result<bool> {
-    Ok(diesel::select(diesel_exists(
-        attestation_checkpoint_table
-            .filter(attestationcheckpoint::chain_id.eq(super::to_storage_type(chain_id)))
-            .filter(attestationcheckpoint::prev_digest.is_null()),
-    ))
-    .get_result(connection)
-    .await?)
 }

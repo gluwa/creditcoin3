@@ -75,6 +75,20 @@ impl<'a> Client {
             .await
     }
 
+    pub async fn get_attestations_for_chain(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        self.cc_client.get_attestations_for_chain(chain_id).await
+    }
+
+    pub async fn get_checkpoints_for_chain(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.cc_client.get_checkpoints_for_chain(chain_id).await
+    }
+
     pub async fn get_attestation_chain_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
         self.cc_client.chain_attestation_interval(chain_id).await
     }

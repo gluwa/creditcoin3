@@ -52,12 +52,8 @@ impl AttestationFragment {
     // Here we assume that the fragment was filled with the appropriate blocks rather
     // than trying to re-calculate the interval from scratch.
     pub fn interval(&self) -> Option<AttestationInterval> {
-        self.tail().and_then(|tail| {
-            Some(AttestationInterval(
-                tail.n() + 1,
-                tail.n() + self.fragment_length as u64,
-            ))
-        })
+        self.tail()
+            .map(|tail| AttestationInterval(tail.n() + 1, tail.n() + self.fragment_length as u64))
     }
 
     // TODO: Appears to be completely vestigial. Only used in early prototype crates.

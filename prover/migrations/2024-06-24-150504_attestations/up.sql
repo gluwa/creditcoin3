@@ -35,8 +35,7 @@ CREATE TABLE AttestationCheckpoint (
     id SERIAL PRIMARY KEY,
     chain_id BIGINT NOT NULL,
     block_number BIGINT NOT NULL,
-    digest VARCHAR(64) NOT NULL UNIQUE,
-    prev_digest VARCHAR(64) UNIQUE
+    digest VARCHAR(64) NOT NULL UNIQUE
 );
 
 CREATE INDEX attestation_checkpoint_idx_chain_id ON AttestationCheckpoint (chain_id);

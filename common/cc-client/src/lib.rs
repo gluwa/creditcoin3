@@ -344,6 +344,60 @@ impl<'a> Client {
         Ok(result.map(Into::into))
     }
 
+    pub async fn get_attestations_for_chain(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        let mut attestations = Vec::new();
+
+        // Address to the root of a storage entry that we'd like to iterate over
+        // concatenated with the encoded first key to the Attestations double map,
+        // a ChainId.
+        let address = cc3::storage().attestation().attestations_iter1(chain_id);
+
+        let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
+
+        while let Some(Ok(kv)) = iter.next().await {
+            attestations.push(kv.value.into());
+        }
+
+        attestations.sort_by(
+            |a: &SignedAttestation<H256, AccountId32>, b: &SignedAttestation<H256, AccountId32>| {
+                // Highest to lowest by comparing b to a
+                b.attestation
+                    .header_number
+                    .cmp(&a.attestation.header_number)
+            },
+        );
+
+        Ok(attestations)
+    }
+
+    pub async fn get_checkpoints_for_chain(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        let mut checkpoints = Vec::new();
+
+        // Address to the root of a storage entry that we'd like to iterate over
+        // concatenated with the encoded first key to the Checkpoints double map,
+        // a ChainId.
+        let address = cc3::storage().attestation().checkpoints_iter1(chain_id);
+
+        let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
+
+        while let Some(Ok(kv)) = iter.next().await {
+            checkpoints.push(kv.value.into());
+        }
+
+        checkpoints.sort_by(|a: &AttestationCheckpoint, b: &AttestationCheckpoint| {
+            // Highest to lowest by comparing b to a
+            b.block_number.cmp(&a.block_number)
+        });
+
+        Ok(checkpoints)
+    }
+
     pub async fn submit_attestation<H, A>(&self, attestation: RpcAttestation<H, A>) -> Result<()>
     where
         H: Serialize,
@@ -456,7 +510,6 @@ impl From<CcAttestationCheckpoint> for AttestationCheckpoint {
         AttestationCheckpoint {
             block_number: checkpoint.block_number,
             digest: checkpoint.digest,
-            prev_digest: checkpoint.prev_digest,
         }
     }
 }

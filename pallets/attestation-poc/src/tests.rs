@@ -796,7 +796,6 @@ fn commit_attestation_works() {
         let expected_checkpoint = AttestationCheckpoint {
             block_number: attestation.header_number(),
             digest: attestation.digest(),
-            prev_digest: attestation.attestation.prev_digest,
         };
         assert_eq!(
             Attestation::checkpoints(chain_id, expected_checkpoint.digest),
@@ -1062,7 +1061,6 @@ fn creating_checkpoint_works() {
         let resulting_checkpoint = AttestationCheckpoint {
             block_number: unwrapped_att.header_number(),
             digest: unwrapped_att.digest(),
-            prev_digest: unwrapped_att.attestation.prev_digest,
         };
         System::assert_last_event(
             crate::Event::CheckpointReached(chain_id, resulting_checkpoint.clone()).into(),
