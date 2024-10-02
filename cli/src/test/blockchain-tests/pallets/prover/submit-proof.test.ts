@@ -4,12 +4,11 @@ import { extractFee } from '../../../utils';
 describe('SubmitProof', (): void => {
     let api: ApiPromise;
     let signer: KeyringPair;
-    let root: KeyringPair;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         signer = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
-        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         const stark_program_hash = '617734937651202173';
         const version = 1;
