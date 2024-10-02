@@ -437,7 +437,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo llvm-cov --features=runtime-benchmarks \
+          cargo llvm-cov \
               --workspace --html --show-missing-lines --hide-instantiations \
               --ignore-filename-regex "(tests.rs|mock.rs)"
 
