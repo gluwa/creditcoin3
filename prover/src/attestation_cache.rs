@@ -221,18 +221,15 @@ pub async fn sync_cache(
     Ok(())
 }
 
-/// This process has two main procedures that are quite similar. First, get the last
-/// attestation committed on chain and step backwards along the attestation chain
-/// using `prev_digest` fields. When we run out of attestations to sync, the
-/// final attestation's `prev_digest` field should point to the first checkpoint.
+/// This process has two main procedures that are quite similar and occur in
+/// parallel. We iterate through both attestations and checkpoints from highest
+/// block number to lowest. Any attestation or checkpoint missing from the cache
+/// is added. The syncing processes end once all attestations and checkpoints have
+/// been iterated over.
 ///
-/// Secondly, we step backwards through checkpoints, again using `prev_digest` fields.
-/// We stop when we reach the very first checkpoint.
-///
-/// Upon the successful conclusion of cache building the digest of the most recent
-/// checkpoint will be recorded in the `CachedUpTo` table. Future
-/// cache building passes then stop early when encountering a checkpoint matching
-/// that digest.
+/// Upon the successful conclusion of cache building, the digest of the most recent
+/// checkpoint will be recorded in the `CachedUpTo` table. Future cache building
+/// passes then stop early when encountering a checkpoint matching that digest.
 pub async fn build_historical_cache_for_chain(
     chain: ChainId,
     attestations_cache: AttestationCacheType,
