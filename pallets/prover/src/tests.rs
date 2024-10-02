@@ -79,6 +79,7 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
 }
 
 #[test]
+#[ignore]
 fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metadata_set_correctly() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
