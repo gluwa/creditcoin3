@@ -251,14 +251,14 @@ pub async fn build_historical_cache_for_chain(
     let attestations_handle = tokio::spawn(async move {
         info!("Spawned task for caching historical attestations",);
         if let Err(e) = cache_historical_attestations(client_clone, cache_clone, chain).await {
-            debug!("Error caching historical attestations: {:?}", e);
+            error!("Error caching historical attestations: {:?}", e);
         }
     });
 
     let checkpoints_handle = tokio::spawn(async move {
         info!("Spawned task for caching historical checkpoints",);
         if let Err(e) = cache_historical_checkpoints(cc3_client, attestations_cache, chain).await {
-            debug!("Error caching historical checkpoints: {:?}", e);
+            error!("Error caching historical checkpoints: {:?}", e);
         }
     });
 
@@ -346,13 +346,12 @@ async fn cache_historical_checkpoints(
         // Save block number for later
         let block_number = checkpoint.block_number;
         info!(
-            "Syncing attestation to historical cache. Digest: {}",
+            "Syncing checkpoint to historical cache. Digest: {}",
             checkpoint.digest
         );
         if Some(checkpoint.digest.into()) == cached_up_to {
             info!(
-                "Current digest matches the last digest up to which we have already cached all checkpoints {}.\n
-                Stopping fetching more historical checkpoints",
+                "Current digest matches the last digest up to which we have already cached all checkpoints {}. Stopping fetching more historical checkpoints",
                 checkpoint.digest
             );
             attestations_cache
