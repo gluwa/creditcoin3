@@ -33,6 +33,8 @@ pub async fn get_for_claim(
         attestation_cache,
     )
     .await?;
+    // Fragment includes final block of prior interval.
+    let expected_fragment_size = upper_bound - lower_bound + 1;
 
     // Get the checkpoints for the interval
     let start_attestation = attestation_cache
@@ -48,7 +50,7 @@ pub async fn get_for_claim(
         .await?;
 
     // If not all fragment blocks are in the cache, then add them.
-    let fragment_blocks = if db_fragment.len() as u64 == upper_bound - lower_bound {
+    let fragment_blocks = if db_fragment.len() as u64 == expected_fragment_size {
         db_fragment
     } else {
         construct_fragment(db_fragment, eth_client, chain_id, lower_bound, upper_bound).await?
@@ -99,7 +101,7 @@ pub async fn get_for_claim(
 
     // Create the attestation fragment object
     let mut attestation_fragment = AttestationFragment::new(
-        usize::try_from(upper_bound - lower_bound).expect("Interval is too large"),
+        usize::try_from(expected_fragment_size).expect("Interval is too large"),
     );
 
     // First digest is the start checkpoint
