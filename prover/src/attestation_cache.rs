@@ -332,7 +332,7 @@ async fn cache_historical_checkpoints(
     let checkpoints = cc3_client.get_checkpoints_for_chain(chain).await?;
     // Checkpoint with highest block number will be used to mark
     // the point up to which our cache is complete.
-    let highest_checkpoint = if let Some(checkpoint) = checkpoints.get(0) {
+    let highest_checkpoint = if let Some(checkpoint) = checkpoints.first() {
         checkpoint.clone()
     } else {
         info!("No historical checkpoints to cache.");
@@ -342,10 +342,6 @@ async fn cache_historical_checkpoints(
     // All checkpoints prior to this one don't need to be cached. We already have them!
     let cached_up_to = attestations_cache.currently_cached_up_to().await?;
 
-    // If digest is full after finishing syncing attestations, then that
-    // means `prev_digest` of the final attestation pointed to the first
-    // checkpoint. Thus we have at least one checkpoint to be cached. We
-    // continue by caching all checkpoints starting with the first.
     for checkpoint in checkpoints {
         // Save block number for later
         let block_number = checkpoint.block_number;
