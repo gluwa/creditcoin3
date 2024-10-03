@@ -132,7 +132,7 @@ pub fn find_project_root() -> Option<PathBuf> {
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
     #[test]
-    fn verify_works() {
+    fn verifying_authenticated_proof_should_return_ok() {
         use pallet_prover_primitives::Query;
         use prover_primitives::stark_program_auth::StarkProgramMetadataStorage;
 
