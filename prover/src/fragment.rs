@@ -44,7 +44,7 @@ pub async fn get_for_claim(
         attestation_cache,
     )
     .await?;
-    // Fragment includes final block of prior interval.
+
     let expected_fragment_size = upper_bound - lower_bound + 1;
 
     // Get digests corresponding to starting and ending checkpoints/attestations
@@ -65,7 +65,7 @@ pub async fn get_for_claim(
     let end_digest = match fragment_type {
         FragmentType::CheckpointOnEachEnd => {
             attestation_cache
-                .get_checkpoint_by_block_number(lower_bound as i64, chain_id as i64)
+                .get_checkpoint_by_block_number(upper_bound as i64, chain_id as i64)
                 .await?
                 .digest
         }
@@ -82,72 +82,47 @@ pub async fn get_for_claim(
         .get_attestation_fragment(chain_id, lower_bound, upper_bound)
         .await?;
 
-    info!(
-        "DB fragment:\n{:?}",
-        db_fragment
-            .iter()
-            .map(|block| (block.header_number, block.digest.clone()))
-            .collect::<Vec<(i64, String)>>()
-    );
-
     // If not all fragment blocks are in the cache, then add them.
     let fragment_blocks = if db_fragment.len() as u64 == expected_fragment_size {
-        info!(
-            "Full attestation fragment found in cache, fragment length: {}",
-            expected_fragment_size
-        );
         db_fragment
     } else {
         construct_fragment(db_fragment, eth_client, chain_id, lower_bound, upper_bound).await?
     };
 
-    info!(
-        "Constructed fragment:\n{:?}",
-        fragment_blocks
-            .iter()
-            .map(|block| (block.header_number, block.digest.clone()))
-            .collect::<Vec<(i64, String)>>()
-    );
-
-    // Check if the first block digest matches the start attestation digest
+    // Sanity check that the start attestation digest matches the first block in the fragment
     let first_fragment_block = fragment_blocks
         .first()
         .ok_or_else(|| anyhow::anyhow!("No first block found"))?;
-    info!(
-        "First fragment block digest: {}",
-        first_fragment_block.digest
-    );
 
     if start_digest.as_bytes() != first_fragment_block.digest.as_bytes() {
-        info!(
-            "Start attestation digest: {}, first attestation digest: {}",
-            start_digest, first_fragment_block.digest
-        );
         return Err(anyhow::anyhow!(
-            "Start attestation digest does not match first fragment block digest"
+            "Start attestation digest does not match first fragment block digest:\n
+            Start attestation: {:?}
+            \nFirst fragment block: {:?}\n",
+            start_digest,
+            first_fragment_block.digest
         ));
     };
 
-    // Check if the last block digest matches the end attestation digest
+    // Sanity check that the end attestation digest matches the last fragment block digest
     let last_fragment_block = fragment_blocks
         .last()
         .ok_or_else(|| anyhow::anyhow!("No last block found"))?;
-    info!("Last fragment block digest: {}", last_fragment_block.digest);
 
     if end_digest.as_bytes() != last_fragment_block.digest.as_bytes() {
-        debug!(
-            "End attestation digest: {}, last fragment block digest: {}",
-            end_digest, last_fragment_block.digest
-        );
         return Err(anyhow::anyhow!(
-            "End attestation digest does not match last fragment block digest"
+            "End attestation digest does not match last fragment block digest:\n
+            End attestation: {:?}
+            \nLast fragment block: {:?}\n",
+            end_digest,
+            last_fragment_block.digest
         ));
     };
 
-    // Everything checks out, upsert the fragment in the Database so the next time we don't have to create it
+    // Store the fragment in the cache
     attestation_cache.upsert_fragment(&fragment_blocks).await?;
 
-    // Create the attestation fragment object
+    // Initialize the attestation fragment
     let mut attestation_fragment = AttestationFragment::new(
         usize::try_from(expected_fragment_size).expect("Interval is too large"),
     );
@@ -155,28 +130,18 @@ pub async fn get_for_claim(
     // We use a dummy value rather than an Option::None here for simplicity
     let mut prev_block_digest: String = H256::zero().encode_hex();
 
-    info!("Start digest: {}, End digest: {}", start_digest, end_digest);
+    // Construct the attestation fragment
     for fragment_block in &fragment_blocks {
         let block_with_prev_digest =
             create_block_with_prev_digest(fragment_block, &prev_block_digest)?;
-        info!(
-            "Appending block to fragment. chain_id: {}, block: {:?}",
-            chain_id, block_with_prev_digest
-        );
 
-        // Update the digest
+        // Update prev digest for the next block
         prev_block_digest = hex::encode(block_with_prev_digest.digest.to_bytes_be());
-        info!("Hex start digest (updated): {:?}", prev_block_digest);
 
         attestation_fragment
             .try_append_block(block_with_prev_digest)
             .map_err(|e| anyhow::anyhow!("Error appending block to fragment: {:?}", e))?;
     }
-
-    info!(
-        "Attestation fragment created for chain_id: {}, lower_bound: {}, upper_bound: {}",
-        chain_id, lower_bound, upper_bound
-    );
 
     Ok(attestation_fragment)
 }
@@ -258,7 +223,6 @@ async fn get_interval_bounds(
     checkpoint_interval: u32,
     attestation_cache: &AttestationCacheType,
 ) -> Result<(u64, u64, FragmentType)> {
-    let mut latest_checkpoint_height = 0;
     let maybe_latest_checkpoint = attestation_cache.currently_cached_up_to().await?;
     // Interval depends on whether the fragment in question ends with a checkpoint or an attestation.
     // Attestations occur strictly after checkpoints, since checkpoints remove all preceding
@@ -269,7 +233,7 @@ async fn get_interval_bounds(
         let last_checkpoint = attestation_cache
             .get_checkpoint_by_digest(latest_checkpoint.digest)
             .await?;
-        latest_checkpoint_height = postgres::from_storage_type(last_checkpoint.block_number);
+        let latest_checkpoint_height = postgres::from_storage_type(last_checkpoint.block_number);
         if latest_checkpoint_height >= query_height {
             // Query is in checkpoint fragment
             (
@@ -294,18 +258,9 @@ async fn get_interval_bounds(
         fragment_type
     );
 
-    // We can now actually calculate the interval bounds
-    match fragment_type {
-        FragmentType::CheckpointOnEachEnd => {
-            let start = (query_height / total_interval) * total_interval;
-            let end = start + total_interval;
-            Ok((start, end, fragment_type))
-        }
-        FragmentType::StartCheckpointEndAttestation | FragmentType::AttestationOnEachEnd => {
-            let start = ((query_height - latest_checkpoint_height) / attestation_interval)
-                * attestation_interval;
-            let end = start + attestation_interval;
-            Ok((start, end, fragment_type))
-        }
-    }
+    // We can now actually calculate the interval bounds. First we round
+    // down to the start of the attestation or checkpoint interval.
+    let start = (query_height / total_interval) * total_interval;
+    let end = start + total_interval;
+    Ok((start, end, fragment_type))
 }

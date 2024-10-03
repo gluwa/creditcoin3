@@ -4,7 +4,7 @@ use eth::Client as EthClient;
 use sp_core::H256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use attestation_cache::AttestationCache;
 
@@ -116,11 +116,15 @@ impl Server {
                 claim::_dummy_process(cc3_client, eth_client, query, &attestations_cache).await?;
             } else {
                 info!("Processing unprocessed query: {:?}", query);
-                let proof =
-                    claim::process(cc3_client, eth_client, &query, &attestations_cache).await?;
-
-                info!("Submitting proof for query: {:?}", query);
-                contract::submit_proof(&cc_eth_client, query, proof).await?;
+                match claim::process(cc3_client, eth_client, &query, &attestations_cache).await {
+                    Ok(proof) => {
+                        info!("Submitting proof for query: {:?}", query);
+                        contract::submit_proof(&cc_eth_client, query, proof).await?;
+                    }
+                    Err(e) => {
+                        error!("Failed to process query: {:?}", e);
+                    }
+                }
             }
         }
 
@@ -146,11 +150,15 @@ impl Server {
                 claim::_dummy_process(cc3_client, eth_client, query, &attestations_cache).await?;
             } else {
                 info!("Processing query: {:?}", query);
-                let proof =
-                    claim::process(cc3_client, eth_client, &query, &attestations_cache).await?;
-
-                info!("Submitting proof for query: {:?}", query);
-                contract::submit_proof(&cc_eth_client, query, proof).await?;
+                match claim::process(cc3_client, eth_client, &query, &attestations_cache).await {
+                    Ok(proof) => {
+                        info!("Submitting proof for query: {:?}", query);
+                        contract::submit_proof(&cc_eth_client, query, proof).await?;
+                    }
+                    Err(e) => {
+                        error!("Failed to process query: {:?}", e);
+                    }
+                }
             }
         }
 
