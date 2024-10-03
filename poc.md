@@ -154,6 +154,7 @@ to create a query, run the query cli:
 ```sh
 cd query-cli
 cargo run -- \
+  --cc3-rpc-url http://localhost:9944 \
   --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --contract-address 0x21cb3940e6ba5284e1750f1109131a8e8062b9f1 \
   --infura-api-key "somekey" \
