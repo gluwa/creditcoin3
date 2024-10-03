@@ -1,5 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee } from '../../../utils';
+import { starkProgramHash, starkProgramVersion } from './consts';
 
 describe('SubmitProof', (): void => {
     let api: ApiPromise;
@@ -10,9 +11,9 @@ describe('SubmitProof', (): void => {
         signer = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        const stark_program_hash = '617734937651202173';
-        const version = 1;
-        await api.tx.sudo.sudo(api.tx.prover.setStarkProgramMetadata(stark_program_hash, version)).signAndSend(root);
+        await api.tx.sudo
+            .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramHash, starkProgramVersion))
+            .signAndSend(root);
     }, 30_000);
 
     afterAll(async () => {
