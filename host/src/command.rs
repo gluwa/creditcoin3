@@ -129,7 +129,7 @@ pub fn find_project_root() -> Option<PathBuf> {
     None
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
     #[test]
     fn verify_works() {
