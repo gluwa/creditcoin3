@@ -470,6 +470,11 @@ pub mod pallet {
                         digest,
                     };
 
+                    Self::deposit_event(Event::<T>::CheckpointReached(
+                        chain_id,
+                        checkpoint.clone(),
+                    ));
+
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
                 }
                 Some(_prev_digest) => {
@@ -562,6 +567,11 @@ pub mod pallet {
                         block_number: header_number,
                         digest,
                     };
+
+                    Self::deposit_event(Event::<T>::CheckpointReached(
+                        chain_id,
+                        checkpoint.clone(),
+                    ));
 
                     Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
                 }

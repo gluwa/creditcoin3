@@ -85,6 +85,19 @@ where
         Ok(attestation)
     }
 
+    pub async fn get_checkpoint_by_block_number(
+        &self,
+        block_number: i64,
+        chain_id: i64,
+    ) -> Result<DbCheckpoint> {
+        let mut connection = self.pool.get().await?;
+        let checkpoint =
+            attestationcheckpoint::get_by_block_number(&mut connection, block_number, chain_id)
+                .await?;
+
+        Ok(checkpoint)
+    }
+
     pub async fn insert_attestation(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
         attestation::insert(&mut connection, attestation.into()).await?;

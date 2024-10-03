@@ -352,7 +352,7 @@ impl<'a> Client {
 
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Attestations double map,
-        // a ChainId.
+        // a ChainId
         let address = cc3::storage().attestation().attestations_iter1(chain_id);
 
         let mut iter = self.api.storage().at_latest().await?.iter(address).await?;

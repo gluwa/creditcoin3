@@ -42,7 +42,7 @@ pub async fn get_by_digest(
         .await?)
 }
 
-pub async fn _get_by_block_number(
+pub async fn get_by_block_number(
     connection: &mut AsyncPgConnection,
     block_number: i64,
     chain_id: i64,
