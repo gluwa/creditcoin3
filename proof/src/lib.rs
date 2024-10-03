@@ -1,9 +1,11 @@
 use anyhow::anyhow;
+use attestation_chain::AttestationChainParams;
 use colored::Colorize;
 use either::Either;
 use eth_common::OrderedBlock;
 use tracing::{debug, info};
 
+use attestation_chain::attestation_checkpoints::AttestationCheckpoint;
 use attestation_chain::attestation_fragment::AttestationFragment;
 use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
@@ -69,6 +71,38 @@ pub async fn cairo_generate_proof(
     info!("----- cairo verification successful -----");
     debug!("cairo verification output:");
     debug!("{}", format!("{:?}", output).bold());
+
+    let input_checkpoint = claim_attestation_fragment
+        .checkpoint()
+        .expect("attestation fragment expected to be full");
+
+    let output_checkpoint = AttestationCheckpoint::try_from_block(
+        // TODO: The use of AttestationChainParams is fully vestigial here since
+        // only the genesis field is used, and the current consensus is to
+        // always use the gnensis block 0. Rework once outdated crates sharing
+        // `try_from_block` are removed.
+        AttestationChainParams::new(0, 10),
+        output.continuity_checkpoint_block_number,
+        output.continuity_checkpoint_digest,
+    )
+    .ok_or(anyhow!(
+        "expected to get a valid checkpoint from cairo verifier's output"
+    ))?;
+
+    if input_checkpoint == output_checkpoint {
+        debug!(
+            "{}",
+            format!(
+                "\nclaim continuity validated at checkpoint: {:?}",
+                output_checkpoint
+            )
+            .green()
+        );
+    } else {
+        return Err(anyhow!(
+            "claim continuity not validated on attestation chain"
+        ));
+    };
 
     if cairo_proof_mode {
         info!("running stone-prover, will take a while...");
