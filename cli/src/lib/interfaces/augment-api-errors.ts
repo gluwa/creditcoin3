@@ -514,6 +514,7 @@ declare module '@polkadot/api-base/types/errors' {
         };
         prover: {
             InvalidProofSubmitted: AugmentedError<ApiType>;
+            StarkMetadataNotSet: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

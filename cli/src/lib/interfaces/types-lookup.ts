@@ -1083,7 +1083,9 @@ declare module '@polkadot/types/lookup' {
     interface PalletProverEvent extends Enum {
         readonly isQueryVerified: boolean;
         readonly asQueryVerified: ITuple<[H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
-        readonly type: 'QueryVerified';
+        readonly isStarkProgramMetadataSet: boolean;
+        readonly asStarkProgramMetadataSet: ITuple<[u8, u64]>;
+        readonly type: 'QueryVerified' | 'StarkProgramMetadataSet';
     }
 
     /** @name PalletProverPrimitivesVerifierExitStatus (100) */
@@ -2729,7 +2731,12 @@ declare module '@polkadot/types/lookup' {
             readonly proof: Bytes;
             readonly query: PalletProverPrimitivesQuery;
         } & Struct;
-        readonly type: 'SubmitProof';
+        readonly isSetStarkProgramMetadata: boolean;
+        readonly asSetStarkProgramMetadata: {
+            readonly programAuthHash: u64;
+            readonly programVersion: u8;
+        } & Struct;
+        readonly type: 'SubmitProof' | 'SetStarkProgramMetadata';
     }
 
     /** @name PalletProverPrimitivesQuery (318) */
@@ -3182,7 +3189,8 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletProverError (395) */
     interface PalletProverError extends Enum {
         readonly isInvalidProofSubmitted: boolean;
-        readonly type: 'InvalidProofSubmitted';
+        readonly isStarkMetadataNotSet: boolean;
+        readonly type: 'InvalidProofSubmitted' | 'StarkMetadataNotSet';
     }
 
     /** @name PalletRandomnessError (396) */

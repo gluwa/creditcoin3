@@ -19,6 +19,7 @@ import type {
     u16,
     u32,
     u64,
+    u8,
 } from '@polkadot/types-codec';
 import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
@@ -541,6 +542,7 @@ declare module '@polkadot/api-base/types/events' {
         };
         prover: {
             QueryVerified: AugmentedEvent<ApiType, [H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
+            StarkProgramMetadataSet: AugmentedEvent<ApiType, [u8, u64]>;
             /**
              * Generic event
              **/

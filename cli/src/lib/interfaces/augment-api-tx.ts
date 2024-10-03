@@ -25,6 +25,7 @@ import type {
     u16,
     u32,
     u64,
+    u8,
 } from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
 import type {
@@ -1254,6 +1255,16 @@ declare module '@polkadot/api-base/types/submittable' {
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
         prover: {
+            /**
+             * See [`Pallet::set_stark_program_metadata`].
+             **/
+            setStarkProgramMetadata: AugmentedSubmittable<
+                (
+                    programAuthHash: u64 | AnyNumber | Uint8Array,
+                    programVersion: u8 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u8]
+            >;
             /**
              * See [`Pallet::submit_proof`].
              **/
