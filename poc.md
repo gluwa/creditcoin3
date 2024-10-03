@@ -170,3 +170,17 @@ Select:
 - all data
 
 Now the prover should run the query and prove it. The result is submitted back to the cli and eventually it exits.
+
+# 8. Resetting After Tests
+Whenever you start up a new chain as in step 2 there is an additional cleanup consideration.
+
+1. This file must be deleted with each restart, `artifacts/chain_deployment_artifacts.json`
+2. The prover DB must be cleaned of all entries so that it doesn't retain information from past tests.
+
+There are many ways to clean your db, but one is to connect to your local db using a management GUI such as DBeaver. 
+You can then run DELETE queries on the various tables.
+
+Failing to clean the DB can result in multiple attestations, blocks, or checkpoints being present at each block height.
+
+Some of those will have the wrong digests, as they were saved from past chains. This can cause 
+mismatches when proving claims.
