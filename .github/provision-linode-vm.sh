@@ -49,6 +49,12 @@ SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
 until ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/install-docker-engine-from-upstream.sh; do
+  echo "DEBUG: retrying ssh connection ..."
+  sleep 30
+done
+
+until ssh -i ~/.ssh/id_rsa \
   -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
   -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh; do
   echo "DEBUG: retrying ssh connection ..."

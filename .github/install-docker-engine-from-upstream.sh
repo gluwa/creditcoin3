@@ -24,4 +24,7 @@ if [ ! -f "/etc/apt/sources.list.d/docker.list" ]; then
 
     sudo service docker restart
     sudo docker run hello-world
+
+    # current user can run docker commands
+    sudo usermod -aG docker "$USER"
 fi
