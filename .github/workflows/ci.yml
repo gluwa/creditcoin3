@@ -26,7 +26,7 @@ env:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-build"]
     steps:
       - uses: actions/checkout@v4
 
@@ -104,6 +104,13 @@ jobs:
       - name: Kill the container
         run: |
           sudo killall -9 creditcoin3-node
+
+      # keep this always as the last step
+      - name: Schedule self-hosted shutdown
+        if: always()
+        run: |
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   git-sanity:
     # note: github.{base_ref|head_ref} only available on pull requests
@@ -760,6 +767,7 @@ jobs:
           - proxy: build-creditcoin-node-for-testing-ci
           - proxy: clippy
           - proxy: check
+          - proxy: docker-build
           - proxy: smart-contract
           - proxy: unit-test-creditcoin
 
@@ -829,6 +837,7 @@ jobs:
       - integration-test-cli
       - clippy
       - check
+      - docker-build
       - unit-test-creditcoin
       - integration-test-smart-contract
     if: ${{ always() }}
@@ -847,6 +856,7 @@ jobs:
           - proxy: build-creditcoin-node-for-testing-ci
           - proxy: clippy
           - proxy: check
+          - proxy: docker-build
           - proxy: smart-contract
           - proxy: unit-test-creditcoin
 

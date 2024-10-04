@@ -4,5 +4,6 @@ self-hosted-runner:
     - proxy-benchmark
     - proxy-clippy
     - proxy-check
+    - proxy-docker-build
     - proxy-smart-contract
     - proxy-unit-test-creditcoin
