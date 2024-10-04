@@ -737,6 +737,10 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         let chain_id = 1; // supported in mock runtime
         let attestor = Attestor::new(ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+        let expected_checkpoint = AttestationCheckpoint {
+            block_number: attestation.header_number(),
+            digest: attestation.digest(),
+        };
 
         assert_eq!(Attestation::last_attestation_digest(chain_id), None);
         assert_eq!(
@@ -764,9 +768,8 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         assert_eq!(Attestation::checkpointing_queues(chain_id).len(), 0);
 
         // event
-        let expected_digest = attestation.digest();
         System::assert_last_event(
-            crate::Event::BlockAttested(chain_id, attestation, expected_digest).into(),
+            crate::Event::CheckpointReached(chain_id, expected_checkpoint).into(),
         );
     })
 }
