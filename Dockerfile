@@ -3,7 +3,7 @@ FROM ubuntu:24.04 as runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
+    apt-get install -y --no-install-recommends ca-certificates curl libpq-dev && \
     update-ca-certificates && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y gcc make nodejs --no-install-recommends && \
@@ -47,6 +47,11 @@ ENTRYPOINT [ "/bin/creditcoin3-node" ]
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
+
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/prover /bin/prover
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
