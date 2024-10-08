@@ -53,7 +53,27 @@ impl Attestor {
 }
 
 #[test]
-fn chaning_min_bond_requirement_works() {
+fn set_min_bond_requirement_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_min_bond_requirement(RuntimeOrigin::none(), 200),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_min_bond_requirement_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_min_bond_requirement(RuntimeOrigin::signed(ATTESTOR_1), 200),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_min_bond_requirement_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
@@ -67,6 +87,8 @@ fn chaning_min_bond_requirement_works() {
 
         let min_bond_requirement = Attestation::min_bond_requirement();
         assert_eq!(min_bond_requirement, 200);
+
+        System::assert_last_event(crate::Event::MinBondRequirementUpdated(200).into());
     })
 }
 
