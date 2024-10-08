@@ -1,5 +1,6 @@
 use anyhow::Result;
 use attestor_primitives::{AttestationCheckpoint, ChainId, Digest, SignedAttestation};
+use diesel::dsl::exists;
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
@@ -290,27 +291,12 @@ async fn cache_historical_attestations(
 ) -> Result<()> {
     let attestations = cc3_client.get_attestations_for_chain(chain).await?;
     for attestation in attestations {
-        info!(
-            "Syncing attestation to historical cache. Digest: {}",
-            attestation.attestation.digest()
-        );
-
         // Check if the attestation already exists in the cache
         let exists_in_cache = attestations_cache
             .attestation_digest_exists(attestation.attestation.digest())
             .await?;
-        info!(
-            "Checking if attestation {} exists in cache: {}",
-            attestation.attestation.digest(),
-            exists_in_cache
-        );
 
-        if exists_in_cache {
-            info!(
-                "Digest {} already exists in cache, skipping insertion",
-                attestation.attestation.digest()
-            );
-        } else {
+        if !exists_in_cache {
             // Insert the attestation into the cache
             info!(
                 "Inserting attestation with digest({}) for chain: {}, blocknumber: {} into cache",
@@ -344,10 +330,6 @@ async fn cache_historical_checkpoints(
     let cached_up_to = attestations_cache.currently_cached_up_to().await?;
 
     for checkpoint in checkpoints {
-        info!(
-            "Syncing checkpoint to historical cache. Digest: {}",
-            checkpoint.digest
-        );
         if Some(checkpoint.digest.into()) == cached_up_to {
             info!(
                 "Current digest matches the last digest up to which we have already cached all checkpoints {}. Stopping fetching more historical checkpoints",
@@ -363,18 +345,9 @@ async fn cache_historical_checkpoints(
         let exists_in_cache = attestations_cache
             .checkpoint_digest_exists(checkpoint.digest)
             .await?;
-        info!(
-            "Checking if checkpoint {} exists in cache: {}",
-            checkpoint.digest, exists_in_cache
-        );
 
         // Insert checkpoint into cache if not present
-        if exists_in_cache {
-            info!(
-                "Checkpoint {} already exists in cache, skipping insertion",
-                checkpoint.digest
-            );
-        } else {
+        if !exists_in_cache {
             info!(
                 "Inserting checkpoint with digest({}) for chain: {}, blocknumber: {} into cache",
                 checkpoint.digest, chain, checkpoint.block_number,
