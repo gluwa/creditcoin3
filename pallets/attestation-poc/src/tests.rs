@@ -1,4 +1,5 @@
 use super::*;
+use crate::ledger::AttestorLedger;
 use crate::mock::*;
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainId,
@@ -2224,4 +2225,44 @@ fn create_signed_attestation(
     };
 
     attestation
+}
+
+#[test]
+fn set_payee_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_payee(RuntimeOrigin::none(), RewardDestination::None),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_payee_should_error_when_signer_not_a_stash() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_payee(RuntimeOrigin::signed(ATTESTOR_1), RewardDestination::None),
+            Error::<Test>::NotStash
+        );
+    })
+}
+
+#[test]
+fn set_payee_should_update_storage() {
+    ExtBuilder.build_and_execute(|| {
+        let payee = Payee::<Test>::get(STASH_1);
+        assert!(payee.is_none());
+
+        // setup
+        let ledger: AttestorLedger<Test> = AttestorLedger::new(STASH_1, 100);
+        Ledger::<Test>::insert(STASH_1, ledger);
+
+        assert_ok!(Attestation::set_payee(
+            RuntimeOrigin::signed(STASH_1),
+            RewardDestination::None
+        ),);
+
+        let payee = Payee::<Test>::get(STASH_1).unwrap();
+        assert_eq!(payee, RewardDestination::None);
+    })
 }
