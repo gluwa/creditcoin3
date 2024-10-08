@@ -93,6 +93,72 @@ fn set_min_bond_requirement_should_update_storage_and_emit_event() {
 }
 
 #[test]
+fn set_chain_reward_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 1;
+        let chain_reward = 28;
+
+        assert_noop!(
+            Attestation::set_chain_reward(RuntimeOrigin::none(), chain_id, chain_reward),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_chain_reward_should_error_when_not_signed_by_root() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 1;
+        let chain_reward = 28;
+
+        assert_noop!(
+            Attestation::set_chain_reward(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                chain_id,
+                chain_reward
+            ),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_chain_reward_should_error_when_chain_is_not_supported() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = ChainId::MAX;
+        let chain_reward = 28;
+
+        assert_noop!(
+            Attestation::set_chain_reward(RuntimeOrigin::root(), chain_id, chain_reward),
+            Error::<Test>::ChainNotSupported
+        );
+    })
+}
+
+#[test]
+fn set_chain_reward_should_update_storage_and_emit_event() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        let chain_id = 1;
+        let chain_reward = 28;
+
+        let from_storage = Attestation::chain_reward(chain_id).unwrap();
+        assert_eq!(from_storage, 10000); // from mock.rs genesis
+
+        assert_ok!(Attestation::set_chain_reward(
+            RuntimeOrigin::root(),
+            chain_id,
+            chain_reward
+        ));
+
+        let from_storage = Attestation::chain_reward(chain_id).unwrap();
+        assert_eq!(from_storage, chain_reward);
+
+        System::assert_last_event(crate::Event::ChainRewardUpdated(chain_id, chain_reward).into());
+    })
+}
+
+#[test]
 fn register_attestor_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
