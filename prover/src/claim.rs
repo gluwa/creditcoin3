@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::Result;
 use std::ops::Range;
 use tracing::info;
@@ -27,14 +28,16 @@ pub async fn process(
     let attestation_interval = cc3_client
         .get_attestation_chain_interval(query.chain_id)
         .await?
-        .unwrap_or(0);
+        .ok_or(anyhow!("Could not retrieve attestation interval."))?;
     info!("Got attestation chain interval: {:?}", attestation_interval);
 
     let checkpoint_interval = cc3_client
         .get_chain_checkpoint_interval(query.chain_id)
         .await?
-        .unwrap_or(0);
+        .ok_or(anyhow!("Could not retrieve checkpoint interval"))?;
     info!("Got chain checkpoint interval: {:?}", checkpoint_interval);
+    // Matching type to that of attestation interval
+    let checkpoint_interval = u64::from(checkpoint_interval);
 
     // Get the attestation fragment
     let attestation_fragment: AttestationFragment = fragment::get_for_claim(

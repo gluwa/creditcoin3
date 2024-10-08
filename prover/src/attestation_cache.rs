@@ -18,11 +18,6 @@ use crate::{
     AttestationCacheType, CcClientArc,
 };
 
-// Current consensus is to use genesis block 0 for all supported chains. That
-// way claims can be processed over the entire chain history. Making this
-// variable would likely be expensive.
-pub const ATTESTATION_GENESIS_BLOCK: u64 = 0;
-
 #[derive(Clone)]
 pub struct AttestationCache<H, A> {
     pool: PgPool,
@@ -295,8 +290,6 @@ async fn cache_historical_attestations(
 ) -> Result<()> {
     let attestations = cc3_client.get_attestations_for_chain(chain).await?;
     for attestation in attestations {
-        // Save header number for later
-        let header_number = attestation.attestation.header_number;
         info!(
             "Syncing attestation to historical cache. Digest: {}",
             attestation.attestation.digest()
@@ -327,10 +320,6 @@ async fn cache_historical_attestations(
             );
             attestations_cache.insert_attestation(attestation).await?;
         }
-
-        if header_number == ATTESTATION_GENESIS_BLOCK {
-            info!("Reached the front of the chain, stopping fetching more historical attestations");
-        }
     }
 
     Ok(())
@@ -355,8 +344,6 @@ async fn cache_historical_checkpoints(
     let cached_up_to = attestations_cache.currently_cached_up_to().await?;
 
     for checkpoint in checkpoints {
-        // Save block number for later
-        let block_number = checkpoint.block_number;
         info!(
             "Syncing checkpoint to historical cache. Digest: {}",
             checkpoint.digest
@@ -396,14 +383,12 @@ async fn cache_historical_checkpoints(
                 .insert_checkpoint(checkpoint, chain)
                 .await?;
         }
-
-        if block_number == ATTESTATION_GENESIS_BLOCK {
-            info!("Reached the front of the chain, stopping fetching more historical checkpoints");
-            attestations_cache
-                .mark_cached_up_to(highest_checkpoint.digest)
-                .await?;
-        }
     }
+
+    info!("Reached the front of the chain, stopping fetching more historical checkpoints");
+    attestations_cache
+        .mark_cached_up_to(highest_checkpoint.digest)
+        .await?;
 
     Ok(())
 }

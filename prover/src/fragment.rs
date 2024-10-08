@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::Result;
 use hex::ToHex;
 use sp_core::H256;
@@ -32,7 +33,7 @@ pub async fn get_for_claim(
     query: &Query,
     attestation_cache: &AttestationCacheType,
     attestation_interval: u64,
-    checkpoint_interval: u32,
+    checkpoint_interval: u64,
 ) -> Result<AttestationFragment> {
     let chain_id = query.chain_id;
 
@@ -92,13 +93,11 @@ pub async fn get_for_claim(
     // Sanity check that the start attestation digest matches the first block in the fragment
     let first_fragment_block = fragment_blocks
         .first()
-        .ok_or_else(|| anyhow::anyhow!("No first block found"))?;
+        .ok_or_else(|| anyhow!("No first block found"))?;
 
     if start_digest.as_bytes() != first_fragment_block.digest.as_bytes() {
-        return Err(anyhow::anyhow!(
-            "Start attestation digest does not match first fragment block digest:\n
-            Start attestation: {:?}
-            \nFirst fragment block: {:?}\n",
+        return Err(anyhow!(
+            "Start attestation digest does not match first fragment block digest: Start attestation: {:?}, First fragment block: {:?}",
             start_digest,
             first_fragment_block.digest
         ));
@@ -107,10 +106,10 @@ pub async fn get_for_claim(
     // Sanity check that the end attestation digest matches the last fragment block digest
     let last_fragment_block = fragment_blocks
         .last()
-        .ok_or_else(|| anyhow::anyhow!("No last block found"))?;
+        .ok_or_else(|| anyhow!("No last block found"))?;
 
     if end_digest.as_bytes() != last_fragment_block.digest.as_bytes() {
-        return Err(anyhow::anyhow!(
+        return Err(anyhow!(
             "End attestation digest does not match last fragment block digest:\n
             End attestation: {:?}
             \nLast fragment block: {:?}\n",
@@ -123,9 +122,8 @@ pub async fn get_for_claim(
     attestation_cache.upsert_fragment(&fragment_blocks).await?;
 
     // Initialize the attestation fragment
-    let mut attestation_fragment = AttestationFragment::new(
-        usize::try_from(expected_fragment_size).expect("Interval is too large"),
-    );
+    let mut attestation_fragment =
+        AttestationFragment::new(usize::try_from(expected_fragment_size)?);
 
     // We use a dummy value rather than an Option::None here for simplicity
     let mut prev_block_digest: String = H256::zero().encode_hex();
@@ -140,7 +138,7 @@ pub async fn get_for_claim(
 
         attestation_fragment
             .try_append_block(block_with_prev_digest)
-            .map_err(|e| anyhow::anyhow!("Error appending block to fragment: {:?}", e))?;
+            .map_err(|e| anyhow!("Error appending block to fragment: {:?}", e))?;
     }
 
     Ok(attestation_fragment)
@@ -220,7 +218,7 @@ async fn construct_fragment(
 async fn get_interval_bounds(
     query_height: u64,
     attestation_interval: u64,
-    checkpoint_interval: u32,
+    checkpoint_interval: u64,
     attestation_cache: &AttestationCacheType,
 ) -> Result<(u64, u64, FragmentType)> {
     let maybe_latest_checkpoint = attestation_cache.currently_cached_up_to().await?;
@@ -234,22 +232,25 @@ async fn get_interval_bounds(
             .get_checkpoint_by_digest(latest_checkpoint.digest)
             .await?;
         let latest_checkpoint_height = postgres::from_storage_type(last_checkpoint.block_number);
-        if latest_checkpoint_height >= query_height {
-            // Query is in checkpoint fragment
-            (
-                attestation_interval * u64::from(checkpoint_interval),
-                FragmentType::CheckpointOnEachEnd,
-            )
-        } else if latest_checkpoint_height + attestation_interval >= query_height {
-            // Query is in first attestation interval after checkpoint
-            (
-                attestation_interval,
-                FragmentType::StartCheckpointEndAttestation,
-            )
-        } else {
-            (attestation_interval, FragmentType::AttestationOnEachEnd)
+        match latest_checkpoint_height {
+            h if h >= query_height => {
+                // Query is in checkpoint fragment
+                (
+                    attestation_interval * u64::from(checkpoint_interval),
+                    FragmentType::CheckpointOnEachEnd,
+                )
+            }
+            h if h + attestation_interval >= query_height => {
+                // Query is in first attestation interval after checkpoint
+                (
+                    attestation_interval,
+                    FragmentType::StartCheckpointEndAttestation,
+                )
+            }
+            _ => (attestation_interval, FragmentType::AttestationOnEachEnd),
         }
     } else {
+        // If there are no checkpoints, then fragment must start and end with attestation
         (attestation_interval, FragmentType::AttestationOnEachEnd)
     };
 
