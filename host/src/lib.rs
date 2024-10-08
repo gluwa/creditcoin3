@@ -11,9 +11,9 @@ pub mod command;
 pub trait HostApi {
     fn verify_proof(
         proof: Vec<u8>,
-        query: Query,
-        metadata: Vec<(u8, u64)>,
-        last_version: u8,
+        #[allow(unused)] query: Query,
+        #[allow(unused)] metadata: Vec<(u8, u64)>,
+        #[allow(unused)] last_version: u8,
     ) -> bool {
         #[cfg(target_arch = "x86_64")]
         {

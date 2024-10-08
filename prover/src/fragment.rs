@@ -251,7 +251,7 @@ async fn get_interval_bounds(
             h if h >= query_height => {
                 // Query is in checkpoint fragment
                 (
-                    attestation_interval * u64::from(checkpoint_interval),
+                    attestation_interval * checkpoint_interval,
                     FragmentType::CheckpointOnEachEnd,
                 )
             }
