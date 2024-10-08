@@ -2069,16 +2069,23 @@ fn accumulating_rewards_with_multiple_attestors_works() {
 }
 
 #[test]
-fn claiming_rewards_works() {
+fn claim_rewards_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
+        assert_noop!(Attestation::claim_rewards(RuntimeOrigin::none()), BadOrigin);
+    })
+}
+
+#[test]
+fn claim_rewards_should_update_balance_and_emit_event() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance = Balances::free_balance(STASH_1);
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
 
+        // setup - register and activate the attestor; commit an attestation
         assert_ok!(Attestation::register_attestor(
             attestor.stash.clone(),
             attestor.attestor_id,
         ));
-
-        // Toggle to active
         assert_ok!(Attestation::attest(
             RuntimeOrigin::signed(attestor.attestor_id),
             attestor.public_key,
@@ -2094,16 +2101,21 @@ fn claiming_rewards_works() {
             attestation.clone()
         ));
 
-        // Get reward for chain 1
+        // reward for chain 1 configured in mock.rs
         let chain_reward = ChainReward::<Test>::get(1).unwrap();
 
         let rewards = AccumulatedRewards::<Test>::get(attestor.stash_id);
         assert!(rewards.is_some());
 
         let rewards = rewards.unwrap();
+        // assert - accumulated reward equals the configured one
         assert_eq!(rewards, chain_reward);
 
+        // act - claim the accumulated reward - updates balance and emits event
         assert_ok!(Attestation::claim_rewards(attestor.stash));
+
+        let new_balance = Balances::free_balance(STASH_1);
+        assert_eq!(new_balance, initial_balance + chain_reward);
 
         System::assert_last_event(
             crate::Event::RewardClaimed {
