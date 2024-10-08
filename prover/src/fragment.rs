@@ -12,6 +12,7 @@ use pallet_prover_primitives::Query;
 
 use crate::attestation::create_block_with_prev_digest;
 use crate::postgres::blockwithdigest::BlockWithDigest;
+use crate::postgres::from_storage_type;
 use crate::{postgres, AttestationCacheType, EthClientArc};
 
 #[derive(Debug)]
@@ -47,6 +48,20 @@ pub async fn get_for_claim(
     .await?;
 
     let expected_fragment_size = upper_bound - lower_bound + 1;
+
+    let last_attestation_height = from_storage_type(
+        attestation_cache
+            .last_synced_attestation(chain_id)
+            .await?
+            .ok_or(anyhow!("No attestations synced!"))?
+            .header_number,
+    );
+
+    if last_attestation_height < query.height {
+        return Err(anyhow!(
+            "Cannot prove queries more recent than latest attestation"
+        ));
+    }
 
     // Get digests corresponding to starting and ending checkpoints/attestations
     let start_digest = match fragment_type {

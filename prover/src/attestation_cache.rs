@@ -1,6 +1,5 @@
 use anyhow::Result;
 use attestor_primitives::{AttestationCheckpoint, ChainId, Digest, SignedAttestation};
-use diesel::dsl::exists;
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
