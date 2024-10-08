@@ -1059,7 +1059,6 @@ declare module '@polkadot/types/lookup' {
     interface AttestorPrimitivesAttestationCheckpoint extends Struct {
         readonly blockNumber: u64;
         readonly digest: H256;
-        readonly prevDigest: Option<H256>;
     }
 
     /** @name PalletSupportedChainsEvent (98) */
