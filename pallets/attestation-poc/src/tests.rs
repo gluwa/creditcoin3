@@ -159,6 +159,45 @@ fn set_chain_reward_should_update_storage_and_emit_event() {
 }
 
 #[test]
+fn chill_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(Attestation::chill(RuntimeOrigin::none()), BadOrigin);
+    })
+}
+
+#[test]
+fn chill_should_error_when_not_signed_by_an_attestor() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::chill(RuntimeOrigin::signed(ATTESTOR_1)),
+            Error::<Test>::AddressNotAttestor
+        );
+    })
+}
+
+#[test]
+fn chill_should_update_status_and_emit_event() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        // setup - register attestor
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            ATTESTOR_1
+        ));
+
+        // act
+        assert_ok!(Attestation::chill(RuntimeOrigin::signed(ATTESTOR_1)));
+
+        // assert
+        let attestor = Attestation::attestors(ATTESTOR_1).unwrap();
+        assert_eq!(attestor.status, AttestorStatus::Idle);
+
+        System::assert_last_event(crate::Event::AttestorChilled(ATTESTOR_1).into());
+    })
+}
+
+#[test]
 fn register_attestor_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
