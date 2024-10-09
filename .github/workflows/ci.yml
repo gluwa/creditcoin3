@@ -90,10 +90,10 @@ jobs:
           docker exec creditcoin-validator cairo-run --help
 
           docker exec creditcoin-validator which cpu_air_prover
-          docker exec creditcoin-validator cpu_air_prover --help
+          docker exec creditcoin-validator cpu_air_prover --help | grep "Flags from"
 
           docker exec creditcoin-validator which cpu_air_verifier
-          docker exec creditcoin-validator cpu_air_verifier --help
+          docker exec creditcoin-validator cpu_air_verifier --help | grep "Flags from"
 
       - name: Collect docker logs
         if: always()
