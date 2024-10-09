@@ -32,7 +32,7 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin3 .
+          docker build -t ${{ github.repository }} .
 
       - name: Start a container from image
         run: |
@@ -40,7 +40,7 @@ jobs:
           IP_ADDRESS=$(curl https://ifconfig.me)
           echo "INFO: IP_ADDRESS=$IP_ADDRESS"
 
-          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 ${{ github.repository }} \
               --validator --chain testnet                                   \
               --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
               --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
