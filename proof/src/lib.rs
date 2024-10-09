@@ -22,22 +22,12 @@ pub async fn cairo_generate_proof(
     cairo_proof_mode: bool,
     force_stone_proving: bool,
 ) -> anyhow::Result<either::Either<(StoneProof, String), CairoVerifierOutput>> {
-    let claim_block_number = claim.id().block_number();
-    let checkpoint_block_number = claim_attestation_fragment
-        .head()
-        .ok_or(anyhow!("no fragment head"))?
-        .block_number;
-
-    let claim_blocks_slice = claim_attestation_fragment
-        .blocks_slice_for(claim_block_number)
-        .ok_or(anyhow!("unable to slice fragment {claim_attestation_fragment:?} for block number {} and checkpoint {}", claim_block_number, checkpoint_block_number))?;
-
     debug!("\n");
     info!("---------- cairo claim proving task is starting ----------");
     debug!("claim: {:?}", claim);
     debug!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_prover(claim.clone(), claim_blocks_slice, block)
+    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_fragment, block)
         .await
         .map(|claim_cairo_verifier| {
             debug!("done");

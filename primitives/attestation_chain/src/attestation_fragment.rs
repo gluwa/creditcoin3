@@ -88,13 +88,10 @@ impl AttestationFragment {
         }
     }
 
-    pub fn blocks_slice_for(&self, block_number: u64) -> Option<FragmentSlice> {
-        let tail = self.tail().map(Block::n)?;
-        let head = self.head().map(Block::n)?;
-
-        (tail < block_number && head >= block_number).then_some(FragmentSlice(
-            &self.blocks[(block_number - tail - 1) as usize..(head + 1 - tail) as usize],
-        ))
+    pub fn blocks_serializable(&self) -> FragmentBlocksSerializable {
+        FragmentBlocksSerializable {
+            blocks: self.blocks.iter().map(BlockSerializable::from).collect(),
+        }
     }
 }
 
@@ -115,29 +112,9 @@ impl AttestationFragment {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FragmentSlice<'a>(&'a [Block]);
-
-impl<'a> FragmentSlice<'a> {
-    pub fn start(&self) -> Option<u64> {
-        self.0.first().map(Block::n)
-    }
-    pub fn checkpoint(&self) -> Option<AttestationCheckpoint> {
-        self.0.last().map(AttestationCheckpoint::from)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FragmentSliceSerializable {
+pub struct FragmentBlocksSerializable {
     pub blocks: Vec<BlockSerializable>,
-}
-
-impl<'a> From<FragmentSlice<'a>> for FragmentSliceSerializable {
-    fn from(slice: FragmentSlice<'a>) -> Self {
-        Self {
-            blocks: slice.0.iter().map(BlockSerializable::from).collect(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

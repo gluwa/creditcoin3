@@ -86,7 +86,7 @@ pub async fn last_synced(
     chain_id: u64,
 ) -> Result<Option<Attestation>> {
     match attestation_table
-        .order(attestation::header_number.asc())
+        .order(attestation::header_number.desc())
         .filter(attestation::chain_id.eq(super::to_storage_type(chain_id)))
         .select(Attestation::as_select())
         .first(connection)

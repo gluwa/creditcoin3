@@ -59,7 +59,7 @@ pub async fn get_for_claim(
 
     if last_attestation_height < query.height {
         return Err(anyhow!(
-            "Cannot prove queries more recent than latest attestation"
+            "Cannot prove queries more recent than latest attestation: Last attestation: {}, claim height: {}", last_attestation_height, query.height
         ));
     }
 

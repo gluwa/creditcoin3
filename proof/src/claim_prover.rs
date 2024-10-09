@@ -1,5 +1,5 @@
 use crate::json_serializable::JsonSerializable;
-use attestation_chain::attestation_fragment::{FragmentSlice, FragmentSliceSerializable};
+use attestation_chain::attestation_fragment::{AttestationFragment, FragmentBlocksSerializable};
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimSerializable;
@@ -26,7 +26,7 @@ pub struct ClaimProver {
     block_number: u64,
     merkle_proof: MerkleProofSerializable,
     claim_digest_roots: ClaimDigestRoot,
-    attestation_chain: FragmentSliceSerializable,
+    attestation_chain: FragmentBlocksSerializable,
     claim: ClaimSerializable,
     out_of_bounds_flag: u8,
 
@@ -105,7 +105,7 @@ impl ClaimProver {
         rlp: Vec<u8>,
         claim: ClaimSerializable,
         claim_digest_roots: ClaimDigestRoot,
-        attestation_chain: FragmentSliceSerializable,
+        attestation_chain: FragmentBlocksSerializable,
         out_of_bounds_flag: bool,
     ) -> Self {
         Self {
@@ -183,7 +183,7 @@ impl ClaimProver {
 
 pub async fn build_prover(
     claim: ClaimSerializable,
-    attestation_chain_slice: FragmentSlice<'_>,
+    attestation_fragment: &AttestationFragment,
     block: OrderedBlock,
 ) -> Result<ClaimProver, ClaimProverError> {
     let claim_block_number = claim.id().block_number();
@@ -220,7 +220,7 @@ pub async fn build_prover(
         subject_bytes,
         claim,
         digest_root,
-        attestation_chain_slice.into(),
+        attestation_fragment.blocks_serializable(),
         out_of_bounds_flag,
     )
     .with_default_files()
