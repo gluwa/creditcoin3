@@ -89,6 +89,12 @@ jobs:
           docker exec creditcoin-validator which cairo-run
           docker exec creditcoin-validator cairo-run --help
 
+          docker exec creditcoin-validator which cpu_air_prover
+          docker exec creditcoin-validator cpu_air_prover --help
+
+          docker exec creditcoin-validator which cpu_air_verifier
+          docker exec creditcoin-validator cpu_air_verifier --help
+
       - name: Collect docker logs
         if: always()
         run: |

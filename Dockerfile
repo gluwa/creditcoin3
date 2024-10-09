@@ -7,7 +7,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     update-ca-certificates && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y libpq5 nodejs python3.10 --no-install-recommends && \
+    apt-get install -y libdw1t64 libpq5 nodejs python3.10 --no-install-recommends && \
     npm install -g yarn node-gyp
 # WARNING: devel dependencies should go into the devel-base image below
 
@@ -65,6 +65,9 @@ COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/r
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/prover /bin/prover
+
+COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/stone-prover/cpu_air_prover /bin/cpu_air_prover
+COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/stone-verifier/cpu_air_verifier /bin/cpu_air_verifier
 
 ENV PATH=/creditcoin-node/venv/bin:${PATH} \
     VIRTUAL_ENV=/creditcoin-node/venv
