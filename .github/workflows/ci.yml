@@ -67,7 +67,7 @@ jobs:
               docker exec creditcoin-validator  ls -l "/$spec"
           done
 
-      - name: Sanity test other binaries inside the container
+      - name: Sanity check other binaries inside the container
         run: |
           docker exec creditcoin-validator which attestor
           docker exec creditcoin-validator attestor --help
@@ -80,6 +80,14 @@ jobs:
 
           docker exec creditcoin-validator which prover
           docker exec creditcoin-validator prover --help
+
+      - name: Sanity check Cairo components inside the container
+        run: |
+          docker exec creditcoin-validator which cairo-compile
+          docker exec creditcoin-validator cairo-compile --help
+
+          docker exec creditcoin-validator which cairo-run
+          docker exec creditcoin-validator cairo-run --help
 
       - name: Collect docker logs
         if: always()

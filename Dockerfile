@@ -1,4 +1,4 @@
-# hadolint global ignore=DL3008,DL3009,DL3016,SC3046,DL4006,SC2086
+# hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
 FROM ubuntu:24.04 as runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 COPY ./deadsnakes-ubuntu-ppa-noble.sources /etc/apt/sources.list.d/
@@ -7,8 +7,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     update-ca-certificates && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y gcc libpq-dev make nodejs python3.10 --no-install-recommends && \
+    apt-get install -y libpq5 nodejs python3.10 --no-install-recommends && \
     npm install -g yarn node-gyp
+# WARNING: devel dependencies should go into the devel-base image below
 
 RUN useradd --home-dir /creditcoin-node --create-home creditcoin
 USER creditcoin
@@ -17,7 +18,18 @@ WORKDIR /creditcoin-node
 
 
 FROM runtime-base AS devel-base
+USER 0
+# NOTE: only devel releated dependencies here
+RUN apt-get install -y --no-install-recommends \
+    gcc libgmp-dev libpq-dev make python3.10-dev python3-virtualenv
+USER creditcoin
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
+ENV PATH=/creditcoin-node/venv/bin:${PATH} \
+    VIRTUAL_ENV=/creditcoin-node/venv
+RUN virtualenv --python /usr/bin/python3.10 /creditcoin-node/venv
+RUN source /creditcoin-node/venv/bin/activate && \
+    pip install --no-cache-dir --upgrade setuptools && \
+    pip install --no-cache-dir --requirement /creditcoin-node/prover/requirements.txt
 
 
 FROM devel-base as rust-builder
@@ -53,6 +65,10 @@ COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/r
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/prover /bin/prover
+
+ENV PATH=/creditcoin-node/venv/bin:${PATH} \
+    VIRTUAL_ENV=/creditcoin-node/venv
+COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/venv/ /creditcoin-node/venv
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
