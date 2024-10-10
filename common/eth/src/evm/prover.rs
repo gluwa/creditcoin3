@@ -178,7 +178,13 @@ impl GluwaPublicProverContract {
         Err(anyhow::anyhow!("Query submission stream ended"))
     }
 
-    pub async fn submit_query(&self, client: &Client, query: Query, cost: u64) -> Result<String> {
+    pub async fn submit_query(
+        &self,
+        client: &Client,
+        query: Query,
+        data: Vec<u8>,
+        cost: u64,
+    ) -> Result<String> {
         let signer = client.get_signer()?;
         let principal = signer.address();
 

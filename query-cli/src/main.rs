@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Submitting query...");
     let tx_hash = contract
-        .submit_query(&eth_client, query, computed_cost)
+        .submit_query(&eth_client, query, data, computed_cost)
         .await?;
     println!("Query submitted! Tx hash: {}\n", tx_hash);
 
@@ -166,9 +166,11 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
         .await?;
     println!("Computed cost: {}\n", computed_cost);
 
+    let data = vec![0; 32];
+
     println!("Submitting query...");
     let tx_hash = contract
-        .submit_query(&eth_client, query, computed_cost)
+        .submit_query(&eth_client, query, data, computed_cost)
         .await?;
     println!("Query submitted! Tx hash: {}'n", tx_hash);
 

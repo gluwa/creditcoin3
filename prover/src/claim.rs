@@ -6,7 +6,7 @@ use attestation_chain::attestation_fragment::AttestationFragment;
 use pallet_prover_primitives::Query;
 use proof::cairo_generate_proof;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
-
+use prover_primitives::types::CairoVerifierOutput;
 use crate::{contract, fragment, AttestationCacheType, EthClientArc};
 
 // Process a claim
