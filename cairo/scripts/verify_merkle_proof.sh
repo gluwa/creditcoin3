@@ -58,9 +58,8 @@ if [ ! -f "$COMPILED_FILE" ] || [ ! -s "$COMPILED_FILE" ]; then
     echo "output: $COMPILED_FILE"
     echo "cairo-compiling..."
 
-    message=$(cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1)
     if ! cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1; then
-      echo "compilation failed: $message"
+      echo "cairo-compile failed"
       exit 30
     fi
 fi
