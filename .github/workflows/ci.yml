@@ -107,7 +107,7 @@ jobs:
           docker rm -f creditcoin-validator
           sleep 10
 
-      - name: Start container via compose
+      - name: Start validator via compose
         run: |
           docker compose up -d
 
@@ -117,10 +117,29 @@ jobs:
           docker exec creditcoin-validator ls -ld /creditcoin-node/data
           docker exec creditcoin-validator ls -la /creditcoin-node/data
 
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          ~/.foundry/bin/foundryup
+
+          ~/.foundry/bin/anvil --block-time 6 &
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
+
+      - name: Start prover via compose
+        run: |
+          docker compose -f docker-compose.prover up -d
+
+      - name: Sanity check for prover
+        run: |
+          sleep 60
+          # TODO
+
       - name: Collect compose logs
         if: always()
         run: |
-          docker compose logs --no-color > docker-compose.log
+          docker compose logs --no-color > docker-compose-validator.log
+          docker compose -f docker-compose.prover logs --no-color > docker-compose-prover.log
 
       - name: Upload logs
         if: always()
@@ -129,9 +148,10 @@ jobs:
           name: docker-logs
           path: docker-*.log
 
-      - name: Kill the container
+      - name: Kill the containers
         run: |
           sudo killall -9 creditcoin3-node
+          sudo killall -9 prover
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown

@@ -1,0 +1,35 @@
+---
+volumes:
+  prover_data:
+
+services:
+  database:
+    container_name: prover-database
+    image: postgres:latest
+    volumes:
+      - prover_data:/var/lib/postgresql/data
+    restart: always
+    environment:
+      POSTGRES_DB: attestations
+      POSTGRES_USER: prover
+      POSTGRES_PASSWORD: creditcoin
+
+  prover:
+    container_name: creditcoin-prover
+    image: gluwa/creditcoin3-next
+    depends_on:
+      - database
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint: /bin/prover
+    command:
+      - --cc3-rpc-url
+      - wss://rpc.ccnext-devnet.creditcoin.network/ws
+      - --cc3-key
+      - "//Alice"
+      - --eth-rpc-url
+      - http://host.docker.internal:8545
+      - --eth-private-key
+      - 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - --postgres-uri
+      - postgres://prover:creditcoin@prover-database:5432/attestations
