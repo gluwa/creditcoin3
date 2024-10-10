@@ -15,7 +15,8 @@ if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
   exit 10
 fi
 
-CAIRO_PROGRAM_SOURCE="../cairo/scripts/verify_merkle_proof"
+SOURCE_FILE="../cairo/scripts/verify_merkle_proof.cairo"
+COMPILED_FILE="${SOURCE_FILE}_compiled.json"
 INPUT_PATH="./$1"
 PROOF_MODE=$2
 CAIRO_LANG_DIR="../cairo/lang"
@@ -46,8 +47,6 @@ if [ "$PROOF_MODE" = "proof_mode" ]; then
   fi
 fi
 
-SOURCE_FILE="$CAIRO_PROGRAM_SOURCE.cairo"
-COMPILED_FILE="${CAIRO_PROGRAM_SOURCE}_compiled.json"
 
 if [ ! -f "$SOURCE_FILE" ]; then
   echo "$SOURCE_FILE does not exist. It is expected to contain the attestation chain data."
