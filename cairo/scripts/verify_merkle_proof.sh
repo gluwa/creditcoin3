@@ -53,19 +53,16 @@ if [ ! -f "$SOURCE_FILE" ]; then
   exit 25
 fi
 
-echo "source: $SOURCE_FILE"
-echo "output: $COMPILED_FILE"
-echo "cairo-compiling..."
-
-message=$(cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1)
-if ! cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1; then
-  echo "compilation failed: $message"
-  exit 30
-fi
-
 if [ ! -f "$COMPILED_FILE" ]; then
-  echo "$COMPILED_FILE was not generated."
-  exit 31
+    echo "source: $SOURCE_FILE"
+    echo "output: $COMPILED_FILE"
+    echo "cairo-compiling..."
+
+    message=$(cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1)
+    if ! cairo-compile "$SOURCE_FILE" --output "$COMPILED_FILE" --proof_mode 2>&1; then
+      echo "compilation failed: $message"
+      exit 30
+    fi
 fi
 
 PRIVATE_INPUT="$INPUT_PATH/private_input.json"
