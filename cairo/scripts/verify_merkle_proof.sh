@@ -53,7 +53,7 @@ if [ ! -f "$SOURCE_FILE" ]; then
   exit 25
 fi
 
-if [ ! -f "$COMPILED_FILE" ]; then
+if [ ! -f "$COMPILED_FILE" ] || [ ! -s "$COMPILED_FILE" ]; then
     echo "source: $SOURCE_FILE"
     echo "output: $COMPILED_FILE"
     echo "cairo-compiling..."
