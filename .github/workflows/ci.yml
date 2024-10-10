@@ -216,7 +216,8 @@ jobs:
 
       - name: Compile all Cairo programs available in source code
         run: |
-          for PROGRAM in $(find -name "*.cairo"); do
+          # shellcheck disable=SC2044,SC2086
+          for PROGRAM in $(find . -name "*.cairo"); do
               echo "INFO: will cairo-compile $PROGRAM ..."
               cairo-compile $PROGRAM --proof_mode 2>&1;
           done
