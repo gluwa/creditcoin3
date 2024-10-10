@@ -31,6 +31,9 @@ RUN source /creditcoin-node/venv/bin/activate && \
     pip install --no-cache-dir --upgrade setuptools && \
     pip install --no-cache-dir --requirement /creditcoin-node/prover/requirements.txt
 
+RUN cairo-compile /creditcoin-node/cairo/scripts/verify_merkle_proof.cairo \
+         --output /creditcoin-node/cairo/scripts/verify_merkle_proof.cairo_compiled.json --proof_mode 2>&1
+
 
 FROM devel-base AS rust-builder
 ARG BUILD_ARGS=""
@@ -72,6 +75,7 @@ COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/ston
 ENV PATH=/creditcoin-node/venv/bin:${PATH} \
     VIRTUAL_ENV=/creditcoin-node/venv
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/venv/ /creditcoin-node/venv
+COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/ /cairo
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
