@@ -202,6 +202,25 @@ jobs:
         run: |
           ./.github/check-bootnodes.sh
 
+  sanity-test-cairo:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      - run: pip install -r prover/requirements.txt
+
+      - name: Compile all Cairo programs available in source code
+        run: |
+          for PROGRAM in $(find -name "*.cairo"); do
+              echo "INFO: will cairo-compile $PROGRAM ..."
+              cairo-compile $PROGRAM --proof_mode 2>&1;
+          done
+
   sanity-test-stone-binaries:
     runs-on: ubuntu-24.04
     steps:
