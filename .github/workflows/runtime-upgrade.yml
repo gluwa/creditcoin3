@@ -8,8 +8,8 @@ on:
 permissions: read-all
 
 env:
-  RUNNER_VM_NAME: "github-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-  RESOURCE_GROUP: "github-runner-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+  RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+  RESOURCE_GROUP: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
   AZ_LOCATION: "westus3"
 
 jobs:
