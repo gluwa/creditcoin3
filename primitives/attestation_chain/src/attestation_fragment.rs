@@ -88,9 +88,28 @@ impl AttestationFragment {
         }
     }
 
-    pub fn blocks_serializable(&self) -> FragmentBlocksSerializable {
-        FragmentBlocksSerializable {
-            blocks: self.blocks.iter().map(BlockSerializable::from).collect(),
+    pub fn blocks_serializable(
+        &self,
+        claim_block_number: u64,
+    ) -> Result<FragmentBlocksSerializable, AttestationFragmentError> {
+        let tail = self.tail().map(Block::n);
+        let head = self.head().map(Block::n);
+        match (tail, head) {
+            (Some(tail), Some(head)) if tail < claim_block_number && head >= claim_block_number => {
+                // Head and tail were found, and the claim block number lies between them,
+                // we can take a subset of the fragment blocks to save proving time and size.
+                let blocks_subset = self.blocks
+                    [(claim_block_number - tail - 1) as usize..(head + 1 - tail) as usize]
+                    .iter()
+                    .map(BlockSerializable::from)
+                    .collect();
+                Ok(FragmentBlocksSerializable {
+                    blocks: blocks_subset,
+                })
+            }
+            _ => {
+                Err(AttestationFragmentError::Other(format!("Could not get block subset from fragment. Fragment start: {:?}, Fragment end: {:?}, Claim block: {:?}", tail, head, claim_block_number)))
+            }
         }
     }
 }

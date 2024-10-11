@@ -25,9 +25,14 @@ pub async fn cairo_generate_proof(
     debug!("\n");
     info!("---------- cairo claim proving task is starting ----------");
     debug!("claim: {:?}", claim);
+
+    let claim_block_number = claim.id().block_number();
+    let fragment_subset = claim_attestation_fragment
+        .blocks_serializable(claim_block_number)
+        .map_err(|e| anyhow!("{:?}", e))?;
     debug!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_fragment, block)
+    let mut cairo_verifier = build_prover(claim.clone(), fragment_subset, block)
         .await
         .map(|claim_cairo_verifier| {
             debug!("done");

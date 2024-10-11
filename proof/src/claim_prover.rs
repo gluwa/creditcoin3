@@ -1,5 +1,5 @@
 use crate::json_serializable::JsonSerializable;
-use attestation_chain::attestation_fragment::{AttestationFragment, FragmentBlocksSerializable};
+use attestation_chain::attestation_fragment::FragmentBlocksSerializable;
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimSerializable;
@@ -183,7 +183,7 @@ impl ClaimProver {
 
 pub async fn build_prover(
     claim: ClaimSerializable,
-    attestation_fragment: &AttestationFragment,
+    fragment_blocks: FragmentBlocksSerializable,
     block: OrderedBlock,
 ) -> Result<ClaimProver, ClaimProverError> {
     let claim_block_number = claim.id().block_number();
@@ -220,7 +220,7 @@ pub async fn build_prover(
         subject_bytes,
         claim,
         digest_root,
-        attestation_fragment.blocks_serializable(),
+        fragment_blocks,
         out_of_bounds_flag,
     )
     .with_default_files()
