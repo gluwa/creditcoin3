@@ -36,6 +36,8 @@ utils = { path = "../common/utils", default-features = false }
 attestor-primitives = { workspace = true, features = ["std"] }
 pallet-attestation-poc = { workspace = true, features = ["std"] }
 prover-primitives = { workspace = true, features = ["std"] }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
 
 [dev-dependencies]
 attestation-db = { path = "../attestation-db" }

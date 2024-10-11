@@ -399,5 +399,6 @@ fn testnet_genesis(
             ],
             _phantom: Default::default(),
         },
+        prover: Default::default(),
     }
 }

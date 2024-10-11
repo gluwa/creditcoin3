@@ -1,11 +1,12 @@
 use self::mock::PROVER_3;
 
 use super::*;
-use pallet_prover_primitives::{Query, VerifierExitStatus};
-use prover_primitives::stark_program_auth::StarkProgramMetadataStorage;
+use pallet_prover_primitives::{
+    Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+};
 
-use frame_support::pallet_prelude::DispatchError::Other;
 use frame_support::{assert_err, assert_noop, assert_ok};
+use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, System, Test};
@@ -61,8 +62,8 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            StarkProgramMetadataStorage::V3_DEV
+            2,
+            STARK_PROGRAM_V2_HASH
         ));
 
         let proof = b"abcd".to_vec();
@@ -87,8 +88,8 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            StarkProgramMetadataStorage::V3_DEV
+            2,
+            STARK_PROGRAM_V2_HASH
         ));
 
         let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
@@ -138,7 +139,7 @@ fn submit_proof_should_error_when_stark_metadata_not_set() {
 
         assert_err!(
             ProverModule::submit_proof(RuntimeOrigin::signed(PROVER_3), proof, query.clone()),
-            Error::<Test>::StarkMetadataNotSet
+            Error::<Test>::StarkProgramMetadataNotSet
         );
 
         // assert on storage change
@@ -154,7 +155,7 @@ fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
             1,
-            1
+            H256::random(),
         ));
 
         let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
@@ -182,8 +183,8 @@ fn set_stark_program_metadata_should_error_when_not_signed() {
         assert_noop!(
             ProverModule::set_stark_program_metadata(
                 RuntimeOrigin::none(),
-                StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-                StarkProgramMetadataStorage::V3_DEV
+                2,
+                STARK_PROGRAM_V2_HASH,
             ),
             BadOrigin
         );
@@ -198,8 +199,8 @@ fn set_stark_program_metadata_should_error_when_not_signed_by_root() {
         assert_noop!(
             ProverModule::set_stark_program_metadata(
                 RuntimeOrigin::signed(4),
-                StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-                StarkProgramMetadataStorage::V3_DEV
+                2,
+                STARK_PROGRAM_V2_HASH
             ),
             BadOrigin
         );
@@ -213,19 +214,18 @@ fn set_stark_program_metadata_should_error_when_program_version_already_set() {
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            StarkProgramMetadataStorage::V3_DEV
+            2,
+            STARK_PROGRAM_V2_HASH
         ));
 
         // already set above, can't set it twice
-        const EXPECTED_ERROR_MESSAGE: &str = "Program version already exists";
         assert_noop!(
             ProverModule::set_stark_program_metadata(
                 RuntimeOrigin::root(),
-                StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-                StarkProgramMetadataStorage::V3_DEV
+                2,
+                STARK_PROGRAM_V2_HASH
             ),
-            Other(EXPECTED_ERROR_MESSAGE)
+            Error::<Test>::StarkProgramMetadataAlreadySet
         );
     });
 }
@@ -235,28 +235,18 @@ fn set_stark_program_metadata_should_update_storage_and_emit_an_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        // initial state
-        assert_eq!(ProverModule::last_version(), 0);
-
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            StarkProgramMetadataStorage::V3_DEV
+            2,
+            STARK_PROGRAM_V2_HASH,
         ));
 
-        // assert on storage
-        assert_eq!(
-            ProverModule::last_version(),
-            StarkProgramMetadataStorage::V3_DEV
-        );
+        let meta = StarkProgramMetadata::<Test>::get(2);
+        assert_eq!(meta, STARK_PROGRAM_V2_HASH);
 
         // assert on emited event
         System::assert_last_event(
-            crate::Event::StarkProgramMetadataSet(
-                StarkProgramMetadataStorage::V3_DEV,
-                StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            )
-            .into(),
+            crate::Event::StarkProgramMetadataSet(2, STARK_PROGRAM_V2_HASH).into(),
         );
     });
 }
@@ -269,44 +259,63 @@ fn set_stark_program_metadata_can_be_called_twice_with_different_value() {
         // initial state
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            StarkProgramMetadataStorage::AUTH_HASH_V2_DEV,
-            StarkProgramMetadataStorage::V2_DEV
+            1,
+            STARK_PROGRAM_V1_HASH,
         ));
 
-        assert_eq!(
-            ProverModule::last_version(),
-            StarkProgramMetadataStorage::V2_DEV
-        );
-
         System::assert_last_event(
-            crate::Event::StarkProgramMetadataSet(
-                StarkProgramMetadataStorage::V2_DEV,
-                StarkProgramMetadataStorage::AUTH_HASH_V2_DEV,
-            )
-            .into(),
+            crate::Event::StarkProgramMetadataSet(1, STARK_PROGRAM_V1_HASH).into(),
         );
 
         // call it again to upgrade the value
         // NOTE: currently a downgrade is also supported
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            StarkProgramMetadataStorage::V3_DEV
+            2,
+            STARK_PROGRAM_V2_HASH,
         ));
-
-        // assert on storage
-        assert_eq!(
-            ProverModule::last_version(),
-            StarkProgramMetadataStorage::V3_DEV
-        );
 
         // assert on emited event
         System::assert_last_event(
-            crate::Event::StarkProgramMetadataSet(
-                StarkProgramMetadataStorage::V3_DEV,
-                StarkProgramMetadataStorage::AUTH_HASH_V3_DEV,
-            )
-            .into(),
+            crate::Event::StarkProgramMetadataSet(2, STARK_PROGRAM_V2_HASH).into(),
+        );
+    });
+}
+
+#[test]
+fn set_start_program_metadata_and_remove_works() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(ProverModule::set_stark_program_metadata(
+            RuntimeOrigin::root(),
+            1,
+            STARK_PROGRAM_V1_HASH,
+        ));
+
+        System::assert_last_event(
+            crate::Event::StarkProgramMetadataSet(1, STARK_PROGRAM_V1_HASH).into(),
+        );
+
+        assert_ok!(ProverModule::remove_stark_program_metadata(
+            RuntimeOrigin::root(),
+            1,
+        ));
+
+        assert_eq!(StarkProgramMetadata::<Test>::get(1), H256::zero());
+
+        System::assert_last_event(crate::Event::StarkProgramMetadataRemoved(1).into());
+    });
+}
+
+#[test]
+fn cant_remove_unset_stark_program_metadata() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            ProverModule::remove_stark_program_metadata(RuntimeOrigin::root(), 1),
+            Error::<Test>::StarkProgramMetadataNotFound
         );
     });
 }

@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use pallet_prover_primitives::Query;
+use sp_core::H256;
 use sp_runtime_interface::runtime_interface;
 use sp_std::vec::Vec;
 
@@ -12,12 +13,11 @@ pub trait HostApi {
     fn verify_proof(
         proof: Vec<u8>,
         #[allow(unused)] query: Query,
-        #[allow(unused)] metadata: Vec<(u8, u64)>,
-        #[allow(unused)] last_version: u8,
+        #[allow(unused)] metadata: Vec<(u8, H256)>,
     ) -> bool {
         #[cfg(target_arch = "x86_64")]
         {
-            match command::run_verifier(proof, query, metadata, last_version) {
+            match command::run_verifier(proof, query, metadata) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {:?}", r);
                     true
@@ -40,12 +40,7 @@ pub trait HostApi {
 
 #[runtime_interface]
 pub trait HostBenchmarkApi {
-    fn verify_proof(
-        _proof: Vec<u8>,
-        query: Query,
-        metadata: Vec<(u8, u64)>,
-        last_version: u8,
-    ) -> bool {
+    fn verify_proof(_proof: Vec<u8>, query: Query, metadata: Vec<(u8, H256)>) -> bool {
         //benchmark tests are not able to read from file, so we need to substitute the file reading with a hardcoded proof
         let current_path_pwd = std::env::current_exe()
             .expect("should get current path")
@@ -61,7 +56,7 @@ pub trait HostBenchmarkApi {
         let proof = std::fs::read(proof_example.clone())
             .unwrap_or_else(|_| panic!("should read file from {}", proof_example));
 
-        match command::run_verifier(proof, query, metadata, last_version) {
+        match command::run_verifier(proof, query, metadata) {
             Ok(r) => {
                 log::debug!("result of verifying proof: {:?}", r);
                 true

@@ -16,6 +16,7 @@ rlp = { version = "0.5.2", default-features = false }
 
 # Workspace dependencies
 frame-support = { workspace = true, default-features = false }
+hex = { workspace = true, default-features = false }
 pallet-prover-primitives = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
 precompile-utils = { workspace = true }
@@ -54,4 +55,5 @@ std = [
     "mmr/std",
     "precompile-utils/std",
     "pallet-prover-primitives/std",
+    "hex/std",
 ]

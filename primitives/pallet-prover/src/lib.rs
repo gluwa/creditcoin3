@@ -11,7 +11,15 @@ use sp_std::vec::Vec;
 
 // duplicate with constants in StarkProgramMetadataStorage
 // primitives/prover/src/stark_program_auth.rs, CSUB-1303
-pub const STARK_PROGRAM_V3_HASH: u64 = 617734937651202173;
+pub const STARK_PROGRAM_V1_HASH: H256 = H256([
+    231, 189, 205, 230, 13, 221, 69, 124, 167, 243, 68, 105, 63, 104, 245, 56, 126, 209, 169, 222,
+    112, 132, 191, 163, 100, 141, 104, 195, 2, 102, 226, 196,
+]);
+
+pub const STARK_PROGRAM_V2_HASH: H256 = H256([
+    232, 88, 85, 136, 197, 79, 34, 49, 253, 15, 116, 194, 99, 235, 158, 244, 247, 191, 215, 123,
+    22, 67, 23, 250, 78, 242, 36, 224, 60, 55, 37, 201,
+]);
 
 #[derive(
     Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec, Default, PassByCodec,

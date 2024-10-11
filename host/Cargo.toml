@@ -16,6 +16,8 @@ log = { workspace = true }
 pallet-prover-primitives = { workspace = true, default-features = false }
 prover-primitives = { workspace = true, optional = true }
 serde_json = { workspace = true, default-features = false }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true }
 tempfile = "3.10"
@@ -25,7 +27,9 @@ default = ["std"]
 std = [
     "sp-runtime-interface/std",
     "sp-std/std",
+    "sp-io/std",
     "log/std",
+    "sp-core/std",
     "prover-primitives/std",
     "serde_json/std",
     "pallet-prover-primitives/std",

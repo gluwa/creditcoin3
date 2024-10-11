@@ -150,7 +150,7 @@ mod tests {
     use eth_common::OrderedBlock;
     use hashbrown::HashSet;
     use prover_primitives::stark_program_auth::{
-        StarkProgramAuth, StarkProgramAuthError, StarkProgramMetadataStorage,
+        StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadataStorage,
     };
     use prover_primitives::types::CairoVerifierOutput;
     use prover_primitives::types::StoneProofPublicInput;
@@ -158,6 +158,7 @@ mod tests {
         claim::{Claim, ClaimIdentifier, ClaimSerializable},
         claim_query::TxClaimQuery,
     };
+    use sp_core::H256;
     use utils::block_item_traits::BlockItem;
 
     /// tests this circuit:
@@ -848,7 +849,7 @@ mod tests {
                 let metadata = StarkProgramAuth::authenticate(
                     &stone_proof,
                     &stark_program_metadata_storage,
-                    default_stark_program_auth_hasher,
+                    blake2_256_stark_program_auth_hasher,
                 )
                 .map_err(|err| match err {
                     StarkProgramAuthError::AuthenticationFailure(h) => anyhow::anyhow!(
@@ -880,15 +881,8 @@ mod tests {
         output
     }
 
-    fn default_stark_program_auth_hasher(bytes: &[u8]) -> u64 {
-        use std::hash::DefaultHasher;
-        use std::hash::Hash;
-        use std::hash::Hasher;
-
-        let mut hasher = DefaultHasher::new();
-        (bytes[..]).hash(&mut hasher);
-
-        hasher.finish()
+    fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
+        H256::from(sp_io::hashing::blake2_256(bytes))
     }
 
     fn validate_proof_data<Q>(

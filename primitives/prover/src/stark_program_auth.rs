@@ -1,9 +1,22 @@
 use crate::types::StoneProof;
 use serde::{Deserialize, Serialize};
+use sp_core::H256;
 use std::collections::HashMap;
 use utils::json_serializable::JsonSerializable;
 
-pub type StarkProgramAuthHash = u64;
+pub type StarkProgramAuthHash = H256;
+
+// Version 1 hash
+pub const STARK_PROGRAM_V1_HASH: StarkProgramAuthHash = H256([
+    231, 189, 205, 230, 13, 221, 69, 124, 167, 243, 68, 105, 63, 104, 245, 56, 126, 209, 169, 222,
+    112, 132, 191, 163, 100, 141, 104, 195, 2, 102, 226, 196,
+]);
+
+// Version 2 hash
+pub const STARK_PROGRAM_V2_HASH: StarkProgramAuthHash = H256([
+    232, 88, 85, 136, 197, 79, 34, 49, 253, 15, 116, 194, 99, 235, 158, 244, 247, 191, 215, 123,
+    22, 67, 23, 250, 78, 242, 36, 224, 60, 55, 37, 201,
+]);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StarkProgramMetadata {
@@ -20,13 +33,6 @@ impl JsonSerializable for StarkProgramMetadataStorage {}
 
 impl StarkProgramMetadataStorage {
     pub const DEFAULT_URL: &'static str = "stark_program_metadata.json";
-
-    const V1_DEV: u8 = 1;
-    const AUTH_HASH_V1_DEV: StarkProgramAuthHash = 18171554912147335677;
-    pub const V2_DEV: u8 = 2;
-    pub const AUTH_HASH_V2_DEV: StarkProgramAuthHash = 3438002004860300627;
-    pub const V3_DEV: u8 = 3;
-    pub const AUTH_HASH_V3_DEV: StarkProgramAuthHash = 617734937651202173;
 
     pub fn try_append(
         &mut self,
@@ -61,28 +67,12 @@ impl StarkProgramMetadataStorage {
 impl Default for StarkProgramMetadataStorage {
     fn default() -> Self {
         let mut map = HashMap::default();
-        map.insert(
-            Self::AUTH_HASH_V1_DEV,
-            StarkProgramMetadata {
-                version: Self::V1_DEV,
-            },
-        );
-        map.insert(
-            Self::AUTH_HASH_V2_DEV,
-            StarkProgramMetadata {
-                version: Self::V2_DEV,
-            },
-        );
-        map.insert(
-            Self::AUTH_HASH_V3_DEV,
-            StarkProgramMetadata {
-                version: Self::V3_DEV,
-            },
-        );
+        map.insert(STARK_PROGRAM_V1_HASH, StarkProgramMetadata { version: 1 });
+        map.insert(STARK_PROGRAM_V2_HASH, StarkProgramMetadata { version: 2 });
 
         Self {
             map,
-            last_version: Self::V3_DEV,
+            last_version: 2,
         }
     }
 }
@@ -115,21 +105,26 @@ impl StarkProgramAuth {
 
 #[cfg(test)]
 mod tests {
+    use sp_core::H256;
+
     use super::StarkProgramMetadataStorage;
     use crate::stark_program_auth::StarkProgramMetadata;
 
     #[test]
     fn append_metadata_test() {
         let mut map = StarkProgramMetadataStorage::default();
-        map.try_append(42, StarkProgramMetadata { version: 4 })
+
+        let random_hash = H256::random();
+
+        map.try_append(random_hash, StarkProgramMetadata { version: 4 })
             .unwrap();
         assert_eq!(
-            map.metadata(&42),
+            map.metadata(&random_hash),
             Some(&StarkProgramMetadata { version: 4 })
         );
 
         assert!(map
-            .try_append(42, StarkProgramMetadata { version: 2 })
+            .try_append(random_hash, StarkProgramMetadata { version: 2 })
             .is_err());
     }
 }

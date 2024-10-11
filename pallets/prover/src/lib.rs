@@ -18,7 +18,9 @@ mod benchmarking;
 pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
-    use pallet_prover_primitives::{Query, VerifierExitStatus};
+    use pallet_prover_primitives::{
+        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+    };
     use sp_core::H256;
     use sp_std::prelude::*;
     use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -33,6 +35,7 @@ pub mod pallet {
     pub trait WeightInfo {
         fn submit_proof() -> Weight;
         fn set_stark_program_metadata() -> Weight;
+        fn remove_stark_program_metadata() -> Weight;
     }
 
     #[pallet::storage]
@@ -47,29 +50,40 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn stark_program_metadata)]
     pub type StarkProgramMetadata<T: Config> =
-        StorageMap<Hasher = Blake2_128Concat, Key = u8, Value = u64, QueryKind = ValueQuery>;
-
-    #[pallet::storage]
-    #[pallet::getter(fn last_version)]
-    pub type StarkProgramVersion<T: Config> = StorageValue<_, u8, ValueQuery>;
+        StorageMap<Hasher = Blake2_128Concat, Key = u8, Value = H256, QueryKind = ValueQuery>;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T> {
+        pub _phantom: PhantomData<T>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            StarkProgramMetadata::<T>::insert(1, STARK_PROGRAM_V1_HASH);
+            StarkProgramMetadata::<T>::insert(2, STARK_PROGRAM_V2_HASH);
+        }
+    }
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         QueryVerified(H256, T::AccountId, VerifierExitStatus),
-
-        StarkProgramMetadataSet(u8, u64),
+        StarkProgramMetadataSet(u8, H256),
+        StarkProgramMetadataRemoved(u8),
     }
 
     #[pallet::error]
     pub enum Error<T> {
         InvalidProofSubmitted,
-
-        StarkMetadataNotSet,
+        StarkProgramMetadataNotSet,
+        StarkProgramMetadataAlreadySet,
+        StarkProgramMetadataNotFound,
     }
 
     #[pallet::call]
@@ -82,27 +96,16 @@ pub mod pallet {
             // Pre eliminary check
             ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
 
-            let metadata = StarkProgramMetadata::<T>::iter().collect::<Vec<(u8, u64)>>();
+            let metadata = StarkProgramMetadata::<T>::iter().collect::<Vec<_>>();
 
-            ensure!(!metadata.is_empty(), Error::<T>::StarkMetadataNotSet);
-
-            let last_version = StarkProgramVersion::<T>::get();
+            ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
             #[cfg(feature = "runtime-benchmarks")]
-            let result = proof_verifier::host_benchmark_api::verify_proof(
-                proof,
-                query.clone(),
-                metadata,
-                last_version,
-            );
+            let result =
+                proof_verifier::host_benchmark_api::verify_proof(proof, query.clone(), metadata);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
-            let result = proof_verifier::host_api::verify_proof(
-                proof,
-                query.clone(),
-                metadata,
-                last_version,
-            );
+            let result = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
             ensure!(result, Error::<T>::InvalidProofSubmitted);
 
@@ -124,24 +127,45 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_stark_program_metadata())]
         pub fn set_stark_program_metadata(
             origin: OriginFor<T>,
-            program_auth_hash: u64,
             program_version: u8,
+            program_auth_hash: H256,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             ensure!(
                 !StarkProgramMetadata::<T>::contains_key(program_version),
-                "Program version already exists"
+                Error::<T>::StarkProgramMetadataAlreadySet
             );
 
+            // Insert the metadata
             StarkProgramMetadata::<T>::insert(program_version, program_auth_hash);
-
-            StarkProgramVersion::<T>::put(program_version);
 
             Self::deposit_event(Event::<T>::StarkProgramMetadataSet(
                 program_version,
                 program_auth_hash,
             ));
+
+            Ok(())
+        }
+
+        // Remove metadata
+        #[pallet::call_index(2)]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_stark_program_metadata())]
+        pub fn remove_stark_program_metadata(
+            origin: OriginFor<T>,
+            program_version: u8,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                StarkProgramMetadata::<T>::contains_key(program_version),
+                Error::<T>::StarkProgramMetadataNotFound
+            );
+
+            // Remove the metadata
+            StarkProgramMetadata::<T>::remove(program_version);
+
+            Self::deposit_event(Event::<T>::StarkProgramMetadataRemoved(program_version));
 
             Ok(())
         }
