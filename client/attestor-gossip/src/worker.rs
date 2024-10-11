@@ -480,7 +480,7 @@ where
         // Majority is more than half of the committee set size
         let runtime = self.runtime.runtime_api();
         let comittee_set_size = runtime.comittee_set_size(block_hash)?;
-        let threshold = (comittee_set_size * 2 + 3 - 1) / 3; // equivalent to (2 * (b / 3)) + 1 with rounding
+        let threshold = calculate_threshold(comittee_set_size);
 
         // Filter attestations by major digest
         // TODO: Can we do this in a more efficient way / place?
@@ -606,4 +606,43 @@ where
         .into_iter()
         .max_by_key(|&(_, count)| count)
         .unwrap_or((HashFor::<B>::default(), 0))
+}
+
+/// Function to calculate the threshold for a committee set size to reach majority vote
+fn calculate_threshold(committee_set_size: u32) -> u32 {
+    (2 * committee_set_size + 3) / 3
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_calculate_threshold_3() {
+        let committee_set_size = 3;
+        let threshold = calculate_threshold(committee_set_size);
+        assert_eq!(threshold, 3);
+    }
+
+    #[test]
+    fn test_calculate_threshold_4() {
+        let committee_set_size = 4;
+        let threshold = calculate_threshold(committee_set_size);
+        // TODO: why 4?
+        assert_eq!(threshold, 3);
+    }
+
+    #[test]
+    fn test_calculate_threshold_5() {
+        let committee_set_size = 5;
+        let threshold = calculate_threshold(committee_set_size);
+        assert_eq!(threshold, 4);
+    }
+
+    #[test]
+    fn test_calculate_threshold_10() {
+        let committee_set_size = 10;
+        let threshold = calculate_threshold(committee_set_size);
+        assert_eq!(threshold, 7);
+    }
 }
