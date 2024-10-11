@@ -199,7 +199,7 @@ pub(crate) async fn create_historical_blocks_crawler_instance(
                     Box::pin(async move {
                         println!("{}", format!("late block dropped {}", block_number).bold());
                     })
-                })            
+                })
                 .on_attestation_chain_build_task_exitted(move |outcome| {
                     let cancel_on_exitted = cancel_on_exitted.clone();
 

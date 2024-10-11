@@ -3,6 +3,7 @@ use crate::print_with_timestamp;
 use crate::StopCondition;
 use attestation_chain::attestation_checkpoints::AttestationInterval;
 use attestation_chain::block::Block;
+use attestation_chain::AttestationChainParams;
 use attestation_db::json_db::AttestationJsonDB;
 use attestation_db::{AttestationDB, AttestationDbError};
 use colored::Colorize;
@@ -11,7 +12,6 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use attestation_chain::AttestationChainParams;
 
 pub(crate) fn create_historical_blocks_db_manager_instance(
     attestation_chain_params: Arc<AttestationChainParams>,
@@ -96,7 +96,8 @@ pub(crate) fn create_historical_blocks_db_manager_instance(
                             .bright_green(),
                         );
                     }
-                    let interval = attestation_chain_params.interval_for(head)
+                    let interval = attestation_chain_params
+                        .interval_for(head)
                         .expect("full fragment defines interval");
                     if let StopCondition::OnBlockReached(ref p) = stop_condition {
                         if p(interval.head()) {
@@ -153,7 +154,8 @@ async fn skip_existing_fragments(
     stop_condition: StopCondition,
 ) -> AttestationInterval {
     //                    let tail = fragment_boxed.tail().unwrap().n();
-    let mut interval = attestation_chain_params.interval_for(fragment_head)
+    let mut interval = attestation_chain_params
+        .interval_for(fragment_head)
         .expect("interval exists for aligned checkpoint");
     while db.read().await.fragment_exists(&interval) {
         print_with_timestamp(format!("fragment {interval:?} already set in DB").yellow());

@@ -16,6 +16,8 @@ use attestation_blocks_online_builder::{
 use anyhow::anyhow;
 use attestation_chain::attestation_checkpoints::AttestationInterval;
 use attestation_chain::attestation_checkpoints_for_dev::AttestationCheckpointsForDev;
+use attestation_chain::AttestationChainParams;
+use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
 use attestation_db::json_db::AttestationJsonDB;
 use attestation_db::{AttestationDB, EthAttestationJsonDB};
 use clap::Parser;
@@ -34,8 +36,6 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use utils::json_serializable::JsonSerializable;
-use attestation_chain::AttestationChainParams;
-use attestation_chain::ETH_ATTESTATION_CHAIN_PARAMS_DEV;
 
 fn print_with_timestamp(s: colored::ColoredString) {
     println!(
@@ -153,7 +153,8 @@ fn main() {
         .db_url()
         .expect("at worst case was set to default");
     println!("db: {db_url}");
-    let mut db = EthAttestationJsonDB::try_create(ETH_ATTESTATION_CHAIN_PARAMS_DEV, db_url).unwrap();
+    let mut db =
+        EthAttestationJsonDB::try_create(ETH_ATTESTATION_CHAIN_PARAMS_DEV, db_url).unwrap();
 
     if args.reset_db {
         match db.reset() {
@@ -177,14 +178,16 @@ fn main() {
         .build()
         .unwrap();
 
-
     let attestation_chain_params = Arc::new(ETH_ATTESTATION_CHAIN_PARAMS_DEV);
     let runtime = Arc::new(runtime);
     let runtime_cloned = Arc::clone(&runtime);
     let db = Arc::new(RwLock::new(db));
     let _source_chain_api_server_url_cloned = source_chain_api_server_url.to_owned();
 
-    let checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(&checkpoints_path, *attestation_chain_params);
+    let checkpoints = AttestationCheckpointsForDev::with_execution_chain_url(
+        &checkpoints_path,
+        *attestation_chain_params,
+    );
     println!("accessing checkpoints at {}", checkpoints.full_path());
 
     let claim_listener_join_handle = runtime.spawn(async move {
@@ -369,14 +372,16 @@ async fn build_db_and_submit_claim(
             // ))
             // .unwrap();
 
-            let start_interval = attestation_chain_params.interval_for(checkpoints_tail)
+            let start_interval = attestation_chain_params
+                .interval_for(checkpoints_tail)
                 .expect("interval exists for aligned checkpoint");
             let crawler_kickoff_block = skip_existing_fragments(
                 Arc::clone(&attestation_chain_params),
-                Arc::clone(&db), 
-                start_interval, 
-                claim_checkpoint
-            ).await?;
+                Arc::clone(&db),
+                start_interval,
+                claim_checkpoint,
+            )
+            .await?;
 
             let stop_condition = StopCondition::OnBlockReached(Arc::new(move |curr_block| {
                 curr_block >= claim_checkpoint

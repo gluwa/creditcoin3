@@ -24,8 +24,7 @@ pub(crate) fn create_db_manager_instance(
 ) -> (DbManager, Receiver<AttestationInterval>) {
     //    let (crawler_kickoff_fragment_ready_tx, crawler_kickoff_fragment_ready_rx) = channel::<Box<AttestationFragment>>(1);
     let db_cloned = Arc::clone(&db);
-    let (crawler_kickoff_block_tx, crawler_kickoff_block_rx) =
-        channel::<AttestationInterval>(1);
+    let (crawler_kickoff_block_tx, crawler_kickoff_block_rx) = channel::<AttestationInterval>(1);
     let cancellation_token = CancellationToken::new();
 
     let instance = DbManagerBuilder::new(

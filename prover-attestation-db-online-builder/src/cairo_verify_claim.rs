@@ -1,5 +1,6 @@
 use crate::print_with_timestamp;
 use anyhow::anyhow;
+use attestation_chain::AttestationChainParams;
 use attestation_chain::{
     attestation_checkpoints::{AttestationCheckpoint, AttestationCheckpoints},
     attestation_fragment::AttestationFragment,
@@ -10,7 +11,6 @@ use eth_common::Client;
 use proof::claim_prover::{build_prover, ClaimProver};
 use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
-use attestation_chain::AttestationChainParams;
 
 pub async fn cairo_verify_claim(
     attestation_chain_params: AttestationChainParams,
@@ -22,14 +22,9 @@ pub async fn cairo_verify_claim(
     force_stone_proving: bool,
 ) -> anyhow::Result<Either<StoneProof, CairoVerifierOutput>> {
     let block_number = claim.id().block_number();
-    let claim_checkpoint = checkpoints.checkpoint_for(block_number).ok_or(anyhow!(
-        "claim block number {} matches no checkpoints",
-        block_number
-    ))?;
-
-    let claim_attestation_slice = claim_attestation_fragment
-        .attestation_slice_for(block_number, Some(claim_checkpoint.n()))
-        .ok_or(anyhow!("unable to slice fragment {claim_attestation_fragment:?} for block number {} and checkpoint {}", block_number, claim_checkpoint.n()))?;
+    let fragment_subset = claim_attestation_fragment
+        .blocks_serializable(block_number)
+        .map_err(|e| anyhow!("{:?}", e))?;
 
     println!("\n");
     print_with_timestamp("---------- cairo claim proving task is starting ----------".bold());
@@ -41,7 +36,7 @@ pub async fn cairo_verify_claim(
         .map_err(|err| anyhow!("{err:?}"))?;
     let block = eth_client.get_block(block_number).await?;
 
-    let mut cairo_verifier = build_prover(claim.clone(), claim_attestation_slice, block)
+    let mut cairo_verifier = build_prover(claim.clone(), fragment_subset, block)
         .await
         .map(|claim_cairo_verifier| {
             print_with_timestamp("done".into());
