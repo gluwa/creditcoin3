@@ -28,7 +28,7 @@ pub(crate) fn create_fragment_manager_instance(
     let cancel_on_fatal_failure_cloned = cancel_on_fatal_failure.clone();
 
     let instance = FragmentManagerBuilder::new(
-        Arc::clone(&attestation_chain_params),
+        attestation_chain_params.interval(),
         Arc::clone(&runtime),
         block_receiver,
     )
