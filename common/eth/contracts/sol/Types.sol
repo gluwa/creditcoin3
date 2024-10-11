@@ -10,6 +10,7 @@ struct Query {
     uint64 height;
     uint64 index;
     LayoutSegment[] layoutSegments;
+    bytes data;
 }
 
 struct LayoutSegment {

@@ -9,6 +9,8 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
+use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
+
 use attestation_cache::AttestationCache;
 
 pub mod config;

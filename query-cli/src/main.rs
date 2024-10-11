@@ -101,6 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         chain_id: prompt.network.id(),
         index: tx_index as u64,
         layout_segments,
+        data,
     };
 
     let query_id = query.id();
@@ -119,7 +120,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Submitting query...");
     let tx_hash = contract
-        .submit_query(&eth_client, query, data, computed_cost)
+        .submit_query(&eth_client, query, computed_cost)
         .await?;
     println!("Query submitted! Tx hash: {}\n", tx_hash);
 
@@ -142,6 +143,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
             offset: 0,
             size: 99326,
         }],
+        data: vec![0; 99326],
     };
 
     let query_id = query.id();
@@ -166,11 +168,9 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
         .await?;
     println!("Computed cost: {}\n", computed_cost);
 
-    let data = vec![0; 32];
-
     println!("Submitting query...");
     let tx_hash = contract
-        .submit_query(&eth_client, query, data, computed_cost)
+        .submit_query(&eth_client, query, computed_cost)
         .await?;
     println!("Query submitted! Tx hash: {}'n", tx_hash);
 

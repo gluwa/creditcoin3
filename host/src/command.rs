@@ -1,4 +1,5 @@
 use anyhow::Result;
+use core::cmp::Ordering::*;
 use sp_core::H256;
 use sp_runtime_interface::sp_wasm_interface::anyhow;
 use std::{
@@ -10,11 +11,14 @@ use std::{
 use tempfile::{NamedTempFile, PersistError};
 
 use pallet_prover_primitives::Query;
+use prover_primitives::claim::ClaimValidationError;
+use prover_primitives::claim::ClaimValidationError::{ClaimIdNotValidated, ClaimOutOfBounds};
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
     StarkProgramMetadataStorage,
 };
-use prover_primitives::types::{StoneProof, StoneProofJson};
+use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
+use utils::utils::felts_from_bytes;
 
 use thiserror::Error;
 
@@ -105,9 +109,31 @@ fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
     H256::from(sp_io::hashing::blake2_256(bytes))
 }
 
+pub fn validate_query_against_proof(
+    query: Query,
+    cairo_verifier_output: &CairoVerifierOutput,
+) -> Result<(), ClaimValidationError> {
+    match query.index.cmp(&cairo_verifier_output.claim_index) {
+        Greater => Err(ClaimOutOfBounds(cairo_verifier_output.claim_index)),
+
+        Equal => {
+            if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
+                Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
+            } else {
+                Ok(())
+            }
+        }
+
+        Less => Err(ClaimIdNotValidated(
+            query.index,
+            cairo_verifier_output.claim_index,
+        )),
+    }
+}
+
 pub fn run_verifier(
     proof: Vec<u8>,
-    _query: Query,
+    query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
 ) -> Result<String, VerifierError> {
     log::debug!("current dir: {:?}", env::current_dir()?.as_os_str());
@@ -119,7 +145,9 @@ pub fn run_verifier(
 
     let proof: StoneProofJson = serde_json::from_slice(&proof)?;
 
-    let stone_proof = StoneProof::from(proof);
+    let stone_proof = StoneProof::from(proof.clone());
+
+    let cairo_verifier_output = CairoVerifierOutput::try_from(&proof)?;
 
     // Last version is the highest version in the metadata
     let last_version = metadata.last().map(|(v, _)| *v).unwrap_or(0);
@@ -142,6 +170,11 @@ pub fn run_verifier(
         &program_metadata_storage,
         blake2_256_stark_program_auth_hasher,
     )?;
+
+    match validate_query_against_proof(query.clone(), &cairo_verifier_output) {
+        Ok(_) => log::debug!("Proof validated successfully"),
+        Err(e) => return Err(format!("Proof validation failed: {:?}", e)),
+    }
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
@@ -181,6 +214,7 @@ pub mod tests {
             height: 1,
             index: 1,
             layout_segments: vec![],
+            data: vec![],
         };
 
         let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
