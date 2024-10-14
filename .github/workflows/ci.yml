@@ -875,19 +875,10 @@ jobs:
           LC_WORKFLOW_ID: ${{ github.run_id }}
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
-  remove-github-runner:
+  rm-gh-runner-integration-test-cli:
     runs-on: ubuntu-24.04
     needs:
-      - benchmark
-      - build-creditcoin-node
-      - build-creditcoin-node-for-testing
-      - integration-test-attestator-network
       - integration-test-cli
-      - clippy
-      - check
-      - docker-build
-      - unit-test-creditcoin
-      - integration-test-smart-contract
     if: ${{ always() }}
 
     # WARNING: same matrix as integration-test-cli job
@@ -895,19 +886,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # runners for other jobs (repurpose existing labels)
-          - proxy: attestator-network
-          - proxy: benchmark
-          - proxy: build-creditcoin-node-for-devnet
-          - proxy: build-creditcoin-node-for-testnet
-          - proxy: build-creditcoin-node-for-testing-devnet
-          - proxy: build-creditcoin-node-for-testing-ci
-          - proxy: clippy
-          - proxy: check
-          - proxy: docker-build
-          - proxy: smart-contract
-          - proxy: unit-test-creditcoin
-
           # runners for integration-test-cli-jobs
           - proxy: no
 
@@ -938,6 +916,332 @@ jobs:
       - name: Create matrix.txt
         run: |
           echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-benchmark:
+    runs-on: ubuntu-24.04
+    needs:
+      - benchmark
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: benchmark
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-attestator-network:
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-test-attestator-network
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: attestator-network
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-build-creditcoin-node:
+    runs-on: ubuntu-24.04
+    needs:
+      - build-creditcoin-node
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: build-creditcoin-node-for-devnet
+          - proxy: build-creditcoin-node-for-testnet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-build-creditcoin-node-for-testing:
+    runs-on: ubuntu-24.04
+    needs:
+      - build-creditcoin-node-for-testing
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: build-creditcoin-node-for-testing-devnet
+          - proxy: build-creditcoin-node-for-testing-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-clippy:
+    runs-on: ubuntu-24.04
+    needs:
+      - clippy
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: clippy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-check:
+    runs-on: ubuntu-24.04
+    needs:
+      - check
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-docker-build:
+    runs-on: ubuntu-24.04
+    needs:
+      - docker-build
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: docker-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-smart-contract:
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-test-smart-contract
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: smart-contract
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-unit-test-creditcoin:
+    runs-on: ubuntu-24.04
+    needs:
+      - unit-test-creditcoin
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: unit-test-creditcoin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
 
       - name: Evaluate env vars
         id: get-env
