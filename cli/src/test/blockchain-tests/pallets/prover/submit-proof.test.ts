@@ -12,7 +12,7 @@ describe('SubmitProof', (): void => {
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         await api.tx.sudo
-            .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramHash, starkProgramVersion))
+            .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
             .signAndSend(root);
     }, 30_000);
 
