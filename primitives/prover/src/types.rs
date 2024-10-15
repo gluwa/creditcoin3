@@ -17,6 +17,8 @@ pub struct ClaimDigestRoot {
     merkle_root: String,
 }
 
+const NUMBER_OF_STATIC_FIELDS: usize = 4 + 1 + 1 + 2;
+
 impl ClaimDigestRoot {
     pub fn new(merkle_root: &Felt) -> Self {
         Self {
@@ -229,11 +231,19 @@ impl TryFrom<&StoneProofJson> for StoneProofPublicInput {
     fn try_from(proof: &StoneProofJson) -> Result<Self, String> {
         let public_memory = &proof.public_input.public_memory.0;
 
+        let rlp_len = public_memory
+            .last()
+            .ok_or("proof public input is empty".to_owned())
+            .map(PublicMemoryItem::value)
+            .and_then(|s| {
+                try_parse_usize(s).map_err(|err| format!("failed to parse 'rlp_len': {err:?}"))
+            })?;
+
         Self::try_from(
             &public_memory
                 .iter()
                 .rev()
-                .take(Self::size(&proof.public_input)?)
+                .take(rlp_len + NUMBER_OF_STATIC_FIELDS + 1)
                 .rev()
                 .map(PublicMemoryItem::value)
                 .collect::<Vec<_>>()[..],

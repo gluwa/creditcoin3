@@ -15,7 +15,8 @@ benchmarks! {
             chain_id: 31337,
             height: 1,
             index: 1,
-            layout_segments: vec![]
+            layout_segments: vec![],
+            data: vec![],
         };
         let query_id = query.id();
 

@@ -23,6 +23,7 @@ fn submit_proof_fails_proof_more_then_50_mb() {
         height: 1,
         index: 1,
         layout_segments: vec![],
+        data: vec![],
     };
 
     ExtBuilder::default()

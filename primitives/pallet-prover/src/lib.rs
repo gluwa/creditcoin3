@@ -62,10 +62,4 @@ impl Query {
         let query = self.clone();
         H256::from(keccak_256(&encode_arguments(query)))
     }
-
-    // pub fn query_hash(&self) -> H256 {
-    //     let felt_offsets = self.layout_segments.iter().flat_map(|layout| {
-    //         vec![layout.offset, layout.size]
-    //     });
-    // }
 }

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde::Serialize;
 use std::ops::Range;
 use tracing::{error, info};
 
