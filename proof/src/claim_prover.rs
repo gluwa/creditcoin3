@@ -14,13 +14,6 @@ use std::io::{BufWriter, Write};
 use tracing::debug;
 use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 
-const DATA_ROOT_DIR: &str = "../data";
-const CLAIM_PROOF_DIR: &str = "claim-proofs";
-
-fn claim_proof_dir() -> String {
-    format!("{}/{}", DATA_ROOT_DIR, CLAIM_PROOF_DIR)
-}
-
 #[derive(Serialize)]
 pub struct ClaimProver {
     block_number: u64,
@@ -156,7 +149,7 @@ impl ClaimProver {
         let subject_index = self.claim.id().index() as usize;
 
         let partial_dir = &format!("block_{hex_block_number}/{subject_index}",);
-        format!("{}/{partial_dir}", claim_proof_dir())
+        format!("/var/tmp/creditcoin3/claim-proofs/{partial_dir}")
     }
 
     fn default_cairo_input_file_name(dir: &str) -> String {
