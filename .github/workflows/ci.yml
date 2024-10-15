@@ -519,6 +519,10 @@ jobs:
 
       - name: Run tests
         run: |
+          # configure the path so we can discover external binaries
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$VERIFIER_PATH"
+
           cargo llvm-cov \
               --workspace --html --show-missing-lines --hide-instantiations \
               --ignore-filename-regex "(benchmarking.rs|mock.rs|tests.rs|weights.rs)"
@@ -1592,6 +1596,10 @@ jobs:
 
       - name: Start Node 1
         run: |
+          # configure the path so we can discover external binaries
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$VERIFIER_PATH"
+
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
             --chain dev \
@@ -1919,6 +1927,10 @@ jobs:
 
       - name: Run benchmarks to generate dummy weights
         run: |
+          # configure the path so we can discover external binaries
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$VERIFIER_PATH"
+
           .github/bench.sh -p attestation_poc -b -r 1 -s 2
           .github/bench.sh -p prover -b -r 1 -s 2
           .github/bench.sh -p randomness -b -r 1 -s 2

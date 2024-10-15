@@ -5,7 +5,6 @@ use std::{
     collections::HashMap,
     env, fs,
     io::Write,
-    path::PathBuf,
     process::{Command, Stdio},
 };
 use tempfile::NamedTempFile;
@@ -15,8 +14,6 @@ use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthHash, StarkProgramMetadata, StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{StoneProof, StoneProofJson};
-
-const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
 
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
@@ -34,13 +31,6 @@ pub fn run_verifier(
     metadata: Vec<(u8, StarkProgramAuthHash)>,
 ) -> Result<String, String> {
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
-
-    // this code can be called from any directory within this project.
-    // Here we find $PROJECT_ROOT/cairo/stone_verifier/cpu_air_verifier (where the stone verifier binary is located)
-    // TODO: make building creditcoin3 also build the cpu_air_verifier and add it to the path so we can drop this locator
-    let project_root = find_project_root().ok_or("Could not find project root")?;
-    let verifier_path = project_root.join(VERIFIER_COMMAND);
-    log::debug!("verifier bin path: {:?}", verifier_path);
 
     // Write proof to a temporary JSON file
     let temp_file = match write_proof_to_temp_file(&proof) {
@@ -90,7 +80,8 @@ pub fn run_verifier(
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
     // Execute the verifier command
-    let output = Command::new(verifier_path)
+    // WARNING: binary must be in $PATH and/or $PATH must be configured accordingly
+    let output = Command::new("cpu_air_verifier")
         .arg(format!("--in_file={}", temp_file_path))
         .stdout(Stdio::piped())
         .output()
@@ -108,23 +99,6 @@ pub fn run_verifier(
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         Err(stderr)
     }
-}
-
-pub fn find_project_root() -> Option<PathBuf> {
-    let mut current_dir = env::current_dir().ok()?;
-
-    loop {
-        if current_dir.join("SECURITY.md").exists() {
-            return Some(current_dir);
-        }
-
-        // Move up to the parent directory
-        if !current_dir.pop() {
-            break;
-        }
-    }
-
-    None
 }
 
 #[cfg(all(test, target_arch = "x86_64"))]
