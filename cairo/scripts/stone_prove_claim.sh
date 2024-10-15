@@ -5,11 +5,12 @@ if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
   exit 10
 fi
 
-INPUT_PATH="./$1"
+INPUT_PATH="$1"
 FORCE=$2
 
-CAIRO_LANG_DIR="../cairo/lang"
-STONE_PROVER="../cairo/stone-prover"
+PARENT_DIR=$(dirname "$0")
+CAIRO_ROOT=$(dirname "$PARENT_DIR")
+CAIRO_LANG_DIR="$CAIRO_ROOT/lang"
 
 PROGRAM_INPUT_FILE="$INPUT_PATH/program_input.json"
 AIR_PROVER_CONFIG="$CAIRO_LANG_DIR/cpu_air_prover_config.json"
@@ -78,7 +79,9 @@ else
   echo "parameter_file: $AIR_PARAMS"
   echo "generating proof (will take a while)..."
 
-  if ! "$STONE_PROVER/cpu_air_prover" \
+  # WARNING: binary should be in $PATH and/or
+  # $PATH should be adjusted accordingly
+  if ! cpu_air_prover \
     --out_file="$PROOF_FILE" \
     --private_input_file="$PRIVATE_INPUT" \
     --public_input_file="$PUBLIC_INPUT" \

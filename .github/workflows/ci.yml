@@ -520,9 +520,10 @@ jobs:
       - name: Run tests
         run: |
           # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
           SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
           cargo llvm-cov \
               --workspace --html --show-missing-lines --hide-instantiations \
@@ -1598,9 +1599,10 @@ jobs:
       - name: Start Node 1
         run: |
           # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
           SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
@@ -1930,9 +1932,10 @@ jobs:
       - name: Run benchmarks to generate dummy weights
         run: |
           # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
           SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
           .github/bench.sh -p attestation_poc -b -r 1 -s 2
           .github/bench.sh -p prover -b -r 1 -s 2

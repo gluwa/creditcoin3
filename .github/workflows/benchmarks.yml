@@ -162,9 +162,10 @@ jobs:
         continue-on-error: false
         run: |
           # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
           SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
           .github/bench.sh -p attestation_poc -b -s 2 -r 2
           .github/bench.sh -p prover -b

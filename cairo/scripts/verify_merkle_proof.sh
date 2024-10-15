@@ -15,11 +15,13 @@ if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
   exit 10
 fi
 
-SOURCE_FILE="../cairo/scripts/verify_merkle_proof.cairo"
+PARENT_DIR=$(dirname "$0")
+SOURCE_FILE="$PARENT_DIR/verify_merkle_proof.cairo"
 COMPILED_FILE="${SOURCE_FILE}_compiled.json"
-INPUT_PATH="./$1"
+INPUT_PATH="$1"
 PROOF_MODE=$2
-CAIRO_LANG_DIR="../cairo/lang"
+CAIRO_ROOT=$(dirname "$PARENT_DIR")
+CAIRO_LANG_DIR="$CAIRO_ROOT/lang"
 
 PROGRAM_INPUT_FILE="$INPUT_PATH/program_input.json"
 AIR_PROVER_CONFIG="$CAIRO_LANG_DIR/cpu_air_prover_config.json"
