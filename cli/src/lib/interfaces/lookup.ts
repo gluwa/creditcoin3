@@ -875,7 +875,8 @@ export default {
     PalletProverEvent: {
         _enum: {
             QueryVerified: '(H256,AccountId32,PalletProverPrimitivesVerifierExitStatus)',
-            StarkProgramMetadataSet: '(u8,u64)',
+            StarkProgramMetadataSet: '(u8,H256)',
+            StarkProgramMetadataRemoved: 'u8',
         },
     },
     /**
@@ -2512,7 +2513,10 @@ export default {
                 query: 'PalletProverPrimitivesQuery',
             },
             set_stark_program_metadata: {
-                programAuthHash: 'u64',
+                programVersion: 'u8',
+                programAuthHash: 'H256',
+            },
+            remove_stark_program_metadata: {
                 programVersion: 'u8',
             },
         },
@@ -2903,7 +2907,12 @@ export default {
      * Lookup395: pallet_prover::pallet::Error<T>
      **/
     PalletProverError: {
-        _enum: ['InvalidProofSubmitted', 'StarkMetadataNotSet'],
+        _enum: [
+            'InvalidProofSubmitted',
+            'StarkProgramMetadataNotSet',
+            'StarkProgramMetadataAlreadySet',
+            'StarkProgramMetadataNotFound',
+        ],
     },
     /**
      * Lookup396: pallet_randomness::pallet::Error<T>

@@ -1256,14 +1256,21 @@ declare module '@polkadot/api-base/types/submittable' {
         };
         prover: {
             /**
+             * See [`Pallet::remove_stark_program_metadata`].
+             **/
+            removeStarkProgramMetadata: AugmentedSubmittable<
+                (programVersion: u8 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u8]
+            >;
+            /**
              * See [`Pallet::set_stark_program_metadata`].
              **/
             setStarkProgramMetadata: AugmentedSubmittable<
                 (
-                    programAuthHash: u64 | AnyNumber | Uint8Array,
                     programVersion: u8 | AnyNumber | Uint8Array,
+                    programAuthHash: H256 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [u64, u8]
+                [u8, H256]
             >;
             /**
              * See [`Pallet::submit_proof`].

@@ -1083,8 +1083,10 @@ declare module '@polkadot/types/lookup' {
         readonly isQueryVerified: boolean;
         readonly asQueryVerified: ITuple<[H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
         readonly isStarkProgramMetadataSet: boolean;
-        readonly asStarkProgramMetadataSet: ITuple<[u8, u64]>;
-        readonly type: 'QueryVerified' | 'StarkProgramMetadataSet';
+        readonly asStarkProgramMetadataSet: ITuple<[u8, H256]>;
+        readonly isStarkProgramMetadataRemoved: boolean;
+        readonly asStarkProgramMetadataRemoved: u8;
+        readonly type: 'QueryVerified' | 'StarkProgramMetadataSet' | 'StarkProgramMetadataRemoved';
     }
 
     /** @name PalletProverPrimitivesVerifierExitStatus (100) */
@@ -2732,10 +2734,14 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isSetStarkProgramMetadata: boolean;
         readonly asSetStarkProgramMetadata: {
-            readonly programAuthHash: u64;
+            readonly programVersion: u8;
+            readonly programAuthHash: H256;
+        } & Struct;
+        readonly isRemoveStarkProgramMetadata: boolean;
+        readonly asRemoveStarkProgramMetadata: {
             readonly programVersion: u8;
         } & Struct;
-        readonly type: 'SubmitProof' | 'SetStarkProgramMetadata';
+        readonly type: 'SubmitProof' | 'SetStarkProgramMetadata' | 'RemoveStarkProgramMetadata';
     }
 
     /** @name PalletProverPrimitivesQuery (318) */
@@ -3188,8 +3194,14 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletProverError (395) */
     interface PalletProverError extends Enum {
         readonly isInvalidProofSubmitted: boolean;
-        readonly isStarkMetadataNotSet: boolean;
-        readonly type: 'InvalidProofSubmitted' | 'StarkMetadataNotSet';
+        readonly isStarkProgramMetadataNotSet: boolean;
+        readonly isStarkProgramMetadataAlreadySet: boolean;
+        readonly isStarkProgramMetadataNotFound: boolean;
+        readonly type:
+            | 'InvalidProofSubmitted'
+            | 'StarkProgramMetadataNotSet'
+            | 'StarkProgramMetadataAlreadySet'
+            | 'StarkProgramMetadataNotFound';
     }
 
     /** @name PalletRandomnessError (396) */

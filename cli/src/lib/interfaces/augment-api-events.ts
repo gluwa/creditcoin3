@@ -542,7 +542,8 @@ declare module '@polkadot/api-base/types/events' {
         };
         prover: {
             QueryVerified: AugmentedEvent<ApiType, [H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
-            StarkProgramMetadataSet: AugmentedEvent<ApiType, [u8, u64]>;
+            StarkProgramMetadataRemoved: AugmentedEvent<ApiType, [u8]>;
+            StarkProgramMetadataSet: AugmentedEvent<ApiType, [u8, H256]>;
             /**
              * Generic event
              **/

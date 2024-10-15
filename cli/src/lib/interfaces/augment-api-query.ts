@@ -844,9 +844,12 @@ declare module '@polkadot/api-base/types/storage' {
                 [H256]
             > &
                 QueryableStorageEntry<ApiType, [H256]>;
-            starkProgramMetadata: AugmentedQuery<ApiType, (arg: u8 | AnyNumber | Uint8Array) => Observable<u64>, [u8]> &
+            starkProgramMetadata: AugmentedQuery<
+                ApiType,
+                (arg: u8 | AnyNumber | Uint8Array) => Observable<H256>,
+                [u8]
+            > &
                 QueryableStorageEntry<ApiType, [u8]>;
-            starkProgramVersion: AugmentedQuery<ApiType, () => Observable<u8>, []> & QueryableStorageEntry<ApiType, []>;
             /**
              * Generic query
              **/
