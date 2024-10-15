@@ -118,27 +118,6 @@ pub async fn cairo_generate_proof(
     }
 }
 
-#[allow(dead_code)]
-pub async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow::Result<()> {
-    use std::io::Write;
-
-    tokio::process::Command::new("/bin/bash")
-        .arg("-c")
-        .arg(format!("source {} {}", script_source, input_dir,))
-        .stdout(std::process::Stdio::inherit())
-        .output()
-        .await
-        .map_err(|err| anyhow::anyhow!("{err:?}"))
-        .and_then(|output| {
-            output.status.success().then_some(()).ok_or({
-                let _ = std::io::stdout().write_all(&output.stdout);
-                let _ = std::io::stdout().write_all(&output.stderr);
-
-                anyhow::anyhow!("error code: {:?}", output.status.code())
-            })
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::ClaimProver;
@@ -825,7 +804,8 @@ mod tests {
 
         let output = match cairo_output_or_stone_proof {
             either::Left((mut stone_proof, stone_proof_dir)) => {
-                crate::run_stone_verify_script(ClaimProver::script_source(), &stone_proof_dir)
+                // todo: replace with run_cairo_verify_script() from claim_prover.rs
+                run_stone_verify_script(ClaimProver::script_source(), &stone_proof_dir)
                     .await
                     .unwrap();
                 println!("{}", "CLAIMER: proof stone-verified".bold().green());
