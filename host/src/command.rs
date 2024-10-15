@@ -133,10 +133,7 @@ pub mod tests {
 
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
-        let project_root = crate::command::find_project_root()
-            .ok_or("Could not find project root")
-            .expect("project root to be found");
-        let proof_path = project_root.join("cairo/stone-verifier/proof_example.json");
+        let proof_path = "../cairo/stone-verifier/proof_example.json";
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
@@ -156,16 +153,12 @@ pub mod tests {
 
     #[test]
     fn verifying_stark_proof_with_bogus_public_memory_section_should_error() {
-        let project_root = crate::command::find_project_root()
-            .ok_or("Could not find project root")
-            .expect("project root to be found");
-
         // note: in this file the first 10 records in public_memory section have been altered
         // to 0x444 which should produce a different program hash and thus simulate
         // a STARK proof produced by an unauthorized/unauthenticated Cairo program
         // see StoneProof::program_bytes() and PublicInput::program_bytes() +
         // StarkProgramAuth::authenticate() for how the program hash is calculated!
-        let proof_path = project_root.join("cairo/stone-verifier/bogus_public_memory_example.json");
+        let proof_path = "../cairo/stone-verifier/bogus_public_memory_example.json";
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
         let query = Query {
@@ -198,10 +191,7 @@ pub mod tests {
     //  on the chain id
     #[test]
     fn verifying_correct_stark_proof_when_program_metadata_config_is_different_should_error() {
-        let project_root = crate::command::find_project_root()
-            .ok_or("Could not find project root")
-            .expect("project root to be found");
-        let proof_path = project_root.join("cairo/stone-verifier/proof_example.json");
+        let proof_path = "../cairo/stone-verifier/proof_example.json";
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
         let query = Query {
