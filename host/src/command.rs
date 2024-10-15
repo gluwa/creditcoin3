@@ -6,19 +6,25 @@ use std::{
     collections::HashMap,
     env, fs,
     io::Write,
+    ops::Range,
+    path::PathBuf,
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, PersistError};
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::ClaimValidationError;
-use prover_primitives::claim::ClaimValidationError::{ClaimIdNotValidated, ClaimOutOfBounds};
+use prover_primitives::claim::ClaimValidationError::{
+    ClaimIdNotValidated, ClaimOutOfBounds, QueryOffsetsMismatch,
+};
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
     StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
-use utils::utils::felts_from_bytes;
+use rlp::Rlp;
+use utils::pedersen_hash::pedersen_array;
+use utils::{utils::felts_from_bytes, Felt};
 
 use thiserror::Error;
 
@@ -120,6 +126,15 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
+                let query_offsets_hash = query_hash(&query);
+                if query_offsets_hash != cairo_verifier_output.query_hash {
+                    return Err(QueryOffsetsMismatch(
+                        cairo_verifier_output.query_hash,
+                        query_offsets_hash,
+                    ));
+                }
+
+                //validate query data fields
                 Ok(())
             }
         }
@@ -129,6 +144,22 @@ pub fn validate_query_against_proof(
             cairo_verifier_output.claim_index,
         )),
     }
+}
+
+fn query_hash(query: &Query) -> Felt {
+    let felt_offsets = query
+        .layout_segments
+        .iter()
+        .map(|layout| Range {
+            start: usize::try_from(layout.offset).expect("layout offset is too large"),
+            end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+        })
+        .collect::<Vec<_>>()
+        .iter()
+        .flat_map(|range| range.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
+        .collect::<Vec<Felt>>();
+
+    pedersen_array(&felt_offsets[..])
 }
 
 pub fn run_verifier(
@@ -213,8 +244,8 @@ pub mod tests {
             chain_id: 31337,
             height: 1,
             index: 1,
-            layout_segments: vec![],
-            data: vec![],
+            layout_segments: vec![LayoutSegment { offset: 0, size: 5 }],
+            data: vec![1, 2, 3, 4, 5],
         };
 
         let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
