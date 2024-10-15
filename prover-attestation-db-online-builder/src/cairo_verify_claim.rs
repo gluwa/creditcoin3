@@ -41,7 +41,7 @@ pub async fn cairo_verify_claim(
         .map(|claim_cairo_verifier| {
             print_with_timestamp("done".into());
             println!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
-            println!("running script {}", format!("{:?}", ClaimProver::script_source()).bright_cyan());
+            println!("running script {}", format!("{:?}", ClaimProver::verify_merkle_command()).bright_cyan());
 
             claim_cairo_verifier
         })

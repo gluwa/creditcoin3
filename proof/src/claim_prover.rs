@@ -43,25 +43,27 @@ pub struct ClaimProver {
 }
 
 impl ClaimProver {
-    const SCRIPT_SOURCE: &'static str = "../cairo/scripts/verify_merkle_proof.sh";
-    const STONE_PROVER_SCRIPT_SOURCE: &'static str = "../cairo/scripts/stone_prove_claim.sh";
-
-    pub fn script_source() -> &'static str {
-        Self::SCRIPT_SOURCE
+    // WARNING: script must be in $PATH and/or $PATH must be configured accordingly
+    pub fn verify_merkle_command() -> &'static str {
+        "verify_merkle_proof.sh"
     }
-    pub fn stone_prover_script_source() -> &'static str {
-        Self::STONE_PROVER_SCRIPT_SOURCE
+
+    // WARNING: script must be in $PATH and/or $PATH must be configured accordingly
+    pub fn stone_prover_command() -> &'static str {
+        "stone_prove_claim.sh"
     }
 
     pub async fn cairo_verify(&mut self, cairo_proof_mode: bool) -> Result<(), ClaimProverError> {
         match &self.dir {
-            Some(dir) => run_cairo_verify_script(Self::script_source(), dir, cairo_proof_mode)
-                .await
-                .map_err(ClaimProverError::Cairo)
-                .and_then(|_| {
-                    self.cairo_output = Some(self.read_output()?);
-                    Ok(())
-                }),
+            Some(dir) => {
+                run_cairo_verify_script(Self::verify_merkle_command(), dir, cairo_proof_mode)
+                    .await
+                    .map_err(ClaimProverError::Cairo)
+                    .and_then(|_| {
+                        self.cairo_output = Some(self.read_output()?);
+                        Ok(())
+                    })
+            }
             None => Err(ClaimProverError::InputFileNameNotSet),
         }
     }
@@ -73,7 +75,7 @@ impl ClaimProver {
     pub async fn stone_prove(&self, force_stone_proving: bool) -> Result<String, ClaimProverError> {
         match &self.dir {
             Some(dir) => {
-                run_stone_prover_script(Self::STONE_PROVER_SCRIPT_SOURCE, dir, force_stone_proving)
+                run_stone_prover_script(Self::stone_prover_command(), dir, force_stone_proving)
                     .await
             }
             None => Err(ClaimProverError::InputFileNameNotSet),

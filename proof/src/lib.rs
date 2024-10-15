@@ -37,7 +37,7 @@ pub async fn cairo_generate_proof(
         .map(|claim_cairo_verifier| {
             debug!("done");
             debug!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
-            debug!("running script {}", format!("{:?}", ClaimProver::script_source()).bright_cyan());
+            debug!("running script {}", format!("{:?}", ClaimProver::verify_merkle_command()).bright_cyan());
             claim_cairo_verifier
         })
         .map_err(|err| {
@@ -805,7 +805,7 @@ mod tests {
         let output = match cairo_output_or_stone_proof {
             either::Left((mut stone_proof, stone_proof_dir)) => {
                 // todo: replace with run_cairo_verify_script() from claim_prover.rs
-                run_stone_verify_script(ClaimProver::script_source(), &stone_proof_dir)
+                run_stone_verify_script(ClaimProver::verify_merkle_command(), &stone_proof_dir)
                     .await
                     .unwrap();
                 println!("{}", "CLAIMER: proof stone-verified".bold().green());

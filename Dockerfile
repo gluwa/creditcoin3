@@ -72,7 +72,7 @@ COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/r
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/stone-prover/cpu_air_prover /bin/cpu_air_prover
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/stone-verifier/cpu_air_verifier /bin/cpu_air_verifier
 
-ENV PATH=/creditcoin-node/venv/bin:${PATH} \
+ENV PATH=/creditcoin-node/venv/bin:/creditcoin-node/cairo/scripts:${PATH} \
     VIRTUAL_ENV=/creditcoin-node/venv
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/venv/ /creditcoin-node/venv
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/ /cairo
