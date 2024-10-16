@@ -6,6 +6,9 @@ services:
   database:
     container_name: prover-database
     image: postgres:latest
+    # only for debugging network connectivity
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - prover_data:/var/lib/postgresql/data
     restart: always
@@ -23,6 +26,7 @@ services:
       - "host.docker.internal:host-gateway"
     entrypoint: /bin/prover
     command:
+      - --verbose
       - --cc3-rpc-url
       - wss://rpc.ccnext-devnet.creditcoin.network/ws
       - --cc3-key

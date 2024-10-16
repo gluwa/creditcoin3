@@ -129,7 +129,7 @@ jobs:
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
-          ~/.foundry/bin/anvil --block-time 6 &
+          ~/.foundry/bin/anvil --block-time 6 --host 0.0.0.0 &
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
 
       - name: Start prover via compose
