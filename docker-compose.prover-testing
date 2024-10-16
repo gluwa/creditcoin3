@@ -1,6 +1,7 @@
 ---
 volumes:
   prover_data:
+  validator_data:
 
 services:
   database:
@@ -17,18 +18,38 @@ services:
       POSTGRES_USER: prover
       POSTGRES_PASSWORD: creditcoin
 
+  validator:
+    container_name: creditcoin-validator
+    volumes:
+      - validator_data:/creditcoin-node/data
+    image: gluwa/creditcoin3-next
+    entrypoint: /bin/creditcoin3-node
+    command:
+      - --dev
+      - --validator
+      - --pruning
+      - archive
+      - --node-key
+      - d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463
+      - --base-path
+      - /creditcoin-node/data
+      - --unsafe-rpc-external
+    expose:
+      - 9944
+
   prover:
     container_name: creditcoin-prover
     image: gluwa/creditcoin3-next
     depends_on:
       - database
+      - validator
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: /bin/prover
     command:
       - --verbose
       - --cc3-rpc-url
-      - wss://rpc.ccnext-devnet.creditcoin.network/ws
+      - ws://creditcoin-validator:9944
       - --cc3-key
       - "//Alice"
       - --eth-rpc-url
