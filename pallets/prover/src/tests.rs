@@ -1,10 +1,8 @@
 use self::mock::PROVER_3;
 
 use super::*;
-use pallet_prover_primitives::{LayoutSegment, Query, VerifierExitStatus};
-use prover_primitives::stark_program_auth::StarkProgramMetadataStorage;
 use pallet_prover_primitives::{
-    Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+    LayoutSegment, Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
 };
 
 use frame_support::{assert_err, assert_noop, assert_ok};
@@ -12,8 +10,6 @@ use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, System, Test};
-
-const EXPECTED_ERROR_MESSAGE: &str = "Program version already exists";
 
 fn prover_configured_in_genesis() -> RuntimeOrigin {
     RuntimeOrigin::signed(PROVER_3)
