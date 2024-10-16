@@ -55,6 +55,6 @@ services:
       - --eth-rpc-url
       - http://host.docker.internal:8545
       - --eth-private-key
-      - 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - 5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
       - --postgres-uri
       - postgres://prover:creditcoin@prover-database:5432/attestations
