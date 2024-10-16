@@ -50,7 +50,11 @@ impl Server {
 
         // Deploy the prover contract
         // This will deploy it on ccnext chain
-        let cc3_http_url = config.cc3_rpc_url.clone().replace("ws://", "http://");
+        let cc3_http_url = config
+            .cc3_rpc_url
+            .clone()
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
         let cc3_eth_client = EthClient::new(&cc3_http_url, &config.eth_private_key).await?;
         contract::deploy(&cc3_eth_client).await?;
         info!("Deployed prover contract");
