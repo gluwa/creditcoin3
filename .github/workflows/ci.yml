@@ -95,6 +95,12 @@ jobs:
           docker exec creditcoin-validator which cpu_air_verifier
           docker exec creditcoin-validator cpu_air_verifier --help | grep "Flags from"
 
+          docker exec creditcoin-validator which verify_merkle_proof.sh
+          docker exec creditcoin-validator verify_merkle_proof.sh | grep "expected arguments: input_path proof_mode"
+
+          docker exec creditcoin-validator which stone_prove_claim.sh
+          docker exec creditcoin-validator stone_prove_claim.sh | grep "expected arguments: input_path"
+
       - name: Collect docker logs
         if: always()
         run: |
