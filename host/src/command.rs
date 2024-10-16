@@ -126,6 +126,7 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
+                // validate query hash
                 let query_offsets_hash = query_hash(&query);
                 if query_offsets_hash != cairo_verifier_output.query_hash {
                     return Err(QueryOffsetsMismatch(
@@ -134,8 +135,25 @@ pub fn validate_query_against_proof(
                     ));
                 }
 
-                //validate query data fields
-                Ok(())
+                // validate query data fields
+                let proof_bytes =
+                    proof_felts_to_bytes(&query, &cairo_verifier_output.claim_fields)?;
+                let rlp = Rlp::new(&query.data[..]);
+                felt_offsets(&query)
+                    .iter()
+                    .zip(rlp.iter())
+                    .try_for_each(|(range, rlp_field)| {
+                        let rlp_field_bytes = rlp_field.as_raw();
+                        let proof_field_bytes = &proof_bytes[range.start..range.end];
+                        if rlp_field_bytes != proof_field_bytes {
+                            return Err(ClaimValidationError::FieldNotValidated(
+                                range.clone(),
+                                proof_field_bytes.to_vec(),
+                                rlp_field_bytes.to_vec(),
+                            ));
+                        }
+                        Ok(())
+                    })
             }
         }
 
@@ -160,6 +178,64 @@ fn query_hash(query: &Query) -> Felt {
         .collect::<Vec<Felt>>();
 
     pedersen_array(&felt_offsets[..])
+}
+
+fn felt_offsets(query: &Query) -> Vec<Range<usize>> {
+    let felt_offsets = query
+        .layout_segments
+        .iter()
+        .map(|layout| Range {
+            start: usize::try_from(layout.offset).expect("layout offset is too large"),
+            end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+        })
+        .collect::<Vec<Range<usize>>>();
+
+    felt_offsets
+}
+
+fn proof_felts_to_bytes(
+    query: &Query,
+    proof_felts: &[Felt],
+) -> Result<Vec<u8>, ClaimValidationError> {
+    let rlp = Rlp::new(&query.data[..]);
+
+    inner(
+        proof_felts,
+        felt_offsets(query).as_slice(),
+        rlp.as_raw().len(),
+    )
+}
+
+fn inner(
+    proof_felts: &[Felt],
+    felt_offsets: &[Range<usize>],
+    original_bytes_len: usize,
+) -> Result<Vec<u8>, ClaimValidationError> {
+    use core::cmp::min;
+    use utils::utils::{felts_to_bytes, U248_BYTE_COUNT};
+
+    // form a buffer of original rlp length and initialize it.
+    let mut bytes = vec![0u8; original_bytes_len];
+    let mut i = 0;
+    for r in felt_offsets {
+        // byte chunk corresponding to current felt slice
+        let chunk_range =
+            r.start * U248_BYTE_COUNT..min(r.end * U248_BYTE_COUNT, original_bytes_len);
+        let source_bytes_len =
+            (original_bytes_len == chunk_range.end).then_some(chunk_range.end - chunk_range.start);
+
+        let chunk_end = i + r.end - r.start;
+        if chunk_end > proof_felts.len() {
+            return Err(ClaimValidationError::ProofOutputTruncated);
+        }
+        // prover outputs field elements in order determined by felt_offsets ranges on claimer side
+        // prover relies on fact the claimer compacted and sorted ranges in ascending order
+        let chunk = felts_to_bytes(&proof_felts[i..chunk_end], source_bytes_len);
+        i += r.end - r.start;
+
+        bytes[chunk_range].copy_from_slice(&chunk[..]);
+    }
+    Ok(bytes)
 }
 
 pub fn run_verifier(

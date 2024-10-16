@@ -1,6 +1,8 @@
 use self::mock::PROVER_3;
 
 use super::*;
+use pallet_prover_primitives::{LayoutSegment, Query, VerifierExitStatus};
+use prover_primitives::stark_program_auth::StarkProgramMetadataStorage;
 use pallet_prover_primitives::{
     Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
 };
@@ -105,8 +107,8 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
             chain_id: 1,
             height: 1,
             index: 1,
-            layout_segments: vec![],
-            data: vec![],
+            layout_segments: vec![LayoutSegment { offset: 0, size: 1 }],
+            data: vec![1],
         };
 
         assert_ok!(ProverModule::submit_proof(
