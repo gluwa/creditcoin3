@@ -13,6 +13,11 @@ services:
     volumes:
       - prover_data:/var/lib/postgresql/data
     restart: always
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U prover -d attestations" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       POSTGRES_DB: attestations
       POSTGRES_USER: prover
@@ -41,8 +46,10 @@ services:
     container_name: creditcoin-prover
     image: gluwa/creditcoin3-next
     depends_on:
-      - database
-      - validator
+      database:
+        condition: service_healthy
+      validator:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: /bin/prover
