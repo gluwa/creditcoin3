@@ -88,15 +88,24 @@ impl Server {
                 anyhow::anyhow!("Chain id not found for eth chain id: {}", eth_chain_id)
             })?;
 
+        // Create a channel to synchronize prover DB updates across `sync_cache`
+        // and `build_historical_cache_for_chain`
+        let (sender, receiver) = mpsc::unbounded_channel();
+
         // Sync the cache. We start this first to avoid any window where a new attestation could be
         // missed while the historical cache is being built.
         info!("Starting cache live sync");
         let sync_attestations_cache = attestations_cache.clone();
         let sync_cc3_client = cc3_client.clone();
         tokio::spawn(async move {
-            attestation_cache::sync_cache(chain_id, &sync_attestations_cache, &sync_cc3_client)
-                .await
-                .expect("Failed to sync cache");
+            attestation_cache::sync_cache(
+                chain_id,
+                &sync_attestations_cache,
+                &sync_cc3_client,
+                receiver,
+            )
+            .await
+            .expect("Failed to sync cache");
         });
 
         // Build historical cache
@@ -105,6 +114,7 @@ impl Server {
             chain_id,
             attestations_cache.clone(),
             cc3_client.clone(),
+            sender,
         )
         .await?;
 

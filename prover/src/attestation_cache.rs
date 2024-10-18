@@ -3,7 +3,7 @@ use attestor_primitives::{AttestationCheckpoint, ChainId, Digest, SignedAttestat
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -169,6 +169,7 @@ pub async fn sync_cache(
     chain_id: ChainId,
     attestations_cache: &AttestationCacheType,
     cc3_client: &cc3::Client,
+    mut historical_sync_rx: UnboundedReceiver<()>,
 ) -> Result<()> {
     // Start subscription for new attestations and checkpoints
     let (attestation_tx, mut attestation_rx) = mpsc::unbounded_channel();
@@ -185,9 +186,26 @@ pub async fn sync_cache(
             .await
     });
 
+    // If historical attestations sync isn't yet complete, then we refrain from
+    // updating the DB table CachedUpTo. We instead save any update to apply later.
+    let mut historical_sync_complete = false;
+    let mut cached_up_to: Option<H256> = None;
+
     // Wait on the channels for new attestations and checkpoints
     loop {
         tokio::select! {
+            maybe_historical_sync_done = historical_sync_rx.recv() => {
+                if let Some(()) = maybe_historical_sync_done {
+                    // Mark new height that we are CachedUpTo
+                    if let Some(cached_up_to) = cached_up_to {
+                        attestations_cache
+                        .mark_cached_up_to(cached_up_to)
+                        .await?;
+                    }
+
+                    historical_sync_complete = true;
+                }
+            },
             maybe_attestation = attestation_rx.recv() => {
                 let Some(attestation) = maybe_attestation else { break; };
 
@@ -216,9 +234,13 @@ pub async fn sync_cache(
 
                 attestations_cache.insert_checkpoint(checkpoint.clone(), chain_id).await?;
 
-                attestations_cache
-                    .mark_cached_up_to(checkpoint.digest)
-                    .await?;
+                if historical_sync_complete {
+                    attestations_cache
+                        .mark_cached_up_to(checkpoint.digest)
+                        .await?;
+                } else {
+                    cached_up_to = Some(checkpoint.digest);
+                }
             }
         }
     }
@@ -241,6 +263,7 @@ pub async fn build_historical_cache_for_chain(
     chain: ChainId,
     attestations_cache: AttestationCacheType,
     cc3_client: CcClientArc,
+    done_building_cache: UnboundedSender<()>,
 ) -> Result<()> {
     info!("Building historical cache for chain: {}", chain);
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
@@ -279,6 +302,8 @@ pub async fn build_historical_cache_for_chain(
     }
 
     info!("Finished building historical cache for chain: {}", chain);
+
+    done_building_cache.send(())?;
 
     Ok(())
 }
