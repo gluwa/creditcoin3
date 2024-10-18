@@ -24,6 +24,26 @@ Run docker compose:
 docker compose up -d
 ```
 
+## Configuring your $PATH
+
+The source code relies on the fact that the operating system will be able to
+discover the following external components:
+
+- `cpu_air_prover`
+- `cpu_air_verifier`
+- `stone_prove_claim.sh`
+- `verify_merkle_proof.sh`
+
+In order for this to actually happen you have to adjust the `PATH` environment
+variable:
+
+```sh
+export PATH="$PATH:<repo-root>/cairo/scripts:<repo-root>/cairo/stone-prover:<repo-root>/cairo/stone-verifier"
+```
+
+Replace `<repo-root>` with the path to this repository, usually something like `~/creditcoin3-next`!
+
+
 ## Running
 
 ```sh
