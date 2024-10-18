@@ -14,18 +14,52 @@ pub trait HostApi {
         proof: Vec<u8>,
         #[allow(unused)] query: Query,
         #[allow(unused)] metadata: Vec<(u8, H256)>,
-    ) -> bool {
+    ) -> u8 {
         #[cfg(target_arch = "x86_64")]
         {
             match command::run_verifier(proof, query, metadata) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {:?}", r);
-                    true
+                    1
                 }
-                Err(e) => {
-                    log::error!("error verifying proof: {:?}", e);
-                    false
-                }
+                Err(e) => match e {
+                    command::VerifierError::ProjectRootNotFound => {
+                        log::error!("project root not found");
+                        2
+                    }
+                    command::VerifierError::TempFileWriteError(e) => {
+                        log::error!("error writing to temp file: {:?}", e);
+                        3
+                    }
+                    command::VerifierError::TempFileKeepError(e) => {
+                        log::error!("error keeping temp file: {:?}", e);
+                        4
+                    }
+                    command::VerifierError::TempFileNotFound => {
+                        log::error!("temp file not found");
+                        5
+                    }
+                    command::VerifierError::TempFileRemoveError(e) => {
+                        log::error!("io error: {:?}", e);
+                        6
+                    }
+                    command::VerifierError::ProofParseError(e) => {
+                        log::error!("error executing verifier: {:?}", e);
+                        7
+                    }
+                    command::VerifierError::StarkProgramAuthError(e) => {
+                        log::error!("error executing verifier: {:?}", e);
+                        8
+                    }
+                    command::VerifierError::VerifierExecutionError(e) => {
+                        log::error!("error running verifier: {:?}", e);
+                        9
+                    }
+                    command::VerifierError::VerifierProcessError(e) => {
+                        log::error!("io error: {:?}", e);
+                        10
+                    }
+                },
             }
         }
 

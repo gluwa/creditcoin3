@@ -84,6 +84,10 @@ pub mod pallet {
         StarkProgramMetadataNotSet,
         StarkProgramMetadataAlreadySet,
         StarkProgramMetadataNotFound,
+        FileError,
+        ProofParseError,
+        StarkProgramAuthenticationError,
+        VerifierExecutionError,
     }
 
     #[pallet::call]
@@ -107,7 +111,14 @@ pub mod pallet {
             #[cfg(not(feature = "runtime-benchmarks"))]
             let result = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
-            ensure!(result, Error::<T>::InvalidProofSubmitted);
+            match result {
+                1 => (),
+                2..=6 => return Err(Error::<T>::FileError.into()),
+                7 => return Err(Error::<T>::ProofParseError.into()),
+                8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
+                9 => return Err(Error::<T>::VerifierExecutionError.into()),
+                _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
+            }
 
             let query_id = query.id();
 

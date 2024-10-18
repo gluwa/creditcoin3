@@ -15,6 +15,40 @@ use prover_primitives::stark_program_auth::{
 };
 use prover_primitives::types::{StoneProof, StoneProofJson};
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum VerifierError {
+    #[error("Failed to find project root")]
+    ProjectRootNotFound,
+
+    #[error("Failed to write proof to temp file: {0}")]
+    TempFileWriteError(std::io::Error),
+
+    #[error("Failed to keep the temp file: {0}")]
+    TempFileKeepError(tempfile::PersistError),
+
+    #[error("Temp file not found")]
+    TempFileNotFound,
+
+    #[error("Failed to parse proof JSON: {0}")]
+    ProofParseError(serde_json::Error),
+
+    #[error("Failed to authenticate STARK program: {0}")]
+    StarkProgramAuthError(String),
+
+    #[error("Error executing verifier: {0}")]
+    VerifierExecutionError(std::io::Error),
+
+    #[error("Verifier process failed with stderr: {0}")]
+    VerifierProcessError(String),
+
+    #[error("Failed to remove temp file: {0}")]
+    TempFileRemoveError(std::io::Error),
+}
+
+const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
+
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
     temp_file.write_all(proof)?;
@@ -29,26 +63,23 @@ pub fn run_verifier(
     proof: Vec<u8>,
     _query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
-) -> Result<String, String> {
+) -> Result<String, VerifierError> {
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // Write proof to a temporary JSON file
-    let temp_file = match write_proof_to_temp_file(&proof) {
-        Ok(file) => file,
-        Err(e) => return Err(format!("Failed to write proof to temp file: {}", e)),
-    };
+    let temp_file = write_proof_to_temp_file(&proof).map_err(VerifierError::TempFileWriteError)?;
 
     // Ensure the temporary file is not deleted automatically
     let (_f, path) = temp_file
         .keep()
-        .map_err(|e| format!("Failed to keep the temp file: {}", e))?;
+        .map_err(|e| VerifierError::TempFileKeepError(e))?;
 
-    let temp_file_path = path.to_str().ok_or("Temp file not found".to_string())?;
+    let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
     let proof: StoneProofJson =
-        serde_json::from_slice(&proof).map_err(|e| format!("Failed to parse proof json: {}", e))?;
+        serde_json::from_slice(&proof).map_err(VerifierError::ProofParseError)?;
 
     let stone_proof = StoneProof::from(proof);
 
@@ -68,14 +99,12 @@ pub fn run_verifier(
     let program_metadata_storage = StarkProgramMetadataStorage { map, last_version };
 
     // Authenticate the STARK program
-    let metadata = match StarkProgramAuth::authenticate(
+    let metadata = StarkProgramAuth::authenticate(
         &stone_proof,
         &program_metadata_storage,
         blake2_256_stark_program_auth_hasher,
-    ) {
-        Ok(metadata) => metadata,
-        Err(e) => return Err(format!("Failed to authenticate STARK program: {:?}", e)),
-    };
+    )
+    .map_err(|e| VerifierError::StarkProgramAuthError(format!("{:?}", e)))?;
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
@@ -85,19 +114,16 @@ pub fn run_verifier(
         .arg(format!("--in_file={}", temp_file_path))
         .stdout(Stdio::piped())
         .output()
-        .map_err(|e| format!("Error executing verifier: {e}"))?;
+        .map_err(VerifierError::VerifierExecutionError)?;
 
-    // Remove the temporary file
-    if let Err(e) = fs::remove_file(&path) {
-        return Err(format!("Failed to remove temp file: {}", e));
-    }
+    fs::remove_file(&path).map_err(VerifierError::TempFileRemoveError)?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(stdout)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(stderr)
+        Err(VerifierError::VerifierProcessError(stderr))
     }
 }
 

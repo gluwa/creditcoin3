@@ -21,6 +21,7 @@ sp-io = { workspace = true }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true }
 tempfile = "3.10"
+thiserror = { version = "1.0.64", default-features = false, optional = true }
 
 [features]
 default = ["std"]
@@ -33,4 +34,5 @@ std = [
     "prover-primitives/std",
     "serde_json/std",
     "pallet-prover-primitives/std",
+    "thiserror",
 ]
