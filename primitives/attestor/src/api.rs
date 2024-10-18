@@ -1,6 +1,6 @@
 use parity_scale_codec::{Codec, Decode};
 
-use crate::{ChainId, Digest, SignedAttestation};
+use crate::{AttestorStatus, ChainId, Digest, SignedAttestation};
 
 use super::BlsPublicKey;
 
@@ -25,5 +25,7 @@ sp_api::decl_runtime_apis! {
         fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey>;
 
         fn chain_attestation_interval(chain_id: ChainId) -> Option<u64>;
+
+        fn attestor_status(attestor: &AccountId) -> Option<AttestorStatus>;
     }
 }

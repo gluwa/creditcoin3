@@ -169,12 +169,7 @@ impl<'a> Client {
 
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self) -> Result<bool> {
-        let storage_query =
-            cc3::storage()
-                .attestation()
-                .attestors(subxt::utils::AccountId32::from(
-                    self.signing_keypair.public_key(),
-                ));
+        let storage_query = cc3::storage().attestation().active_attestors();
 
         let result = self
             .api
@@ -182,21 +177,52 @@ impl<'a> Client {
             .at_latest()
             .await?
             .fetch(&storage_query)
-            .await?
-            .is_some();
+            .await?;
 
-        Ok(result)
+        match result {
+            Some(result) => Ok(result.contains(&AccountId32(self.signing_keypair.public_key().0))),
+            None => Ok(false),
+        }
     }
 
     /// Register to the attestation pallet
     pub async fn register_attestor(
+        &self,
+        attestor_id: AccountId32,
+        account_nonce: Option<u64>,
+    ) -> Result<()> {
+        let tx = cc3::tx().attestation().register_attestor(attestor_id);
+
+        let params = if let Some(account_nonce) = account_nonce {
+            DefaultExtrinsicParamsBuilder::new()
+                .nonce(account_nonce)
+                .build()
+        } else {
+            DefaultExtrinsicParamsBuilder::new().build()
+        };
+
+        let ext = self
+            .api
+            .tx()
+            .create_signed(&tx, &self.signing_keypair, params)
+            .await?
+            .submit_and_watch()
+            .await?;
+
+        let hash = ext.extrinsic_hash();
+        debug!("Registration extrinsic submitted with hash: {:?}", hash);
+
+        Ok(())
+    }
+
+    pub async fn start_attesting(
         &self,
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> Result<()> {
         let tx = cc3::tx()
             .attestation()
-            .register_attestor(bls_public_key, proof_of_possession);
+            .attest(bls_public_key, proof_of_possession);
 
         let ext = self
             .api
@@ -207,7 +233,7 @@ impl<'a> Client {
             .await?;
 
         let hash = ext.extrinsic_hash();
-        debug!("Registration extrinsic submitted with hash: {:?}", hash);
+        debug!("Start Attesting extrinsic submitted with hash: {:?}", hash);
 
         Ok(())
     }
@@ -442,7 +468,8 @@ impl<'a> Client {
         let ext = self
             .api
             .tx()
-            .create_signed_offline(&tx, &self.signing_keypair, params)?
+            .create_signed(&tx, &self.signing_keypair, params)
+            .await?
             .submit_and_watch()
             .await?;
 

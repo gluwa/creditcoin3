@@ -94,6 +94,8 @@ pub enum Error {
     VrfError(#[from] vrf::Error),
     #[error("Attestor not eligible")]
     AttestorNotEligible,
+    #[error("Attestor not active")]
+    AttestorNotActive,
     #[error("Other error: {0}")]
     Other(String),
 }

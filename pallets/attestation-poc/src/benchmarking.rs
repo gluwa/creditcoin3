@@ -5,28 +5,44 @@
 use super::Pallet as Attestation;
 use super::*;
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainId, ChainKey,
-    SignedAttestation,
+    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
+    ChainId, ChainKey, SignedAttestation,
 };
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
 use sp_core::H256;
+use sp_runtime::traits::Bounded;
 use sp_std::vec;
 use sp_std::vec::Vec;
 
+const SEED: u32 = 0;
+
 #[derive(Debug, Clone)]
 pub struct Attestor<T: frame_system::Config> {
-    pub id: T::AccountId,
-    pub origin: T::RuntimeOrigin,
+    pub stash_id: T::AccountId,
+    pub stash_origin: T::RuntimeOrigin,
+    pub attestor_id: T::AccountId,
+    pub attestor_origin: T::RuntimeOrigin,
     pub private_key: PrivateKey,
     pub public_key: BlsPublicKey,
     pub signature: BlsSignature,
 }
 
+/// Grab a funded user with max Balance.
+pub fn create_funded_user_with_balance<T: Config>(string: &'static str, n: u32) -> T::AccountId {
+    let balance = BalanceOf::<T>::try_from(900_000_000_000_000u128)
+        .map_err(|_| "balance expected to be a u128")
+        .unwrap();
+
+    let user = account(string, n, SEED);
+    asset::set_free_balance::<T>(&user, balance);
+    user
+}
+
 impl<T: frame_system::Config> Attestor<T> {
-    pub fn new(attestor: T::AccountId) -> Self {
+    pub fn new(stash: T::AccountId, attestor: T::AccountId) -> Self {
         let rng = H256::repeat_byte(123).0;
         let private_key = PrivateKey::new(rng);
         let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
@@ -34,12 +50,17 @@ impl<T: frame_system::Config> Attestor<T> {
             .try_into()
             .unwrap();
 
-        let id = attestor.clone();
-        let origin = T::RuntimeOrigin::signed(attestor);
+        let stash_id = stash.clone();
+        let stash_origin = T::RuntimeOrigin::signed(stash);
+
+        let attestor_id = attestor.clone();
+        let attestor_origin = T::RuntimeOrigin::signed(attestor);
 
         Self {
-            id,
-            origin,
+            stash_id,
+            stash_origin,
+            attestor_id,
+            attestor_origin,
             private_key,
             public_key,
             signature,
@@ -83,7 +104,10 @@ fn create_signed_attestation<T: frame_system::Config>(
         signature: aggregated_signature.as_bytes()[..]
             .try_into()
             .expect("Failed to convert to array"),
-        attestors: attestors.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
+        attestors: attestors
+            .iter()
+            .map(|a| a.attestor_id.clone())
+            .collect::<Vec<_>>(),
     };
 
     attestation
@@ -142,35 +166,37 @@ mod benchmarks {
     #[benchmark]
     fn register_attestor() {
         // Setup
-        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 0);
-        let att = Attestor::<T>::new(attestor_id);
-        let signed_origin = att.origin;
-        let bls_public_key: BlsPublicKey = att.public_key;
-        let proof_of_possession: BlsSignature = att.signature;
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let signed_origin = att.stash_origin;
 
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-            bls_public_key,
-            proof_of_possession,
+            attestor_id,
         )
     }
 
     #[benchmark]
     fn unregister_attestor() {
         // Setup
-        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 0);
-        let att = Attestor::<T>::new(attestor_id);
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
 
         Attestation::<T>::register_attestor(
-            att.origin.clone(),
-            att.public_key,
-            att.signature
+            att.stash_origin.clone(),
+            attestor_id.clone(),
         ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
-        let signed_origin = att.origin;
+        let signed_origin = att.stash_origin;
 
         #[extrinsic_call]
-        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            attestor_id,
+        )
     }
 
     #[benchmark]
@@ -190,15 +216,12 @@ mod benchmarks {
     fn register_invulnerable() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 0);
-        let att = Attestor::<T>::new(attestor_id.clone());
-        let bls_public_key: BlsPublicKey = att.public_key;
+        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 1);
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             attestor_id,
-            bls_public_key,
         )
     }
 
@@ -206,18 +229,17 @@ mod benchmarks {
     fn unregister_invulnerable() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 3, 0);
-        let att = Attestor::<T>::new(attestor_id);
+        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 1);
+
         assert_ok!(Attestation::<T>::register_invulnerable(
             root_origin.clone(),
-            att.id.clone(),
-            att.public_key,
+            attestor_id.clone(),
         ));
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            att.id,
+            attestor_id,
         )
     }
 
@@ -249,12 +271,20 @@ mod benchmarks {
         // Creating attestor to attest
         let mut attestors: Vec<Attestor<T>> = Vec::new();
         for j in 1..=a {
-            let attestor = Attestor::<T>::new(account("who", j, 0));
+            let stash_id = create_funded_user_with_balance::<T>("stash", j);
+            let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
+
+            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
 
             assert_ok!(Attestation::<T>::register_attestor(
-                attestor.origin.clone(),
+                attestor.stash_origin.clone(),
+                attestor_id,
+            ));
+
+            assert_ok!(Attestation::<T>::attest(
+                attestor.attestor_origin.clone(),
                 attestor.public_key,
-                attestor.signature
+                attestor.signature,
             ));
 
             attestors.push(attestor);
@@ -289,12 +319,19 @@ mod benchmarks {
         // Creating attestor to attest
         let mut attestors: Vec<Attestor<T>> = Vec::new();
         for j in 1..=a {
-            let attestor = Attestor::<T>::new(account("who", j, 0));
+            let stash_id = create_funded_user_with_balance::<T>("stash", j);
+            let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
+            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
 
             assert_ok!(Attestation::<T>::register_attestor(
-                attestor.origin.clone(),
+                attestor.stash_origin.clone(),
+                attestor_id,
+            ));
+
+            assert_ok!(Attestation::<T>::attest(
+                attestor.attestor_origin.clone(),
                 attestor.public_key,
-                attestor.signature
+                attestor.signature,
             ));
 
             attestors.push(attestor);
@@ -305,6 +342,8 @@ mod benchmarks {
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
         > = create_signed_attestation::<T>(attestors.clone(), chain_id, 1, None);
+
+        Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 
         assert_ok!(Attestation::<T>::commit_attestation(
             none_origin.clone(),
@@ -327,5 +366,165 @@ mod benchmarks {
             none_origin as <T as frame_system::Config>::RuntimeOrigin,
             attestation,
         )
+    }
+
+    #[benchmark]
+    fn set_min_bond_requirement() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let new_min_bond_requirement: BalanceOf<T> = BalanceOf::<T>::max_value();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            new_min_bond_requirement,
+        )
+    }
+
+    #[benchmark]
+    fn set_chain_reward() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id = 1;
+        let new_reward: BalanceOf<T> = BalanceOf::<T>::max_value();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_id,
+            new_reward,
+        )
+    }
+
+    #[benchmark]
+    fn attest() {
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            attestor_id,
+        ));
+
+        let signed_origin = attestor.attestor_origin;
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            attestor.public_key,
+            attestor.signature,
+        )
+    }
+
+    #[benchmark]
+    fn chill() {
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            attestor_id,
+        ));
+
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        let signed_origin = attestor.attestor_origin;
+
+        #[extrinsic_call]
+        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn set_payee() {
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            attestor_id,
+        ));
+
+        let signed_origin = attestor.stash_origin;
+
+        let new_payee: <T as frame_system::Config>::AccountId = account("who", 5, 0);
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            RewardDestination::Account(new_payee),
+        )
+    }
+
+    #[benchmark]
+    fn withdraw_unbonded() {
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            attestor_id.clone(),
+        ));
+
+        assert_ok!(Attestation::<T>::unregister_attestor(
+            attestor.stash_origin.clone(),
+            attestor_id,
+        ));
+
+        let signed_origin = attestor.stash_origin;
+
+        #[extrinsic_call]
+        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn claim_rewards() {
+        let chain_id: ChainId = 1;
+        let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
+
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            attestor_id,
+        ));
+
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        // create single attestation
+        let attestation: SignedAttestation<
+            <T as frame_system::Config>::Hash,
+            <T as frame_system::Config>::AccountId,
+        > = create_signed_attestation::<T>(vec![attestor.clone()], chain_id, 1, None);
+
+        Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
+
+        assert_ok!(Attestation::<T>::commit_attestation(
+            none_origin.clone(),
+            attestation.clone(),
+        ));
+
+        let signed_origin = attestor.stash_origin;
+
+        #[extrinsic_call]
+        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
     }
 }

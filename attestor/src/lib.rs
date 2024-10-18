@@ -5,7 +5,7 @@ use kameo::spawn;
 use sp_core::H256;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub mod attestation;
 pub mod cc3;
@@ -57,7 +57,7 @@ impl Server {
         let mut task: JoinHandle<_> = tokio::spawn(async {});
         // Check eligibility and start subscription if we are eligible
         // Otherwise, we will wait for the next randomness change event
-        if cc3_client.sign_vrf().await.is_ok() {
+        if check_elgibility(&cc3_client).await? {
             info!("Attestor eligible to start attesting!");
             task = subscribe_to_new_heads_task(
                 eth_client.clone(),
@@ -91,7 +91,7 @@ impl Server {
                         );
 
                         // Re-evaluate eligibility and start a new subscription
-                        if cc3_client.sign_vrf().await.is_ok() {
+                        if check_elgibility(&cc3_client).await? {
                             info!("Attestor eligible to start attesting!");
 
                             // reopen the channel
@@ -130,6 +130,22 @@ impl Server {
             };
         }
     }
+}
+
+/// Checks if the attestor is eligible to attest
+/// - Check if the attestor is still a member of the attestor set
+/// - Check if the attestor can be included in the current epoch with the current randomness
+async fn check_elgibility(cc3_client: &cc3::Client) -> Result<bool> {
+    // First check if we are still an attestor member
+    let is_attestor_member = cc3_client.cc_client.check_attestors_membership().await?;
+    if !is_attestor_member {
+        warn!("Attestor is not valid at current timeframe, cannot attest!");
+        return Ok(false);
+    };
+
+    let result = cc3_client.sign_vrf().await;
+
+    Ok(result.is_ok())
 }
 
 /// Subscribes to new Ethereum heads and starts the attestation process.

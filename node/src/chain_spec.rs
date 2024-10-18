@@ -6,6 +6,7 @@ use std::{
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
 // Substrate
+use attestor_primitives::AttestationChainConfiguration;
 use sc_chain_spec::{ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -155,8 +156,20 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     // Ethereum chain ID
                     SS58Prefix::get() as u64,
                     3,
-                    vec![(1, 10), (2, 10)],
-                    vec![(1, 10), (2, 10)],
+                    vec![
+                        AttestationChainConfiguration {
+                            chain_id: 1,
+                            attestation_interval: 10,
+                            attestations_per_checkpoint: 10,
+                            chain_reward: 1000,
+                        },
+                        AttestationChainConfiguration {
+                            chain_id: 2,
+                            attestation_interval: 10,
+                            attestations_per_checkpoint: 10,
+                            chain_reward: 1000,
+                        },
+                    ],
                 ),
                 enable_manual_seal,
             }
@@ -215,8 +228,20 @@ pub fn local_testnet_config() -> ChainSpec {
                 ],
                 SS58Prefix::get() as u64,
                 3,
-                vec![(1, 10), (2, 10)],
-                vec![(1, 10), (2, 10)],
+                vec![
+                    AttestationChainConfiguration {
+                        chain_id: 1,
+                        attestation_interval: 10,
+                        attestations_per_checkpoint: 10,
+                        chain_reward: 1000,
+                    },
+                    AttestationChainConfiguration {
+                        chain_id: 2,
+                        attestation_interval: 10,
+                        attestations_per_checkpoint: 10,
+                        chain_reward: 1000,
+                    },
+                ],
             )
         },
         // Bootnodes
@@ -256,8 +281,7 @@ fn testnet_genesis(
     initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
     comittee_set_size: u32,
-    attestation_chains_interval: Vec<(u64, u64)>,
-    chain_attestations_per_checkpoint: Vec<(u64, u32)>,
+    attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -388,8 +412,7 @@ fn testnet_genesis(
         attestation: AttestationConfig {
             comittee_set_size,
             invulnerables: vec![],
-            attestation_chains_interval: attestation_chains_interval.clone(),
-            attestations_per_checkpoint: chain_attestations_per_checkpoint.clone(),
+            attestation_chain_configurations,
         },
         supported_chains: SupportedChainsConfig {
             supported_chains: vec![

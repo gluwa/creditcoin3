@@ -21,7 +21,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::Blake2_128Concat;
     use frame_system::pallet_prelude::*;
-    use randomness_primitives::provider::RandomnessPalletProvider;
+    use randomness_primitives::{provider::RandomnessPalletProvider, OnRandomnessUpdate};
 
     pub const RANDOMNESS_LENGTH: usize = 32;
 
@@ -35,6 +35,8 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// A type representing the weights required by the dispatchables of this pallet.
         type WeightInfo: WeightInfo;
+        /// Something that notifies the pallet about randomness updates.
+        type EventListeners: OnRandomnessUpdate;
     }
 
     pub trait WeightInfo {
@@ -66,6 +68,9 @@ pub mod pallet {
                 let randomness = pallet_babe::Randomness::<T>::get();
 
                 RandomnessByEpochIndex::<T>::insert(epoch_index, randomness);
+
+                // Notify event listeners
+                T::EventListeners::on_new_epoch_randomness(epoch_index, randomness);
 
                 Self::deposit_event(Event::StoreRandomnessForEpoch {
                     epoch_index,

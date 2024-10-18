@@ -17,13 +17,15 @@ scale-info = { workspace = true }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
+sp-staking = { workspace = true }
 sp-std = { workspace = true }
 
 frame-benchmarking = { workspace = true, optional = true }
-pallet-balances = { workspace = true, optional = true }
+pallet-balances = { workspace = true }
 
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true, default-features = false }
+randomness-primitives = { workspace = true }
 serde = { workspace = true, default-features = false, features = ["derive"] }
 starknet-crypto = { workspace = true, default-features = false }
 supported-chains-primitives = { workspace = true }
@@ -31,8 +33,19 @@ supported-chains-primitives = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 env_logger = { workspace = true }
-pallet-balances = { workspace = true }
+frame-election-provider-support = { workspace = true }
+pallet-authorship = { workspace = true }
+pallet-babe = { workspace = true }
+pallet-offences = { workspace = true }
+pallet-randomness = { workspace = true }
+pallet-session = { workspace = true }
+pallet-staking = { workspace = true, default-features = false }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-supported-chains = { workspace = true }
+pallet-timestamp = { workspace = true }
+sp-consensus-babe = { workspace = true, default-features = false, features = [
+    "serde",
+] }
 
 [features]
 default = ["std"]
@@ -42,6 +55,7 @@ runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
+    "sp-staking/runtime-benchmarks",
 ]
 std = [
     "frame-support/std",
@@ -51,7 +65,7 @@ std = [
     "sp-std/std",
     "sp-core/std",
     "sp-io/std",
-    "pallet-balances?/std",
+    "pallet-balances/std",
     "parity-scale-codec/std",
     "scale-info/std",
     "frame-benchmarking?/std",
@@ -61,4 +75,15 @@ std = [
     "bls-signatures/std",
     "serde/std",
     "starknet-crypto/std",
+    "sp-staking/std",
+    "frame-election-provider-support/std",
+    "pallet-authorship/std",
+    "pallet-babe/std",
+    "pallet-offences/std",
+    "pallet-session/std",
+    "pallet-staking/std",
+    "pallet-timestamp/std",
+    "sp-consensus-babe/std",
+    "randomness-primitives/std",
+    "pallet-randomness/std",
 ]

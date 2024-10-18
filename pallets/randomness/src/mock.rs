@@ -10,7 +10,7 @@ use frame_support::{
     parameter_types,
     traits::{ConstU128, ConstU32, ConstU64, KeyOwnerProofSystem, OnInitialize},
 };
-
+use pallet_babe::CurrentSlot;
 use pallet_session::historical as pallet_session_historical;
 use pallet_staking::FixedNominationsQuota;
 use sp_consensus_babe::{AuthorityId, AuthorityPair};
@@ -221,6 +221,7 @@ impl pallet_babe::Config for Test {
 impl randomness_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = crate::weights::WeightInfo<Test>;
+    type EventListeners = ();
 }
 
 pub fn go_to_block(n: u64, s: u64) {
@@ -242,6 +243,9 @@ pub fn go_to_block(n: u64, s: u64) {
 
     System::reset_events();
     System::initialize(&n, &parent_hash, &pre_digest);
+
+    // Set timestamp based on slot
+    Timestamp::set_timestamp(*CurrentSlot::<Test>::get() * Babe::slot_duration());
 
     Babe::on_initialize(n);
     Session::on_initialize(n);

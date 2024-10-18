@@ -154,6 +154,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("All attestor keys funded!\n");
+    tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+
+    let mut nonce = cc_client
+        .get_account_nonce()
+        .await
+        .expect("faild to get nonce");
+
+    // Now create attestors for each funded key
+    // fund keys in batches
+    let key_chunks: Vec<Vec<AttestorKey>> = keys
+        .chunks(BATCH_SIZE)
+        .map(|chunk| chunk.to_vec())
+        .collect();
+
+    for chunk in key_chunks {
+        let chunks = chunk.clone();
+        let futures = chunks.into_iter().map(|key| {
+            let cc_client = cc_client.clone();
+            let attestor = AccountId32(key.keypair.public_key().0);
+
+            info!("Registering {}", attestor);
+            let handle = tokio::spawn(async move {
+                cc_client
+                    .register_attestor(attestor, Some(nonce))
+                    .await
+                    .expect("Failed to register attestor")
+            });
+            nonce += 1;
+
+            handle
+        });
+
+        // wait for all transfers in the current batch to complete
+        futures::future::join_all(futures).await;
+
+        // set a timeout after each batch
+        tokio::time::sleep(tokio::time::Duration::from_secs(TIMEOUT_SECONDS)).await;
+    }
+
+    info!("All attestors registered!\n");
     tokio::time::sleep(tokio::time::Duration::from_secs(TIMEOUT_SECONDS)).await;
 
     if config.run {

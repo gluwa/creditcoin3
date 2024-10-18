@@ -12,11 +12,40 @@ use starknet_types_core::felt::Felt;
 pub mod api;
 pub mod bls;
 
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+/// Attestor struct
+pub struct Attestor<AccountId> {
+    pub bls_public_key: Option<BlsPublicKey>,
+    pub status: AttestorStatus,
+    pub stash: AccountId,
+}
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
+/// Attestor status
+/// Active - Attestor is active and can participate in attestation
+/// Idle - Attestor is idle and cannot participate in attestation
+pub enum AttestorStatus {
+    Active,
+    Idle,
+}
+
+#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+/// Genesis configuration for attestation pallet
+pub struct AttestationChainConfiguration {
+    pub chain_id: ChainId,
+    pub attestation_interval: ChainAttestationIntervalType,
+    pub attestations_per_checkpoint: u32,
+    pub chain_reward: u128,
+}
+
 /// Identifier for a source chain
 pub type ChainId = u64;
 
 /// Mapping key for cc next source chains
 pub type ChainKey = u64;
+
+/// Chain attestation interval
+pub type ChainAttestationIntervalType = u64;
 
 /// Attestation digest
 pub type Digest = H256;
@@ -46,6 +75,9 @@ pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 #[derive(Encode, Decode, sp_runtime::RuntimeDebug)]
 pub enum InherentError {
     NotValid,
+    InvalidAttestorFound,
+    AttestorNotActive,
+    AttestorWithInvalidPublicKey,
     Duplicate(Digest),
 }
 
@@ -53,6 +85,9 @@ impl IsFatalError for InherentError {
     fn is_fatal_error(&self) -> bool {
         match self {
             InherentError::NotValid => true,
+            InherentError::InvalidAttestorFound => true,
+            InherentError::AttestorNotActive => true,
+            InherentError::AttestorWithInvalidPublicKey => true,
             InherentError::Duplicate(_) => true,
         }
     }

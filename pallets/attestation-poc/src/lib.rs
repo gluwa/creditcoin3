@@ -12,30 +12,71 @@ mod benchmarking;
 #[cfg(test)]
 mod tests;
 
+mod asset;
+mod impls;
+mod ledger;
+
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::ledger::AttestorLedger;
     use attestor_primitives::{
-        AttestationCheckpoint, BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainId, Digest,
-        InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
+        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainId,
+        Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
-    use frame_support::pallet_prelude::{
-        CountedStorageMap, DispatchResult, OptionQuery, ValueQuery,
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{Currency, LockableCurrency, OnUnbalanced},
+        transactional, Blake2_128Concat,
     };
-    use frame_support::{pallet_prelude::*, transactional, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use log::debug;
     use parity_scale_codec::FullCodec;
+    use sp_runtime::traits::SaturatedConversion;
+    use sp_staking::StakingInterface;
     use sp_std::collections::vec_deque::VecDeque;
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
 
-    pub type ChainAttestationIntervalType = u64;
+    /// The balance type of this pallet.
+    pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
+    pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
+        <T as frame_system::Config>::AccountId,
+    >>::PositiveImbalance;
+
+    /// A destination account for payment.
+    #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    pub enum RewardDestination<AccountId> {
+        /// Pay into the stash account.
+        Stash,
+        /// Pay into a specified account.
+        Account(AccountId),
+        /// Receive no reward.
+        None,
+    }
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
+        // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`
+        type Currency: LockableCurrency<
+            Self::AccountId,
+            Moment = BlockNumberFor<Self>,
+            Balance = Self::CurrencyBalance,
+        >;
+        /// Just the `Currency::Balance` type; we have this item to allow us to constrain it to
+        /// `From<u64>`.
+        type CurrencyBalance: sp_runtime::traits::AtLeast32BitUnsigned
+            + FullCodec
+            + Copy
+            + MaybeSerializeDeserialize
+            + core::fmt::Debug
+            + Default
+            + From<u64>
+            + TypeInfo
+            + MaxEncodedLen;
         #[pallet::constant]
         type DefaultAttestationsPerCheckpoint: Get<u32>;
         #[pallet::constant]
@@ -45,6 +86,19 @@ pub mod pallet {
         // TODO: Make this useful
         #[pallet::constant]
         type CommittmentInterval: Get<u64>;
+        #[pallet::constant]
+        type DefaultMinBondRequirement: Get<u64>;
+        #[pallet::constant]
+        type MaxUnlockingChunks: Get<u32>;
+        /// Number of eras that staked funds must remain bonded for.
+        #[pallet::constant]
+        type BondingDuration: Get<u32>;
+        /// The access to staking functionality.
+        type Staking: StakingInterface<Balance = BalanceOf<Self>, AccountId = Self::AccountId>;
+        /// Handler for the unbalanced increment when rewarding a staker.
+        /// NOTE: in most cases, the implementation of `OnUnbalanced` should modify the total
+        /// issuance.
+        type Reward: OnUnbalanced<PositiveImbalanceOf<Self>>;
 
         /// The type of the BLS aggregated signature
         type BlsSignature: FullCodec
@@ -73,16 +127,29 @@ pub mod pallet {
         fn set_comittee_set_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
+        fn set_min_bond_requirement() -> Weight;
+        fn chill() -> Weight;
+        fn attest() -> Weight;
+        fn set_payee() -> Weight;
+        fn withdraw_unbonded() -> Weight;
+        fn set_chain_reward() -> Weight;
+        fn claim_rewards() -> Weight;
     }
 
     #[pallet::storage]
     #[pallet::getter(fn attestors)]
+    // Attestor storage maps a "Stash account" to an Attestor (controller)
     pub type Attestors<T: Config> = CountedStorageMap<
         Hasher = Blake2_128Concat,
         Key = T::AccountId,
-        Value = BlsPublicKey,
+        Value = Attestor<T::AccountId>,
         QueryKind = OptionQuery,
     >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn active_attestors)]
+    // Active attestors are the ones that have been registered and are not in the chilling state
+    pub type ActiveAttestors<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn invulnerables)]
@@ -182,6 +249,47 @@ pub mod pallet {
         T::DefaultAttestationsPerCheckpoint::get()
     }
 
+    #[pallet::storage]
+    #[pallet::getter(fn min_bond_requirement)]
+    pub type MinBondRequirement<T: Config> =
+        StorageValue<_, BalanceOf<T>, ValueQuery, DefaultMinBondRequirement<T>>;
+
+    #[pallet::type_value]
+    pub fn DefaultMinBondRequirement<T: Config>() -> BalanceOf<T> {
+        T::DefaultMinBondRequirement::get().into()
+    }
+
+    /// Where the reward payment should be made. Keyed by stash.
+    ///
+    /// TWOX-NOTE: SAFE since `AccountId` is a secure hash.
+    #[pallet::storage]
+    pub type Payee<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, RewardDestination<T::AccountId>, OptionQuery>;
+
+    /// Map from all (unlocked) "controller" accounts to info regarding staking.
+    ///
+    /// Note: All the reads and mutations to this storage *MUST* be done through the methods exposed
+    /// by [`AttestorLedger`] to ensure data and lock consistency.
+    #[pallet::storage]
+    #[pallet::getter(fn ledger)]
+    pub type Ledger<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AttestorLedger<T>>;
+
+    /// Map from all supported chain ids to the chain reward.
+    ///
+    /// This is used to store the reward for each chain.
+    #[pallet::storage]
+    #[pallet::getter(fn chain_reward)]
+    pub type ChainReward<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainId, BalanceOf<T>, OptionQuery>;
+
+    /// Map from all the stash account id's to the reward that they have earned.
+    ///
+    /// This is used to store the reward for each stash account.
+    #[pallet::storage]
+    #[pallet::getter(fn accumulated_rewards)]
+    pub type AccumulatedRewards<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, OptionQuery>;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -191,8 +299,7 @@ pub mod pallet {
     pub struct GenesisConfig<T: Config> {
         pub comittee_set_size: u32,
         pub invulnerables: Vec<(T::AccountId, BlsPublicKeyWrapper)>,
-        pub attestation_chains_interval: Vec<(ChainId, ChainAttestationIntervalType)>,
-        pub attestations_per_checkpoint: Vec<(ChainId, u32)>,
+        pub attestation_chain_configurations: Vec<AttestationChainConfiguration>,
     }
 
     #[pallet::genesis_build]
@@ -204,17 +311,21 @@ pub mod pallet {
             let invulnerables = &self.invulnerables;
             for invulnerable in invulnerables.iter() {
                 Invulnerables::<T>::insert(invulnerable.0.clone(), true);
-                Attestors::<T>::insert(invulnerable.0.clone(), invulnerable.1 .0);
             }
 
-            for (chain_id, chain_attestation_interval) in
-                self.attestation_chains_interval.clone().into_iter()
-            {
-                ChainAttestationInterval::<T>::insert(chain_id, chain_attestation_interval);
-            }
-
-            for (chain_id, att_per_check) in self.attestations_per_checkpoint.clone().into_iter() {
-                AttestationCheckpointInterval::<T>::insert(chain_id, att_per_check);
+            for chain_configuration in self.attestation_chain_configurations.iter() {
+                ChainAttestationInterval::<T>::insert(
+                    chain_configuration.chain_id,
+                    chain_configuration.attestation_interval,
+                );
+                AttestationCheckpointInterval::<T>::insert(
+                    chain_configuration.chain_id,
+                    chain_configuration.attestations_per_checkpoint,
+                );
+                ChainReward::<T>::insert(
+                    chain_configuration.chain_id,
+                    BalanceOf::<T>::saturated_from(chain_configuration.chain_reward),
+                );
             }
         }
     }
@@ -224,81 +335,103 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// Emitted when an attestor is properly registered with the attestation system
         AttestorRegistered(T::AccountId),
-
         AttestorUnregistered(T::AccountId),
-
         /// Emitted when an invulnerable is properly registered with the attestation system
         InvulnerableRegistered(T::AccountId),
-
         InvulnerableUnregistered(T::AccountId),
-
         BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>, Digest),
-
         CheckpointReached(ChainId, AttestationCheckpoint),
-
         ComitteeSetSizeChanged(u32),
+        Bonded {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        Unbonded {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        Withdrawn {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        AttestorActivated(T::AccountId),
+        AttestorChilled(T::AccountId),
+        RewardPaid {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        RewardClaimed {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        AttestorsElected {
+            epoch: u64,
+            attestors: Vec<T::AccountId>,
+        },
+        MinBondRequirementUpdated(BalanceOf<T>),
+        ChainRewardUpdated(ChainId, BalanceOf<T>),
     }
 
     #[pallet::error]
     pub enum Error<T> {
         //// If we cannot add a chain
         CannotAddChain,
-
         /// The AccountId supplied has already been registered
         AlreadyAttestor,
-
         /// The attestor list is at the max size allowed by the current configuration
         AttestorListFull,
-
         /// the address supplied is not currently registered as an attestor
         AddressNotAttestor,
-
         /// The invulnerable list is full
         InvulnerableListFull,
-
         /// The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
         MaxInvulnerablesCannotBeChanged,
-
         /// The call to unregister_attestor failed because the address is invulnerable
         AddressIsInvulnerable,
-
         /// The call the urnegister_invulnerable failed because the address is not invulnerable
         AddressIsNotInvulnerable,
-
         /// The call to bootstrap_chain failed, the chain has previously been bootstrapped
         ChainAlreadyBootstrapped,
-
         /// The chain has not been bootstrapped and cannot be attested to
         ChainIsNotBootstrapped,
-
         /// The call to attest_block failed, the attestor is not eligible at this time
         NotEligible,
-
         /// The call to attest_block failed, the block's cryptographic committments were invalid
         InvalidAttestation,
-
         // If there is no digest stored yet
         NoPreviousDigest,
-
         // If there is a duplicate attestation
         AttestationExists,
-
         /// The chain is not supported
         ChainNotSupported,
-
         // Bls public key is invalid
         InvalidBlsPublicKey,
-
         // Invalid BLS signature
         InvalidBlsSignature,
-
         // Failed proof of possession check
         InvalidProofOfPossession,
-
         // Accessed non-existant storage entry, in checkpointing queue
         // or attestations. This error should not occur unless there
         // is a bug in this pallet.
         CheckpointCreationError,
+        // Invalid attestor account
+        InvalidAttestorAccount,
+        // Insufficient balance to bond
+        InsufficientBalance,
+        // Not a stash account
+        NotStash,
+        // No more unlock chunks
+        NoMoreChunks,
+        // Not your attestor
+        NotYourAttestor,
+        // Chain reward not found
+        ChainRewardNotFound,
+        // No rewards to claim
+        NoRewards,
+        // Already bonded
+        AlreadyBonded,
+        // Attestor is not in idle state
+        AttestorNotIdle,
     }
 
     #[pallet::call]
@@ -340,42 +473,22 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::register_attestor())]
         pub fn register_attestor(
             origin: OriginFor<T>,
-            bls_public_key: BlsPublicKey,
-            proof_of_possession: BlsSignature,
+            attestor_id: T::AccountId,
         ) -> DispatchResult {
-            let who = ensure_signed(origin.clone())?;
+            let who = ensure_signed(origin)?;
 
-            ensure!(
-                Self::address_is_not_attestor(&who),
-                Error::<T>::AlreadyAttestor
-            );
-
-            let public_key = PublicKey::from_bytes(&bls_public_key[..])
-                .map_err(|_| Error::<T>::InvalidBlsPublicKey)?;
-
-            let signature = Signature::from_bytes(&proof_of_possession[..])
-                .map_err(|_| Error::<T>::InvalidBlsSignature)?;
-
-            ensure!(
-                bls_signatures::verify(
-                    &signature,
-                    &[bls_signatures::hash(bls_public_key[..].into())],
-                    &[public_key]
-                ),
-                Error::<T>::InvalidProofOfPossession
-            );
-
-            Self::try_insert_attestor_and_emit_event(&who, bls_public_key)
+            Self::try_insert_attestor_and_emit_event(who, attestor_id)
         }
 
         #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
-        pub fn unregister_attestor(origin: OriginFor<T>) -> DispatchResult {
+        pub fn unregister_attestor(
+            origin: OriginFor<T>,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            ensure!(Self::is_attestor(&who), Error::<T>::AddressNotAttestor);
-
-            Self::remove_attestor_and_emit_event(&who);
+            Self::remove_attestor_and_emit_event(who, attestor_id)?;
 
             Ok(())
         }
@@ -394,11 +507,10 @@ pub mod pallet {
         pub fn register_invulnerable(
             origin: OriginFor<T>,
             attestor: T::AccountId,
-            bls_public_key: BlsPublicKey,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            Self::try_insert_invulnerable_and_emit_event(&attestor, bls_public_key)
+            Self::try_insert_invulnerable_and_emit_event(&attestor)
         }
 
         #[pallet::call_index(6)]
@@ -414,7 +526,7 @@ pub mod pallet {
                 Error::<T>::AddressIsNotInvulnerable
             );
 
-            Self::remove_invulnerable_and_emit_event(&attestor)
+            Self::remove_invulnerable_and_emit_event(attestor)
         }
 
         #[pallet::call_index(7)]
@@ -557,6 +669,10 @@ pub mod pallet {
             // Update last digest
             LastDigest::<T>::set(chain_id, Some(digest));
 
+            // Pay out attestation rewards
+            Self::payout_attestors(chain_id, &attestation.attestors)?;
+
+            // Emit event
             Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation, digest));
 
             match previous_digest {
@@ -609,6 +725,105 @@ pub mod pallet {
             );
 
             AttestationCheckpointInterval::<T>::set(chain_id, attestations_per_checkpoint);
+            Ok(())
+        }
+
+        #[pallet::call_index(11)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_min_bond_requirement())]
+        pub fn set_min_bond_requirement(
+            origin: OriginFor<T>,
+            min_bond_requirement: BalanceOf<T>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            MinBondRequirement::<T>::set(min_bond_requirement);
+
+            Self::deposit_event(Event::<T>::MinBondRequirementUpdated(min_bond_requirement));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(12)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_chain_reward())]
+        pub fn set_chain_reward(
+            origin: OriginFor<T>,
+            chain_id: ChainId,
+            reward: BalanceOf<T>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_id),
+                Error::<T>::ChainNotSupported
+            );
+
+            ChainReward::<T>::insert(chain_id, reward);
+
+            Self::deposit_event(Event::<T>::ChainRewardUpdated(chain_id, reward));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(13)]
+        #[pallet::weight(<T as Config>::WeightInfo::attest())]
+        pub fn attest(
+            origin: OriginFor<T>,
+            bls_public_key: BlsPublicKey,
+            proof_of_possession: BlsSignature,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::start_attesting(who, bls_public_key, proof_of_possession)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(14)]
+        #[pallet::weight(<T as Config>::WeightInfo::chill())]
+        pub fn chill(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            let mut attestor = Attestors::<T>::get(&who).ok_or(Error::<T>::AddressNotAttestor)?;
+
+            attestor.status = AttestorStatus::Idle;
+            Attestors::<T>::insert(&who, attestor);
+
+            Self::deposit_event(Event::<T>::AttestorChilled(who));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(15)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_payee())]
+        pub fn set_payee(
+            origin: OriginFor<T>,
+            payee: RewardDestination<T::AccountId>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            let ledger = Self::ledger(&who).ok_or(Error::<T>::NotStash)?;
+            ledger.set_payee(payee)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(16)]
+        #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded())]
+        pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::do_withdraw_unbonded(&who)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(17)]
+        #[pallet::weight(<T as Config>::WeightInfo::claim_rewards())]
+        pub fn claim_rewards(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::do_claim_rewards(who)?;
+
             Ok(())
         }
     }
@@ -684,15 +899,24 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
         pub fn working_set_size() -> u32 {
-            Attestors::<T>::count()
+            ActiveAttestors::<T>::get().len() as u32
         }
 
         pub fn is_attestor(address: &T::AccountId) -> bool {
-            Attestors::<T>::contains_key(address)
+            let active_attestor = ActiveAttestors::<T>::get();
+            active_attestor.contains(address)
         }
 
-        fn address_is_not_attestor(address: &T::AccountId) -> bool {
+        pub fn attestor_status(address: &T::AccountId) -> Option<AttestorStatus> {
+            Attestors::<T>::get(address).map(|attestor| attestor.status)
+        }
+
+        pub fn address_is_not_attestor(address: &T::AccountId) -> bool {
             !Self::is_attestor(address)
+        }
+
+        pub fn attestor_is_registered(address: &T::AccountId) -> bool {
+            Attestors::<T>::contains_key(address)
         }
 
         pub fn last_digest(chain_id: ChainId) -> Option<Digest> {
@@ -704,10 +928,14 @@ pub mod pallet {
         }
 
         pub fn attestor_bls_pubkey(address: &T::AccountId) -> Option<BlsPublicKey> {
-            Attestors::<T>::get(address)
+            let pk = Attestors::<T>::get(address).map(|attestor| attestor.bls_public_key);
+            match pk {
+                Some(pk) => pk,
+                None => None,
+            }
         }
 
-        fn attestor_list_has_space() -> bool {
+        pub fn attestor_list_has_space() -> bool {
             Attestors::<T>::count() < MaxAttestors::<T>::get()
         }
 
@@ -718,30 +946,12 @@ pub mod pallet {
             Attestations::<T>::get(chain_id, digest)
         }
 
-        fn try_insert_attestor_and_emit_event(
-            address: &T::AccountId,
-            bls_public_key: BlsPublicKey,
-        ) -> DispatchResult {
-            ensure!(
-                Self::attestor_list_has_space(),
-                Error::<T>::AttestorListFull
-            );
-            Attestors::<T>::insert(address, bls_public_key);
-            Self::deposit_event(Event::<T>::AttestorRegistered(address.clone()));
-            Ok(())
-        }
-
         fn vulnerable_list_has_space() -> bool {
             Invulnerables::<T>::count() < MaxInvulnerables::<T>::get()
         }
 
         /// Insert address as attestor & invulnerable
-        fn try_insert_invulnerable_and_emit_event(
-            address: &T::AccountId,
-            bls_public_key: BlsPublicKey,
-        ) -> DispatchResult {
-            Self::try_insert_attestor_and_emit_event(address, bls_public_key)?;
-
+        fn try_insert_invulnerable_and_emit_event(address: &T::AccountId) -> DispatchResult {
             ensure!(
                 Self::vulnerable_list_has_space(),
                 Error::<T>::InvulnerableListFull
@@ -756,17 +966,10 @@ pub mod pallet {
             Invulnerables::<T>::contains_key(address)
         }
 
-        fn remove_attestor_and_emit_event(address: &T::AccountId) {
-            Attestors::<T>::remove(address.clone());
-            Self::deposit_event(Event::<T>::AttestorUnregistered(address.clone()));
-        }
-
         // Remove address as invulnerable and attestor
-        fn remove_invulnerable_and_emit_event(address: &T::AccountId) -> DispatchResult {
-            Self::remove_attestor_and_emit_event(address);
-
+        fn remove_invulnerable_and_emit_event(address: T::AccountId) -> DispatchResult {
             // Remove from invulnerables
-            Invulnerables::<T>::remove(address);
+            Invulnerables::<T>::remove(&address);
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(address.clone()));
 
             Ok(())
@@ -884,17 +1087,28 @@ pub mod pallet {
             attestors
                 .iter()
                 .map(|attestor| {
-                    Attestors::<T>::get(attestor)
-                        .ok_or_else(|| {
+                    let active_attestors = ActiveAttestors::<T>::get();
+                    let contains = active_attestors.contains(attestor);
+
+                    if contains {
+                        let attestor = Attestors::<T>::get(attestor).ok_or_else(|| {
                             log::error!("Attestor {:?} not found", attestor);
-                            InherentError::NotValid
-                        })
-                        .and_then(|key_bytes| {
-                            PublicKey::from_bytes(&key_bytes[..]).map_err(|_| {
+                            InherentError::InvalidAttestorFound
+                        })?;
+                        match attestor.bls_public_key {
+                            Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
                                 log::error!("Invalid BLS key for attestor {:?}", attestor);
-                                InherentError::NotValid
-                            })
-                        })
+                                InherentError::AttestorWithInvalidPublicKey
+                            }),
+                            None => {
+                                log::error!("No BLS key for attestor {:?}", attestor);
+                                Err(InherentError::AttestorWithInvalidPublicKey)
+                            }
+                        }
+                    } else {
+                        log::error!("Attestor {:?} is not active", attestor);
+                        Err(InherentError::AttestorNotActive)
+                    }
                 })
                 .collect()
         }

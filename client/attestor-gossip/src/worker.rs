@@ -15,7 +15,7 @@ use std::sync::Arc;
 use attestor_primitives::{
     api::AttestorApi,
     bls::{Bls, CryptoScheme, WrapEncode},
-    AttestorId, ChainId, SignedAttestation,
+    AttestorId, AttestorStatus, ChainId, SignedAttestation,
 };
 
 use bls_signatures::{aggregate, Serialize};
@@ -299,6 +299,17 @@ where
             return Err(Error::NotAnAttestor);
         }
 
+        let attestor_status = runtime
+            .attestor_status(
+                blockchain_info.finalized_hash,
+                &attestation.attestor.clone(),
+            )?
+            .ok_or(Error::NotAnAttestor)?;
+
+        if attestor_status != AttestorStatus::Active {
+            return Err(Error::AttestorNotActive);
+        }
+
         let last_digest = runtime.last_digest(
             blockchain_info.finalized_hash,
             attestation.attestation_data.chain_id,
@@ -487,6 +498,20 @@ where
         let attestations = block_attestations
             .into_iter()
             .filter(|(_, attestation)| attestation.digest() == major_digest.into())
+            .collect::<Vec<_>>();
+
+        // TODO: check the list of attestations again and filter out any attestors that are not active or anymore. Based on that list, check if the threshold is reached.
+        // If not, return an error and don't submit the attestation
+        let attestations = attestations
+            .into_iter()
+            .filter(|(attestor_id, _)| {
+                let status = runtime.attestor_status(block_hash, attestor_id);
+
+                match status {
+                    Ok(status) => status == Some(AttestorStatus::Active),
+                    Err(_) => false,
+                }
+            })
             .collect::<Vec<_>>();
 
         info!(

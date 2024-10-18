@@ -52,7 +52,9 @@ use pallet_grandpa::{
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
-use attestor_primitives::{BlsPublicKey, ChainId, ChainKey, Digest, SignedAttestation};
+use attestor_primitives::{
+    AttestorStatus, BlsPublicKey, ChainId, ChainKey, Digest, SignedAttestation,
+};
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{
@@ -841,6 +843,7 @@ parameter_types! {
     pub const DefaultAttestationInterval: u64 = 10;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
+    pub const MinBondRequirement: u64 = 100;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
@@ -853,6 +856,13 @@ impl pallet_attestation_poc::Config for Runtime {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
+    type Currency = Balances;
+    type CurrencyBalance = Balance;
+    type DefaultMinBondRequirement = MinBondRequirement;
+    type MaxUnlockingChunks = ConstU32<5>;
+    type BondingDuration = ConstU32<2>;
+    type Staking = Staking;
+    type Reward = ();
 }
 
 impl pallet_supported_chains::Config for Runtime {
@@ -863,6 +873,7 @@ impl pallet_supported_chains::Config for Runtime {
 impl pallet_randomness::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_randomness::weights::WeightInfo<Runtime>;
+    type EventListeners = Attestation;
 }
 
 impl pallet_prover::Config for Runtime {
@@ -1398,6 +1409,10 @@ impl_runtime_apis! {
 
         fn chain_attestation_interval(chain_id: ChainId) -> Option<u64> {
             Some(Attestation::chain_attestation_interval(chain_id))
+        }
+
+        fn attestor_status(attestor: &AccountId) -> Option<AttestorStatus> {
+            Attestation::attestor_status(attestor)
         }
     }
 

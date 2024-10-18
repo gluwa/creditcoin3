@@ -422,7 +422,7 @@ impl Client {
     }
 
     pub async fn get_block(&self, number: u64) -> Result<OrderedBlock, Error> {
-        tracing::info!(
+        info!(
             "Getting block {:?}",
             BlockId::Number(BlockNumberOrTag::Number(number))
         );

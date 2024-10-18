@@ -24,6 +24,9 @@ fn first_two_epoch_empty_randomness() {
 #[test]
 fn can_predict_next_epoch_change() {
     new_test_ext(1).execute_with(|| {
+        System::set_block_number(1);
+        Timestamp::set_timestamp(1);
+
         let last_seen_epoch_index = crate::LastSeenEpochIndex::<Test>::get();
         assert_eq!(last_seen_epoch_index, 0);
 

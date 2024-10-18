@@ -50,6 +50,7 @@ futures = "0.3.30"
 futures-util = { version = "0.3", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 hex-literal = "0.4.1"
+impl-trait-for-tuples = { version = "0.2.2" }
 jsonrpsee = "0.16.3"
 libsecp256k1 = { version = "0.7.1", default-features = false }
 log = { version = "0.4.22", default-features = false }
@@ -165,6 +166,7 @@ pallet-offences = { version = "4.0.0-dev", git = "https://github.com/gluwa/polka
 pallet-proxy = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-session = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-staking = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+pallet-staking-reward-curve = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-sudo = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-timestamp = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
 pallet-transaction-payment = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }

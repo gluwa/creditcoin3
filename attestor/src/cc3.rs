@@ -126,8 +126,20 @@ impl<'a> Client {
         let is_attestor_member = self.cc_client.check_attestors_membership().await?;
 
         if !is_attestor_member {
-            debug!("Registration in progress... Please wait...");
-            self.register().await?;
+            debug!("Signaling to start attesting... Please wait...");
+            match self.start_attesting().await {
+                Ok(()) => {
+                    info!("Registration successful!");
+                }
+                Err(e) => {
+                    if e.to_string().contains("Attestation::AddressNotAttestor") {
+                        return Err(anyhow::anyhow!(
+                            "The address is not an attestor. Please make sure the stash registers the attestor on chain first."
+                        ));
+                    }
+                    error!("Failed to register: {:?}", e);
+                }
+            }
         }
 
         info!("Attestator ready to start!");
@@ -136,9 +148,10 @@ impl<'a> Client {
     }
 
     /// Register to the attestation pallet
-    pub async fn register(&self) -> Result<()> {
+    pub async fn start_attesting(&self) -> Result<()> {
+        info!("Signaling intention to start attesting...");
         self.cc_client
-            .register_attestor(self.get_bls_pubkey()?, self.proof_of_possession()?)
+            .start_attesting(self.get_bls_pubkey()?, self.proof_of_possession()?)
             .await
     }
 
@@ -223,12 +236,6 @@ impl<'a> Client {
             warn!(
                 "Skipping Attestation because it's not in the configured interval for this chain"
             );
-            return Ok(());
-        };
-
-        let is_attestor_member = self.cc_client.check_attestors_membership().await?;
-        if !is_attestor_member {
-            warn!("Attestor is not valid at current timeframe, skipping...");
             return Ok(());
         };
 
