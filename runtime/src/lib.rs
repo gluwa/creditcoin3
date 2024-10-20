@@ -12,6 +12,8 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
 
+mod weights_cc2;
+
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
@@ -177,9 +179,9 @@ pub fn native_version() -> sp_version::NativeVersion {
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 /// We allow for 2000ms of compute with a 6 second average block time.
-pub const WEIGHT_MILLISECS_PER_BLOCK: u64 = 2000;
+pub const WEIGHT_MILLISECS_PER_BLOCK: u64 = 5000;
 pub const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
-    WEIGHT_MILLISECS_PER_BLOCK * WEIGHT_REF_TIME_PER_MILLIS,
+    5000 * WEIGHT_REF_TIME_PER_MILLIS,
     u64::MAX,
 );
 pub const MAXIMUM_BLOCK_LENGTH: u32 = 5 * 1024 * 1024;
@@ -300,7 +302,7 @@ impl pallet_timestamp::Config for Runtime {
     type Moment = u64;
     type OnTimestampSet = ConsensusOnTimestampSet<Self>;
     type MinimumPeriod = MinimumPeriod;
-    type WeightInfo = ();
+    type WeightInfo = pallet_timestamp::weights::SubstrateWeight<Self>;
 }
 
 parameter_types! {
@@ -350,10 +352,26 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
         })
     }
 }
-
+use pallet_transaction_payment::TargetedFeeAdjustment;
+use sp_runtime::FixedPointNumber;
+use sp_runtime::Perquintill;
+use sp_runtime::traits::Bounded;
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
+    pub const TargetBlockFullness: Perquintill = Perquintill::from_percent(25);
+    pub AdjustmentVariable: Multiplier = Multiplier::saturating_from_rational(3, 100_000);
+    pub MinimumMultiplier: Multiplier = Multiplier::saturating_from_rational(1, 1_000_000u128);
+	/// The maximum amount of the multiplier.
+	pub MaximumMultiplier: Multiplier = Multiplier::max_value();
 }
+
+pub type SlowAdjustingFeeUpdate<R> = TargetedFeeAdjustment<
+	R,
+	TargetBlockFullness,
+	AdjustmentVariable,
+	MinimumMultiplier,
+	MaximumMultiplier,
+>;
 
 impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
@@ -361,7 +379,8 @@ impl pallet_transaction_payment::Config for Runtime {
     type OperationalFeeMultiplier = ConstU8<1u8>;
     type WeightToFee = WeightToCtcFee<Runtime>;
     type LengthToFee = ConstantMultiplier<u128, ConstU128<1_500_000_000u128>>;
-    type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
+    // type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
+    type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -502,7 +521,7 @@ impl pallet_session::Config for Runtime {
     type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
     type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
     type Keys = opaque::SessionKeys;
-    type WeightInfo = ();
+    type WeightInfo = pallet_session::weights::SubstrateWeight<Self>;
 }
 
 parameter_types! {
@@ -575,7 +594,7 @@ impl pallet_staking::Config for Runtime {
     type MaxUnlockingChunks = frame_support::traits::ConstU32<32>;
     type HistoryDepth = frame_support::traits::ConstU32<84>;
     type BenchmarkingConfig = StakingBenchmarkingConfig;
-    type WeightInfo = ();
+    type WeightInfo = weights_cc2::SubstrateWeight<Self>;
 
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
     type EventListeners = (); // TODO: should be pools when nomination pools are added
