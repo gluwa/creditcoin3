@@ -47,8 +47,6 @@ pub enum VerifierError {
     TempFileRemoveError(std::io::Error),
 }
 
-const VERIFIER_COMMAND: &str = "cairo/stone-verifier/cpu_air_verifier";
-
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
     temp_file.write_all(proof)?;
@@ -70,9 +68,7 @@ pub fn run_verifier(
     let temp_file = write_proof_to_temp_file(&proof).map_err(VerifierError::TempFileWriteError)?;
 
     // Ensure the temporary file is not deleted automatically
-    let (_f, path) = temp_file
-        .keep()
-        .map_err(|e| VerifierError::TempFileKeepError(e))?;
+    let (_f, path) = temp_file.keep().map_err(VerifierError::TempFileKeepError)?;
 
     let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
 
