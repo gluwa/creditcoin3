@@ -14,17 +14,20 @@ This program builds an attestation chain from source chain blocks being listened
 
 ## Goals of the Program
 
-Taking into account the above considerations, we want to continuously build an attestation chain in order and offer certain resiliency to (reasonably short) network failures on the client side. How short manageable network failures are may depend on the buffering capabilities of the WSS provider, the latency lag between the attestation and source chains we consider acceptable (until we optimize the attestation chain creation rate), and maybe other factors.
+Taking into account the above considerations, we want to continuously build an attestation chain in order and offer certain resiliency to (reasonably short) network failures on the client side.
+How short manageable network failures are may depend on the buffering capabilities of the WSS provider, the latency lag between the attestation and source chains we consider acceptable (until we optimize the attestation chain creation rate), and maybe other factors.
 
 ## Program Structure
 
 ### Source Chain Block Listener
 
-This task listens to the subscribed channel for the announced blocks. As described above, it's necessary to store these blocks until they're eventually available on the source chain. So the first stage of the block lifecycle is the purgatory queue (see below), where they stay until expulsed. The second branch of this task awakes at regular timeouts and checks for "blocks" in the purgatory queue that can be expulsed and further consumed.
+This task listens to the subscribed channel for the announced blocks. As described above, it's necessary to store these blocks until they're eventually available on the source chain. So the first stage of the block lifecycle is the purgatory queue (see below), where they stay until expulsed.
+The second branch of this task awakes at regular timeouts and checks for "blocks" in the purgatory queue that can be expulsed and further consumed.
 
 ### Purgatory Queue
 
-Contains block numbers and timestamps of the announced blocks. All the "blocks" that stayed in the purgatory for more time than the purgatory period (source chain block time was tried so far) are considered to be ready on the source chain and safe for polling. These "blocks" are sent to the attestation block creation task. The number of these "blocks" may be conditioned by the backpressure parameter and current congestion conditions (see below).
+Contains block numbers and timestamps of the announced blocks. All the "blocks" that stayed in the purgatory for more time than the purgatory period (source chain block time was tried so far) are considered to be ready on the source chain and safe for polling. These "blocks" are sent to the attestation block creation task.
+The number of these "blocks" may be conditioned by the backpressure parameter and current congestion conditions (see below).
 
 ### Attestation Block Creation Task
 

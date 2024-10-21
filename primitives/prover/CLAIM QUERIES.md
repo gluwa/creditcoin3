@@ -87,7 +87,7 @@ In case when the Merkle tree is full and no "null leaf" is available, the last l
 
 Prover relies on the fact a honest claimer submit query offset range field elements in ascending order, so when the data field elements are output in the same order, the claimer can parse them using it's own copy of query offset ranges.
 
-To be able to define partial ordering on ranges `[r0, r1, ... rn] `, their mutual intersection sets must be empty, so a prior compaction (merging) procedure is necessary.
+To be able to define partial ordering on ranges `[r0, r1, ... rn]`, their mutual intersection sets must be empty, so a prior compaction (merging) procedure is necessary.
 
 The claimer runs the compaction and ordering routine before making a claim.
 

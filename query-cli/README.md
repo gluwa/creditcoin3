@@ -34,7 +34,8 @@ For all available options, run:
 
 ## Default example
 
-There is a flag that will enable you to submit a "default" query, it's a query made on sepolia about this transaction: https://sepolia.etherscan.io/tx/0xa519add3d602460c2b30c7ff4b1215fd705f049bb87260c2a2fc8fe2c3ccce9a.
+There is a flag that will enable you to submit a "default" query, it's a query made on sepolia about this transaction:
+<https://sepolia.etherscan.io/tx/0xa519add3d602460c2b30c7ff4b1215fd705f049bb87260c2a2fc8fe2c3ccce9a>.
 
 If you pass the default flag you wont get the prompt and you can test the query submission faster.
 
