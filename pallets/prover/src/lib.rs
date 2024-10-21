@@ -104,13 +104,10 @@ pub mod pallet {
 
             ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
-            #[cfg(feature = "runtime-benchmarks")]
-            let result =
-                proof_verifier::host_benchmark_api::verify_proof(proof, query.clone(), metadata);
-
             #[cfg(not(feature = "runtime-benchmarks"))]
             let result = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
+            #[cfg(not(feature = "runtime-benchmarks"))]
             match result {
                 1 => (),
                 2..=6 => return Err(Error::<T>::FileError.into()),
@@ -119,6 +116,13 @@ pub mod pallet {
                 9 => return Err(Error::<T>::VerifierExecutionError.into()),
                 _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
             }
+
+            #[cfg(feature = "runtime-benchmarks")]
+            let result =
+                proof_verifier::host_benchmark_api::verify_proof(proof, query.clone(), metadata);
+
+            #[cfg(feature = "runtime-benchmarks")]
+            ensure!(result, Error::<T>::InvalidProofSubmitted);
 
             let query_id = query.id();
 
