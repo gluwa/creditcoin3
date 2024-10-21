@@ -3,6 +3,8 @@ import { AttestorPrimitivesSignedAttestation } from '@polkadot/types/lookup';
 import { newApi, ApiPromise } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 
+const DEV_CHAIN = 2;
+
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
     const maxBlocks = 200; // ~ 16:40 mins
@@ -11,7 +13,8 @@ describe('BlockAttested events', (): void => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
 
         // check that we have enough attestors
-        const numAttestors = (await api.query.attestation.counterForAttestors()).toNumber();
+        const numAttestors = (await api.query.attestation.activeAttestors(DEV_CHAIN)).encodedLength;
+
         expect(numAttestors).toBeGreaterThanOrEqual(5);
     });
 

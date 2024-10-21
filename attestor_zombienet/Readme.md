@@ -40,3 +40,19 @@ To increase this number you can use the polkadotjs UI and connect to one of the 
 ## Increase max attestors
 
 By default the max number of attestors is set to 100. This is the maximum number of attestors that can be registered at the same time. To increase this number you can use the polkadotjs UI and connect to one of the nodes. Navigate to extrinsics, select attestor pallet and select the `setMaxAttestors` extrinsic. You can set the maximum number of attestors here.
+
+## Running against some other ethereum network than the default (localhost:8545)
+
+Create following config file. The chain must be a supported chain on ccnext
+
+```toml
+default_command: "../target/release/attestor"
+# Set run to true if you wanna start the attestor automatically
+run: true
+default_args:
+  # - "-v"
+  - "--eth-rpc-url=http://localhost:8546"
+num_attestors: 5
+single_node: true
+chain_id: 4
+```

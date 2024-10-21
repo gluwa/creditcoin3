@@ -155,19 +155,34 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     vec![authority_keys_from_seed("Alice")],
                     // Ethereum chain ID
                     SS58Prefix::get() as u64,
-                    3,
                     vec![
                         AttestationChainConfiguration {
                             chain_id: 1,
                             attestation_interval: 10,
                             attestations_per_checkpoint: 10,
                             chain_reward: 1000,
+                            comittee_set_size: 3,
                         },
                         AttestationChainConfiguration {
                             chain_id: 2,
                             attestation_interval: 10,
                             attestations_per_checkpoint: 10,
                             chain_reward: 1000,
+                            comittee_set_size: 3,
+                        },
+                        AttestationChainConfiguration {
+                            chain_id: 3,
+                            attestation_interval: 10,
+                            attestations_per_checkpoint: 10,
+                            chain_reward: 1000,
+                            comittee_set_size: 3,
+                        },
+                        AttestationChainConfiguration {
+                            chain_id: 4,
+                            attestation_interval: 10,
+                            attestations_per_checkpoint: 10,
+                            chain_reward: 1000,
+                            comittee_set_size: 3,
                         },
                     ],
                 ),
@@ -227,19 +242,34 @@ pub fn local_testnet_config() -> ChainSpec {
                     authority_keys_from_seed("Bob"),
                 ],
                 SS58Prefix::get() as u64,
-                3,
                 vec![
                     AttestationChainConfiguration {
                         chain_id: 1,
                         attestation_interval: 10,
                         attestations_per_checkpoint: 10,
                         chain_reward: 1000,
+                        comittee_set_size: 3,
                     },
                     AttestationChainConfiguration {
                         chain_id: 2,
                         attestation_interval: 10,
                         attestations_per_checkpoint: 10,
                         chain_reward: 1000,
+                        comittee_set_size: 3,
+                    },
+                    AttestationChainConfiguration {
+                        chain_id: 3,
+                        attestation_interval: 10,
+                        attestations_per_checkpoint: 10,
+                        chain_reward: 1000,
+                        comittee_set_size: 3,
+                    },
+                    AttestationChainConfiguration {
+                        chain_id: 4,
+                        attestation_interval: 10,
+                        attestations_per_checkpoint: 10,
+                        chain_reward: 1000,
+                        comittee_set_size: 3,
                     },
                 ],
             )
@@ -280,7 +310,6 @@ fn testnet_genesis(
     endowed_evm_accounts: Vec<[u8; 20]>,
     initial_authorities: Vec<AuthorityKeys>,
     chain_id: u64,
-    comittee_set_size: u32,
     attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
@@ -410,15 +439,21 @@ fn testnet_genesis(
         base_fee: Default::default(),
         nomination_pools: Default::default(),
         attestation: AttestationConfig {
-            comittee_set_size,
             invulnerables: vec![],
             attestation_chain_configurations,
         },
         supported_chains: SupportedChainsConfig {
             supported_chains: vec![
+                // The chain keys resulting from these entries are in numerical order
+                // NOTE: DO NOT CHANGE THE ORDER OF CHAINS UNLESS YOU KNOW WHAT YOU ARE DOING
+                // 1. Ethereum
                 (1, "Ethereum".as_bytes().to_vec()),
-                (31337, "Local anvil".as_bytes().to_vec()),
+                // 2 Anvil network one
+                (31337, "Anvil1".as_bytes().to_vec()),
+                // 3. Sepolia ethereum
                 (11155111, "Sepolia ethereum".as_bytes().to_vec()),
+                // 4. Anvil network two
+                (31338, "Anvil2".as_bytes().to_vec()),
             ],
             _phantom: Default::default(),
         },

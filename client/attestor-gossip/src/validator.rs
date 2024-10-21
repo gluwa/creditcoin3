@@ -109,7 +109,11 @@ where
         let blockchain_info = self.backend.blockchain().info();
         let runtime = self.runtime.runtime_api();
         let bls_pubkey = runtime
-            .attestor_bls_pubkey(blockchain_info.best_hash, &attestation.attestor)?
+            .attestor_bls_pubkey(
+                blockchain_info.best_hash,
+                attestation.attestation_data.chain_id,
+                &attestation.attestor,
+            )?
             .ok_or(Error::NotAnAttestor)?;
 
         let bls_pubkey = PublicKey::from_bytes(&bls_pubkey[..]).map_err(|e| {

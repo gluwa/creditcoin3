@@ -58,6 +58,7 @@ struct Process {
     default_args: Option<Vec<String>>,
     num_attestors: u64,
     single_node: bool,
+    chain_id: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -174,10 +175,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cc_client = cc_client.clone();
             let attestor = AccountId32(key.keypair.public_key().0);
 
-            info!("Registering {}", attestor);
+            info!(
+                "Registering attestor with address({}) for chain: {}",
+                attestor, config.chain_id
+            );
             let handle = tokio::spawn(async move {
                 cc_client
-                    .register_attestor(attestor, Some(nonce))
+                    .register_attestor(config.chain_id, attestor, Some(nonce))
                     .await
                     .expect("Failed to register attestor")
             });

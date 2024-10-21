@@ -5,8 +5,11 @@ use sp_core::{
     Pair, H256, U256,
 };
 use std::str::FromStr;
-use subxt::backend::rpc::{RpcClient, RpcParams};
 pub use subxt::utils::AccountId32;
+use subxt::{
+    backend::rpc::{RpcClient, RpcParams},
+    ext::futures::StreamExt,
+};
 use subxt::{config::DefaultExtrinsicParamsBuilder, OnlineClient, SubstrateConfig};
 use subxt_signer::{
     sr25519::{Keypair, Signature},
@@ -138,8 +141,8 @@ impl<'a> Client {
         Ok((randomness, two_epoch_ago))
     }
 
-    pub async fn _fetch_comittee_size(&self) -> Result<u32> {
-        let storage_query = cc3::storage().attestation().comittee_set_size();
+    pub async fn fetch_comittee_size(&self, chain_id: u64) -> Result<u32> {
+        let storage_query = cc3::storage().attestation().comittee_set_size(chain_id);
 
         let result = self
             .api
@@ -168,8 +171,8 @@ impl<'a> Client {
     }
 
     /// Check the clients membership in the attestor pallet
-    pub async fn check_attestors_membership(&self) -> Result<bool> {
-        let storage_query = cc3::storage().attestation().active_attestors();
+    pub async fn check_attestors_membership(&self, chain_id: u64) -> Result<bool> {
+        let storage_query = cc3::storage().attestation().active_attestors(chain_id);
 
         let result = self
             .api
@@ -188,10 +191,13 @@ impl<'a> Client {
     /// Register to the attestation pallet
     pub async fn register_attestor(
         &self,
+        chain_id: u64,
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
     ) -> Result<()> {
-        let tx = cc3::tx().attestation().register_attestor(attestor_id);
+        let tx = cc3::tx()
+            .attestation()
+            .register_attestor(chain_id, attestor_id);
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -217,12 +223,13 @@ impl<'a> Client {
 
     pub async fn start_attesting(
         &self,
+        chain_id: u64,
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> Result<()> {
         let tx = cc3::tx()
             .attestation()
-            .attest(bls_public_key, proof_of_possession);
+            .attest(chain_id, bls_public_key, proof_of_possession);
 
         let ext = self
             .api
@@ -242,29 +249,29 @@ impl<'a> Client {
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(
         &self,
+        chain_id: u64,
         randomness: Randomness,
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
-        let committee_size = self._fetch_comittee_size().await.map_err(|e| {
+        let committee_size = self.fetch_comittee_size(chain_id).await.map_err(|e| {
             error!("Error getting committee size: {:?}", e);
             Error::FailedToGetComitteSetSize
         })?;
 
         let attestor_working_set_size = self
-            .get_attestor_working_set_size()
+            .get_attestor_working_set_size(chain_id)
             .await
             .map_err(|e| {
                 error!("Error getting attestor working set size: {:?}", e);
                 Error::FailedToGetAttestorWorkingSetSize
-            })?
-            .ok_or(Error::FailedToGetAttestorWorkingSetSize)?;
+            })?;
 
         info!("Comittee set size: {}", committee_size);
         info!("Attestor working set size: {}", attestor_working_set_size);
 
         let proof_of_inclusion = make_proof_of_inclusion(
-            u64::from(attestor_working_set_size),
+            attestor_working_set_size as u64,
             u64::from(committee_size),
             &randomness,
             &self.pair,
@@ -489,18 +496,20 @@ impl<'a> Client {
         Ok(nonce)
     }
 
-    pub async fn get_attestor_working_set_size(&self) -> Result<Option<u32>> {
-        let storage_query = cc3::storage().attestation().counter_for_attestors();
+    pub async fn get_attestor_working_set_size(&self, chain_id: u64) -> Result<usize> {
+        let address = cc3::storage().attestation().attestors_iter1(chain_id);
 
-        let result = self
+        let count = self
             .api
             .storage()
             .at_latest()
             .await?
-            .fetch(&storage_query)
-            .await?;
+            .iter(address)
+            .await?
+            .count()
+            .await;
 
-        Ok(result)
+        Ok(count)
     }
 }
 

@@ -36,6 +36,7 @@ pub struct AttestationChainConfiguration {
     pub attestation_interval: ChainAttestationIntervalType,
     pub attestations_per_checkpoint: u32,
     pub chain_reward: u128,
+    pub comittee_set_size: u32,
 }
 
 /// Identifier for a source chain

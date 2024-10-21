@@ -19,10 +19,11 @@ pub type Randomness = [u8; 32];
 
 // Chain id to chain name mapping
 // Only these are supported for now
-const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 3] = [
+const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 4] = [
     (1, "Ethereum"),
-    (31337, "Local anvil"),
+    (31337, "Anvil1"),
     (11_155_111, "Sepolia ethereum"),
+    (31338, "Anvil2"),
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -123,7 +124,10 @@ impl<'a> Client {
 
     /// Init the client, this bootstraps registration if not registered already
     pub async fn init(&self) -> Result<()> {
-        let is_attestor_member = self.cc_client.check_attestors_membership().await?;
+        let is_attestor_member = self
+            .cc_client
+            .check_attestors_membership(self.get_chain_key())
+            .await?;
 
         if !is_attestor_member {
             debug!("Signaling to start attesting... Please wait...");
@@ -151,7 +155,11 @@ impl<'a> Client {
     pub async fn start_attesting(&self) -> Result<()> {
         info!("Signaling intention to start attesting...");
         self.cc_client
-            .start_attesting(self.get_bls_pubkey()?, self.proof_of_possession()?)
+            .start_attesting(
+                self.get_chain_key(),
+                self.get_bls_pubkey()?,
+                self.proof_of_possession()?,
+            )
             .await
     }
 
@@ -193,7 +201,9 @@ impl<'a> Client {
                 Error::FailedToGetBabeVrf
             })?;
 
-        self.cc_client.sign_babe_vrf(randomness, epoch_index).await
+        self.cc_client
+            .sign_babe_vrf(self.get_chain_key(), randomness, epoch_index)
+            .await
     }
 
     pub async fn sign_vrf_for_header_at_epoch_randmoness(
@@ -201,7 +211,9 @@ impl<'a> Client {
         randomess: Randomness,
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
-        self.cc_client.sign_babe_vrf(randomess, epoch_index).await
+        self.cc_client
+            .sign_babe_vrf(self.get_chain_key(), randomess, epoch_index)
+            .await
     }
 
     pub async fn get_last_attestation(

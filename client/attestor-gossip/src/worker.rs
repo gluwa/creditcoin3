@@ -286,11 +286,13 @@ where
     fn verify_vrf(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> Result<(), Error> {
         // Get the blockchain info (current info)
         let blockchain_info = self.backend.blockchain().info();
+        let chain_id = attestation.attestation_data.chain_id;
 
         info!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
         let runtime = self.runtime.runtime_api();
         let is_attestor = runtime.is_attestor(
             blockchain_info.finalized_hash,
+            chain_id,
             &attestation.attestor.clone(),
         )?;
         debug!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
@@ -302,6 +304,7 @@ where
         let attestor_status = runtime
             .attestor_status(
                 blockchain_info.finalized_hash,
+                chain_id,
                 &attestation.attestor.clone(),
             )?
             .ok_or(Error::NotAnAttestor)?;
@@ -346,8 +349,10 @@ where
 
         // Get the threshold and working set size
         let runtime = self.runtime.runtime_api();
-        let target_sample_size = runtime.comittee_set_size(blockchain_info.finalized_hash)?;
-        let working_set_size = runtime.working_set_size(blockchain_info.finalized_hash)?;
+        let target_sample_size =
+            runtime.comittee_set_size(blockchain_info.finalized_hash, chain_id)?;
+        let working_set_size =
+            runtime.working_set_size(blockchain_info.finalized_hash, chain_id)?;
 
         let is_included = vrf::verify_proof_of_inclusion(
             working_set_size.into(),
@@ -490,7 +495,7 @@ where
 
         // Majority is more than half of the committee set size
         let runtime = self.runtime.runtime_api();
-        let comittee_set_size = runtime.comittee_set_size(block_hash)?;
+        let comittee_set_size = runtime.comittee_set_size(block_hash, chain_id)?;
         let threshold = calculate_threshold(comittee_set_size);
 
         // Filter attestations by major digest
@@ -505,12 +510,9 @@ where
         let attestations = attestations
             .into_iter()
             .filter(|(attestor_id, _)| {
-                let status = runtime.attestor_status(block_hash, attestor_id);
-
-                match status {
-                    Ok(status) => status == Some(AttestorStatus::Active),
-                    Err(_) => false,
-                }
+                runtime
+                    .is_attestor(block_hash, chain_id, attestor_id)
+                    .unwrap_or(false)
             })
             .collect::<Vec<_>>();
 

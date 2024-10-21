@@ -137,7 +137,10 @@ impl Server {
 /// - Check if the attestor can be included in the current epoch with the current randomness
 async fn check_elgibility(cc3_client: &cc3::Client) -> Result<bool> {
     // First check if we are still an attestor member
-    let is_attestor_member = cc3_client.cc_client.check_attestors_membership().await?;
+    let is_attestor_member = cc3_client
+        .cc_client
+        .check_attestors_membership(cc3_client.get_chain_key())
+        .await?;
     if !is_attestor_member {
         warn!("Attestor is not valid at current timeframe, cannot attest!");
         return Ok(false);

@@ -1379,16 +1379,16 @@ impl_runtime_apis! {
     }
 
     impl attestor_primitives::api::AttestorApi<Block, Hash, AccountId> for Runtime {
-        fn is_attestor(attestor: &AccountId) -> bool {
-            Attestation::is_attestor(attestor)
+        fn is_attestor(chain_id: ChainId, attestor: &AccountId) -> bool {
+            Attestation::is_attestor(chain_id, attestor)
         }
 
-        fn comittee_set_size() -> u32 {
-            Attestation::comittee_set_size()
+        fn comittee_set_size(chain_id: ChainId) -> u32 {
+            Attestation::comittee_set_size(chain_id)
         }
 
-        fn working_set_size() -> u32 {
-            Attestation::working_set_size()
+        fn working_set_size(chain_id: ChainId) -> u32 {
+            Attestation::working_set_size(chain_id)
         }
 
         fn last_digest(chain_id: ChainId) -> Option<Digest> {
@@ -1403,16 +1403,16 @@ impl_runtime_apis! {
             Attestation::contains_digest(chain_id, digest)
         }
 
-        fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey> {
-            Attestation::attestor_bls_pubkey(attestor)
+        fn attestor_bls_pubkey(chain_id: ChainId, attestor: &AccountId) -> Option<BlsPublicKey> {
+            Attestation::attestor_bls_pubkey(chain_id, attestor)
         }
 
         fn chain_attestation_interval(chain_id: ChainId) -> Option<u64> {
             Some(Attestation::chain_attestation_interval(chain_id))
         }
 
-        fn attestor_status(attestor: &AccountId) -> Option<AttestorStatus> {
-            Attestation::attestor_status(attestor)
+        fn attestor_status(chain_id: ChainId, attestor: &AccountId) -> Option<AttestorStatus> {
+            Attestation::attestor_status(chain_id, attestor)
         }
     }
 

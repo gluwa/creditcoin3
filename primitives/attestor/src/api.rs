@@ -10,11 +10,11 @@ sp_api::decl_runtime_apis! {
                 AccountId: Codec + Decode,
                 H: Decode,
     {
-        fn is_attestor(attestor: &AccountId) -> bool;
+        fn is_attestor(chain_id:ChainId, attestor: &AccountId) -> bool;
 
-        fn comittee_set_size() -> u32;
+        fn comittee_set_size(chain_id: ChainId) -> u32;
 
-        fn working_set_size() -> u32;
+        fn working_set_size(chain_id: ChainId) -> u32;
 
         fn last_digest(chain_id: ChainId) -> Option<Digest>;
 
@@ -22,10 +22,10 @@ sp_api::decl_runtime_apis! {
 
         fn contains_digest(chain_id: ChainId, digest: Digest) -> bool;
 
-        fn attestor_bls_pubkey(attestor: &AccountId) -> Option<BlsPublicKey>;
+        fn attestor_bls_pubkey(chain_id:ChainId, attestor: &AccountId) -> Option<BlsPublicKey>;
 
         fn chain_attestation_interval(chain_id: ChainId) -> Option<u64>;
 
-        fn attestor_status(attestor: &AccountId) -> Option<AttestorStatus>;
+        fn attestor_status(chain_id:ChainId, attestor: &AccountId) -> Option<AttestorStatus>;
     }
 }

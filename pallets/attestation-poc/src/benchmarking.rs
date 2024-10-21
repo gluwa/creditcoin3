@@ -4,10 +4,6 @@
 
 use super::Pallet as Attestation;
 use super::*;
-use attestor_primitives::{
-    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
-    ChainId, ChainKey, SignedAttestation,
-};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
@@ -17,6 +13,12 @@ use sp_runtime::traits::Bounded;
 use sp_std::vec;
 use sp_std::vec::Vec;
 
+use attestor_primitives::{
+    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
+    ChainId, ChainKey, SignedAttestation,
+};
+
+const DEV_CHAIN_ID: u64 = 1;
 const SEED: u32 = 0;
 
 #[derive(Debug, Clone)]
@@ -124,13 +126,12 @@ mod benchmarks {
     fn set_chain_attestation_interval() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_id: ChainId = 1; // Using initial supported chain from mock
         let chain_attestation_interval: ChainAttestationIntervalType = 100;
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_id,
+            DEV_CHAIN_ID,
             chain_attestation_interval,
         )
     }
@@ -139,13 +140,12 @@ mod benchmarks {
     fn set_attestations_per_checkpoint() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_id: ChainId = 1; // Using initial supported chain from mock
         let attestations_per_checkpoint: u32 = 100;
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_id,
+            DEV_CHAIN_ID,
             attestations_per_checkpoint,
         )
     }
@@ -159,6 +159,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             set_size,
         )
     }
@@ -175,6 +176,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             attestor_id,
         )
     }
@@ -188,6 +190,7 @@ mod benchmarks {
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
+             DEV_CHAIN_ID,
             attestor_id.clone(),
         ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
         let signed_origin = att.stash_origin;
@@ -195,6 +198,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             attestor_id,
         )
     }
@@ -208,6 +212,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             new_max,
         )
     }
@@ -221,6 +226,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             attestor_id,
         )
     }
@@ -233,12 +239,14 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_invulnerable(
             root_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id.clone(),
         ));
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             attestor_id,
         )
     }
@@ -252,6 +260,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             new_max,
         )
     }
@@ -265,6 +274,7 @@ mod benchmarks {
         // Set max attestors to accomodate benchmark
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin.clone(),
+            DEV_CHAIN_ID,
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
 
@@ -278,11 +288,13 @@ mod benchmarks {
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.stash_origin.clone(),
+                DEV_CHAIN_ID,
                 attestor_id,
             ));
 
             assert_ok!(Attestation::<T>::attest(
                 attestor.attestor_origin.clone(),
+                DEV_CHAIN_ID,
                 attestor.public_key,
                 attestor.signature,
             ));
@@ -313,6 +325,7 @@ mod benchmarks {
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin,
+            DEV_CHAIN_ID,
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
 
@@ -325,11 +338,13 @@ mod benchmarks {
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.stash_origin.clone(),
+                DEV_CHAIN_ID,
                 attestor_id,
             ));
 
             assert_ok!(Attestation::<T>::attest(
                 attestor.attestor_origin.clone(),
+                DEV_CHAIN_ID,
                 attestor.public_key,
                 attestor.signature,
             ));
@@ -385,13 +400,12 @@ mod benchmarks {
     fn set_chain_reward() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let chain_id = 1;
         let new_reward: BalanceOf<T> = BalanceOf::<T>::max_value();
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_id,
+            DEV_CHAIN_ID,
             new_reward,
         )
     }
@@ -405,6 +419,7 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id,
         ));
 
@@ -413,6 +428,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
             attestor.public_key,
             attestor.signature,
         )
@@ -427,11 +443,13 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id,
         ));
 
         assert_ok!(Attestation::<T>::attest(
             attestor.attestor_origin.clone(),
+            DEV_CHAIN_ID,
             attestor.public_key,
             attestor.signature,
         ));
@@ -439,7 +457,10 @@ mod benchmarks {
         let signed_origin = attestor.attestor_origin;
 
         #[extrinsic_call]
-        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_ID,
+        )
     }
 
     #[benchmark]
@@ -451,6 +472,7 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id,
         ));
 
@@ -474,11 +496,13 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id.clone(),
         ));
 
         assert_ok!(Attestation::<T>::unregister_attestor(
             attestor.stash_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id,
         ));
 
@@ -500,11 +524,13 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
+            DEV_CHAIN_ID,
             attestor_id,
         ));
 
         assert_ok!(Attestation::<T>::attest(
             attestor.attestor_origin.clone(),
+            DEV_CHAIN_ID,
             attestor.public_key,
             attestor.signature,
         ));

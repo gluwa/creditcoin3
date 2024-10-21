@@ -11,9 +11,10 @@ use sp_staking::StakingInterface;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::vec::Vec;
 
-use attestor_primitives::{Attestor, AttestorStatus, BlsPublicKey, BlsSignature};
+use attestor_primitives::{Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainId};
 use bls_signatures::{PublicKey, Serialize, Signature};
 use randomness_primitives::{OnRandomnessUpdate, Randomness};
+use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::ledger::{AttestorLedger, UnlockChunk};
 
@@ -24,16 +25,17 @@ impl<T: Config> Pallet<T> {
     /// Emits an event `AttestorRegistered` if successful
     /// An attestor needs to call `attest` to become active
     pub fn try_insert_attestor_and_emit_event(
+        chain_id: ChainId,
         stash: T::AccountId,
         attestor_id: T::AccountId,
     ) -> DispatchResult {
         ensure!(
-            !Self::attestor_is_registered(&attestor_id),
+            !Self::attestor_is_registered(chain_id, &attestor_id),
             Error::<T>::AlreadyAttestor
         );
 
         ensure!(
-            Self::attestor_list_has_space(),
+            Self::attestor_list_has_space(chain_id),
             Error::<T>::AttestorListFull
         );
 
@@ -42,6 +44,7 @@ impl<T: Config> Pallet<T> {
 
         // Insert attestor with status Idle
         Attestors::<T>::insert(
+            chain_id,
             attestor_id.clone(),
             Attestor {
                 bls_public_key: None,
@@ -79,7 +82,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // Emit event
-        Self::deposit_event(Event::<T>::AttestorRegistered(attestor_id));
+        Self::deposit_event(Event::<T>::AttestorRegistered(chain_id, attestor_id));
 
         Ok(())
     }
@@ -92,10 +95,12 @@ impl<T: Config> Pallet<T> {
     // Attstor needs to call `chill` first before the stash can deregister the attestor
     // Remove that attestor and emit an event
     pub fn remove_attestor_and_emit_event(
+        chain_id: ChainId,
         stash: T::AccountId,
         attestor_id: T::AccountId,
     ) -> DispatchResult {
-        let attestor = Attestors::<T>::get(&attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
+        let attestor =
+            Attestors::<T>::get(chain_id, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
         // Only remove your own attestor
         ensure!(attestor.stash == stash, Error::<T>::NotYourAttestor);
@@ -153,9 +158,9 @@ impl<T: Config> Pallet<T> {
         }
 
         // Remove the attestor
-        Attestors::<T>::remove(&attestor_id);
+        Attestors::<T>::remove(chain_id, &attestor_id);
 
-        Self::deposit_event(Event::<T>::AttestorUnregistered(attestor_id));
+        Self::deposit_event(Event::<T>::AttestorUnregistered(chain_id, attestor_id));
 
         Ok(())
     }
@@ -193,12 +198,13 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn start_attesting(
+        chain_id: u64,
         attestor_id: T::AccountId,
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> DispatchResult {
         let mut attestor =
-            Attestors::<T>::get(&attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
+            Attestors::<T>::get(chain_id, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
         // Verify proof of possession
         let public_key = PublicKey::from_bytes(&bls_public_key[..])
@@ -218,9 +224,9 @@ impl<T: Config> Pallet<T> {
 
         attestor.status = AttestorStatus::Active;
         attestor.bls_public_key = Some(bls_public_key);
-        Attestors::<T>::insert(&attestor_id, attestor);
+        Attestors::<T>::insert(chain_id, &attestor_id, attestor);
 
-        Self::deposit_event(Event::<T>::AttestorActivated(attestor_id));
+        Self::deposit_event(Event::<T>::AttestorActivated(chain_id, attestor_id));
 
         Ok(())
     }
@@ -273,7 +279,7 @@ impl<T: Config> Pallet<T> {
 
         // Accumulate the rewards for each attestor
         for attestor in attestors {
-            let stash = Attestors::<T>::get(attestor)
+            let stash = Attestors::<T>::get(chain_id, attestor)
                 .ok_or(Error::<T>::AddressNotAttestor)?
                 .stash;
 
@@ -288,6 +294,7 @@ impl<T: Config> Pallet<T> {
         for (stash, total) in total_per_stash {
             // Deposit the reward event
             Self::deposit_event(Event::<T>::RewardPaid {
+                chain_id,
                 stash: stash.clone(),
                 amount: total,
             });
@@ -355,17 +362,35 @@ impl<T: Config> Pallet<T> {
     /// This will select the active attestors for the given epoch
     /// All attestors with `Active` status will be selected
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
-        let active_attestors: Vec<T::AccountId> = Attestors::<T>::iter()
-            .filter(|(_, attestor)| attestor.status == AttestorStatus::Active)
-            .map(|(id, _)| id)
-            .collect();
+        let supported_chains =
+            T::SupportedChains::supported_chains().ok_or(Error::<T>::NoSupportedChains)?;
 
-        ActiveAttestors::<T>::put(&active_attestors);
+        for chain_id in supported_chains {
+            let prefix = Attestors::<T>::iter_prefix(chain_id);
 
-        Self::deposit_event(Event::<T>::AttestorsElected {
-            epoch,
-            attestors: active_attestors,
-        });
+            let attestors = prefix
+                .filter_map(|(account, attestor)| {
+                    if attestor.status == AttestorStatus::Active {
+                        Some(account)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            if attestors.is_empty() {
+                info!("No active attestors for chain {}", chain_id);
+                continue;
+            }
+
+            ActiveAttestors::<T>::insert(chain_id, &attestors);
+
+            Self::deposit_event(Event::<T>::AttestorsElected {
+                epoch,
+                chain_id,
+                attestors,
+            });
+        }
 
         Ok(())
     }
