@@ -44,11 +44,11 @@ pub trait HostApi {
                         6
                     }
                     command::VerifierError::ProofParseError(e) => {
-                        log::error!("error executing verifier: {:?}", e);
+                        log::error!("error parsing the proof: {:?}", e);
                         7
                     }
                     command::VerifierError::StarkProgramAuthError(e) => {
-                        log::error!("error executing verifier: {:?}", e);
+                        log::error!("stark program authentication error: {:?}", e);
                         8
                     }
                     command::VerifierError::VerifierExecutionError(e) => {
@@ -56,7 +56,7 @@ pub trait HostApi {
                         9
                     }
                     command::VerifierError::VerifierProcessError(e) => {
-                        log::error!("io error: {:?}", e);
+                        log::error!("verifier was not able to verify the proof : {:?}", e);
                         10
                     }
                 },

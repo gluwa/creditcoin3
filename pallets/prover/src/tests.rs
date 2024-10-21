@@ -77,7 +77,7 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
 
         assert_noop!(
             ProverModule::submit_proof(RuntimeOrigin::signed(PROVER_3), proof, query),
-            Error::<Test>::InvalidProofSubmitted
+            Error::<Test>::ProofParseError
         );
     })
 }
@@ -172,7 +172,7 @@ fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
 
         assert_noop!(
             ProverModule::submit_proof(RuntimeOrigin::signed(PROVER_3), proof, query),
-            Error::<Test>::InvalidProofSubmitted
+            Error::<Test>::StarkProgramAuthenticationError
         );
     })
 }
