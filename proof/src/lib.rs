@@ -898,9 +898,8 @@ mod tests {
     async fn run_stone_verify_script(script_source: &str, input_dir: &str) -> anyhow::Result<()> {
         use std::io::Write;
 
-        tokio::process::Command::new("/bin/bash")
-            .arg("-c")
-            .arg(format!("source {} {}", script_source, input_dir,))
+        tokio::process::Command::new(script_source)
+            .arg(input_dir)
             .stdout(std::process::Stdio::inherit())
             .output()
             .await

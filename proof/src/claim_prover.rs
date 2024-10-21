@@ -229,14 +229,9 @@ async fn run_cairo_verify_script(
     input_dir: &str,
     cairo_proof_mode: bool,
 ) -> Result<(), ScriptError> {
-    tokio::process::Command::new("/bin/bash")
-        .arg("-c")
-        .arg(format!(
-            "source {} {} {}",
-            script_source,
-            input_dir,
-            if cairo_proof_mode { "proof_mode" } else { "" },
-        ))
+    tokio::process::Command::new(script_source)
+        .arg(input_dir)
+        .arg(if cairo_proof_mode { "proof_mode" } else { "" })
         .stdout(std::process::Stdio::inherit())
         .output()
         .await
@@ -256,14 +251,9 @@ async fn run_stone_prover_script(
     input_dir: &str,
     force_stone_proving: bool,
 ) -> Result<String, ClaimProverError> {
-    let output = tokio::process::Command::new("/bin/bash")
-        .arg("-c")
-        .arg(format!(
-            "source {} {} {}",
-            script_source,
-            input_dir,
-            if force_stone_proving { "force" } else { "" }
-        ))
+    let output = tokio::process::Command::new(script_source)
+        .arg(input_dir)
+        .arg(if force_stone_proving { "force" } else { "" })
         .stdout(std::process::Stdio::inherit())
         .output()
         .await
