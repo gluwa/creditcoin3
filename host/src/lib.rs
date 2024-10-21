@@ -23,41 +23,37 @@ pub trait HostApi {
                     1
                 }
                 Err(e) => match e {
-                    command::VerifierError::ProjectRootNotFound => {
-                        log::error!("project root not found");
+                    command::VerifierError::TempFileWriteError => {
+                        log::error!("error writing to temp file: {:?}", e);
                         2
                     }
-                    command::VerifierError::TempFileWriteError(e) => {
-                        log::error!("error writing to temp file: {:?}", e);
-                        3
-                    }
-                    command::VerifierError::TempFileKeepError(e) => {
+                    command::VerifierError::TempFileKeepError => {
                         log::error!("error keeping temp file: {:?}", e);
-                        4
+                        3
                     }
                     command::VerifierError::TempFileNotFound => {
                         log::error!("temp file not found");
+                        4
+                    }
+                    command::VerifierError::TempFileRemoveError => {
+                        log::error!("io error: {:?}", e);
                         5
                     }
-                    command::VerifierError::TempFileRemoveError(e) => {
-                        log::error!("io error: {:?}", e);
-                        6
-                    }
-                    command::VerifierError::ProofParseError(e) => {
+                    command::VerifierError::ProofParseError => {
                         log::error!("error parsing the proof: {:?}", e);
-                        7
+                        6
                     }
                     command::VerifierError::StarkProgramAuthError(e) => {
                         log::error!("stark program authentication error: {:?}", e);
-                        8
+                        7
                     }
-                    command::VerifierError::VerifierExecutionError(e) => {
+                    command::VerifierError::VerifierExecutionError => {
                         log::error!("error running verifier: {:?}", e);
-                        9
+                        8
                     }
                     command::VerifierError::VerifierProcessError(e) => {
                         log::error!("verifier was not able to verify the proof : {:?}", e);
-                        10
+                        9
                     }
                 },
             }

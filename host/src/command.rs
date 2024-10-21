@@ -17,34 +17,31 @@ use prover_primitives::types::{StoneProof, StoneProofJson};
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum VerifierError {
-    #[error("Failed to find project root")]
-    ProjectRootNotFound,
+    #[error("Failed to write proof to temp file")]
+    TempFileWriteError,
 
-    #[error("Failed to write proof to temp file: {0}")]
-    TempFileWriteError(std::io::Error),
-
-    #[error("Failed to keep the temp file: {0}")]
-    TempFileKeepError(tempfile::PersistError),
+    #[error("Failed to keep the temp file")]
+    TempFileKeepError,
 
     #[error("Temp file not found")]
     TempFileNotFound,
 
-    #[error("Failed to parse proof JSON: {0}")]
-    ProofParseError(serde_json::Error),
+    #[error("Failed to parse proof JSON")]
+    ProofParseError,
 
     #[error("Failed to authenticate STARK program: {0}")]
     StarkProgramAuthError(String),
 
-    #[error("Error executing verifier: {0}")]
-    VerifierExecutionError(std::io::Error),
+    #[error("Error executing verifier")]
+    VerifierExecutionError,
 
     #[error("Verifier process failed with stderr: {0}")]
     VerifierProcessError(String),
 
-    #[error("Failed to remove temp file: {0}")]
-    TempFileRemoveError(std::io::Error),
+    #[error("Failed to remove temp file")]
+    TempFileRemoveError,
 }
 
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
@@ -65,17 +62,20 @@ pub fn run_verifier(
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // Write proof to a temporary JSON file
-    let temp_file = write_proof_to_temp_file(&proof).map_err(VerifierError::TempFileWriteError)?;
+    let temp_file =
+        write_proof_to_temp_file(&proof).map_err(|_| VerifierError::TempFileWriteError)?;
 
     // Ensure the temporary file is not deleted automatically
-    let (_f, path) = temp_file.keep().map_err(VerifierError::TempFileKeepError)?;
+    let (_f, path) = temp_file
+        .keep()
+        .map_err(|_| VerifierError::TempFileKeepError)?;
 
     let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
     let proof: StoneProofJson =
-        serde_json::from_slice(&proof).map_err(VerifierError::ProofParseError)?;
+        serde_json::from_slice(&proof).map_err(|_| VerifierError::ProofParseError)?;
 
     let stone_proof = StoneProof::from(proof);
 
@@ -110,9 +110,9 @@ pub fn run_verifier(
         .arg(format!("--in_file={}", temp_file_path))
         .stdout(Stdio::piped())
         .output()
-        .map_err(VerifierError::VerifierExecutionError)?;
+        .map_err(|_| VerifierError::VerifierExecutionError)?;
 
-    fs::remove_file(&path).map_err(VerifierError::TempFileRemoveError)?;
+    fs::remove_file(&path).map_err(|_| VerifierError::TempFileRemoveError)?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -125,6 +125,7 @@ pub fn run_verifier(
 
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
+    use crate::command::VerifierError;
     use pallet_prover_primitives::{Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH};
 
     #[test]
@@ -171,9 +172,9 @@ pub mod tests {
         // Note that the program hash provided in the error message is the one coming from
         // the proof itself which is none of the existing hashes defined in the constants
         assert!(result.is_err());
-        // assert_eq!(
-        //     result.err(),
-        //     Some(VerifierError::StarkProgramAuthError("AuthenticationFailure".to_string())));
+        assert_eq!(
+            result.err(),
+            Some(VerifierError::StarkProgramAuthError("AuthenticationFailure(0x2a9480cea28d8e6a37a8cb1332e5b02594b530ff16e6d1fe6718b9d7be6f7bca)".to_string())));
     }
 
     // not sure we want to fail, as the prover may work using an older version of STARK,
@@ -201,9 +202,9 @@ pub mod tests {
         let result = super::run_verifier(proof_example, query, metadata);
 
         assert!(result.is_err());
-        // assert_eq!(
-        //     result.err(),
-        //     Some(VerifierError::StarkProgramAuthError("AuthenticationFailure".to_string()))
-        // );
+        assert_eq!(
+            result.err(),
+            Some(VerifierError::StarkProgramAuthError("AuthenticationFailure(0xe8585588c54f2231fd0f74c263eb9ef4f7bfd77b164317fa4ef224e03c3725c9)".to_string()))
+        );
     }
 }
