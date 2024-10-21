@@ -108,13 +108,19 @@ impl<'a> Client {
             31337 => {
                 self.cc_client
                     .clone()
-                    .get_chain_key(chain_id, "Local anvil".to_string())
+                    .get_chain_key(chain_id, "Anvil1".to_string())
                     .await
             }
             11_155_111 => {
                 self.cc_client
                     .clone()
                     .get_chain_key(chain_id, "Sepolia".to_string())
+                    .await
+            }
+            31338 => {
+                self.cc_client
+                    .clone()
+                    .get_chain_key(chain_id, "Anvil2".to_string())
                     .await
             }
             _ => Err(Error::UnsupportedChain.into()),
