@@ -850,6 +850,7 @@ jobs:
           verbose: true
 
   deploy-github-runner:
+    timeout-minutes: 15
     # WARNING: same matrix as integration-test-cli job
     strategy:
       fail-fast: false

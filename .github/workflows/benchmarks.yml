@@ -88,6 +88,7 @@ jobs:
           path: target/release/creditcoin3-node
 
   deploy-github-runner:
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     needs: check-if-needed
     if: needs.check-if-needed.outputs.needs-bench == 1

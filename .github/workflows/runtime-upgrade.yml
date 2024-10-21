@@ -562,6 +562,7 @@ jobs:
           killall -9 creditcoin3-node
 
   deploy-github-runner:
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     outputs:
       runner_vm_name: ${{ steps.get-env.outputs.runner_vm_name }}
