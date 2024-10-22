@@ -12,6 +12,12 @@ concurrency:
 
 permissions: read-all
 
+env:
+  RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+  LINODE_REGION: "nl-ams"
+  # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
+  LINODE_VM_SIZE: "g6-standard-4"
+
 jobs:
   sanity-check:
     runs-on: ubuntu-24.04
@@ -56,12 +62,57 @@ jobs:
         run: |
           echo "build_options = ${{ steps.set-build-options.outputs.build_options}}"
 
+  deploy-github-runner:
+    timeout-minutes: 15
+    needs:
+      - sanity-check
+      - setup
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # runners for other jobs (repurpose existing labels)
+          - build: docker
+          - build: native
+          - build: wasm
+
+    name: deploy-github-runner / ${{ matrix.build }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "${{ matrix.build }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
+          # doesn't evaluate the $GITHUB_RUN_ID reference
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Provision VM
+        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
+        run: |
+          .github/provision-linode-vm.sh
+        env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
+          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+          LC_PROXY_TYPE: ${{ matrix.build }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+
   build-native-runtime:
     needs:
       - sanity-check
       - setup
-    runs-on: ubuntu-24.04
-
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-native"]
     steps:
       - uses: actions/checkout@v4
 
@@ -108,6 +159,7 @@ jobs:
         continue-on-error: true
         uses: thedoctor0/zip-release@0.7.6
         with:
+          command: "sudo apt-get install zip"
           type: "zip"
           directory: "target/release/"
           path: "creditcoin3-node*"
@@ -125,7 +177,7 @@ jobs:
     needs:
       - sanity-check
       - setup
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-wasm"]
     steps:
       - uses: actions/checkout@v4
 
@@ -167,7 +219,7 @@ jobs:
     needs:
       - sanity-check
       - setup
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-docker"]
     steps:
       - uses: actions/checkout@v4
 
@@ -222,3 +274,111 @@ jobs:
           files: "artifact/creditcoin-*${{ needs.sanity-check.outputs.TAG_NAME }}*"
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
+
+  rm-gh-runner-docker:
+    runs-on: ubuntu-24.04
+    needs:
+      - docker-build
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: docker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "${{ matrix.build }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-native:
+    runs-on: ubuntu-24.04
+    needs:
+      - build-native-runtime
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: native
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "${{ matrix.build }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-wasm:
+    runs-on: ubuntu-24.04
+    needs:
+      - build-wasm-runtime
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: wasm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "${{ matrix.build }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}

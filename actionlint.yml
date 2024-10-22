@@ -7,3 +7,6 @@ self-hosted-runner:
     - proxy-docker-build
     - proxy-smart-contract
     - proxy-unit-test-creditcoin
+    - type-docker
+    - type-native
+    - type-wasm
