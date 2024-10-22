@@ -44,6 +44,45 @@ pub enum VerifierError {
     TempFileRemoveError,
 }
 
+impl VerifierError {
+    pub fn handle_error(&self) -> u8 {
+        match self {
+            VerifierError::TempFileWriteError => {
+                log::error!("error writing to temp file");
+                2
+            }
+            VerifierError::TempFileKeepError => {
+                log::error!("error keeping temp file");
+                3
+            }
+            VerifierError::TempFileNotFound => {
+                log::error!("temp file not found");
+                4
+            }
+            VerifierError::TempFileRemoveError => {
+                log::error!("io error");
+                5
+            }
+            VerifierError::ProofParseError => {
+                log::error!("error parsing the proof");
+                6
+            }
+            VerifierError::StarkProgramAuthError(e) => {
+                log::error!("stark program authentication error: {:?}", e);
+                7
+            }
+            VerifierError::VerifierExecutionError => {
+                log::error!("error running verifier");
+                8
+            }
+            VerifierError::VerifierProcessError(e) => {
+                log::error!("verifier was not able to verify the proof: {:?}", e);
+                9
+            }
+        }
+    }
+}
+
 fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
     temp_file.write_all(proof)?;

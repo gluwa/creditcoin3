@@ -22,40 +22,7 @@ pub trait HostApi {
                     log::debug!("result of verifying proof: {:?}", r);
                     1
                 }
-                Err(e) => match e {
-                    command::VerifierError::TempFileWriteError => {
-                        log::error!("error writing to temp file: {:?}", e);
-                        2
-                    }
-                    command::VerifierError::TempFileKeepError => {
-                        log::error!("error keeping temp file: {:?}", e);
-                        3
-                    }
-                    command::VerifierError::TempFileNotFound => {
-                        log::error!("temp file not found");
-                        4
-                    }
-                    command::VerifierError::TempFileRemoveError => {
-                        log::error!("io error: {:?}", e);
-                        5
-                    }
-                    command::VerifierError::ProofParseError => {
-                        log::error!("error parsing the proof: {:?}", e);
-                        6
-                    }
-                    command::VerifierError::StarkProgramAuthError(e) => {
-                        log::error!("stark program authentication error: {:?}", e);
-                        7
-                    }
-                    command::VerifierError::VerifierExecutionError => {
-                        log::error!("error running verifier: {:?}", e);
-                        8
-                    }
-                    command::VerifierError::VerifierProcessError(e) => {
-                        log::error!("verifier was not able to verify the proof : {:?}", e);
-                        9
-                    }
-                },
+                Err(e) => command::VerifierError::handle_error(&e),
             }
         }
 
