@@ -186,6 +186,10 @@ jobs:
           RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
+      - name: Workaround for paritytech/srtool uid/gid mismatch
+        run: |
+          sudo chown -R 1001:1001 ${{ github.workspace }}
+
       - name: Build WASM runtime
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
@@ -200,6 +204,9 @@ jobs:
 
       - name: DEBUG
         run: |
+          # revert workaround for paritytech/srtool uid/gid mismatch
+          sudo chown -R "$USER:$USER" ${{ github.workspace }}
+
           echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
           cat creditcoin-srtool-digest.json
           echo "Runtime location: ${{ steps.srtool_build.outputs.wasm }}"
