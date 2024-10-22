@@ -37,7 +37,7 @@ where
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     Runtime::AccountId: From<[u8; 32]>,
 {
-    #[precompile::public("verify(bytes,(uint64,uint64,uint64,(uint64,uint64)[],uint8[]))")]
+    #[precompile::public("verify(bytes,(uint64,uint64,uint64,(uint64,uint64)[],bytes))")]
     fn verify(
         handle: &mut impl PrecompileHandle,
         proof: BoundedBytes<ConstU50MB>,
