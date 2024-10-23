@@ -1972,6 +1972,14 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
 
         let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
         assert_eq!(locked_balance, 0);
+
+        System::assert_last_event(
+            crate::Event::Withdrawn {
+                stash: STASH_1,
+                amount: 10000,
+            }
+            .into(),
+        );
     });
 }
 
@@ -2796,5 +2804,25 @@ fn set_payee_should_update_storage() {
 
         let payee = Payee::<Test>::get(STASH_1).unwrap();
         assert_eq!(payee, RewardDestination::None);
+    })
+}
+
+#[test]
+fn withdraw_unbonded_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::withdraw_unbonded(RuntimeOrigin::none()),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn withdraw_unbonded_should_error_when_signer_is_not_a_stash() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::withdraw_unbonded(RuntimeOrigin::signed(STASH_1)),
+            Error::<Test>::NotStash
+        );
     })
 }
