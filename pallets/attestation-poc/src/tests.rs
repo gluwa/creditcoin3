@@ -2356,6 +2356,238 @@ fn claim_rewards_should_error_when_not_signed() {
 }
 
 #[test]
+fn claim_rewards_should_error_when_no_reward() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance = Balances::free_balance(STASH_1);
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // setup - register and activate the attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            DEV_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // there are no rewards b/c this attestor has not committed any attestations
+        assert_noop!(
+            Attestation::claim_rewards(attestor.stash),
+            Error::<Test>::NoRewards
+        );
+
+        let new_balance = Balances::free_balance(STASH_1);
+        assert_eq!(new_balance, initial_balance);
+    });
+}
+
+#[test]
+fn claim_rewards_should_not_update_balance_when_reward_is_zero() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance = Balances::free_balance(STASH_1);
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // setup - register and activate the attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            DEV_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // simulate a zero reward being accumulated w/o committing an attestation
+        AccumulatedRewards::<Test>::insert(STASH_1, 0);
+
+        assert_ok!(Attestation::claim_rewards(attestor.stash),);
+
+        let new_balance = Balances::free_balance(STASH_1);
+        assert_eq!(new_balance, initial_balance);
+    });
+}
+
+#[test]
+fn claim_rewards_should_not_update_balance_when_payee_is_none() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance = Balances::free_balance(STASH_1);
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // setup - register and activate the attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            DEV_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // explicitly configure that we don't want to be paid out any rewards
+        assert_ok!(Attestation::set_payee(
+            attestor.stash.clone(),
+            RewardDestination::None
+        ));
+
+        // simulate a reward being accumulated w/o committing an attestation
+        AccumulatedRewards::<Test>::insert(STASH_1, 500);
+
+        assert_ok!(Attestation::claim_rewards(attestor.stash),);
+
+        let new_balance = Balances::free_balance(STASH_1);
+        assert_eq!(new_balance, initial_balance);
+    });
+}
+
+#[test]
+fn claim_rewards_should_update_balance_when_payee_is_another_account() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance_for_stash_1 = Balances::free_balance(STASH_1);
+        let initial_balance_for_stash_2 = Balances::free_balance(STASH_2);
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // setup - register and activate the attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            DEV_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // explicitly configure reward to be paid out to someone else
+        assert_ok!(Attestation::set_payee(
+            attestor.stash.clone(),
+            RewardDestination::Account(STASH_2),
+        ));
+
+        // simulate a reward being accumulated w/o committing an attestation
+        AccumulatedRewards::<Test>::insert(STASH_1, 5000);
+
+        assert_ok!(Attestation::claim_rewards(attestor.stash),);
+
+        // assert that reward was paid to STASH_2, not STASH_1
+        let new_balance_for_stash_1 = Balances::free_balance(STASH_1);
+        let new_balance_for_stash_2 = Balances::free_balance(STASH_2);
+        assert_eq!(new_balance_for_stash_1, initial_balance_for_stash_1);
+        assert_eq!(new_balance_for_stash_2, initial_balance_for_stash_2 + 5000);
+
+        // emitted event is still related to STASH_1 b/c they are the one
+        // who accumulated and claimed the rewards
+        System::assert_last_event(
+            crate::Event::RewardClaimed {
+                stash: STASH_1,
+                amount: 5000,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn claim_rewards_should_update_balance_when_payee_is_stash() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance = Balances::free_balance(STASH_1);
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // setup - register and activate the attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            DEV_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // explicitly configure that we want reward to be paid out to the stash account
+        assert_ok!(Attestation::set_payee(
+            attestor.stash.clone(),
+            RewardDestination::Stash,
+        ));
+
+        // simulate a reward being accumulated w/o committing an attestation
+        AccumulatedRewards::<Test>::insert(STASH_1, 4000);
+
+        assert_ok!(Attestation::claim_rewards(attestor.stash),);
+
+        // assert that reward was paid to STASH_1
+        let new_balance = Balances::free_balance(STASH_1);
+        assert_eq!(new_balance, initial_balance + 4000);
+
+        // emitted event is related to STASH_1
+        System::assert_last_event(
+            crate::Event::RewardClaimed {
+                stash: STASH_1,
+                amount: 4000,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn claim_rewards_should_update_stash_balance_when_payee_not_found() {
+    ExtBuilder.build_and_execute(|| {
+        let initial_balance = Balances::free_balance(STASH_1);
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        // setup - register and activate the attestor
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            DEV_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // note: not calling set_payee(), payouts default to STASH_1
+        // and removing this explicitly b/c it is set in ledger.bond()
+        // in order to exercise impls.rs:333 (payee not found)
+        Payee::<Test>::remove(STASH_1);
+
+        // simulate a reward being accumulated w/o committing an attestation
+        AccumulatedRewards::<Test>::insert(STASH_1, 6000);
+
+        assert_ok!(Attestation::claim_rewards(attestor.stash),);
+
+        // assert that reward was paid to STASH_1
+        let new_balance = Balances::free_balance(STASH_1);
+        assert_eq!(new_balance, initial_balance + 6000);
+
+        // emitted event is related to STASH_1
+        System::assert_last_event(
+            crate::Event::RewardClaimed {
+                stash: STASH_1,
+                amount: 6000,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
 fn claim_rewards_should_update_balance_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         let initial_balance = Balances::free_balance(STASH_1);
