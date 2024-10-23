@@ -509,7 +509,7 @@ fn attestor_should_be_elected_after_5_blocks() {
 }
 
 #[test]
-fn attestor_should_be_not_be_elected_after_5_blocks_if_not_singaling_start() {
+fn attestor_should_be_not_be_elected_after_5_blocks_if_not_signaling_start() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
@@ -647,7 +647,7 @@ fn register_attestor_should_error_when_address_is_already_registered() {
 }
 
 #[test]
-fn register_attestor_should_error_when_public_key_is_invalid() {
+fn attest_should_error_when_public_key_is_invalid() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
 
@@ -670,7 +670,7 @@ fn register_attestor_should_error_when_public_key_is_invalid() {
 }
 
 #[test]
-fn register_attestor_should_error_when_signature_is_invalid() {
+fn attest_should_error_when_signature_is_invalid() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
 
@@ -690,7 +690,7 @@ fn register_attestor_should_error_when_signature_is_invalid() {
 }
 
 #[test]
-fn register_attestor_should_error_when_signature_doesnt_validate_against_public_key() {
+fn attest_should_error_when_signature_doesnt_validate_against_public_key() {
     ExtBuilder.build_and_execute(|| {
         let att1 = Attestor::new(STASH_1, ATTESTOR_1);
         let att2 = Attestor::new(STASH_2, ATTESTOR_2);
