@@ -94,7 +94,7 @@ impl GluwaPublicProverContract {
                     size: l.size,
                 })
                 .collect::<Vec<_>>(),
-            data: query.data.into(),
+            data: query.data,
         };
 
         // probably here we can pass another argument like distance to nearest
@@ -158,21 +158,23 @@ impl GluwaPublicProverContract {
             info!("New query submission");
             let (query_submitted, _log) = query?;
 
-            let query = Query {
-                chain_id: query_submitted.query.chainId,
-                height: query_submitted.query.height,
-                index: query_submitted.query.index,
-                layout_segments: query_submitted
-                    .query
-                    .layoutSegments
-                    .iter()
-                    .map(|l| LayoutSegment {
-                        offset: l.offset,
-                        size: l.size,
-                    })
-                    .collect::<Vec<_>>(),
-                data: query_submitted.query.data.into(),
-            };
+                // TODO: check log
+
+                let query = Query {
+                    chain_id: query_submitted.query.chainId,
+                    height: query_submitted.query.height,
+                    index: query_submitted.query.index,
+                    layout_segments: query_submitted
+                        .query
+                        .layoutSegments
+                        .iter()
+                        .map(|l| LayoutSegment {
+                            offset: l.offset,
+                            size: l.size,
+                        })
+                        .collect::<Vec<_>>(),
+                    data: query_submitted.query.data,
+                };
 
             query_channel.send(query)?;
         }
@@ -209,7 +211,7 @@ impl GluwaPublicProverContract {
                     size: l.size,
                 })
                 .collect::<Vec<_>>(),
-            data: query.data.into(),
+            data: query.data,
         };
 
         let builder = contract

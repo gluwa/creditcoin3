@@ -67,6 +67,7 @@ contract CreditcoinPublicProver is Ownable {
         for (uint i = 0; i < query.layoutSegments.length; i++) {
             queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
         }
+        queries[queryId].query.data = query.data;
         // .result doesn't need to be set here
         // .escrowedAmount
         queries[queryId].escrowedAmount = Balance.wrap(msg.value);
