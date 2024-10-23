@@ -390,8 +390,6 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        //// If we cannot add a chain
-        CannotAddChain,
         /// The AccountId supplied has already been registered
         AlreadyAttestor,
         /// The attestor list is at the max size allowed by the current configuration
@@ -402,16 +400,8 @@ pub mod pallet {
         InvulnerableListFull,
         /// The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
         MaxInvulnerablesCannotBeChanged,
-        /// The call to unregister_attestor failed because the address is invulnerable
-        AddressIsInvulnerable,
         /// The call the urnegister_invulnerable failed because the address is not invulnerable
         AddressIsNotInvulnerable,
-        /// The call to bootstrap_chain failed, the chain has previously been bootstrapped
-        ChainAlreadyBootstrapped,
-        /// The chain has not been bootstrapped and cannot be attested to
-        ChainIsNotBootstrapped,
-        /// The call to attest_block failed, the attestor is not eligible at this time
-        NotEligible,
         /// The call to attest_block failed, the block's cryptographic committments were invalid
         InvalidAttestation,
         // If there is no digest stored yet
