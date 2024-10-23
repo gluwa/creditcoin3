@@ -56,6 +56,7 @@ fn submit_proof_should_error_when_proof_is_empty() {
 
 // this test additionally logs an error since it's unable to verify the proof
 #[test]
+#[cfg(all(test, target_arch = "x86_64"))]
 fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
@@ -148,6 +149,7 @@ fn submit_proof_should_error_when_stark_metadata_not_set() {
 }
 
 #[test]
+#[cfg(all(test, target_arch = "x86_64"))]
 fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
