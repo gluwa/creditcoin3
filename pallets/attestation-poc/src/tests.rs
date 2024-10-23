@@ -647,6 +647,59 @@ fn register_attestor_should_error_when_address_is_already_registered() {
 }
 
 #[test]
+fn register_attestor_should_error_when_list_is_full() {
+    ExtBuilder.build_and_execute(|| {
+        let root = RuntimeOrigin::root();
+        let att_1 = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_2 = Attestor::new(STASH_2, ATTESTOR_2);
+        assert_ok!(Attestation::set_max_attestors(root, DEV_CHAIN_KEY, 1));
+        assert_ok!(Attestation::register_attestor(
+            att_1.stash,
+            DEV_CHAIN_KEY,
+            att_1.attestor_id,
+        ));
+
+        // note: test target is try_insert_attestor_and_emit_event()
+        assert_noop!(
+            Attestation::register_attestor(att_2.stash, DEV_CHAIN_KEY, att_2.attestor_id,),
+            Error::<Test>::AttestorListFull
+        );
+    })
+}
+
+#[test]
+fn attest_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::attest(
+                RuntimeOrigin::none(),
+                DEV_CHAIN_KEY,
+                *b"000000000000000000000000000000000000000000000000",
+                *b"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            BadOrigin
+        );
+    })
+}
+
+#[test]
+fn attest_should_error_when_signer_not_registered_as_attestor() {
+    ExtBuilder.build_and_execute(|| {
+        let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_noop!(
+            Attestation::attest(
+                RuntimeOrigin::signed(att1.attestor_id),
+                DEV_CHAIN_KEY,
+                att1.public_key,
+                att1.signature
+            ),
+            Error::<Test>::AddressNotAttestor
+        );
+    })
+}
+
+#[test]
 fn attest_should_error_when_public_key_is_invalid() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
@@ -714,22 +767,34 @@ fn attest_should_error_when_signature_doesnt_validate_against_public_key() {
 }
 
 #[test]
-fn register_attestor_should_error_when_list_is_full() {
+fn attest_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        let root = RuntimeOrigin::root();
-        let att_1 = Attestor::new(STASH_1, ATTESTOR_1);
-        let att_2 = Attestor::new(STASH_2, ATTESTOR_2);
-        assert_ok!(Attestation::set_max_attestors(root, DEV_CHAIN_KEY, 1));
-        assert_ok!(Attestation::register_attestor(
-            att_1.stash,
-            DEV_CHAIN_KEY,
-            att_1.attestor_id,
-        ));
+        let att1 = Attestor::new(STASH_1, ATTESTOR_1);
 
-        // note: test target is try_insert_attestor_and_emit_event()
-        assert_noop!(
-            Attestation::register_attestor(att_2.stash, DEV_CHAIN_KEY, att_2.attestor_id,),
-            Error::<Test>::AttestorListFull
+        // setup
+        assert_ok!(Attestation::register_attestor(
+            att1.stash,
+            DEV_CHAIN_KEY,
+            att1.attestor_id,
+        ));
+        let attestor = Attestation::attestors(DEV_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.status, AttestorStatus::Idle);
+
+        // act
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att1.attestor_id),
+            DEV_CHAIN_KEY,
+            att1.public_key,
+            att1.signature
+        ),);
+
+        // assert
+        let attestor = Attestation::attestors(DEV_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.status, AttestorStatus::Active);
+        assert_eq!(attestor.bls_public_key, Some(att1.public_key));
+
+        System::assert_last_event(
+            crate::Event::AttestorActivated(DEV_CHAIN_KEY, att1.attestor_id).into(),
         );
     })
 }
