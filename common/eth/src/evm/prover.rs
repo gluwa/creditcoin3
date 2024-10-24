@@ -150,31 +150,29 @@ impl GluwaPublicProverContract {
 
         info!("Subscribed to query submissions");
 
-        loop {
-            if let Some(query) = stream.next().await {
-                info!("New query submission");
-                let (query_submitted, _log) = query?;
+        while let Some(query) = stream.next().await {
+            info!("New query submission");
+            let (query_submitted, _log) = query?;
 
-                // TODO: check log
+            let query = Query {
+                chain_id: query_submitted.query.chainId,
+                height: query_submitted.query.height,
+                index: query_submitted.query.index,
+                layout_segments: query_submitted
+                    .query
+                    .layoutSegments
+                    .iter()
+                    .map(|l| LayoutSegment {
+                        offset: l.offset,
+                        size: l.size,
+                    })
+                    .collect::<Vec<_>>(),
+            };
 
-                let query = Query {
-                    chain_id: query_submitted.query.chainId,
-                    height: query_submitted.query.height,
-                    index: query_submitted.query.index,
-                    layout_segments: query_submitted
-                        .query
-                        .layoutSegments
-                        .iter()
-                        .map(|l| LayoutSegment {
-                            offset: l.offset,
-                            size: l.size,
-                        })
-                        .collect::<Vec<_>>(),
-                };
-
-                query_channel.send(query)?;
-            }
+            query_channel.send(query)?;
         }
+
+        Err(anyhow::anyhow!("Query submission stream ended"))
     }
 
     pub async fn submit_query(&self, client: &Client, query: Query, cost: u64) -> Result<String> {
@@ -215,8 +213,7 @@ impl GluwaPublicProverContract {
         &self,
         client: &Client,
         query_id: FixedBytes<32>,
-        channel: mpsc::Sender<Proof>,
-    ) -> Result<()> {
+    ) -> Result<Proof> {
         info!(
             "Subscribing to proof verification for query: {:?}",
             query_id
@@ -233,17 +230,16 @@ impl GluwaPublicProverContract {
 
         info!("Subscribed to proof verification");
 
-        loop {
-            if let Some(proof) = stream.next().await {
-                info!("New proof verification");
-                let (proof_verified, _log) = proof?;
+        while let Some(proof) = stream.next().await {
+            let (proof_verified, _log) = proof?;
 
-                if proof_verified.queryId != query_id {
-                    continue;
-                }
-
-                channel.send(proof_verified.proof.0.into()).await?;
+            if proof_verified.queryId == query_id {
+                return Ok(proof_verified.proof.0.into());
             }
         }
+
+        Err(anyhow::anyhow!(
+            "Stream ended without matching proof verification"
+        ))
     }
 }

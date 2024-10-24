@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::Parser;
 use std::error::Error;
 use std::io::{self, Write};
-use tokio::sync::mpsc;
 use tracing::debug;
 
 use eth::{evm, Client};
@@ -122,21 +121,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
-    println!("Query submitted! Tx hash: {}", tx_hash);
+    println!("Query submitted! Tx hash: {}\n", tx_hash);
 
-    let (proof_channel_sender, mut proof_chan_rec) = mpsc::channel(1);
+    println!("Waiting for proof...");
+    let proof = contract
+        .subscribe_proof_verification(&eth_client, query_id.0.into())
+        .await?;
 
-    tokio::spawn(async move {
-        let proof = contract
-            .subscribe_proof_verification(&eth_client, query_id.0.into(), proof_channel_sender)
-            .await;
-        if let Err(e) = proof {
-            println!("Error: {:?}", e);
-        }
-    });
-
-    // await result
-    let proof = proof_chan_rec.recv().await.unwrap();
     println!("\nProof received: proof len: {}", proof.len());
 
     Ok(())
@@ -179,21 +170,13 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
-    println!("Query submitted! Tx hash: {}", tx_hash);
+    println!("Query submitted! Tx hash: {}'n", tx_hash);
 
-    let (proof_channel_sender, mut proof_chan_rec) = mpsc::channel(1);
+    println!("Waiting for proof...");
+    let proof = contract
+        .subscribe_proof_verification(&eth_client, query_id.0.into())
+        .await?;
 
-    tokio::spawn(async move {
-        let proof = contract
-            .subscribe_proof_verification(&eth_client, query_id.0.into(), proof_channel_sender)
-            .await;
-        if let Err(e) = proof {
-            println!("Error: {:?}", e);
-        }
-    });
-
-    // await result
-    let proof = proof_chan_rec.recv().await.unwrap();
     println!("\nProof received: proof len: {}", proof.len());
 
     Ok(())

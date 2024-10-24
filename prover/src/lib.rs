@@ -3,7 +3,10 @@ use cc_client::AccountId32;
 use eth::Client as EthClient;
 use sp_core::H256;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::{
+    sync::mpsc,
+    time::{sleep, Duration},
+};
 use tracing::{debug, error, info};
 
 use attestation_cache::AttestationCache;
@@ -148,9 +151,22 @@ impl Server {
         info!("Starting query submission subscription...");
         let eth_client_for_query_sub = Arc::new(self.cc3_client.clone());
         tokio::spawn(async move {
-            contract::subscribe_query_submission(eth_client_for_query_sub, sender)
+            loop {
+                match contract::subscribe_query_submission(
+                    eth_client_for_query_sub.clone(),
+                    sender.clone(),
+                )
                 .await
-                .expect("Failed to subscribe to query submission");
+                {
+                    Ok(()) => {}
+                    Err(e) => {
+                        error!("Failed to subscribe to query submission: {:?}", e);
+                        // Optional: Break the loop after a certain number of retries if desired
+                        info!("Retrying subscription in one second...");
+                        sleep(Duration::from_secs(1)).await; // Delay before retrying
+                    }
+                }
+            }
         });
 
         info!("Listening for new queries...");

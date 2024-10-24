@@ -64,6 +64,8 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
         .submit_query_proof(eth_client, query.id().0.into(), proof)
         .await?;
 
+    info!("Proof submitted tx_hash: {}", tx_hash);
+
     Ok(tx_hash)
 }
 
