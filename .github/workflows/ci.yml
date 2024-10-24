@@ -26,6 +26,8 @@ env:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
+    needs:
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-build"]
     steps:
       - uses: actions/checkout@v4
@@ -416,6 +418,8 @@ jobs:
 
   clippy:
     name: Clippy
+    needs:
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-clippy"]
     steps:
       - uses: actions/checkout@v4
@@ -454,6 +458,8 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   check:
+    needs:
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-check"]
 
     # Steps represent a sequence of tasks that will be executed as part of the job
@@ -506,6 +512,8 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   unit-test-creditcoin:
+    needs:
+      - deploy-github-runner
     runs-on:
       [
         self-hosted,
@@ -571,6 +579,8 @@ jobs:
       matrix:
         target: [devnet, testnet]
     name: build-creditcoin-node-for-${{ matrix.target }}
+    needs:
+      - deploy-github-runner
     runs-on:
       [
         self-hosted,
@@ -640,6 +650,7 @@ jobs:
   build-creditcoin-node-for-testing:
     needs:
       - build-creditcoin-node
+      - deploy-github-runner
     strategy:
       fail-fast: false
       matrix:
@@ -734,6 +745,7 @@ jobs:
   integration-test-smart-contract:
     needs:
       - build-creditcoin-node-for-testing
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
     steps:
       - uses: actions/checkout@v4
@@ -1311,6 +1323,7 @@ jobs:
   integration-test-attestator-network:
     needs:
       - build-creditcoin-node-for-testing
+      - deploy-github-runner
     runs-on:
       [
         self-hosted,
@@ -1429,6 +1442,7 @@ jobs:
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
       - build-creditcoin-node-for-testing
+      - deploy-github-runner
     runs-on:
       [
         self-hosted,
@@ -1922,6 +1936,7 @@ jobs:
     needs:
       # because of the shared cache
       - build-creditcoin-node-for-testing
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
     steps:
       - uses: actions/checkout@v4

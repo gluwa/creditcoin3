@@ -113,6 +113,7 @@ jobs:
     needs:
       - sanity-check
       - setup
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-native"]
     steps:
       - uses: actions/checkout@v4
@@ -178,6 +179,7 @@ jobs:
     needs:
       - sanity-check
       - setup
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-wasm"]
     steps:
       - uses: actions/checkout@v4
@@ -227,6 +229,7 @@ jobs:
     needs:
       - sanity-check
       - setup
+      - deploy-github-runner
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-docker"]
     steps:
       - uses: actions/checkout@v4
