@@ -4,7 +4,7 @@ set -x
 
 # Install linode-cli
 python3 --version
-pipx install linode-cli
+pip install -r .github/requirements.txt
 linode-cli --version
 
 # Authorize hosted-runner
