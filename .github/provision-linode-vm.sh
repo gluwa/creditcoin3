@@ -23,6 +23,7 @@ done < .github/authorized_keys
 
 # retry until we get a VM
 IP_ADDRESS=""
+COUNTER=0
 while [ -z "$IP_ADDRESS" ]; do
     # if all jobs retry rate-limited queries at the same time they still hit the limit
     # and subsequently fail. Max number of retries is hard-coded to 3 in linodecli
@@ -38,9 +39,11 @@ while [ -z "$IP_ADDRESS" ]; do
         --image 'linode/ubuntu24.04' --region "$LINODE_REGION" \
         --type "$LINODE_VM_SIZE" --label "$LC_RUNNER_VM_NAME" \
         --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
-        --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
+        --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > "retry_$COUNTER.json"
 
-    IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
+    IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < "retry_$COUNTER.json")
+
+    (( COUNTER=COUNTER+1 ))
 done
 
 # provision the GitHub Runner binary on the VM

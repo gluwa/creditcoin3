@@ -936,6 +936,13 @@ jobs:
           LC_WORKFLOW_ID: ${{ github.run_id }}
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
+      - name: Upload Linode logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linode-${{ matrix.proxy }}-${{ matrix.secret }}-${{ matrix.proxy_type }}-logs
+          path: retry*.json
+
   rm-gh-runner-integration-test-cli:
     runs-on: ubuntu-24.04
     needs:
