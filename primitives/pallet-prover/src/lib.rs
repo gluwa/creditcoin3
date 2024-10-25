@@ -16,9 +16,12 @@ pub const STARK_PROGRAM_V1_HASH: H256 = H256([
     112, 132, 191, 163, 100, 141, 104, 195, 2, 102, 226, 196,
 ]);
 
+// duplicate with constants in StarkProgramMetadataStorage
+// primitives/prover/src/stark_program_auth.rs, CSUB-1303
+// 0x173c8e8b410a5e8894dd7413f884bfeda33d20b8736c47571ad0310d002dadf9
 pub const STARK_PROGRAM_V2_HASH: H256 = H256([
-    232, 88, 85, 136, 197, 79, 34, 49, 253, 15, 116, 194, 99, 235, 158, 244, 247, 191, 215, 123,
-    22, 67, 23, 250, 78, 242, 36, 224, 60, 55, 37, 201,
+    23, 60, 142, 139, 65, 10, 94, 136, 148, 221, 116, 19, 248, 132, 191, 237, 163, 61, 32, 184,
+    115, 108, 71, 87, 26, 208, 49, 13, 0, 45, 173, 249,
 ]);
 
 #[derive(
