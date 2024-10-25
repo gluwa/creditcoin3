@@ -19,8 +19,15 @@ use tracing::{debug, info};
 use cc_client::Client;
 
 #[derive(Parser, Debug)]
-#[command(name = "attestor")]
+#[command(name = "attestor_zombienet")]
 pub struct AttestorZombienet {
+    #[arg(
+        long,
+        default_value = "http://localhost:8545",
+        help = "URL to an Ethereum node."
+    )]
+    eth_rpc_url: String,
+
     #[arg(
         long,
         default_value = "ws://localhost:9944",
@@ -37,6 +44,13 @@ pub struct AttestorZombienet {
 
     #[arg(long, default_value = "config.yaml", help = "Path to the config file")]
     config_file: String,
+
+    #[arg(
+        long,
+        required = false,
+        help = "If set, override `chain_id` from config file"
+    )]
+    chain_id: Option<u64>,
 
     #[arg(
         long,
@@ -90,10 +104,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
 
     // Load and parse the config file
-    let config: Process = {
+    let mut config: Process = {
         let config_str = std::fs::read_to_string(args.config_file)?;
         serde_yaml::from_str(&config_str)?
     };
+    config.chain_id = args.chain_id.unwrap_or(config.chain_id);
 
     let mut keys = vec![];
     for _ in 0..config.num_attestors {
@@ -213,6 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut attestor_args = config.default_args.clone().unwrap_or_default();
 
             attestor_args.push(format!("--cc3-key={}", attestor_key.secret));
+            attestor_args.push(format!("--eth-rpc-url={}", args.eth_rpc_url));
 
             // get random number out of args.port_ranges
             // if single_node is true, use 9944

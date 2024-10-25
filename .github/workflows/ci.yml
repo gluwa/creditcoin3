@@ -1360,18 +1360,22 @@ jobs:
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data &
 
-      - name: Start Ethereum simulation with Anvil
+      - name: Start Ethereum simulation with Anvil - 2 chains
         run: |
           # first install it
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
-          ~/.foundry/bin/anvil --block-time 6 &
+          # chain IDs are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 &
 
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
 
       - name: Start Attestation Zombienet
         run: |
@@ -1383,10 +1387,12 @@ jobs:
           # always use 5 attestors when running in CI
           sed -i "s/num_attestors: .*/num_attestors: 5/" attestor_zombienet/config.yaml
 
-          ./target/release/attestor_zombienet --cc3-key "//Alice" --config-file attestor_zombienet/config.yaml &
+          ./target/release/attestor_zombienet --cc3-key "//Alice" --chain-id 2 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml &
+          ./target/release/attestor_zombienet --cc3-key "//Bob" --chain-id 4 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml &
 
       - name: Wait for 5 attestors to be registered
         run: |
+          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
       - name: Install Node.js
