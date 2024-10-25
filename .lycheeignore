@@ -1,4 +1,5 @@
 127.0.0.1(.*)
+http://localhost(.*)
 ws|wss://(.*)
 bzz-raw://(.*)
 rpc\.(.*)\.creditcoin\.network/
