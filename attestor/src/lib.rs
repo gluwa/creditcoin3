@@ -33,6 +33,12 @@ pub struct Config {
     //pub bls_key: [u8; 32],
 }
 
+#[derive(Clone, Copy)]
+pub struct IntervalUpdate {
+    pub new_interval: u64,
+    pub attested_height_at_change: u64,
+}
+
 impl Server {
     /// Create a new server based on `Config`
     #[must_use]
@@ -45,7 +51,7 @@ impl Server {
         let chain_id = eth_client.get_chain_id().await?;
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
-        let cc3_client =
+        let mut cc3_client =
             cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id).await?;
         cc3_client.init().await?;
 
@@ -80,40 +86,56 @@ impl Server {
                 biased;
 
                 Some(event) = event_sub.next() => {
-                    if let CcEvent::RandomnessChangedEvent((epoch, randomness)) = event {
-                        // Abort the previous task otherwise we will end up with multiple subscriptions
-                        task.abort();
+                    match event {
+                        CcEvent::RandomnessChangedEvent((epoch, randomness)) => {
+                            // Abort the previous task otherwise we will end up with multiple subscriptions
+                            task.abort();
 
-                        info!(
-                            "Randomness changed: epoch {}, randomness: {}",
-                            epoch,
-                            hex::encode(randomness)
-                        );
+                            info!(
+                                "Randomness changed: epoch {}, randomness: {}",
+                                epoch,
+                                hex::encode(randomness)
+                            );
 
-                        // Re-evaluate eligibility and start a new subscription
-                        if check_elgibility(&cc3_client).await? {
-                            info!("Attestor eligible to start attesting!");
+                            // Re-evaluate eligibility and start a new subscription
+                            if check_elgibility(&cc3_client).await? {
+                                info!("Attestor eligible to start attesting!");
 
-                            // reopen the channel
-                            info!("Reopening attestation channel");
-                            (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(1);
+                                // Must fetch attestation interval again, in case it changed
+                                let attestation_interval = cc3_client.get_attestation_interval();
 
-                            info!("Starting new subscription task");
-                            task = subscribe_to_new_heads_task(
-                                eth_client.clone(),
-                                cc3_client.clone(),
-                                attestation_tx.clone(),
-                                attestation_interval,
-                            ).await?;
-                        } else {
-                            info!("Going to sleep because we are not eligible this epoch...");
-                            // drain channel
-                            attestation_rx.close();
-                            while (attestation_rx.recv().await).is_some() {
-                                info!("Draining attestation channel");
+                                // reopen the channel
+                                info!("Reopening attestation channel");
+                                (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(1);
+
+                                info!("Starting new subscription task");
+                                task = subscribe_to_new_heads_task(
+                                    eth_client.clone(),
+                                    cc3_client.clone(),
+                                    attestation_tx.clone(),
+                                    attestation_interval,
+                                ).await?;
+                            } else {
+                                info!("Going to sleep because we are not eligible this epoch...");
+                                // drain channel
+                                attestation_rx.close();
+                                while (attestation_rx.recv().await).is_some() {
+                                    info!("Draining attestation channel");
+                                }
                             }
-                        }
-                    };
+                        },
+                        CcEvent::AttestationIntervalChangedEvent(_, new_interval, attested_height_at_change) => {
+                            info!(
+                                "Attestation interval updated. New interval: {:?}, Attested height at change: {:?}", new_interval, attested_height_at_change
+                            );
+                            let interval_update = IntervalUpdate {
+                                new_interval,
+                                attested_height_at_change,
+                            };
+                            cc3_client.change_attestation_interval(interval_update);
+                        },
+                        _ => ()
+                    }
                 },
                 Some(attestation) = attestation_rx.recv() => {
                     info!("Received attestation to submit");

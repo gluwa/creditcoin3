@@ -376,17 +376,35 @@ where
         attestation: &Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
         let runtime = self.runtime.runtime_api();
+        let best_hash = self.backend.blockchain().info().best_hash;
+        // Chain key was substituted for chain_id before attestation submission
+        let chain_key = attestation.attestation_data.chain_id;
+
         let chain_attestation_interval = runtime
             .chain_attestation_interval(
                 self.backend.blockchain().info().best_hash,
                 attestation.attestation_data.chain_id,
             )?
-            .ok_or(Error::AttestationHeaderNumberInvalid)?;
+            .ok_or(Error::FailedToGetAttestationInterval)?;
 
-        // Attestation block number mod chain_attestation_interval should be 0
-        if attestation.attestation_data.header_number % chain_attestation_interval != 0 {
+        let last_attestation_height =
+            if let Some(digest) = runtime.last_digest(best_hash, chain_key)? {
+                runtime
+                    .get(best_hash, chain_key, digest)?
+                    .ok_or(Error::FailedToGetLastAttestation)?
+                    .header_number()
+            } else {
+                // If no prior attestation found, we start from 0
+                0
+            };
+
+        // Attestation height should be greater than last attestation height by exactly `interval`
+        if (attestation.attestation_data.header_number - last_attestation_height)
+            % chain_attestation_interval
+            != 0
+        {
             debug!(target: LOG_TARGET, "📝 Attestation header number is invalid");
-            return Err(Error::AttestationTooEarly);
+            return Err(Error::AttestationHeaderNumberInvalid);
         }
 
         Ok(())
@@ -418,7 +436,7 @@ where
 
                 let interval = runtime
                     .chain_attestation_interval(block_hash, chain_id)?
-                    .ok_or(Error::AttestationHeaderNumberInvalid)?;
+                    .ok_or(Error::FailedToGetAttestationInterval)?;
 
                 // Skip if the attestation is too old
                 if header_number <= last_header {

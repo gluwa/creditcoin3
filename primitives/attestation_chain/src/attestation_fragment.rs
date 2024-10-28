@@ -2,6 +2,7 @@ use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval}
 use crate::block::{Block, BlockError, BlockSerializable};
 use crate::AttestationChainParams;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use utils::json_serializable::JsonSerializable;
 
 #[derive(Debug, Clone)]
@@ -136,15 +137,19 @@ pub struct FragmentBlocksSerializable {
     pub blocks: Vec<BlockSerializable>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum AttestationFragmentError {
-    //    BlockNumberMismatch(u64),
+    #[error("Fragment blocks must be sequential! Block number: {0}")]
     BlockNumberMismatch(u64),
+    #[error("Prev digest of added block must match digest of prior block, Block: {0:?}")]
     BlockDigestMismatch(Box<Block>),
+    #[error("Misaligned block, Block: {0:?}")]
     MisalignedBlock(Box<Block>),
+    #[error("`root` field of block is empty, Block number: {0}")]
     EmptyBlock(u64),
+    #[error("Cannot add block to full fragment")]
     FragmentIsFull,
-
+    #[error("{0}")]
     Other(String),
 }
 

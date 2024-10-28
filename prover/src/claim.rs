@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use anyhow::Result;
 use std::ops::Range;
 use tracing::info;
@@ -8,7 +7,7 @@ use pallet_prover_primitives::Query;
 use proof::cairo_generate_proof;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
-use crate::{contract, fragment, AttestationCacheType, CcClientArc, EthClientArc};
+use crate::{contract, fragment, AttestationCacheType, EthClientArc};
 
 // Process a claim
 // Parameters:
@@ -17,7 +16,6 @@ use crate::{contract, fragment, AttestationCacheType, CcClientArc, EthClientArc}
 // - `query`: query to process
 // - `attestation_cache`: attestation cache
 pub async fn process(
-    cc3_client: CcClientArc,
     eth_client: EthClientArc,
     query: &Query,
     attestation_cache: &AttestationCacheType,
@@ -25,29 +23,9 @@ pub async fn process(
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
-    let attestation_interval = cc3_client
-        .get_attestation_chain_interval(query.chain_id)
-        .await?
-        .ok_or(anyhow!("Could not retrieve attestation interval."))?;
-    info!("Got attestation chain interval: {:?}", attestation_interval);
-
-    let checkpoint_interval = cc3_client
-        .get_chain_checkpoint_interval(query.chain_id)
-        .await?
-        .ok_or(anyhow!("Could not retrieve checkpoint interval"))?;
-    info!("Got chain checkpoint interval: {:?}", checkpoint_interval);
-    // Matching type to that of attestation interval
-    let checkpoint_interval = u64::from(checkpoint_interval);
-
     // Get the attestation fragment
-    let attestation_fragment: AttestationFragment = fragment::get_for_claim(
-        &eth_client,
-        query,
-        attestation_cache,
-        attestation_interval,
-        checkpoint_interval,
-    )
-    .await?;
+    let attestation_fragment: AttestationFragment =
+        fragment::get_for_claim(&eth_client, query, attestation_cache).await?;
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
@@ -113,7 +91,6 @@ pub async fn process(
 }
 
 pub async fn _dummy_process(
-    _cc3_client: CcClientArc,
     eth_client: EthClientArc,
     query: Query,
     _attestation_cache: &AttestationCacheType,

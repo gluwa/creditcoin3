@@ -222,6 +222,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             attestor_args.push(format!("--cc3-rpc-url=ws://localhost:{}", port));
+            if args.verbose {
+                attestor_args.push("--verbose".to_string());
+            }
 
             let attestor = AccountId32(attestor_key.keypair.public_key().0);
 

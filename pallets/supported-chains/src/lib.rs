@@ -44,7 +44,7 @@ pub mod pallet {
     }
 
     #[pallet::storage]
-    #[pallet::getter(fn list_supported_chains)]
+    #[pallet::getter(fn supported_chain)]
     pub type SupportedChains<T: Config> = StorageMap<
         Hasher = Blake2_128Concat,
         Key = ChainKey,
@@ -215,6 +215,10 @@ pub mod pallet {
             chain_name: Vec<u8>,
         ) -> Option<ChainId> {
             ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name)
+        }
+
+        fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain> {
+            SupportedChains::<T>::get(chain_key)
         }
     }
 }

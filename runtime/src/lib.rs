@@ -1407,8 +1407,8 @@ impl_runtime_apis! {
             Attestation::attestor_bls_pubkey(chain_id, attestor)
         }
 
-        fn chain_attestation_interval(chain_id: ChainId) -> Option<u64> {
-            Some(Attestation::chain_attestation_interval(chain_id))
+        fn chain_attestation_interval(chain_key: ChainKey) -> Option<u64> {
+            Some(Attestation::chain_attestation_interval(chain_key))
         }
 
         fn attestor_status(chain_id: ChainId, attestor: &AccountId) -> Option<AttestorStatus> {

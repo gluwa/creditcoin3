@@ -126,14 +126,13 @@ impl Server {
         info!("Starting unprocessed claim processing...");
         let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
         for query in unprocessed_queries {
-            let cc3_client = cc3_client.clone();
             let eth_client = eth_client.clone();
             if self.config.test_mode {
                 info!("Processing unprocessed query in test mode");
-                claim::_dummy_process(cc3_client, eth_client, query, &attestations_cache).await?;
+                claim::_dummy_process(eth_client, query, &attestations_cache).await?;
             } else {
                 info!("Processing unprocessed query: {:?}", query);
-                match claim::process(cc3_client, eth_client, &query, &attestations_cache).await {
+                match claim::process(eth_client, &query, &attestations_cache).await {
                     Ok(proof) => {
                         info!("Submitting proof for query: {:?}", query);
                         contract::submit_proof(&cc_eth_client, query, proof).await?;
@@ -173,14 +172,13 @@ impl Server {
         // Wait for new queries and handle them
         while let Some(query) = receiver.recv().await {
             let eth_client = eth_client.clone();
-            let cc3_client = cc3_client.clone();
 
             if self.config.test_mode {
                 info!("Processing query in test mode");
-                claim::_dummy_process(cc3_client, eth_client, query, &attestations_cache).await?;
+                claim::_dummy_process(eth_client, query, &attestations_cache).await?;
             } else {
                 info!("Processing query: {:?}", query);
-                match claim::process(cc3_client, eth_client, &query, &attestations_cache).await {
+                match claim::process(eth_client, &query, &attestations_cache).await {
                     Ok(proof) => {
                         info!("Submitting proof for query: {:?}", query);
                         contract::submit_proof(&cc_eth_client, query, proof).await?;

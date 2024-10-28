@@ -4,7 +4,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 
-use super::schema::cachedupto::onerow_id;
+use super::schema::cachedupto::chain_id as db_chain_id;
 use super::schema::cachedupto::{self, dsl::cachedupto as cache_state_table};
 
 #[derive(
@@ -22,15 +22,19 @@ use super::schema::cachedupto::{self, dsl::cachedupto as cache_state_table};
 #[diesel(table_name = cachedupto)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CachedUpTo {
-    pub onerow_id: bool,
+    pub chain_id: i64,
     pub digest: String,
 }
 
-pub async fn mark_cached_up_to(connection: &mut AsyncPgConnection, digest: H256) -> Result<()> {
-    let new_cached_through: CachedUpTo = digest.into();
+pub async fn mark_cached_up_to(
+    connection: &mut AsyncPgConnection,
+    chain_id: u64,
+    digest: H256,
+) -> Result<()> {
+    let new_cached_through: CachedUpTo = (super::to_storage_type(chain_id), digest).into();
     diesel::insert_into(cache_state_table)
         .values(&new_cached_through)
-        .on_conflict(onerow_id)
+        .on_conflict(db_chain_id)
         .do_update()
         .set(&new_cached_through)
         .execute(connection)
@@ -39,9 +43,13 @@ pub async fn mark_cached_up_to(connection: &mut AsyncPgConnection, digest: H256)
     Ok(())
 }
 
-pub async fn currently_cached_up_to(connection: &mut AsyncPgConnection) -> Option<CachedUpTo> {
+pub async fn currently_cached_up_to(
+    connection: &mut AsyncPgConnection,
+    chain_id: u64,
+) -> Option<CachedUpTo> {
     match cache_state_table
         .select(CachedUpTo::as_select())
+        .filter(db_chain_id.eq(super::to_storage_type(chain_id)))
         .first(connection)
         .await
     {
@@ -50,12 +58,12 @@ pub async fn currently_cached_up_to(connection: &mut AsyncPgConnection) -> Optio
     }
 }
 
-// Mapper from on-chain digest type (H256) to DB digest type (String)
-impl From<H256> for CachedUpTo {
-    fn from(digest: H256) -> Self {
+// Mapper from chain id and on-chain digest (i64, H256) to DB type
+impl From<(i64, H256)> for CachedUpTo {
+    fn from(parts: (i64, H256)) -> Self {
         CachedUpTo {
-            onerow_id: true,
-            digest: hex::encode(digest),
+            chain_id: parts.0,
+            digest: hex::encode(parts.1),
         }
     }
 }

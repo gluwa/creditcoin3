@@ -14,6 +14,7 @@ use crate::{
         blockwithdigest,
         cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
         db::PgPool,
+        to_storage_type,
     },
     AttestationCacheType, CcClientArc,
 };
@@ -135,6 +136,14 @@ where
         attestation::last_synced(&mut connection, chain_id).await
     }
 
+    pub async fn earliest_attestation(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Option<attestation::Attestation>> {
+        let mut connection = self.pool.get().await?;
+        attestation::earliest_attestation(&mut connection, chain_id).await
+    }
+
     pub async fn get_attestation_fragment(
         &self,
         chain_id: ChainId,
@@ -154,14 +163,56 @@ where
         blockwithdigest::upsert_fragment_blocks(&mut connection, fragment).await
     }
 
-    pub async fn currently_cached_up_to(&self) -> Result<Option<CachedUpTo>> {
+    pub async fn currently_cached_up_to(&self, chain_id: u64) -> Result<Option<CachedUpTo>> {
         let mut connection = self.pool.get().await?;
-        Ok(currently_cached_up_to(&mut connection).await)
+        Ok(currently_cached_up_to(&mut connection, chain_id).await)
     }
 
-    pub async fn mark_cached_up_to(&self, cached_up_to: H256) -> Result<()> {
+    pub async fn mark_cached_up_to(&self, chain_id: u64, cached_up_to: H256) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        mark_cached_up_to(&mut connection, cached_up_to).await
+        mark_cached_up_to(&mut connection, chain_id, cached_up_to).await
+    }
+
+    pub async fn get_highest_attestation_before(
+        &self,
+        block_number: u64,
+        chain_id: u64,
+    ) -> Result<Option<attestation::Attestation>> {
+        let mut connection = self.pool.get().await?;
+        attestation::get_highest_attestation_before(&mut connection, block_number, chain_id).await
+    }
+
+    pub async fn get_highest_checkpoint_before(
+        &self,
+        block_number: u64,
+        chain_id: u64,
+    ) -> Result<Option<DbCheckpoint>> {
+        let mut connection = self.pool.get().await?;
+        attestationcheckpoint::get_highest_checkpoint_before(
+            &mut connection,
+            block_number,
+            chain_id,
+        )
+        .await
+    }
+
+    pub async fn get_lowest_attestation_after(
+        &self,
+        block_number: u64,
+        chain_id: u64,
+    ) -> Result<Option<attestation::Attestation>> {
+        let mut connection = self.pool.get().await?;
+        attestation::get_lowest_attestation_after(&mut connection, block_number, chain_id).await
+    }
+
+    pub async fn get_lowest_checkpoint_after(
+        &self,
+        block_number: u64,
+        chain_id: u64,
+    ) -> Result<Option<DbCheckpoint>> {
+        let mut connection = self.pool.get().await?;
+        attestationcheckpoint::get_lowest_checkpoint_after(&mut connection, block_number, chain_id)
+            .await
     }
 }
 
@@ -189,7 +240,7 @@ pub async fn sync_cache(
     // If historical attestations sync isn't yet complete, then we refrain from
     // updating the DB table CachedUpTo. We instead save any update to apply later.
     let mut historical_sync_complete = false;
-    let mut cached_up_to: Option<H256> = None;
+    let mut cached_up_to: Option<(u64, H256)> = None;
 
     // Wait on the channels for new attestations and checkpoints
     loop {
@@ -199,7 +250,7 @@ pub async fn sync_cache(
                     // Mark new height that we are CachedUpTo
                     if let Some(cached_up_to) = cached_up_to {
                         attestations_cache
-                        .mark_cached_up_to(cached_up_to)
+                        .mark_cached_up_to(cached_up_to.0, cached_up_to.1)
                         .await?;
                     }
 
@@ -236,10 +287,10 @@ pub async fn sync_cache(
 
                 if historical_sync_complete {
                     attestations_cache
-                        .mark_cached_up_to(checkpoint.digest)
+                        .mark_cached_up_to(chain_id, checkpoint.digest)
                         .await?;
                 } else {
-                    cached_up_to = Some(checkpoint.digest);
+                    cached_up_to = Some((chain_id, checkpoint.digest));
                 }
             }
         }
@@ -351,16 +402,16 @@ async fn cache_historical_checkpoints(
     };
 
     // All checkpoints prior to this one don't need to be cached. We already have them!
-    let cached_up_to = attestations_cache.currently_cached_up_to().await?;
+    let cached_up_to = attestations_cache.currently_cached_up_to(chain).await?;
 
     for checkpoint in checkpoints {
-        if Some(checkpoint.digest.into()) == cached_up_to {
+        if Some((to_storage_type(chain), checkpoint.digest).into()) == cached_up_to {
             info!(
                 "Current digest matches the last digest up to which we have already cached all checkpoints {}. Stopping fetching more historical checkpoints",
                 checkpoint.digest
             );
             attestations_cache
-                .mark_cached_up_to(highest_checkpoint.digest)
+                .mark_cached_up_to(chain, highest_checkpoint.digest)
                 .await?;
             return Ok(());
         }
@@ -384,7 +435,7 @@ async fn cache_historical_checkpoints(
 
     info!("Reached the front of the chain, stopping fetching more historical checkpoints");
     attestations_cache
-        .mark_cached_up_to(highest_checkpoint.digest)
+        .mark_cached_up_to(chain, highest_checkpoint.digest)
         .await?;
 
     Ok(())

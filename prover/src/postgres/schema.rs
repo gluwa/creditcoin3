@@ -44,8 +44,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    cachedupto (onerow_id) {
-        onerow_id -> Bool,
+    cachedupto (chain_id) {
+        chain_id -> Int8,
         #[max_length = 64]
         digest -> Varchar,
     }

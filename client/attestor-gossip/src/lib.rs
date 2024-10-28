@@ -96,6 +96,10 @@ pub enum Error {
     AttestorNotEligible,
     #[error("Attestor not active")]
     AttestorNotActive,
+    #[error("Failed to get attestation interval")]
+    FailedToGetAttestationInterval,
+    #[error("Failed to get last attestation after existance confirmed")]
+    FailedToGetLastAttestation,
     #[error("Other error: {0}")]
     Other(String),
 }

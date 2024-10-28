@@ -1293,6 +1293,22 @@ fn set_chain_attestation_interval_should_error_when_not_signed_by_root() {
 }
 
 #[test]
+fn set_chain_attestation_interval_should_error_with_interval_0() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_id = 2;
+        let chain_attestation_interval = 0;
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                chain_id,
+                chain_attestation_interval
+            ),
+            Error::<Test>::InvalidAttestationInterval
+        );
+    })
+}
+
+#[test]
 fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_id = 2;
@@ -1309,7 +1325,7 @@ fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
 }
 
 #[test]
-fn set_chain_attestation_interval_updates_internal_storage() {
+fn set_chain_attestation_interval_updates_internal_storage_and_emits_event() {
     ExtBuilder.build_and_execute(|| {
         let attestation_interval = Attestation::chain_attestation_interval(DEV_CHAIN_KEY);
         assert_eq!(attestation_interval, 10); // Interval set in mock genesis
@@ -1323,6 +1339,35 @@ fn set_chain_attestation_interval_updates_internal_storage() {
 
         let attestation_interval = Attestation::chain_attestation_interval(DEV_CHAIN_KEY);
         assert_eq!(attestation_interval, 101);
+
+        let chain_id = SupportedChains::supported_chain(DEV_CHAIN_KEY)
+            .expect("Checked that this chain was supported when setting interval.")
+            .chain_id;
+
+        System::assert_last_event(
+            crate::Event::AttestationIntervalChanged(chain_id, chain_attestation_interval, 0)
+                .into(),
+        );
+    })
+}
+
+#[test]
+fn set_chain_attestation_interval_fails_when_attestation_matching_last_digest_is_not_found() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_attestation_interval = 101;
+
+        // Setting last digest without inserting a corresponding attestation.
+        let digest: H256 = [0u8; 32].into();
+        LastDigest::<Test>::insert(DEV_CHAIN_KEY, digest);
+
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                DEV_CHAIN_KEY,
+                chain_attestation_interval
+            ),
+            Error::<Test>::AttestationNotFound
+        );
     })
 }
 
@@ -1358,8 +1403,22 @@ fn set_attestations_per_checkpoint_should_error_when_not_signed() {
 fn set_attestations_per_checkpoint_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::set_attestations_per_checkpoint(RuntimeOrigin::signed(ATTESTOR_1), 2, 101),
+            Attestation::set_attestations_per_checkpoint(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                DEV_CHAIN_KEY,
+                101
+            ),
             BadOrigin
+        );
+    })
+}
+
+#[test]
+fn set_attestations_per_checkpoint_should_error_with_invalid_interval_value() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_attestations_per_checkpoint(RuntimeOrigin::root(), DEV_CHAIN_KEY, 0),
+            Error::<Test>::InvalidAttestationsPerCheckpoint
         );
     })
 }

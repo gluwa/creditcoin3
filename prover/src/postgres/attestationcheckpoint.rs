@@ -1,6 +1,7 @@
 use anyhow::Result;
 use diesel::dsl::exists as diesel_exists;
 use diesel::prelude::*;
+use diesel::result::Error as DieselError;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use hex::ToHex;
 use serde::{Deserialize, Serialize};
@@ -76,4 +77,58 @@ pub async fn insert(
         .await?;
 
     Ok(())
+}
+
+/// Checkpoints equal to the claim block number are excluded via `.lt()`. This is because claims
+/// in checkpoint blocks are considered to be at the end of the preceeding interval rather than
+/// the start of the following one.
+pub async fn get_highest_checkpoint_before(
+    connection: &mut AsyncPgConnection,
+    block_number: u64,
+    chain_id: u64,
+) -> Result<Option<AttestationCheckpoint>> {
+    match attestation_checkpoint_table
+        .order(attestationcheckpoint::block_number.desc())
+        .filter(attestationcheckpoint::block_number.lt(super::to_storage_type(block_number)))
+        .filter(attestationcheckpoint::chain_id.eq(super::to_storage_type(chain_id)))
+        .select(AttestationCheckpoint::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
+/// Checkpoints equal to the claim block number are included via `.ge()`. This is because claims
+/// in checkpoint blocks are considered to be at the end of the preceeding interval rather than
+/// the start of the following one.
+pub async fn get_lowest_checkpoint_after(
+    connection: &mut AsyncPgConnection,
+    block_number: u64,
+    chain_id: u64,
+) -> Result<Option<AttestationCheckpoint>> {
+    match attestation_checkpoint_table
+        .order(attestationcheckpoint::block_number.asc())
+        .filter(attestationcheckpoint::block_number.ge(super::to_storage_type(block_number)))
+        .filter(attestationcheckpoint::chain_id.eq(super::to_storage_type(chain_id)))
+        .select(AttestationCheckpoint::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }

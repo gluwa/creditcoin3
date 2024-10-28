@@ -588,4 +588,6 @@ pub enum Error {
     FailedToGetChainKey,
     #[error("Failed to attestor working set size")]
     FailedToGetAttestorWorkingSetSize,
+    #[error("Failed to get attestation for last digest")]
+    LastAttestationNotFound,
 }

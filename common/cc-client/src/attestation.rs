@@ -11,7 +11,7 @@ pub use subxt::utils::AccountId32;
 use attestor_primitives::{AttestationCheckpoint, ChainId, SignedAttestation};
 
 use crate::cc3::{
-    attestation::events::BlockAttested, attestation::events::CheckpointReached,
+    attestation::events::{AttestationIntervalChanged, BlockAttested, CheckpointReached},
     randomness::events::StoreRandomnessForEpoch,
 };
 
@@ -21,6 +21,7 @@ pub enum CcEvent {
     BlockAttestedEvent(SignedAttestation<H256, AccountId32>),
     RandomnessChangedEvent((u64, Randomness)),
     CheckpointReachedEvent(AttestationCheckpoint, ChainId),
+    AttestationIntervalChangedEvent(ChainId, u64, u64),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -53,6 +54,7 @@ impl Subscription {
 const ATTESTATION_MODULE: &str = "Attestation";
 const ATTESTATION_SUBMITTED_EVENT: &str = "BlockAttested";
 const CHECKPOINT_REACHED_EVENT: &str = "CheckpointReached";
+const ATTESTATION_INTERVAL_CHANGED_EVENT: &str = "AttestationIntervalChanged";
 
 // See pallet/randomness/lib.rs
 const RANDOMNESS_MODULE: &str = "Randomness";
@@ -67,6 +69,7 @@ pub enum Error {
 }
 
 impl Client {
+    #[allow(clippy::too_many_lines)]
     pub fn subscribe_events(&self, filter: ChainId) -> Result<Subscription, Error> {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
@@ -152,11 +155,34 @@ impl Client {
                                 }
 
                                 let checkpoint: AttestationCheckpoint = evt.1.into();
-
                                 debug!("Checkpoint digest: {:?}", checkpoint.digest);
 
                                 if sender
                                     .send(CcEvent::CheckpointReachedEvent(checkpoint, evt.0))
+                                    .await
+                                    .is_err()
+                                {
+                                    // The receiver has been dropped
+                                    break;
+                                }
+                            }
+                        }
+                        (ATTESTATION_MODULE, ATTESTATION_INTERVAL_CHANGED_EVENT) => {
+                            if let Ok(Some(evt)) = event.as_event::<AttestationIntervalChanged>() {
+                                let (chain_id, new_interval, attested_height_at_change) =
+                                    (evt.0, evt.1, evt.2);
+                                // If the filter is not empty, check if the chain_id is in the filter
+                                if filter != chain_id {
+                                    continue;
+                                }
+                                debug!("Interval changed for chain_id: {:?}, New interval: {:?}, Attested height at time of change: {:?}", chain_id, new_interval, attested_height_at_change);
+
+                                if sender
+                                    .send(CcEvent::AttestationIntervalChangedEvent(
+                                        chain_id,
+                                        new_interval,
+                                        attested_height_at_change,
+                                    ))
                                     .await
                                     .is_err()
                                 {

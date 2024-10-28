@@ -105,6 +105,28 @@ pub async fn last_synced(
     }
 }
 
+pub async fn earliest_attestation(
+    connection: &mut AsyncPgConnection,
+    chain_id: u64,
+) -> Result<Option<Attestation>> {
+    match attestation_table
+        .order(attestation::header_number.asc())
+        .filter(attestation::chain_id.eq(super::to_storage_type(chain_id)))
+        .select(Attestation::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
 pub async fn remove_all_before(
     connection: &mut AsyncPgConnection,
     block_number: i64,
@@ -117,6 +139,60 @@ pub async fn remove_all_before(
     diesel::delete(delete_target).execute(connection).await?;
 
     Ok(())
+}
+
+/// Attestations equal to the claim block number are excluded via `.lt()`. This is because claims
+/// in attestation blocks are considered to be at the end of the preceeding interval rather than
+/// the start of the following one.
+pub async fn get_highest_attestation_before(
+    connection: &mut AsyncPgConnection,
+    block_number: u64,
+    chain_id: u64,
+) -> Result<Option<Attestation>> {
+    match attestation_table
+        .order(attestation::header_number.desc())
+        .filter(attestation::header_number.lt(super::to_storage_type(block_number)))
+        .filter(attestation::chain_id.eq(super::to_storage_type(chain_id)))
+        .select(Attestation::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
+/// Attestations equal to the claim block number are included via `.ge()`. This is because claims
+/// in attestation blocks are considered to be at the end of the preceeding interval rather than
+/// the start of the following one.
+pub async fn get_lowest_attestation_after(
+    connection: &mut AsyncPgConnection,
+    block_number: u64,
+    chain_id: u64,
+) -> Result<Option<Attestation>> {
+    match attestation_table
+        .order(attestation::header_number.asc())
+        .filter(attestation::header_number.ge(super::to_storage_type(block_number)))
+        .filter(attestation::chain_id.eq(super::to_storage_type(chain_id)))
+        .select(Attestation::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
 // Mapper from the signed attestation to the db type

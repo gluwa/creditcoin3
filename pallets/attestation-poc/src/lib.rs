@@ -22,7 +22,7 @@ pub mod pallet {
     use attestor_primitives::{
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
         BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainId,
-        Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
     use frame_support::{
@@ -221,7 +221,7 @@ pub mod pallet {
     pub type ChainAttestationInterval<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        ChainId,
+        ChainKey,
         ChainAttestationIntervalType,
         ValueQuery,
         AttestationIntervalDefault<T>,
@@ -386,6 +386,11 @@ pub mod pallet {
         },
         MinBondRequirementUpdated(BalanceOf<T>),
         ChainRewardUpdated(ChainId, BalanceOf<T>),
+
+        /// Note a change in the attestation interval for a source chain. Also notes the
+        /// block number of the latest attestation for that source chain at the time of
+        /// the interval change.
+        AttestationIntervalChanged(ChainId, ChainAttestationIntervalType, u64),
     }
 
     #[pallet::error]
@@ -440,6 +445,16 @@ pub mod pallet {
         AttestorNotIdle,
         // No supported chains
         NoSupportedChains,
+        // Did not find attestation which should exist. EX: Attestation with
+        // digest matching LastDigest
+        AttestationNotFound,
+        // Could not retrieve SupportedChain info after already checking that
+        // it exists.
+        SupportedChainNotFound,
+        // Tried to set attestation interval to an invalid value.
+        InvalidAttestationInterval,
+        // Tried to set attestations per checkpoint to an invalid value.
+        InvalidAttestationsPerCheckpoint,
     }
 
     #[pallet::call]
@@ -448,17 +463,45 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_chain_attestation_interval())]
         pub fn set_chain_attestation_interval(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             chain_attestation_interval: ChainAttestationIntervalType,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
+            ensure! {
+                chain_attestation_interval > 0,
+                Error::<T>::InvalidAttestationInterval
+            };
+
             ensure!(
-                T::SupportedChains::is_chain_supported(chain_id),
+                T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
             );
 
-            ChainAttestationInterval::<T>::set(chain_id, chain_attestation_interval);
+            ChainAttestationInterval::<T>::set(chain_key, chain_attestation_interval);
+
+            let last_digest = Self::last_attestation_digest(chain_key);
+            let last_block_number = if let Some(digest) = last_digest {
+                Self::attestations(chain_key, digest)
+                    .ok_or(Error::<T>::AttestationNotFound)?
+                    .header_number()
+            } else {
+                0
+            };
+
+            // The error `SupportedChainNotFound` should never be hit, since the
+            // problem it guards against is already covered by `ChainNotSupported`.
+            // We still keep this error passing to avoid panic in case of future
+            // code changes.
+            let chain_id = T::SupportedChains::get_supported_chain(chain_key)
+                .ok_or(Error::<T>::SupportedChainNotFound)?
+                .chain_id;
+
+            Self::deposit_event(Event::<T>::AttestationIntervalChanged(
+                chain_id,
+                chain_attestation_interval,
+                last_block_number,
+            ));
             Ok(())
         }
 
@@ -746,6 +789,11 @@ pub mod pallet {
             attestations_per_checkpoint: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
+
+            ensure! {
+                attestations_per_checkpoint > 0,
+                Error::<T>::InvalidAttestationsPerCheckpoint
+            };
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_id),

@@ -15,6 +15,8 @@ use attestor_primitives::{
 use creditcoin3_attestor_gossip::{Attestation, Topic};
 use vrf::ProofOfInclusion;
 
+use crate::IntervalUpdate;
+
 pub type Randomness = [u8; 32];
 
 // Chain id to chain name mapping
@@ -29,7 +31,8 @@ const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 4] = [
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {
     pub chain_key: ChainId,
-    pub attestation_interval: u64,
+    pub current_attestation_interval: u64,
+    pub current_interval_start: u64,
 }
 
 #[derive(Clone)]
@@ -71,7 +74,7 @@ impl Client {
 
     #[must_use]
     pub fn get_attestation_interval(&self) -> u64 {
-        self.chain_config.attestation_interval
+        self.chain_config.current_attestation_interval
     }
 
     #[must_use]
@@ -110,9 +113,22 @@ impl<'a> Client {
             .await?
             .ok_or(Error::FailedToGetAttestationInterval)?;
 
+        let last_attestation_height =
+            if let Some(digest) = cc_client.fetch_last_digest(chain_id).await? {
+                cc_client
+                    .get_attestation_by_digest(chain_id, digest)
+                    .await?
+                    .ok_or(Error::LastAttestationNotFound)?
+                    .header_number()
+            } else {
+                // If no prior attestation found, we start from 0
+                0
+            };
+
         let chain_config = SourceChainConfig {
             chain_key,
-            attestation_interval,
+            current_attestation_interval: attestation_interval,
+            current_interval_start: last_attestation_height,
         };
 
         Ok(Self {
@@ -244,7 +260,10 @@ impl<'a> Client {
         let chain_id = attestation.chain_id;
         let round = (chain_id, attestation.header_number);
 
-        if attestation.header_number % self.chain_config.attestation_interval != 0 {
+        if (attestation.header_number - self.chain_config.current_interval_start)
+            % self.chain_config.current_attestation_interval
+            != 0
+        {
             warn!(
                 "Skipping Attestation because it's not in the configured interval for this chain"
             );
@@ -303,6 +322,11 @@ impl<'a> Client {
         );
 
         Ok(())
+    }
+
+    pub fn change_attestation_interval(&mut self, interval_update: IntervalUpdate) {
+        self.chain_config.current_attestation_interval = interval_update.new_interval;
+        self.chain_config.current_interval_start = interval_update.attested_height_at_change;
     }
 }
 
