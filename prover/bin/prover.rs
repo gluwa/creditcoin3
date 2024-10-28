@@ -32,8 +32,8 @@ pub struct Attestor {
     )]
     postgres_uri: String,
 
-    #[arg(long)]
-    dev: bool,
+    #[arg(short, long)]
+    light_mode: bool,
 }
 
 #[tokio::main]
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eth_private_key: args.eth_private_key,
         claim_buffer: args.claim_buffer,
         postgres_uri: args.postgres_uri,
-        test_mode: args.dev,
+        light_mode: args.light_mode,
     };
 
     let mut server = Server::new(config).await?;

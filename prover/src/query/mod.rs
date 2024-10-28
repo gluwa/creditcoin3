@@ -1,33 +1,40 @@
 use anyhow::Result;
+use either::Either;
 use std::ops::Range;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::{contract, fragment, AttestationCacheType, EthClientArc};
 use attestation_chain::attestation_fragment::AttestationFragment;
 use pallet_prover_primitives::Query;
 use proof::cairo_generate_proof;
-use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
+use prover_primitives::{
+    claim::{ClaimIdentifier, ClaimSerializable},
+    types::StoneProofPublicInput,
+};
 
-// Process a claim
+use crate::{attestation::fragment, AttestationCacheType, EthClientArc};
+
+/// Proof as bytes
+pub type Proof = Vec<u8>;
+
+// Process a query
 // Parameters:
 // - `cc3_client`: cc3 client
 // - `eth_client`: eth client that is initialized with the rpc url of the chain the claim is from
 // - `query`: query to process
 // - `attestation_cache`: attestation cache
+// - `stone_proof`: whether to generate a stone proof
 pub async fn process(
     eth_client: EthClientArc,
     query: &Query,
     attestation_cache: &AttestationCacheType,
-) -> Result<Vec<u8>> {
+    stone_proof: bool,
+) -> Result<Either<Proof, StoneProofPublicInput>> {
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
     // Get the attestation fragment
     let attestation_fragment: AttestationFragment =
-        fragment::get_for_claim(&eth_client, query, attestation_cache).await.map_err(|e| {
-            error!("Query processing failed at fragment construction. Consider clearing your prover DB, then resyncing.");
-            e
-        })?;
+        fragment::get_for_claim(&eth_client, query, attestation_cache).await?;
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
@@ -56,7 +63,7 @@ pub async fn process(
         &attestation_fragment,
         block,
         true,
-        false,
+        stone_proof,
     )
     .await
     {
@@ -77,48 +84,17 @@ pub async fn process(
     // TODO: what is this either left or right
     match cairo_output_of_stone_proof {
         either::Left((mut stone_proof, _stone_proof_dir)) => {
+            // Strip off annotations, prover config, and private input
             stone_proof
                 .strip_off_annotations()
                 .strip_off_prover_config()
                 .strip_off_private_input();
 
+            // json serialize proof
             let proof_json = serde_json::to_string_pretty(&stone_proof.proof())?;
 
-            Ok(proof_json.as_bytes().to_vec())
+            Ok(Either::Left(proof_json.as_bytes().to_vec()))
         }
-        // Ignore this case since we are always running cairo proof mode
-        // TODO, refactor lib to be able to remove this case
-        either::Right(_cairo_output) => Err(anyhow::anyhow!("Cairo output is not stone")),
+        either::Right(cairo_output) => Ok(Either::Right(cairo_output)),
     }
-}
-
-pub async fn _dummy_process(
-    eth_client: EthClientArc,
-    query: Query,
-    _attestation_cache: &AttestationCacheType,
-) -> Result<()> {
-    let query_id = query.id();
-    info!("Processing query with id: {:?}", query_id);
-
-    let current_dir = std::env::current_dir()?;
-    let proof_example_path = if current_dir.ends_with("creditcoin3-next") {
-        "cairo/stone-verifier/proof_example.json"
-    } else {
-        "proof_example.json"
-    };
-
-    let proof_example = tokio::fs::read(proof_example_path).await?;
-    info!(
-        "Submitting proof for query with id: {:?}, proof len {}",
-        query_id,
-        proof_example.len()
-    );
-    // Submit result to prover contract
-    let tx_hash = contract::submit_proof(&eth_client, query, proof_example).await?;
-    info!(
-        "Submitted proof for query with id: {:?}, tx hash: {:?}",
-        query_id, tx_hash
-    );
-
-    Ok(())
 }

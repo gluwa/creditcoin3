@@ -6,6 +6,9 @@ use utils::Felt;
 
 use crate::postgres;
 
+pub mod cache;
+pub mod fragment;
+
 #[allow(dead_code)]
 pub enum ConversionError {
     InvalidTxRoot,

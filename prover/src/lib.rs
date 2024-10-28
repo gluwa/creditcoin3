@@ -1,5 +1,6 @@
 use anyhow::Result;
 use cc_client::AccountId32;
+use either::Either;
 use eth::Client as EthClient;
 use sp_core::H256;
 use std::sync::Arc;
@@ -9,17 +10,17 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use attestation_cache::AttestationCache;
+use attestation::cache::AttestationCache;
+
+use pallet_prover_primitives::Query;
 
 pub mod config;
 
 mod attestation;
-mod attestation_cache;
 mod cc3;
-mod claim;
 mod contract;
-mod fragment;
 mod postgres;
+mod query;
 
 use config::Config;
 
@@ -48,7 +49,7 @@ impl Server {
 
         // Create attestations cache
         let attestations_cache: AttestationCacheType =
-            Arc::new(attestation_cache::AttestationCache::new(db_pool));
+            Arc::new(attestation::cache::AttestationCache::new(db_pool));
         info!("Created attestations cache");
 
         // Deploy the prover contract
@@ -98,7 +99,7 @@ impl Server {
         let sync_attestations_cache = attestations_cache.clone();
         let sync_cc3_client = cc3_client.clone();
         tokio::spawn(async move {
-            attestation_cache::sync_cache(
+            attestation::cache::sync_cache(
                 chain_key,
                 &sync_attestations_cache,
                 &sync_cc3_client,
@@ -110,7 +111,7 @@ impl Server {
 
         // Build historical cache
         info!("Building historical cache for chain with id: {}", chain_key);
-        attestation_cache::build_historical_cache_for_chain(
+        attestation::cache::build_historical_cache_for_chain(
             chain_key,
             attestations_cache.clone(),
             cc3_client.clone(),
@@ -118,42 +119,21 @@ impl Server {
         )
         .await?;
 
-        let cc_eth_client = Arc::new(self.cc3_client.clone());
-
         info!("Starting unprocessed claim processing...");
         let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
         for query in unprocessed_queries {
-            let eth_client = eth_client.clone();
-            if self.config.test_mode {
-                info!("Processing unprocessed query in test mode");
-                claim::_dummy_process(eth_client, query, &attestations_cache).await?;
-            } else {
-                info!("Processing unprocessed query: {:?}", query);
-                match claim::process(eth_client, &query, &attestations_cache).await {
-                    Ok(proof) => {
-                        info!("Submitting proof for query: {:?}", query);
-                        contract::submit_proof(&cc_eth_client, query, proof).await?;
-                    }
-                    Err(e) => {
-                        error!("Failed to process query: {:?}", e);
-                    }
-                }
-            }
+            info!("Processing unprocessed query: {:?}", query);
+            self.process_query(query).await?;
         }
 
         // Create a channel for query submission
-        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let (queue, mut queries) = mpsc::unbounded_channel();
 
-        info!("Starting query submission subscription...");
-        let eth_client_for_query_sub = Arc::new(self.cc3_client.clone());
+        let eth_cc3_client = self.cc3_client.clone();
         tokio::spawn(async move {
             loop {
-                match contract::subscribe_query_submission(
-                    eth_client_for_query_sub.clone(),
-                    sender.clone(),
-                )
-                .await
-                {
+                info!("Starting query submission subscription...");
+                match contract::subscribe_query_submission(&eth_cc3_client, queue.clone()).await {
                     Ok(()) => {}
                     Err(e) => {
                         error!("Failed to subscribe to query submission: {:?}", e);
@@ -167,23 +147,34 @@ impl Server {
 
         info!("Listening for new queries...");
         // Wait for new queries and handle them
-        while let Some(query) = receiver.recv().await {
-            let eth_client = eth_client.clone();
+        while let Some(query) = queries.recv().await {
+            info!("Processing query: {:?}", query);
+            self.process_query(query).await?;
+        }
 
-            if self.config.test_mode {
-                info!("Processing query in test mode");
-                claim::_dummy_process(eth_client, query, &attestations_cache).await?;
-            } else {
-                info!("Processing query: {:?}", query);
-                match claim::process(eth_client, &query, &attestations_cache).await {
-                    Ok(proof) => {
-                        info!("Submitting proof for query: {:?}", query);
-                        contract::submit_proof(&cc_eth_client, query, proof).await?;
-                    }
-                    Err(e) => {
-                        error!("Failed to process query: {:?}", e);
-                    }
-                }
+        Ok(())
+    }
+
+    async fn process_query(&self, query: Query) -> Result<()> {
+        // Create an eth client
+        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, &String::new()).await?);
+
+        let r = query::process(
+            eth_client.clone(),
+            &query,
+            &self.attestations_cache,
+            !self.config.light_mode,
+        )
+        .await?;
+
+        match r {
+            Either::Left(proof) => {
+                info!("Submitting proof for query: {:?}", query);
+                contract::submit_proof(&self.cc3_client, query, proof).await?;
+            }
+            Either::Right(stone_proof_public_input) => {
+                info!("No proof generated for query: {:?}", query);
+                info!("Stone proof public input: {:?}", stone_proof_public_input);
             }
         }
 

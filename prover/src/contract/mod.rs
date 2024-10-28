@@ -6,8 +6,6 @@ use artifacts::ChainDeploymentArtifact;
 use eth::Client;
 use pallet_prover_primitives::Query;
 
-use crate::EthClientArc;
-
 pub mod artifacts;
 
 const CC3_CHAIN_ID: u64 = 42;
@@ -75,7 +73,7 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
 }
 
 pub async fn subscribe_query_submission(
-    eth_client: EthClientArc,
+    eth_client: &eth::Client,
     query_channel: mpsc::UnboundedSender<Query>,
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await?;
@@ -85,6 +83,6 @@ pub async fn subscribe_query_submission(
 
     artifact
         .contract
-        .subscribe_query_submissions(&eth_client, query_channel)
+        .subscribe_query_submissions(eth_client, query_channel)
         .await
 }

@@ -5,7 +5,7 @@
 /// - `eth_rpc_url`: Ethereum RPC url
 /// - `eth_private_key`: Private key for the ethereum account
 /// - `claim_buffer`: The amount of claims we can handle in a certain period
-/// - `test_mode`: If true, the prover will not generate real proofs, rather it will generate a template proof
+/// - `light_mode`: If true, the prover will not generate the proofs on the host, rather it will designate proof creation to some third party provider
 pub struct Config {
     pub cc3_rpc_url: String,
     pub cc3_key: String,
@@ -13,5 +13,5 @@ pub struct Config {
     pub eth_private_key: String,
     pub claim_buffer: u8,
     pub postgres_uri: String,
-    pub test_mode: bool,
+    pub light_mode: bool,
 }
