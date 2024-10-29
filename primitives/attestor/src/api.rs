@@ -12,7 +12,7 @@ sp_api::decl_runtime_apis! {
     {
         fn is_attestor(chain_id:ChainId, attestor: &AccountId) -> bool;
 
-        fn comittee_set_size(chain_id: ChainId) -> u32;
+        fn committee_set_size(chain_id: ChainId) -> u32;
 
         fn working_set_size(chain_id: ChainId) -> u32;
 

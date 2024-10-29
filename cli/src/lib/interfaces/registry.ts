@@ -8,6 +8,8 @@ import '@polkadot/types/types/registry';
 import type {
     AttestorPrimitivesAttestation,
     AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesAttestor,
+    AttestorPrimitivesAttestorStatus,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -65,6 +67,9 @@ import type {
     PalletAttestationPocCall,
     PalletAttestationPocError,
     PalletAttestationPocEvent,
+    PalletAttestationPocLedgerAttestorLedger,
+    PalletAttestationPocLedgerUnlockChunk,
+    PalletAttestationPocRewardDestination,
     PalletBabeCall,
     PalletBabeError,
     PalletBagsListCall,
@@ -230,6 +235,8 @@ declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
         AttestorPrimitivesAttestation: AttestorPrimitivesAttestation;
         AttestorPrimitivesAttestationCheckpoint: AttestorPrimitivesAttestationCheckpoint;
+        AttestorPrimitivesAttestor: AttestorPrimitivesAttestor;
+        AttestorPrimitivesAttestorStatus: AttestorPrimitivesAttestorStatus;
         AttestorPrimitivesSignedAttestation: AttestorPrimitivesSignedAttestation;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;
@@ -287,6 +294,9 @@ declare module '@polkadot/types/types/registry' {
         PalletAttestationPocCall: PalletAttestationPocCall;
         PalletAttestationPocError: PalletAttestationPocError;
         PalletAttestationPocEvent: PalletAttestationPocEvent;
+        PalletAttestationPocLedgerAttestorLedger: PalletAttestationPocLedgerAttestorLedger;
+        PalletAttestationPocLedgerUnlockChunk: PalletAttestationPocLedgerUnlockChunk;
+        PalletAttestationPocRewardDestination: PalletAttestationPocRewardDestination;
         PalletBabeCall: PalletBabeCall;
         PalletBabeError: PalletBabeError;
         PalletBagsListCall: PalletBagsListCall;

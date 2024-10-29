@@ -141,8 +141,8 @@ impl<'a> Client {
         Ok((randomness, two_epoch_ago))
     }
 
-    pub async fn fetch_comittee_size(&self, chain_id: u64) -> Result<u32> {
-        let storage_query = cc3::storage().attestation().comittee_set_size(chain_id);
+    pub async fn fetch_committee_size(&self, chain_id: u64) -> Result<u32> {
+        let storage_query = cc3::storage().attestation().committee_set_size(chain_id);
 
         let result = self
             .api
@@ -254,7 +254,7 @@ impl<'a> Client {
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
-        let committee_size = self.fetch_comittee_size(chain_id).await.map_err(|e| {
+        let committee_size = self.fetch_committee_size(chain_id).await.map_err(|e| {
             error!("Error getting committee size: {:?}", e);
             Error::FailedToGetComitteSetSize
         })?;
@@ -267,7 +267,7 @@ impl<'a> Client {
                 Error::FailedToGetAttestorWorkingSetSize
             })?;
 
-        info!("Comittee set size: {}", committee_size);
+        info!("Committee set size: {}", committee_size);
         info!("Attestor working set size: {}", attestor_working_set_size);
 
         let proof_of_inclusion = make_proof_of_inclusion(
@@ -578,7 +578,7 @@ pub enum Error {
     InvalidProofOfPossession,
     #[error("Failed to get cc3 RPC client")]
     FailedToGetRPcClient,
-    #[error("Failed to get comittee set size")]
+    #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
     #[error("Failed to get chain price configurations")]
     FailedToGetChainPriceConfigurations,

@@ -1383,8 +1383,8 @@ impl_runtime_apis! {
             Attestation::is_attestor(chain_id, attestor)
         }
 
-        fn comittee_set_size(chain_id: ChainId) -> u32 {
-            Attestation::comittee_set_size(chain_id)
+        fn committee_set_size(chain_id: ChainId) -> u32 {
+            Attestation::committee_set_size(chain_id)
         }
 
         fn working_set_size(chain_id: ChainId) -> u32 {

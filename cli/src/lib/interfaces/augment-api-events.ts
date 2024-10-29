@@ -48,18 +48,50 @@ declare module '@polkadot/api-base/types/events' {
     interface AugmentedEvents<ApiType extends ApiTypes> {
         attestation: {
             /**
+             * Note a change in the attestation interval for a source chain. Also notes the
+             * block number of the latest attestation for that source chain at the time of
+             * the interval change.
+             **/
+            AttestationIntervalChanged: AugmentedEvent<ApiType, [u64, u64, u64]>;
+            AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
              * Emitted when an attestor is properly registered with the attestation system
              **/
-            AttestorRegistered: AugmentedEvent<ApiType, [AccountId32]>;
-            AttestorUnregistered: AugmentedEvent<ApiType, [AccountId32]>;
+            AttestorRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            AttestorsElected: AugmentedEvent<
+                ApiType,
+                [epoch: u64, chainId: u64, attestors: Vec<AccountId32>],
+                { epoch: u64; chainId: u64; attestors: Vec<AccountId32> }
+            >;
+            AttestorUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
             BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
+            Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            ChainRewardUpdated: AugmentedEvent<ApiType, [u64, u128]>;
             CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
-            ComitteeSetSizeChanged: AugmentedEvent<ApiType, [u32]>;
+            CommitteeSetSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             /**
              * Emitted when an invulnerable is properly registered with the attestation system
              **/
-            InvulnerableRegistered: AugmentedEvent<ApiType, [AccountId32]>;
-            InvulnerableUnregistered: AugmentedEvent<ApiType, [AccountId32]>;
+            InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            InvulnerableUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            MinBondRequirementUpdated: AugmentedEvent<ApiType, [u128]>;
+            RewardClaimed: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, amount: u128],
+                { stash: AccountId32; amount: u128 }
+            >;
+            RewardPaid: AugmentedEvent<
+                ApiType,
+                [chainId: u64, stash: AccountId32, amount: u128],
+                { chainId: u64; stash: AccountId32; amount: u128 }
+            >;
+            Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            Withdrawn: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, amount: u128],
+                { stash: AccountId32; amount: u128 }
+            >;
             /**
              * Generic event
              **/

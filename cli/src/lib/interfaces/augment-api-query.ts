@@ -12,6 +12,7 @@ import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
     AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesAttestor,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
@@ -23,6 +24,8 @@ import type {
     FrameSystemEventRecord,
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
+    PalletAttestationPocLedgerAttestorLedger,
+    PalletAttestationPocRewardDestination,
     PalletBagsListListBag,
     PalletBagsListListNode,
     PalletBalancesAccountData,
@@ -73,6 +76,23 @@ export type __QueryableStorageEntry<ApiType extends ApiTypes> = QueryableStorage
 declare module '@polkadot/api-base/types/storage' {
     interface AugmentedQueries<ApiType extends ApiTypes> {
         attestation: {
+            /**
+             * Map from all the stash account id's to the reward that they have earned.
+             *
+             * This is used to store the reward for each stash account.
+             **/
+            accumulatedRewards: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<u128>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            activeAttestors: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<AccountId32>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             attestationCheckpointInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>,
@@ -90,13 +110,27 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64, H256]>;
             attestors: AugmentedQuery<
                 ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<Option<U8aFixed>>,
-                [AccountId32]
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<AttestorPrimitivesAttestor>>,
+                [u64, AccountId32]
             > &
-                QueryableStorageEntry<ApiType, [AccountId32]>;
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             chainAttestationInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Map from all supported chain ids to the chain reward.
+             *
+             * This is used to store the reward for each chain.
+             **/
+            chainReward: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u128>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -115,31 +149,54 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, H256]
             > &
                 QueryableStorageEntry<ApiType, [u64, H256]>;
-            comitteeSetSize: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
-            /**
-             * Counter for the related counted storage map
-             **/
-            counterForAttestors: AugmentedQuery<ApiType, () => Observable<u32>, []> &
-                QueryableStorageEntry<ApiType, []>;
-            /**
-             * Counter for the related counted storage map
-             **/
-            counterForInvulnerables: AugmentedQuery<ApiType, () => Observable<u32>, []> &
-                QueryableStorageEntry<ApiType, []>;
+            committeeSetSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
             invulnerables: AugmentedQuery<
                 ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<bool>,
-                [AccountId32]
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<bool>>,
+                [u64, AccountId32]
             > &
-                QueryableStorageEntry<ApiType, [AccountId32]>;
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             lastDigest: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H256>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
-            maxAttestors: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
-            maxInvulnerables: AugmentedQuery<ApiType, () => Observable<u32>, []> & QueryableStorageEntry<ApiType, []>;
+            /**
+             * Map from all (unlocked) "controller" accounts to info regarding staking.
+             *
+             * Note: All the reads and mutations to this storage *MUST* be done through the methods exposed
+             * by [`AttestorLedger`] to ensure data and lock consistency.
+             **/
+            ledger: AugmentedQuery<
+                ApiType,
+                (
+                    arg: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<PalletAttestationPocLedgerAttestorLedger>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            maxAttestors: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            maxInvulnerables: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            minBondRequirement: AugmentedQuery<ApiType, () => Observable<u128>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Where the reward payment should be made. Keyed by stash.
+             *
+             * TWOX-NOTE: SAFE since `AccountId` is a secure hash.
+             **/
+            payee: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletAttestationPocRewardDestination>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
              * Generic query
              **/

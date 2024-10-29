@@ -21,10 +21,16 @@ export type __AugmentedConst<ApiType extends ApiTypes> = AugmentedConst<ApiType>
 declare module '@polkadot/api-base/types/consts' {
     interface AugmentedConsts<ApiType extends ApiTypes> {
         attestation: {
+            /**
+             * Number of eras that staked funds must remain bonded for.
+             **/
+            bondingDuration: u32 & AugmentedConst<ApiType>;
             committmentInterval: u64 & AugmentedConst<ApiType>;
             defaultAttestationInterval: u64 & AugmentedConst<ApiType>;
             defaultAttestationsPerCheckpoint: u32 & AugmentedConst<ApiType>;
+            defaultMinBondRequirement: u64 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
+            maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/

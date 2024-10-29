@@ -35,7 +35,7 @@ Make sure to have a creditcoin3-next zombienet running and an anvil node. See [a
 
 By default committee set size is set to 3. This is the number of attestors needed in order to reach majority on a voting round to include a new attestation.
 
-To increase this number you can use the polkadotjs UI and connect to one of the nodes. Navigate to extrisnics, select attestor pallet and select the `setComitteeSetSize` extrinsic. You can set the number of attestors needed to reach majority here.
+To increase this number you can use the polkadotjs UI and connect to one of the nodes. Navigate to extrisnics, select attestor pallet and select the `setCommitteeSetSize` extrinsic. You can set the number of attestors needed to reach majority here.
 
 ## Increase max attestors
 

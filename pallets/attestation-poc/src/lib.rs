@@ -124,7 +124,7 @@ pub mod pallet {
         fn set_max_invulnerables() -> Weight;
         fn bootstrap_chain(a: u32) -> Weight;
         fn commit_attestation(a: u32) -> Weight;
-        fn set_comittee_set_size() -> Weight;
+        fn set_committee_set_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
         fn set_min_bond_requirement() -> Weight;
@@ -213,8 +213,9 @@ pub mod pallet {
     pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, Digest, OptionQuery>;
 
     #[pallet::storage]
-    #[pallet::getter(fn comittee_set_size)]
-    pub type ComitteeSetSize<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, u32, ValueQuery>;
+    #[pallet::getter(fn committee_set_size)]
+    pub type CommitteeSetSize<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainId, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn chain_attestation_interval)]
@@ -304,10 +305,10 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             for chain_configuration in self.attestation_chain_configurations.iter() {
-                // Set the comittee set size for the chain
-                ComitteeSetSize::<T>::insert(
+                // Set the committee set size for the chain
+                CommitteeSetSize::<T>::insert(
                     chain_configuration.chain_id,
-                    chain_configuration.comittee_set_size,
+                    chain_configuration.committee_set_size,
                 );
 
                 ChainAttestationInterval::<T>::insert(
@@ -355,7 +356,7 @@ pub mod pallet {
         InvulnerableUnregistered(ChainId, T::AccountId),
         BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>, Digest),
         CheckpointReached(ChainId, AttestationCheckpoint),
-        ComitteeSetSizeChanged(ChainId, u32),
+        CommitteeSetSizeChanged(ChainId, u32),
         Bonded {
             stash: T::AccountId,
             amount: BalanceOf<T>,
@@ -506,19 +507,19 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_comittee_set_size())]
-        pub fn set_comittee_set_size(
+        #[pallet::weight(<T as Config>::WeightInfo::set_committee_set_size())]
+        pub fn set_committee_set_size(
             origin: OriginFor<T>,
             chain_id: ChainId,
-            new_comittee_set_size: u32,
+            new_committee_set_size: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            ComitteeSetSize::<T>::insert(chain_id, new_comittee_set_size);
+            CommitteeSetSize::<T>::insert(chain_id, new_committee_set_size);
 
-            Self::deposit_event(Event::<T>::ComitteeSetSizeChanged(
+            Self::deposit_event(Event::<T>::CommitteeSetSizeChanged(
                 chain_id,
-                new_comittee_set_size,
+                new_committee_set_size,
             ));
 
             Ok(())

@@ -1128,49 +1128,49 @@ fn unregister_invulnerable_should_fail_when_address_is_an_attestor_but_not_invul
 }
 
 #[test]
-fn set_comittee_set_size_should_error_when_not_signed() {
+fn set_committee_set_size_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
         assert_noop!(
-            Attestation::set_comittee_set_size(RuntimeOrigin::none(), DEV_CHAIN_KEY, 512),
+            Attestation::set_committee_set_size(RuntimeOrigin::none(), DEV_CHAIN_KEY, 512),
             BadOrigin
         );
     })
 }
 
 #[test]
-fn set_comittee_set_size_should_error_when_not_signed_by_root() {
+fn set_committee_set_size_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         let attestor = RuntimeOrigin::signed(ATTESTOR_1);
 
         assert_noop!(
-            Attestation::set_comittee_set_size(attestor, DEV_CHAIN_KEY, 512),
+            Attestation::set_committee_set_size(attestor, DEV_CHAIN_KEY, 512),
             BadOrigin
         );
     })
 }
 
 #[test]
-fn set_comittee_set_size_should_update_storage_and_emit_an_event() {
+fn set_committee_set_size_should_update_storage_and_emit_an_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let comittee_size = Attestation::comittee_set_size(DEV_CHAIN_KEY);
-        assert_eq!(comittee_size, DEFAULT_COMITTEE_SET_SIZE);
+        let committee_size = Attestation::committee_set_size(DEV_CHAIN_KEY);
+        assert_eq!(committee_size, DEFAULT_COMMITTEE_SET_SIZE);
 
-        let new_comittee_size = 512;
-        assert_ok!(Attestation::set_comittee_set_size(
+        let new_committee_size = 512;
+        assert_ok!(Attestation::set_committee_set_size(
             RuntimeOrigin::root(),
             DEV_CHAIN_KEY,
-            new_comittee_size
+            new_committee_size
         ));
 
-        let comittee_size = Attestation::comittee_set_size(DEV_CHAIN_KEY);
-        assert_eq!(comittee_size, new_comittee_size);
+        let committee_size = Attestation::committee_set_size(DEV_CHAIN_KEY);
+        assert_eq!(committee_size, new_committee_size);
 
         System::assert_last_event(
-            crate::Event::ComitteeSetSizeChanged(DEV_CHAIN_KEY, new_comittee_size).into(),
+            crate::Event::CommitteeSetSizeChanged(DEV_CHAIN_KEY, new_committee_size).into(),
         );
     })
 }

@@ -44,6 +44,7 @@ import type {
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     EthereumTransactionTransactionV2,
+    PalletAttestationPocRewardDestination,
     PalletIdentityBitFlags,
     PalletIdentityIdentityInfo,
     PalletIdentityJudgement,
@@ -79,6 +80,17 @@ declare module '@polkadot/api-base/types/submittable' {
     interface AugmentedSubmittables<ApiType extends ApiTypes> {
         attestation: {
             /**
+             * See [`Pallet::attest`].
+             **/
+            attest: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    blsPublicKey: U8aFixed | string | Uint8Array,
+                    proofOfPossession: U8aFixed | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, U8aFixed, U8aFixed]
+            >;
+            /**
              * See [`Pallet::bootstrap_chain`].
              **/
             bootstrapChain: AugmentedSubmittable<
@@ -92,6 +104,17 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AttestorPrimitivesSignedAttestation]
             >;
+            /**
+             * See [`Pallet::chill`].
+             **/
+            chill: AugmentedSubmittable<
+                (chainId: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u64]
+            >;
+            /**
+             * See [`Pallet::claim_rewards`].
+             **/
+            claimRewards: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
             /**
              * See [`Pallet::commit_attestation`].
              **/
@@ -110,20 +133,20 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             registerAttestor: AugmentedSubmittable<
                 (
-                    blsPublicKey: U8aFixed | string | Uint8Array,
-                    proofOfPossession: U8aFixed | string | Uint8Array,
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [U8aFixed, U8aFixed]
+                [u64, AccountId32]
             >;
             /**
              * See [`Pallet::register_invulnerable`].
              **/
             registerInvulnerable: AugmentedSubmittable<
                 (
+                    chainId: u64 | AnyNumber | Uint8Array,
                     attestor: AccountId32 | string | Uint8Array,
-                    blsPublicKey: U8aFixed | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [AccountId32, U8aFixed]
+                [u64, AccountId32]
             >;
             /**
              * See [`Pallet::set_attestations_per_checkpoint`].
@@ -140,43 +163,97 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             setChainAttestationInterval: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     chainAttestationInterval: u64 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u64]
             >;
             /**
-             * See [`Pallet::set_comittee_set_size`].
+             * See [`Pallet::set_chain_reward`].
              **/
-            setComitteeSetSize: AugmentedSubmittable<
-                (newComitteeSetSize: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [u32]
+            setChainReward: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    reward: u128 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u128]
+            >;
+            /**
+             * See [`Pallet::set_committee_set_size`].
+             **/
+            setCommitteeSetSize: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    newCommitteeSetSize: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
             >;
             /**
              * See [`Pallet::set_max_attestors`].
              **/
             setMaxAttestors: AugmentedSubmittable<
-                (newMax: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [u32]
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    newMax: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
             >;
             /**
              * See [`Pallet::set_max_invulnerables`].
              **/
             setMaxInvulnerables: AugmentedSubmittable<
-                (newMax: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [u32]
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    newMax: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            /**
+             * See [`Pallet::set_min_bond_requirement`].
+             **/
+            setMinBondRequirement: AugmentedSubmittable<
+                (minBondRequirement: u128 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u128]
+            >;
+            /**
+             * See [`Pallet::set_payee`].
+             **/
+            setPayee: AugmentedSubmittable<
+                (
+                    payee:
+                        | PalletAttestationPocRewardDestination
+                        | { Stash: any }
+                        | { Account: any }
+                        | { None: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [PalletAttestationPocRewardDestination]
             >;
             /**
              * See [`Pallet::unregister_attestor`].
              **/
-            unregisterAttestor: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            unregisterAttestor: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
             /**
              * See [`Pallet::unregister_invulnerable`].
              **/
             unregisterInvulnerable: AugmentedSubmittable<
-                (attestor: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [AccountId32]
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    attestor: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
             >;
+            /**
+             * See [`Pallet::withdraw_unbonded`].
+             **/
+            withdrawUnbonded: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
             /**
              * Generic tx
              **/

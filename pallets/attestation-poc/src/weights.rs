@@ -70,9 +70,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::ComitteeSetSize` (r:0 w:1)
-	/// Proof: `Attestation::ComitteeSetSize` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_comittee_set_size() -> Weight {
+	/// Storage: `Attestation::CommitteeSetSize` (r:0 w:1)
+	/// Proof: `Attestation::CommitteeSetSize` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn set_committee_set_size() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `19`
 		//  Estimated: `1504`

@@ -350,7 +350,7 @@ where
         // Get the threshold and working set size
         let runtime = self.runtime.runtime_api();
         let target_sample_size =
-            runtime.comittee_set_size(blockchain_info.finalized_hash, chain_id)?;
+            runtime.committee_set_size(blockchain_info.finalized_hash, chain_id)?;
         let working_set_size =
             runtime.working_set_size(blockchain_info.finalized_hash, chain_id)?;
 
@@ -513,8 +513,8 @@ where
 
         // Majority is more than half of the committee set size
         let runtime = self.runtime.runtime_api();
-        let comittee_set_size = runtime.comittee_set_size(block_hash, chain_id)?;
-        let threshold = calculate_threshold(comittee_set_size);
+        let committee_set_size = runtime.committee_set_size(block_hash, chain_id)?;
+        let threshold = calculate_threshold(committee_set_size);
 
         // Filter attestations by major digest
         // TODO: Can we do this in a more efficient way / place?

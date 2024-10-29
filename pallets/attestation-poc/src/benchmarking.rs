@@ -151,7 +151,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_comittee_set_size() {
+    fn set_committee_set_size() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let set_size: u32 = 6;

@@ -269,7 +269,7 @@ pub(crate) const ATTESTOR_1: AccountId = 4;
 pub(crate) const ATTESTOR_2: AccountId = 5;
 pub(crate) const ATTESTOR_3: AccountId = 6;
 
-pub(crate) const DEFAULT_COMITTEE_SET_SIZE: u32 = 250;
+pub(crate) const DEFAULT_COMMITTEE_SET_SIZE: u32 = 250;
 
 // Mock source chain id
 pub const DEV_CHAIN_ID: u64 = 155;
@@ -314,7 +314,7 @@ impl ExtBuilder {
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 10000,
-                comittee_set_size: DEFAULT_COMITTEE_SET_SIZE,
+                committee_set_size: DEFAULT_COMMITTEE_SET_SIZE,
             }],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();

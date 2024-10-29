@@ -13,10 +13,6 @@ declare module '@polkadot/api-base/types/errors' {
     interface AugmentedErrors<ApiType extends ApiTypes> {
         attestation: {
             /**
-             * The call to unregister_attestor failed because the address is invulnerable
-             **/
-            AddressIsInvulnerable: AugmentedError<ApiType>;
-            /**
              * The call the urnegister_invulnerable failed because the address is not invulnerable
              **/
             AddressIsNotInvulnerable: AugmentedError<ApiType>;
@@ -28,29 +24,28 @@ declare module '@polkadot/api-base/types/errors' {
              * The AccountId supplied has already been registered
              **/
             AlreadyAttestor: AugmentedError<ApiType>;
+            AlreadyBonded: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
+            AttestationNotFound: AugmentedError<ApiType>;
             /**
              * The attestor list is at the max size allowed by the current configuration
              **/
             AttestorListFull: AugmentedError<ApiType>;
-            CannotAddChain: AugmentedError<ApiType>;
-            /**
-             * The call to bootstrap_chain failed, the chain has previously been bootstrapped
-             **/
-            ChainAlreadyBootstrapped: AugmentedError<ApiType>;
-            /**
-             * The chain has not been bootstrapped and cannot be attested to
-             **/
-            ChainIsNotBootstrapped: AugmentedError<ApiType>;
+            AttestorNotIdle: AugmentedError<ApiType>;
             /**
              * The chain is not supported
              **/
             ChainNotSupported: AugmentedError<ApiType>;
+            ChainRewardNotFound: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
+            InsufficientBalance: AugmentedError<ApiType>;
             /**
              * The call to attest_block failed, the block's cryptographic committments were invalid
              **/
             InvalidAttestation: AugmentedError<ApiType>;
+            InvalidAttestationInterval: AugmentedError<ApiType>;
+            InvalidAttestationsPerCheckpoint: AugmentedError<ApiType>;
+            InvalidAttestorAccount: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
@@ -62,11 +57,13 @@ declare module '@polkadot/api-base/types/errors' {
              * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
              **/
             MaxInvulnerablesCannotBeChanged: AugmentedError<ApiType>;
+            NoMoreChunks: AugmentedError<ApiType>;
             NoPreviousDigest: AugmentedError<ApiType>;
-            /**
-             * The call to attest_block failed, the attestor is not eligible at this time
-             **/
-            NotEligible: AugmentedError<ApiType>;
+            NoRewards: AugmentedError<ApiType>;
+            NoSupportedChains: AugmentedError<ApiType>;
+            NotStash: AugmentedError<ApiType>;
+            NotYourAttestor: AugmentedError<ApiType>;
+            SupportedChainNotFound: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
