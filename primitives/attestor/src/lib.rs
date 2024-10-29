@@ -180,7 +180,7 @@ where
     pub fn serialize(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
-        // Serialize chain_id as little-endian bytes
+        // Serialize chain_key as little-endian bytes
         bytes.extend_from_slice(self.chain_key.to_le_bytes().as_ref());
 
         // Serialize header_number as little-endian bytes

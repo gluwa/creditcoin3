@@ -5,7 +5,7 @@ use attestor_primitives::{ChainId, ChainKey};
 sp_api::decl_runtime_apis! {
     pub trait SupportedChainsApi
     {
-        fn is_chain_supported(chain_id: ChainKey) -> bool;
+        fn is_chain_supported(chain_key: ChainKey) -> bool;
 
         fn supported_chains() -> Option<Vec<ChainKey>>;
 

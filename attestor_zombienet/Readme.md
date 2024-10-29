@@ -54,5 +54,5 @@ default_args:
   - "--eth-rpc-url=http://localhost:8546"
 num_attestors: 5
 single_node: true
-chain_id: 4
+chain_key: 4
 ```
