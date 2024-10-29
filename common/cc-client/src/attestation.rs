@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 pub use subxt::utils::AccountId32;
 
-use attestor_primitives::{AttestationCheckpoint, ChainId, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainKey, SignedAttestation};
 
 use crate::cc3::{
     attestation::events::{AttestationIntervalChanged, BlockAttested, CheckpointReached},
@@ -20,8 +20,8 @@ use crate::{Client, Randomness};
 pub enum CcEvent {
     BlockAttestedEvent(SignedAttestation<H256, AccountId32>),
     RandomnessChangedEvent((u64, Randomness)),
-    CheckpointReachedEvent(AttestationCheckpoint, ChainId),
-    AttestationIntervalChangedEvent(ChainId, u64, u64),
+    CheckpointReachedEvent(AttestationCheckpoint, ChainKey),
+    AttestationIntervalChangedEvent(ChainKey, u64, u64),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -70,7 +70,7 @@ pub enum Error {
 
 impl Client {
     #[allow(clippy::too_many_lines)]
-    pub fn subscribe_events(&self, filter: ChainId) -> Result<Subscription, Error> {
+    pub fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 

@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 use cc_client::{AccountId32, Client as CcClient, Error};
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId,
+    Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey,
     SignedAttestation, CHAIN_ID_TO_CHAIN_NAME,
 };
 use creditcoin3_attestor_gossip::{Attestation, Topic};
@@ -21,7 +21,7 @@ pub type Randomness = [u8; 32];
 
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {
-    pub chain_key: ChainId,
+    pub chain_key: ChainKey,
     pub current_attestation_interval: u64,
     pub current_interval_start: u64,
 }
@@ -69,7 +69,7 @@ impl Client {
     }
 
     #[must_use]
-    pub fn get_chain_key(&self) -> ChainId {
+    pub fn get_chain_key(&self) -> ChainKey {
         self.chain_config.chain_key
     }
 }
@@ -227,13 +227,13 @@ impl<'a> Client {
 
     pub async fn get_last_attestation(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
-        let last_digest = self.cc_client.fetch_last_digest(chain_id).await?;
+        let last_digest = self.cc_client.fetch_last_digest(chain_key).await?;
         if let Some(digest) = last_digest {
             Ok(self
                 .cc_client
-                .get_attestation_by_digest(chain_id, digest)
+                .get_attestation_by_digest(chain_key, digest)
                 .await?)
         } else {
             Ok(None)
@@ -322,13 +322,13 @@ impl<'a> Client {
 
 /// Check if the attestation is included in the chain
 /// - `cc_client`: Creditcoin3 client
-/// - `chain_id`: Chain id
+/// - `chain_key`: Chain key from pallet-supported-chains
 /// - `attestation_digest`: Attestation digest
 /// Returns a boolean indicating if the attestation is included in the chain
 /// It retries 4 times with 6 seconds interval
 pub async fn check_attestation_inclusion(
     cc_client: CcClient,
-    chain_id: ChainId,
+    chain_key: ChainKey,
     attestation_digest: H256,
 ) -> Result<bool> {
     let retries = 6;
@@ -340,7 +340,7 @@ pub async fn check_attestation_inclusion(
     for duration in &backoff {
         // get last digest from cc3
         let digest_exists = cc_client
-            .chain_attestation_exists(chain_id, attestation_digest)
+            .chain_attestation_exists(chain_key, attestation_digest)
             .await?;
 
         if digest_exists {

@@ -271,7 +271,7 @@ impl<T: Config> Pallet<T> {
     /// This actually saves all the rewards in the `AccumulatedRewards` storage item
     /// A stash can manually withdraw the rewards by calling `claim_rewards`
     pub(super) fn payout_attestors(chain_key: u64, attestors: &[T::AccountId]) -> DispatchResult {
-        // Retrieve the reward amount for the given chain ID or return an error if not found
+        // Retrieve the reward amount for the given chain key or return an error if not found
         let reward = ChainReward::<T>::get(chain_key).ok_or(Error::<T>::ChainRewardNotFound)?;
 
         // Create a map to store total rewards per stash

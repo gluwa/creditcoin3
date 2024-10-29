@@ -2,7 +2,7 @@ use super::*;
 use crate::ledger::AttestorLedger;
 use crate::mock::*;
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainId, ChainKey,
+    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainKey,
     SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature};
@@ -124,7 +124,7 @@ fn set_chain_reward_should_error_when_not_signed_by_root() {
 #[test]
 fn set_chain_reward_should_error_when_chain_is_not_supported() {
     ExtBuilder.build_and_execute(|| {
-        let chain_key = ChainId::MAX;
+        let chain_key = ChainKey::MAX;
         let chain_reward = 28;
 
         assert_noop!(

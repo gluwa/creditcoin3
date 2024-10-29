@@ -21,8 +21,8 @@ pub mod pallet {
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
-        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainId,
-        ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainKey,
+        Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
     use frame_support::{
@@ -143,7 +143,7 @@ pub mod pallet {
     pub type Attestors<T: Config> = StorageDoubleMap<
         _,
         Twox64Concat,
-        ChainId,
+        ChainKey,
         Blake2_128Concat,
         T::AccountId,
         Attestor<T::AccountId>,
@@ -153,21 +153,21 @@ pub mod pallet {
     #[pallet::getter(fn active_attestors)]
     // Active attestors are the ones that have been registered and are not in the chilling state
     pub type ActiveAttestors<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainId, Vec<T::AccountId>, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<T::AccountId>, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn invulnerables)]
     pub type Invulnerables<T: Config> =
-        StorageDoubleMap<_, Twox64Concat, ChainId, Blake2_128Concat, T::AccountId, bool>;
+        StorageDoubleMap<_, Twox64Concat, ChainKey, Blake2_128Concat, T::AccountId, bool>;
 
     #[pallet::storage]
     #[pallet::getter(fn max_attestors)]
-    pub type MaxAttestors<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, u32, ValueQuery>;
+    pub type MaxAttestors<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn max_invulnerables)]
     pub type MaxInvulnerables<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainId, u32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
 
     #[pallet::type_value]
     pub fn MaxAttestorsDefault<T: Config>() -> u32 {
@@ -184,7 +184,7 @@ pub mod pallet {
     pub type Attestations<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
-        ChainId,
+        ChainKey,
         Blake2_128Concat,
         Digest,
         SignedAttestation<T::Hash, T::AccountId>,
@@ -196,7 +196,7 @@ pub mod pallet {
     pub type Checkpoints<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
-        ChainId,
+        ChainKey,
         Blake2_128Concat,
         Digest,
         AttestationCheckpoint,
@@ -206,16 +206,16 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn checkpointing_queues)]
     pub type CheckpointingQueues<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainId, VecDeque<Digest>, ValueQuery, GetDefault>;
+        StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
 
     #[pallet::storage]
     #[pallet::getter(fn last_attestation_digest)]
-    pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainId, Digest, OptionQuery>;
+    pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, Digest, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn committee_set_size)]
     pub type CommitteeSetSize<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainId, u32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn chain_attestation_interval)]
@@ -238,7 +238,7 @@ pub mod pallet {
     pub type AttestationCheckpointInterval<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        ChainId,
+        ChainKey,
         u32,
         ValueQuery,
         DefaultAttestationsPerCheckpoint<T>,
@@ -274,13 +274,13 @@ pub mod pallet {
     #[pallet::getter(fn ledger)]
     pub type Ledger<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AttestorLedger<T>>;
 
-    /// Map from all supported chain ids to the chain reward.
+    /// Map from all supported chain keys to the chain rewards.
     ///
     /// This is used to store the reward for each chain.
     #[pallet::storage]
     #[pallet::getter(fn chain_reward)]
     pub type ChainReward<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainId, BalanceOf<T>, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, BalanceOf<T>, OptionQuery>;
 
     /// Map from all the stash account id's to the reward that they have earned.
     ///
@@ -349,14 +349,14 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// Emitted when an attestor is properly registered with the attestation system
-        AttestorRegistered(ChainId, T::AccountId),
-        AttestorUnregistered(ChainId, T::AccountId),
+        AttestorRegistered(ChainKey, T::AccountId),
+        AttestorUnregistered(ChainKey, T::AccountId),
         /// Emitted when an invulnerable is properly registered with the attestation system
-        InvulnerableRegistered(ChainId, T::AccountId),
-        InvulnerableUnregistered(ChainId, T::AccountId),
-        BlockAttested(ChainId, SignedAttestation<T::Hash, T::AccountId>, Digest),
-        CheckpointReached(ChainId, AttestationCheckpoint),
-        CommitteeSetSizeChanged(ChainId, u32),
+        InvulnerableRegistered(ChainKey, T::AccountId),
+        InvulnerableUnregistered(ChainKey, T::AccountId),
+        BlockAttested(ChainKey, SignedAttestation<T::Hash, T::AccountId>, Digest),
+        CheckpointReached(ChainKey, AttestationCheckpoint),
+        CommitteeSetSizeChanged(ChainKey, u32),
         Bonded {
             stash: T::AccountId,
             amount: BalanceOf<T>,
@@ -369,8 +369,8 @@ pub mod pallet {
             stash: T::AccountId,
             amount: BalanceOf<T>,
         },
-        AttestorActivated(ChainId, T::AccountId),
-        AttestorChilled(ChainId, T::AccountId),
+        AttestorActivated(ChainKey, T::AccountId),
+        AttestorChilled(ChainKey, T::AccountId),
         RewardPaid {
             chain_key: ChainKey,
             stash: T::AccountId,
@@ -386,12 +386,12 @@ pub mod pallet {
             attestors: Vec<T::AccountId>,
         },
         MinBondRequirementUpdated(BalanceOf<T>),
-        ChainRewardUpdated(ChainId, BalanceOf<T>),
+        ChainRewardUpdated(ChainKey, BalanceOf<T>),
 
         /// Note a change in the attestation interval for a source chain. Also notes the
         /// block number of the latest attestation for that source chain at the time of
         /// the interval change.
-        AttestationIntervalChanged(ChainId, ChainAttestationIntervalType, u64),
+        AttestationIntervalChanged(ChainKey, ChainAttestationIntervalType, u64),
     }
 
     #[pallet::error]

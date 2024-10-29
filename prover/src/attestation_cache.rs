@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::{AttestationCheckpoint, ChainId, ChainKey, Digest, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest, SignedAttestation};
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
@@ -311,7 +311,7 @@ pub async fn sync_cache(
 /// checkpoint will be recorded in the `CachedUpTo` table. Future cache building
 /// passes then stop early when encountering a checkpoint matching that digest.
 pub async fn build_historical_cache_for_chain(
-    chain: ChainId,
+    chain: ChainKey,
     attestations_cache: AttestationCacheType,
     cc3_client: CcClientArc,
     done_building_cache: UnboundedSender<()>,

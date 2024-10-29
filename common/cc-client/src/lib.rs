@@ -24,8 +24,8 @@ use cc3::runtime_types::attestor_primitives::{
 };
 
 use attestor_primitives::{
-    Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey,
-    Digest, SignedAttestation,
+    Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainKey, Digest,
+    SignedAttestation,
 };
 use creditcoin3_attestor_gossip::Attestation as RpcAttestation;
 use vrf::{make_proof_of_inclusion, ProofOfInclusion};
@@ -86,7 +86,7 @@ impl<'a> Client {
         self.signing_keypair.sign(message)
     }
 
-    pub async fn get_chain_key(&self, chain_id: u64, name: String) -> Result<Option<ChainId>> {
+    pub async fn get_chain_key(&self, chain_id: u64, name: String) -> Result<Option<ChainKey>> {
         let chain_key = self
             .api
             .storage()
@@ -379,13 +379,13 @@ impl<'a> Client {
 
     pub async fn get_attestations_for_chain(
         &self,
-        chain_key: ChainId,
+        chain_key: ChainKey,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
         let mut attestations = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Attestations double map,
-        // a ChainId
+        // a ChainKey
         let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
         let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
@@ -414,7 +414,7 @@ impl<'a> Client {
 
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Checkpoints double map,
-        // a ChainId.
+        // a ChainKey.
         let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
         let mut iter = self.api.storage().at_latest().await?.iter(address).await?;

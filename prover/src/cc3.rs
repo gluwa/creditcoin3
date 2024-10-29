@@ -114,7 +114,7 @@ impl Client {
     pub async fn start_attestation_sub(
         &self,
         attestation_chan: mpsc::UnboundedSender<SignedAttestation<H256, AccountId32>>,
-        checkpoint_chan: mpsc::UnboundedSender<(AttestationCheckpoint, ChainId)>,
+        checkpoint_chan: mpsc::UnboundedSender<(AttestationCheckpoint, ChainKey)>,
         filter: ChainKey,
     ) -> Result<()> {
         let mut subscription = self.cc_client.subscribe_events(filter)?;

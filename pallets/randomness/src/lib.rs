@@ -16,7 +16,6 @@ use randomness_primitives::Randomness;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    pub use attestor_primitives::ChainId;
     use frame_support::pallet_prelude::StorageMap;
     use frame_support::pallet_prelude::*;
     use frame_support::Blake2_128Concat;

@@ -162,7 +162,7 @@ pub mod tests {
     //      it's still ok, the prover will possibly upgrade later.
     //  Also, in future we might extend the definition of metadata not to just reflect
     //  chronographic updates, but rather to support different schema formats depending
-    //  on the chain id
+    //  on the chain key
     #[test]
     fn verifying_correct_stark_proof_when_program_metadata_config_is_different_should_error() {
         let proof_path = "../cairo/stone-verifier/proof_example.json";

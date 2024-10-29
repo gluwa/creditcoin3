@@ -15,10 +15,10 @@ use sp_std::vec::Vec;
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
-    ChainId, ChainKey, SignedAttestation,
+    ChainKey, SignedAttestation,
 };
 
-const DEV_CHAIN_KEY: u64 = 1;
+const DEV_CHAIN_KEY: ChainKey = 1;
 const SEED: u32 = 0;
 
 #[derive(Debug, Clone)]

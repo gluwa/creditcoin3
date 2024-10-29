@@ -493,9 +493,10 @@ where
         let attestations = self
             .block_attestations
             .get(&chain_key)
-            .ok_or(Error::Other(
-                "Error fetching attestations for chain id".to_string(),
-            ))?
+            .ok_or(Error::Other(format!(
+                "Error fetching attestations for chain, Chain key: {}",
+                chain_key
+            )))?
             .to_owned();
 
         let block_attestations = attestations

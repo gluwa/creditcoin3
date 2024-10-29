@@ -6,7 +6,7 @@ use std::{
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
 // Substrate
-use attestor_primitives::{AttestationChainConfiguration, ChainKey};
+use attestor_primitives::{AttestationChainConfiguration, ChainId};
 use sc_chain_spec::{ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -309,7 +309,7 @@ fn testnet_genesis(
     endowed_accounts: Vec<AccountId>,
     endowed_evm_accounts: Vec<[u8; 20]>,
     initial_authorities: Vec<AuthorityKeys>,
-    chain_key: ChainKey,
+    chain_id: ChainId,
     attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
@@ -393,7 +393,7 @@ fn testnet_genesis(
 
         // EVM compatibility
         evm_chain_id: EVMChainIdConfig {
-            chain_id: chain_key,
+            chain_id: chain_id,
             ..Default::default()
         },
         evm: EVMConfig {
