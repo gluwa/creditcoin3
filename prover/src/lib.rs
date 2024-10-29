@@ -81,15 +81,12 @@ impl Server {
         let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, &String::new()).await?);
 
         // Get the chain id of the eth chain
-        let eth_chain_id = eth_client.get_chain_id().await?;
+        let chain_id = eth_client.get_chain_id().await?;
 
-        // Convert into ccnext parsed chain id
-        let chain_id = cc3_client
-            .get_chain_key(eth_chain_id)
+        let chain_key = cc3_client
+            .get_chain_key(chain_id)
             .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!("Chain id not found for eth chain id: {}", eth_chain_id)
-            })?;
+            .expect("Prover could not find chain key on startup.");
 
         // Create a channel to synchronize prover DB updates across `sync_cache`
         // and `build_historical_cache_for_chain`
@@ -102,7 +99,7 @@ impl Server {
         let sync_cc3_client = cc3_client.clone();
         tokio::spawn(async move {
             attestation_cache::sync_cache(
-                chain_id,
+                chain_key,
                 &sync_attestations_cache,
                 &sync_cc3_client,
                 receiver,

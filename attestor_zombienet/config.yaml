@@ -5,4 +5,4 @@ default_args:
   # - "-v"
 num_attestors: 5
 single_node: true
-chain_id: 2
+chain_key: 2

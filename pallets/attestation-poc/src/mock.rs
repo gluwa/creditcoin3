@@ -310,7 +310,7 @@ impl ExtBuilder {
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             invulnerables: vec![(ATTESTOR_3, BlsPublicKeyWrapper(att.public_key))],
             attestation_chain_configurations: vec![AttestationChainConfiguration {
-                chain_id: DEV_CHAIN_KEY,
+                chain_key: DEV_CHAIN_KEY,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 10000,

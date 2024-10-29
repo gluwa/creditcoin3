@@ -102,9 +102,9 @@ impl Client {
                     match (event.pallet_name(), event.variant_name()) {
                         (ATTESTATION_MODULE, ATTESTATION_SUBMITTED_EVENT) => {
                             if let Ok(Some(evt)) = event.as_event::<BlockAttested>() {
-                                debug!("attestation chain_id: {:?}", evt.0);
+                                debug!("attestation chain_key: {:?}", evt.0);
 
-                                // If the filter is not empty, check if the chain_id is in the filter
+                                // If the filter is not empty, check if the chain_key is in the filter
                                 if filter != evt.0 {
                                     continue;
                                 }
@@ -147,9 +147,9 @@ impl Client {
                         }
                         (ATTESTATION_MODULE, CHECKPOINT_REACHED_EVENT) => {
                             if let Ok(Some(evt)) = event.as_event::<CheckpointReached>() {
-                                debug!("Checkpoint chain_id: {:?}", evt.0);
+                                debug!("Checkpoint chain_key: {:?}", evt.0);
 
-                                // If the filter is not empty, check if the chain_id is in the filter
+                                // If the filter is not empty, check if the chain_key is in the filter
                                 if filter != evt.0 {
                                     continue;
                                 }
@@ -169,17 +169,17 @@ impl Client {
                         }
                         (ATTESTATION_MODULE, ATTESTATION_INTERVAL_CHANGED_EVENT) => {
                             if let Ok(Some(evt)) = event.as_event::<AttestationIntervalChanged>() {
-                                let (chain_id, new_interval, attested_height_at_change) =
+                                let (chain_key, new_interval, attested_height_at_change) =
                                     (evt.0, evt.1, evt.2);
-                                // If the filter is not empty, check if the chain_id is in the filter
-                                if filter != chain_id {
+                                // If the filter is not empty, check if the chain_key is in the filter
+                                if filter != chain_key {
                                     continue;
                                 }
-                                debug!("Interval changed for chain_id: {:?}, New interval: {:?}, Attested height at time of change: {:?}", chain_id, new_interval, attested_height_at_change);
+                                debug!("Interval changed for chain_key: {:?}, New interval: {:?}, Attested height at time of change: {:?}", chain_key, new_interval, attested_height_at_change);
 
                                 if sender
                                     .send(CcEvent::AttestationIntervalChangedEvent(
-                                        chain_id,
+                                        chain_key,
                                         new_interval,
                                         attested_height_at_change,
                                     ))

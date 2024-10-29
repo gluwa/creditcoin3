@@ -6,7 +6,7 @@ use std::{
 use hex_literal::hex;
 use serde::{Deserialize, Serialize};
 // Substrate
-use attestor_primitives::AttestationChainConfiguration;
+use attestor_primitives::{AttestationChainConfiguration, ChainKey};
 use sc_chain_spec::{ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -157,28 +157,28 @@ pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
                     SS58Prefix::get() as u64,
                     vec![
                         AttestationChainConfiguration {
-                            chain_id: 1,
+                            chain_key: 1,
                             attestation_interval: 10,
                             attestations_per_checkpoint: 10,
                             chain_reward: 1000,
                             committee_set_size: 3,
                         },
                         AttestationChainConfiguration {
-                            chain_id: 2,
+                            chain_key: 2,
                             attestation_interval: 10,
                             attestations_per_checkpoint: 10,
                             chain_reward: 1000,
                             committee_set_size: 3,
                         },
                         AttestationChainConfiguration {
-                            chain_id: 3,
+                            chain_key: 3,
                             attestation_interval: 10,
                             attestations_per_checkpoint: 10,
                             chain_reward: 1000,
                             committee_set_size: 3,
                         },
                         AttestationChainConfiguration {
-                            chain_id: 4,
+                            chain_key: 4,
                             attestation_interval: 10,
                             attestations_per_checkpoint: 10,
                             chain_reward: 1000,
@@ -244,28 +244,28 @@ pub fn local_testnet_config() -> ChainSpec {
                 SS58Prefix::get() as u64,
                 vec![
                     AttestationChainConfiguration {
-                        chain_id: 1,
+                        chain_key: 1,
                         attestation_interval: 10,
                         attestations_per_checkpoint: 10,
                         chain_reward: 1000,
                         committee_set_size: 3,
                     },
                     AttestationChainConfiguration {
-                        chain_id: 2,
+                        chain_key: 2,
                         attestation_interval: 10,
                         attestations_per_checkpoint: 10,
                         chain_reward: 1000,
                         committee_set_size: 3,
                     },
                     AttestationChainConfiguration {
-                        chain_id: 3,
+                        chain_key: 3,
                         attestation_interval: 10,
                         attestations_per_checkpoint: 10,
                         chain_reward: 1000,
                         committee_set_size: 3,
                     },
                     AttestationChainConfiguration {
-                        chain_id: 4,
+                        chain_key: 4,
                         attestation_interval: 10,
                         attestations_per_checkpoint: 10,
                         chain_reward: 1000,
@@ -309,7 +309,7 @@ fn testnet_genesis(
     endowed_accounts: Vec<AccountId>,
     endowed_evm_accounts: Vec<[u8; 20]>,
     initial_authorities: Vec<AuthorityKeys>,
-    chain_id: u64,
+    chain_key: ChainKey,
     attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
@@ -393,7 +393,7 @@ fn testnet_genesis(
 
         // EVM compatibility
         evm_chain_id: EVMChainIdConfig {
-            chain_id,
+            chain_id: chain_key,
             ..Default::default()
         },
         evm: EVMConfig {

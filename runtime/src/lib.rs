@@ -1379,46 +1379,46 @@ impl_runtime_apis! {
     }
 
     impl attestor_primitives::api::AttestorApi<Block, Hash, AccountId> for Runtime {
-        fn is_attestor(chain_id: ChainId, attestor: &AccountId) -> bool {
-            Attestation::is_attestor(chain_id, attestor)
+        fn is_attestor(chain_key: ChainKey, attestor: &AccountId) -> bool {
+            Attestation::is_attestor(chain_key, attestor)
         }
 
-        fn committee_set_size(chain_id: ChainId) -> u32 {
-            Attestation::committee_set_size(chain_id)
+        fn committee_set_size(chain_key: ChainKey) -> u32 {
+            Attestation::committee_set_size(chain_key)
         }
 
-        fn working_set_size(chain_id: ChainId) -> u32 {
-            Attestation::working_set_size(chain_id)
+        fn working_set_size(chain_key: ChainKey) -> u32 {
+            Attestation::working_set_size(chain_key)
         }
 
-        fn last_digest(chain_id: ChainId) -> Option<Digest> {
-            Attestation::last_digest(chain_id)
+        fn last_digest(chain_key: ChainKey) -> Option<Digest> {
+            Attestation::last_digest(chain_key)
         }
 
-        fn get(chain_id: ChainId, digest: Digest) -> Option<SignedAttestation<Hash, AccountId>> {
-            Attestation::get(chain_id, digest)
+        fn get(chain_key: ChainKey, digest: Digest) -> Option<SignedAttestation<Hash, AccountId>> {
+            Attestation::get(chain_key, digest)
         }
 
-        fn contains_digest(chain_id: ChainId, digest: Digest) -> bool {
-            Attestation::contains_digest(chain_id, digest)
+        fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
+            Attestation::contains_digest(chain_key, digest)
         }
 
-        fn attestor_bls_pubkey(chain_id: ChainId, attestor: &AccountId) -> Option<BlsPublicKey> {
-            Attestation::attestor_bls_pubkey(chain_id, attestor)
+        fn attestor_bls_pubkey(chain_key: ChainKey, attestor: &AccountId) -> Option<BlsPublicKey> {
+            Attestation::attestor_bls_pubkey(chain_key, attestor)
         }
 
         fn chain_attestation_interval(chain_key: ChainKey) -> Option<u64> {
             Some(Attestation::chain_attestation_interval(chain_key))
         }
 
-        fn attestor_status(chain_id: ChainId, attestor: &AccountId) -> Option<AttestorStatus> {
-            Attestation::attestor_status(chain_id, attestor)
+        fn attestor_status(chain_key: ChainKey, attestor: &AccountId) -> Option<AttestorStatus> {
+            Attestation::attestor_status(chain_key, attestor)
         }
     }
 
     impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {
-        fn is_chain_supported(chain_id: ChainKey) -> bool {
-            SupportedChains::is_chain_supported(chain_id)
+        fn is_chain_supported(chain_key: ChainKey) -> bool {
+            SupportedChains::is_chain_supported(chain_key)
         }
 
         fn supported_chains() -> Option<Vec<ChainKey>> {

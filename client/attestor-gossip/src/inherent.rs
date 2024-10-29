@@ -117,7 +117,7 @@ where
             let digest = attestation.attestation.digest();
 
             let contains_digest = runtime
-                .contains_digest(block_hash, attestation.attestation.chain_id, digest)
+                .contains_digest(block_hash, attestation.attestation.chain_key, digest)
                 .map_err(|_e| sp_inherents::Error::FatalErrorReported)?;
 
             // If the last digest matches the one we want to submit in the inherent

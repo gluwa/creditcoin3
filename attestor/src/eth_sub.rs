@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::Attestation;
+use attestor_primitives::{Attestation, ChainKey};
 use eth::{self, subscription::SubscriptionConfig};
 use kameo::actor::ActorRef;
 use sp_core::H256;
@@ -15,7 +15,7 @@ pub enum Error {
     #[error("Failed to subscribe {0}")]
     FailedToSubscribe(String),
     #[error("Actor send error {0}")]
-    AttestationError(#[from] kameo::error::SendError<OrderedBlock, attestation::Error>),
+    AttestationError(#[from] kameo::error::SendError<(ChainKey, OrderedBlock), attestation::Error>),
     #[error("Eth client error {0}")]
     EthClientError(#[from] eth::Error),
 }
@@ -28,6 +28,7 @@ pub async fn subscribe_to_new_heads(
     sender: Sender<Option<Attestation<H256>>>,
     eth_start_block: u64,
     attestation_interval: u64,
+    chain_key: ChainKey,
 ) -> Result<(), Error> {
     let config = SubscriptionConfig {
         start_block: eth_start_block,
@@ -41,7 +42,7 @@ pub async fn subscribe_to_new_heads(
     loop {
         if let Some(block) = subscription.next().await {
             // Continuously await new blocks and notify the attestor
-            let attestation = attestor.send(block).await?;
+            let attestation = attestor.send((chain_key, block)).await?;
 
             // Send an attestation back on the channel
             sender

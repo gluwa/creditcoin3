@@ -196,13 +196,13 @@ pub mod pallet {
     }
 
     impl<T: Config> SupportedChainsProvider for Pallet<T> {
-        fn is_chain_supported(chain_id: ChainKey) -> bool {
-            SupportedChains::<T>::contains_key(chain_id)
+        fn is_chain_supported(chain_key: ChainKey) -> bool {
+            SupportedChains::<T>::contains_key(chain_key)
         }
 
         fn supported_chains() -> Option<Vec<ChainKey>> {
             let chains: Vec<ChainKey> = SupportedChains::<T>::iter()
-                .map(|(chain_id, _)| chain_id)
+                .map(|(chain_key, _)| chain_key)
                 .collect();
             match chains.is_empty() {
                 true => None,

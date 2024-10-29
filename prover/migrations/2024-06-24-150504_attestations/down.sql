@@ -1,15 +1,15 @@
 -- Drop BlockWithDigest indices
-DROP INDEX IF EXISTS block_with_digest_idx_chain_id;
+DROP INDEX IF EXISTS block_with_digest_idx_chain_key;
 DROP INDEX IF EXISTS block_with_digest_idx_header_number;
 DROP INDEX IF EXISTS block_with_digest_idx_digest;
 
 -- Drop Attestation indices
-DROP INDEX IF EXISTS attestation_idx_chain_id;
+DROP INDEX IF EXISTS attestation_idx_chain_key;
 DROP INDEX IF EXISTS attestation_idx_header_number;
 DROP INDEX IF EXISTS attestation_idx_digest;
 
 -- Drop AttestationCheckpoint indices
-DROP INDEX IF EXISTS attestation_checkpoint_idx_chain_id;
+DROP INDEX IF EXISTS attestation_checkpoint_idx_chain_key;
 DROP INDEX IF EXISTS attestation_checkpoint_idx_block_number;
 DROP INDEX IF EXISTS attestation_checkpoint_idx_digest;
 

@@ -8,7 +8,7 @@ fn register_chain_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        let chain_id = 1;
+        let chain_id = 201;
         let chain_name = "Ethereum".to_string();
 
         assert_eq!(SupportedChain::chain_key_value(), 1);
@@ -48,7 +48,7 @@ fn register_chain_works() {
 fn register_chain_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        let chain_id = 1;
+        let chain_id = 201;
         let chain_name = "Ethereum".to_string();
 
         assert_noop!(
@@ -62,7 +62,7 @@ fn register_chain_should_error_when_not_signed() {
 fn register_chain_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        let chain_id = 1;
+        let chain_id = 201;
         let chain_name = "Ethereum".to_string();
         let acct: AccountId = 4;
 
@@ -77,7 +77,7 @@ fn register_chain_should_error_when_not_signed_by_root() {
 fn register_chain_should_error_when_registering_duplicate_chain() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        let chain_id = 1; // id already included in storage
+        let chain_id = 200; // id already included in storage
         let chain_name = "Ethereum".to_string(); // name already included in storage
 
         assert_noop!(
@@ -91,7 +91,7 @@ fn register_chain_should_error_when_registering_duplicate_chain() {
 fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_different_name() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        let chain_id = 1; // id already included in storage
+        let chain_id = 200; // id already included in storage
         let chain_name = "Sepolia".to_string(); // name is different
 
         assert_ok!(SupportedChain::register_chain(
@@ -119,7 +119,7 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_diffe
 fn register_chain_should_work_when_registering_chain_with_duplicate_name_but_different_id() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        let chain_id = 2; // id is different
+        let chain_id = 201; // id is different
         let chain_name = "Ethereum".to_string(); // name already included in storage
 
         assert_ok!(SupportedChain::register_chain(
@@ -182,7 +182,7 @@ fn remove_chain_works() {
         System::assert_last_event(
             crate::Event::ChainRemoved {
                 chain_key,
-                chain_id: 1,
+                chain_id: 200,
                 chain_name: "Ethereum".into(),
             }
             .into(),
@@ -236,7 +236,7 @@ fn test_method_supported_chains() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        let chain_id = 1;
+        let chain_id = 200;
         let chain_name = "Ethereum".to_string();
 
         assert_ok!(SupportedChain::register_chain(

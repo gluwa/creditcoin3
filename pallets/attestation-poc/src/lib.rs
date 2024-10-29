@@ -307,36 +307,36 @@ pub mod pallet {
             for chain_configuration in self.attestation_chain_configurations.iter() {
                 // Set the committee set size for the chain
                 CommitteeSetSize::<T>::insert(
-                    chain_configuration.chain_id,
+                    chain_configuration.chain_key,
                     chain_configuration.committee_set_size,
                 );
 
                 ChainAttestationInterval::<T>::insert(
-                    chain_configuration.chain_id,
+                    chain_configuration.chain_key,
                     chain_configuration.attestation_interval,
                 );
                 AttestationCheckpointInterval::<T>::insert(
-                    chain_configuration.chain_id,
+                    chain_configuration.chain_key,
                     chain_configuration.attestations_per_checkpoint,
                 );
                 ChainReward::<T>::insert(
-                    chain_configuration.chain_id,
+                    chain_configuration.chain_key,
                     BalanceOf::<T>::saturated_from(chain_configuration.chain_reward),
                 );
 
                 MaxAttestors::<T>::insert(
-                    chain_configuration.chain_id,
+                    chain_configuration.chain_key,
                     T::MaxAttestationNodes::get(),
                 );
 
                 MaxInvulnerables::<T>::insert(
-                    chain_configuration.chain_id,
+                    chain_configuration.chain_key,
                     T::MaxAttestationNodes::get(),
                 );
 
                 for invulnerable in self.invulnerables.iter() {
                     Invulnerables::<T>::insert(
-                        chain_configuration.chain_id,
+                        chain_configuration.chain_key,
                         invulnerable.0.clone(),
                         true,
                     );
@@ -372,7 +372,7 @@ pub mod pallet {
         AttestorActivated(ChainId, T::AccountId),
         AttestorChilled(ChainId, T::AccountId),
         RewardPaid {
-            chain_id: ChainId,
+            chain_key: ChainKey,
             stash: T::AccountId,
             amount: BalanceOf<T>,
         },
@@ -382,7 +382,7 @@ pub mod pallet {
         },
         AttestorsElected {
             epoch: u64,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestors: Vec<T::AccountId>,
         },
         MinBondRequirementUpdated(BalanceOf<T>),
@@ -449,9 +449,6 @@ pub mod pallet {
         // Did not find attestation which should exist. EX: Attestation with
         // digest matching LastDigest
         AttestationNotFound,
-        // Could not retrieve SupportedChain info after already checking that
-        // it exists.
-        SupportedChainNotFound,
         // Tried to set attestation interval to an invalid value.
         InvalidAttestationInterval,
         // Tried to set attestations per checkpoint to an invalid value.
@@ -490,16 +487,8 @@ pub mod pallet {
                 0
             };
 
-            // The error `SupportedChainNotFound` should never be hit, since the
-            // problem it guards against is already covered by `ChainNotSupported`.
-            // We still keep this error passing to avoid panic in case of future
-            // code changes.
-            let chain_id = T::SupportedChains::get_supported_chain(chain_key)
-                .ok_or(Error::<T>::SupportedChainNotFound)?
-                .chain_id;
-
             Self::deposit_event(Event::<T>::AttestationIntervalChanged(
-                chain_id,
+                chain_key,
                 chain_attestation_interval,
                 last_block_number,
             ));
@@ -510,15 +499,15 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_committee_set_size())]
         pub fn set_committee_set_size(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             new_committee_set_size: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            CommitteeSetSize::<T>::insert(chain_id, new_committee_set_size);
+            CommitteeSetSize::<T>::insert(chain_key, new_committee_set_size);
 
             Self::deposit_event(Event::<T>::CommitteeSetSizeChanged(
-                chain_id,
+                chain_key,
                 new_committee_set_size,
             ));
 
@@ -529,24 +518,24 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::register_attestor())]
         pub fn register_attestor(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestor_id: T::AccountId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            Self::try_insert_attestor_and_emit_event(chain_id, who, attestor_id)
+            Self::try_insert_attestor_and_emit_event(chain_key, who, attestor_id)
         }
 
         #[pallet::call_index(3)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
         pub fn unregister_attestor(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestor_id: T::AccountId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            Self::remove_attestor_and_emit_event(chain_id, who, attestor_id)?;
+            Self::remove_attestor_and_emit_event(chain_key, who, attestor_id)?;
 
             Ok(())
         }
@@ -555,12 +544,12 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
         pub fn set_max_attestors(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             new_max: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            MaxAttestors::<T>::insert(chain_id, new_max);
+            MaxAttestors::<T>::insert(chain_key, new_max);
             Ok(())
         }
 
@@ -568,41 +557,41 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::register_invulnerable())]
         pub fn register_invulnerable(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestor: T::AccountId,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            Self::try_insert_invulnerable_and_emit_event(chain_id, &attestor)
+            Self::try_insert_invulnerable_and_emit_event(chain_key, &attestor)
         }
 
         #[pallet::call_index(6)]
         #[pallet::weight(<T as Config>::WeightInfo::unregister_invulnerable())]
         pub fn unregister_invulnerable(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestor: T::AccountId,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             ensure!(
-                Self::address_is_invulnerable(chain_id, &attestor),
+                Self::address_is_invulnerable(chain_key, &attestor),
                 Error::<T>::AddressIsNotInvulnerable
             );
 
-            Self::remove_invulnerable_and_emit_event(chain_id, attestor)
+            Self::remove_invulnerable_and_emit_event(chain_key, attestor)
         }
 
         #[pallet::call_index(7)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_invulnerables())]
         pub fn set_max_invulnerables(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             new_max: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            let count = Invulnerables::<T>::iter_prefix_values(chain_id)
+            let count = Invulnerables::<T>::iter_prefix_values(chain_key)
                 .collect::<Vec<_>>()
                 .len() as u32;
 
@@ -611,7 +600,7 @@ pub mod pallet {
                 Error::<T>::MaxInvulnerablesCannotBeChanged
             );
 
-            MaxInvulnerables::<T>::insert(chain_id, new_max);
+            MaxInvulnerables::<T>::insert(chain_key, new_max);
             Ok(())
         }
 
@@ -619,28 +608,28 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain(attestation.attestors.len() as u32))]
         pub fn bootstrap_chain(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             ensure!(
-                T::SupportedChains::is_chain_supported(chain_id),
+                T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
             );
 
-            let previous_digest = Self::last_digest(chain_id);
+            let previous_digest = Self::last_digest(chain_key);
 
             // Store the attestation
             let digest = attestation.digest();
             let header_number = attestation.header_number();
-            Attestations::<T>::insert(chain_id, digest, &attestation);
+            Attestations::<T>::insert(chain_key, digest, &attestation);
 
             // Update last digest
-            LastDigest::<T>::set(chain_id, Some(digest));
+            LastDigest::<T>::set(chain_key, Some(digest));
 
             Self::deposit_event(Event::<T>::BlockAttested(
-                chain_id,
+                chain_key,
                 attestation.clone(),
                 digest,
             ));
@@ -655,25 +644,25 @@ pub mod pallet {
                     };
 
                     Self::deposit_event(Event::<T>::CheckpointReached(
-                        chain_id,
+                        chain_key,
                         checkpoint.clone(),
                     ));
 
-                    Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                    Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
                 }
                 Some(_prev_digest) => {
                     // Add to checkpointing queue
-                    let mut queue = CheckpointingQueues::<T>::get(chain_id);
+                    let mut queue = CheckpointingQueues::<T>::get(chain_key);
                     queue.push_back(digest);
 
                     // Make checkpoint if necessary.
                     // The extrinsic didn't fail even if checkpointing failed. We want
                     // to keep the new attestation rather than removing it from storage
                     // via extrinsic rollback in the case of checkpointing failure.
-                    if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
+                    if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
                         log::error!("Error: {:?}", e);
                     }
-                    CheckpointingQueues::<T>::insert(chain_id, queue);
+                    CheckpointingQueues::<T>::insert(chain_key, queue);
                 }
             }
 
@@ -688,14 +677,14 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_none(origin)?;
 
-            let chain_id = attestation.chain_id();
+            let chain_key = attestation.chain_key();
             ensure!(
-                T::SupportedChains::is_chain_supported(chain_id),
+                T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
             );
 
             ensure!(
-                !Attestations::<T>::contains_key(chain_id, attestation.digest()),
+                !Attestations::<T>::contains_key(chain_key, attestation.digest()),
                 Error::<T>::AttestationExists
             );
 
@@ -704,17 +693,17 @@ pub mod pallet {
                 Error::<T>::InvalidAttestation
             );
 
-            let previous_digest = Self::last_digest(chain_id);
+            let previous_digest = Self::last_digest(chain_key);
             ensure!(
                 previous_digest == attestation.attestation.prev_digest,
                 Error::<T>::InvalidAttestation
             );
 
             if let Some(previous_digest) = previous_digest {
-                let previous_attestation = Attestations::<T>::get(chain_id, previous_digest)
+                let previous_attestation = Attestations::<T>::get(chain_key, previous_digest)
                     .ok_or(Error::<T>::NoPreviousDigest)?;
 
-                let interval = ChainAttestationInterval::<T>::get(chain_id);
+                let interval = ChainAttestationInterval::<T>::get(chain_key);
                 let prev_block_number = previous_attestation.attestation.header_number;
 
                 debug!(
@@ -736,16 +725,16 @@ pub mod pallet {
             // Store the attestation
             let digest = attestation.digest();
             let header_number = attestation.header_number();
-            Attestations::<T>::insert(chain_id, digest, &attestation);
+            Attestations::<T>::insert(chain_key, digest, &attestation);
 
             // Update last digest
-            LastDigest::<T>::set(chain_id, Some(digest));
+            LastDigest::<T>::set(chain_key, Some(digest));
 
             // Pay out attestation rewards
-            Self::payout_attestors(chain_id, &attestation.attestors)?;
+            Self::payout_attestors(chain_key, &attestation.attestors)?;
 
             // Emit event
-            Self::deposit_event(Event::<T>::BlockAttested(chain_id, attestation, digest));
+            Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
 
             match previous_digest {
                 None => {
@@ -757,25 +746,25 @@ pub mod pallet {
                     };
 
                     Self::deposit_event(Event::<T>::CheckpointReached(
-                        chain_id,
+                        chain_key,
                         checkpoint.clone(),
                     ));
 
-                    Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                    Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
                 }
                 Some(_prev_digest) => {
                     // Add to checkpointing queue
-                    let mut queue = CheckpointingQueues::<T>::get(chain_id);
+                    let mut queue = CheckpointingQueues::<T>::get(chain_key);
                     queue.push_back(digest);
 
                     // Make checkpoint if necessary.
                     // The extrinsic didn't fail even if checkpointing failed. We want
                     // to keep the new attestation rather than removing it from storage
                     // via extrinsic rollback in the case of checkpointing failure.
-                    if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_id) {
+                    if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
                         log::error!("Error: {:?}", e);
                     }
-                    CheckpointingQueues::<T>::insert(chain_id, queue);
+                    CheckpointingQueues::<T>::insert(chain_key, queue);
                 }
             }
 
@@ -786,7 +775,7 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_attestations_per_checkpoint())]
         pub fn set_attestations_per_checkpoint(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestations_per_checkpoint: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
@@ -797,11 +786,11 @@ pub mod pallet {
             };
 
             ensure!(
-                T::SupportedChains::is_chain_supported(chain_id),
+                T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
             );
 
-            AttestationCheckpointInterval::<T>::set(chain_id, attestations_per_checkpoint);
+            AttestationCheckpointInterval::<T>::set(chain_key, attestations_per_checkpoint);
             Ok(())
         }
 
@@ -824,19 +813,19 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_chain_reward())]
         pub fn set_chain_reward(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             reward: BalanceOf<T>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             ensure!(
-                T::SupportedChains::is_chain_supported(chain_id),
+                T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
             );
 
-            ChainReward::<T>::insert(chain_id, reward);
+            ChainReward::<T>::insert(chain_key, reward);
 
-            Self::deposit_event(Event::<T>::ChainRewardUpdated(chain_id, reward));
+            Self::deposit_event(Event::<T>::ChainRewardUpdated(chain_key, reward));
 
             Ok(())
         }
@@ -845,29 +834,29 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::attest())]
         pub fn attest(
             origin: OriginFor<T>,
-            chain_id: ChainId,
+            chain_key: ChainKey,
             bls_public_key: BlsPublicKey,
             proof_of_possession: BlsSignature,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            Self::start_attesting(chain_id, who, bls_public_key, proof_of_possession)?;
+            Self::start_attesting(chain_key, who, bls_public_key, proof_of_possession)?;
 
             Ok(())
         }
 
         #[pallet::call_index(14)]
         #[pallet::weight(<T as Config>::WeightInfo::chill())]
-        pub fn chill(origin: OriginFor<T>, chain_id: ChainId) -> DispatchResult {
+        pub fn chill(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             let mut attestor =
-                Attestors::<T>::get(chain_id, &who).ok_or(Error::<T>::AddressNotAttestor)?;
+                Attestors::<T>::get(chain_key, &who).ok_or(Error::<T>::AddressNotAttestor)?;
 
             attestor.status = AttestorStatus::Idle;
-            Attestors::<T>::insert(chain_id, &who, attestor);
+            Attestors::<T>::insert(chain_key, &who, attestor);
 
-            Self::deposit_event(Event::<T>::AttestorChilled(chain_id, who));
+            Self::deposit_event(Event::<T>::AttestorChilled(chain_key, who));
 
             Ok(())
         }
@@ -920,16 +909,16 @@ pub mod pallet {
 
             // Check if atleast the attestation was not already submitted
             if let Some(attestation) = inherent_data {
-                if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_id) {
+                if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_key) {
                     if digest == attestation.digest() {
                         log::error!("Attestation with digest: {:?} is duplicate", digest);
                         return None;
                     }
                 };
-                if !T::SupportedChains::is_chain_supported(attestation.chain_id()) {
+                if !T::SupportedChains::is_chain_supported(attestation.chain_key()) {
                     log::error!(
                         "Chain with id: {:?} is not supported",
-                        attestation.chain_id()
+                        attestation.chain_key()
                     );
                     return None;
                 }
@@ -949,7 +938,7 @@ pub mod pallet {
                     Pallet::<T>::check_duplicate(attestation)?;
                     let agg_signature = Pallet::<T>::extract_agg_signature(&attestation.signature)?;
                     let attestor_public_keys = Pallet::<T>::gather_attestor_public_keys(
-                        attestation.chain_id(),
+                        attestation.chain_key(),
                         &attestation.attestors,
                     )?;
                     let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..])
@@ -979,101 +968,102 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn working_set_size(chain_id: ChainId) -> u32 {
-            ActiveAttestors::<T>::get(chain_id).len() as u32
+        pub fn working_set_size(chain_key: ChainKey) -> u32 {
+            ActiveAttestors::<T>::get(chain_key).len() as u32
         }
 
-        pub fn is_attestor(chain_id: ChainId, address: &T::AccountId) -> bool {
-            let active_attestors = ActiveAttestors::<T>::get(chain_id);
+        pub fn is_attestor(chain_key: ChainKey, address: &T::AccountId) -> bool {
+            let active_attestors = ActiveAttestors::<T>::get(chain_key);
             active_attestors.contains(address)
         }
 
         pub fn attestor_status(
-            chain_id: ChainId,
+            chain_key: ChainKey,
             address: &T::AccountId,
         ) -> Option<AttestorStatus> {
-            Attestors::<T>::get(chain_id, address).map(|attestor| attestor.status)
+            Attestors::<T>::get(chain_key, address).map(|attestor| attestor.status)
         }
 
-        pub fn address_is_not_attestor(chain_id: ChainId, address: &T::AccountId) -> bool {
-            !Self::is_attestor(chain_id, address)
+        pub fn address_is_not_attestor(chain_key: ChainKey, address: &T::AccountId) -> bool {
+            !Self::is_attestor(chain_key, address)
         }
 
-        pub fn attestor_is_registered(chain_id: ChainId, address: &T::AccountId) -> bool {
-            Attestors::<T>::contains_key(chain_id, address)
+        pub fn attestor_is_registered(chain_key: ChainKey, address: &T::AccountId) -> bool {
+            Attestors::<T>::contains_key(chain_key, address)
         }
 
-        pub fn last_digest(chain_id: ChainId) -> Option<Digest> {
-            LastDigest::<T>::get(chain_id)
+        pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {
+            LastDigest::<T>::get(chain_key)
         }
 
-        pub fn contains_digest(chain_id: ChainId, digest: Digest) -> bool {
-            Attestations::<T>::contains_key(chain_id, digest)
+        pub fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
+            Attestations::<T>::contains_key(chain_key, digest)
         }
 
         pub fn attestor_bls_pubkey(
-            chain_id: ChainId,
+            chain_key: ChainKey,
             address: &T::AccountId,
         ) -> Option<BlsPublicKey> {
-            let pk = Attestors::<T>::get(chain_id, address).map(|attestor| attestor.bls_public_key);
+            let pk =
+                Attestors::<T>::get(chain_key, address).map(|attestor| attestor.bls_public_key);
             match pk {
                 Some(pk) => pk,
                 None => None,
             }
         }
 
-        pub fn attestor_list_has_space(chain_id: ChainId) -> bool {
-            let count = Attestors::<T>::iter_prefix_values(chain_id)
+        pub fn attestor_list_has_space(chain_key: ChainKey) -> bool {
+            let count = Attestors::<T>::iter_prefix_values(chain_key)
                 .collect::<Vec<_>>()
                 .len() as u32;
-            count < MaxAttestors::<T>::get(chain_id)
+            count < MaxAttestors::<T>::get(chain_key)
         }
 
         pub fn get(
-            chain_id: ChainId,
+            chain_key: ChainKey,
             digest: Digest,
         ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
-            Attestations::<T>::get(chain_id, digest)
+            Attestations::<T>::get(chain_key, digest)
         }
 
-        fn vulnerable_list_has_space(chain_id: ChainId) -> bool {
-            let count = Invulnerables::<T>::iter_prefix_values(chain_id)
+        fn vulnerable_list_has_space(chain_key: ChainKey) -> bool {
+            let count = Invulnerables::<T>::iter_prefix_values(chain_key)
                 .collect::<Vec<_>>()
                 .len() as u32;
-            count < MaxInvulnerables::<T>::get(chain_id)
+            count < MaxInvulnerables::<T>::get(chain_key)
         }
 
         /// Insert address as attestor & invulnerable
         fn try_insert_invulnerable_and_emit_event(
-            chain_id: ChainId,
+            chain_key: ChainKey,
             address: &T::AccountId,
         ) -> DispatchResult {
             ensure!(
-                Self::vulnerable_list_has_space(chain_id),
+                Self::vulnerable_list_has_space(chain_key),
                 Error::<T>::InvulnerableListFull
             );
 
-            Invulnerables::<T>::insert(chain_id, address, true);
+            Invulnerables::<T>::insert(chain_key, address, true);
             Self::deposit_event(Event::<T>::InvulnerableRegistered(
-                chain_id,
+                chain_key,
                 address.clone(),
             ));
             Ok(())
         }
 
-        fn address_is_invulnerable(chain_id: ChainId, address: &T::AccountId) -> bool {
-            Invulnerables::<T>::contains_key(chain_id, address)
+        fn address_is_invulnerable(chain_key: ChainKey, address: &T::AccountId) -> bool {
+            Invulnerables::<T>::contains_key(chain_key, address)
         }
 
         // Remove address as invulnerable and attestor
         fn remove_invulnerable_and_emit_event(
-            chain_id: ChainId,
+            chain_key: ChainKey,
             address: T::AccountId,
         ) -> DispatchResult {
             // Remove from invulnerables
-            Invulnerables::<T>::remove(chain_id, &address);
+            Invulnerables::<T>::remove(chain_key, &address);
             Self::deposit_event(Event::<T>::InvulnerableUnregistered(
-                chain_id,
+                chain_key,
                 address.clone(),
             ));
 
@@ -1086,7 +1076,7 @@ pub mod pallet {
             Self::check_duplicate(attestation)?;
             let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
             let attestor_public_keys =
-                Self::gather_attestor_public_keys(attestation.chain_id(), &attestation.attestors)?;
+                Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
             let aggregated_public_key =
                 aggregate_public_keys(&attestor_public_keys[..]).map_err(|_| {
                     log::error!("Failed to aggregate public keys");
@@ -1106,8 +1096,11 @@ pub mod pallet {
         // then the prior checkpoint interval is considered "stabilized". We condense all the
         // attestations for that prior interval into a single checkpoint.
         #[transactional]
-        fn try_make_checkpoint(queue: &mut VecDeque<Digest>, chain_id: ChainId) -> DispatchResult {
-            let num_to_condense = Self::attestation_checkpoint_interval(chain_id);
+        fn try_make_checkpoint(
+            queue: &mut VecDeque<Digest>,
+            chain_key: ChainKey,
+        ) -> DispatchResult {
+            let num_to_condense = Self::attestation_checkpoint_interval(chain_key);
             // Only move forward if two full checkpoints of attestations are committed.
             if queue.len() < (num_to_condense * 2) as usize {
                 return Ok(());
@@ -1130,7 +1123,7 @@ pub mod pallet {
                 checkpointing_rollback.push(to_be_removed);
 
                 // Until then, removing attestations from storage breaks proving.
-                let removed = match Attestations::<T>::take(chain_id, to_be_removed) {
+                let removed = match Attestations::<T>::take(chain_key, to_be_removed) {
                     Some(attestation) => attestation,
                     None => {
                         for digest in checkpointing_rollback {
@@ -1147,23 +1140,15 @@ pub mod pallet {
                     };
 
                     Self::deposit_event(Event::<T>::CheckpointReached(
-                        chain_id,
+                        chain_key,
                         checkpoint.clone(),
                     ));
 
-                    Checkpoints::<T>::insert(chain_id, checkpoint.digest, checkpoint);
+                    Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
                 }
             }
 
             Ok(())
-        }
-
-        #[cfg(test)]
-        pub(crate) fn break_checkpointing() {
-            let test_chain_id = 1;
-            CheckpointingQueues::<T>::mutate(test_chain_id, |queue| {
-                queue.push_back([0u8; 32].into());
-            })
         }
     }
     // helper functions for checking inherent data
@@ -1171,7 +1156,7 @@ pub mod pallet {
         fn check_duplicate(
             attestation: &SignedAttestation<T::Hash, T::AccountId>,
         ) -> Result<(), InherentError> {
-            if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_id) {
+            if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_key) {
                 if digest == attestation.attestation.digest() {
                     log::error!("Attestation with digest: {:?} is duplicate", digest);
                     return Err(InherentError::Duplicate(digest));
@@ -1188,18 +1173,18 @@ pub mod pallet {
         }
 
         fn gather_attestor_public_keys(
-            chain_id: ChainId,
+            chain_key: ChainKey,
             attestors: &[T::AccountId],
         ) -> Result<Vec<PublicKey>, InherentError> {
             attestors
                 .iter()
                 .map(|attestor| {
-                    let active_attestors = ActiveAttestors::<T>::get(chain_id);
+                    let active_attestors = ActiveAttestors::<T>::get(chain_key);
                     let contains = active_attestors.contains(attestor);
 
                     if contains {
                         let attestor =
-                            Attestors::<T>::get(chain_id, attestor).ok_or_else(|| {
+                            Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
                                 log::error!("Attestor {:?} not found", attestor);
                                 InherentError::InvalidAttestorFound
                             })?;

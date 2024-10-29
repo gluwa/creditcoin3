@@ -21,7 +21,7 @@ use super::schema::blockwithdigest::{self, dsl::blockwithdigest as blocks_table}
 #[diesel(table_name = blockwithdigest)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BlockWithDigest {
-    pub chain_id: i64,
+    pub chain_key: i64,
     pub header_number: i64,
     pub header_hash: String,
     pub merkle_root: String,
@@ -51,12 +51,12 @@ pub async fn _exists_by_digest(connection: &mut AsyncPgConnection, digest: Strin
 // Get Attestation for a range of header numbers
 pub async fn get_blocks_in_range(
     connection: &mut AsyncPgConnection,
-    chain_id: u64,
+    chain_key: u64,
     start: i64,
     end: i64,
 ) -> Result<Vec<BlockWithDigest>> {
     Ok(blocks_table
-        .filter(blockwithdigest::chain_id.eq(super::to_storage_type(chain_id)))
+        .filter(blockwithdigest::chain_key.eq(super::to_storage_type(chain_key)))
         .filter(blockwithdigest::header_number.ge(start))
         .filter(blockwithdigest::header_number.le(end))
         .select(BlockWithDigest::as_select())

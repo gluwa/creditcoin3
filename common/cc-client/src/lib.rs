@@ -24,8 +24,8 @@ use cc3::runtime_types::attestor_primitives::{
 };
 
 use attestor_primitives::{
-    Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainId, Digest,
-    SignedAttestation,
+    Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey,
+    Digest, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::Attestation as RpcAttestation;
 use vrf::{make_proof_of_inclusion, ProofOfInclusion};
@@ -142,7 +142,7 @@ impl<'a> Client {
     }
 
     pub async fn fetch_committee_size(&self, chain_id: u64) -> Result<u32> {
-        let storage_query = cc3::storage().attestation().committee_set_size(chain_id);
+        let storage_query = cc3::storage().attestation().committee_set_size(chain_key);
 
         let result = self
             .api
@@ -156,8 +156,8 @@ impl<'a> Client {
         Ok(result)
     }
 
-    pub async fn fetch_last_digest(&self, chain_id: ChainId) -> Result<Option<Digest>> {
-        let storage_query = cc3::storage().attestation().last_digest(chain_id);
+    pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>> {
+        let storage_query = cc3::storage().attestation().last_digest(chain_key);
 
         let result = self
             .api
@@ -171,8 +171,8 @@ impl<'a> Client {
     }
 
     /// Check the clients membership in the attestor pallet
-    pub async fn check_attestors_membership(&self, chain_id: u64) -> Result<bool> {
-        let storage_query = cc3::storage().attestation().active_attestors(chain_id);
+    pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool> {
+        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
 
         let result = self
             .api
@@ -191,13 +191,13 @@ impl<'a> Client {
     /// Register to the attestation pallet
     pub async fn register_attestor(
         &self,
-        chain_id: u64,
+        chain_key: u64,
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
     ) -> Result<()> {
         let tx = cc3::tx()
             .attestation()
-            .register_attestor(chain_id, attestor_id);
+            .register_attestor(chain_key, attestor_id);
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
@@ -223,13 +223,13 @@ impl<'a> Client {
 
     pub async fn start_attesting(
         &self,
-        chain_id: u64,
+        chain_key: ChainKey,
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> Result<()> {
         let tx = cc3::tx()
             .attestation()
-            .attest(chain_id, bls_public_key, proof_of_possession);
+            .attest(chain_key, bls_public_key, proof_of_possession);
 
         let ext = self
             .api
@@ -249,18 +249,18 @@ impl<'a> Client {
     /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
     pub async fn sign_babe_vrf(
         &self,
-        chain_id: u64,
+        chain_key: ChainKey,
         randomness: Randomness,
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
-        let committee_size = self.fetch_committee_size(chain_id).await.map_err(|e| {
+        let committee_size = self.fetch_committee_size(chain_key).await.map_err(|e| {
             error!("Error getting committee size: {:?}", e);
             Error::FailedToGetComitteSetSize
         })?;
 
         let attestor_working_set_size = self
-            .get_attestor_working_set_size(chain_id)
+            .get_attestor_working_set_size(chain_key)
             .await
             .map_err(|e| {
                 error!("Error getting attestor working set size: {:?}", e);
@@ -291,10 +291,10 @@ impl<'a> Client {
         AttestorId::from_public(self.signing_keypair.public_key().0)
     }
 
-    pub async fn chain_attestation_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
+    pub async fn chain_attestation_interval(&self, chain_key: ChainKey) -> Result<Option<u64>> {
         let storage_query = cc3::storage()
             .attestation()
-            .chain_attestation_interval(chain_id);
+            .chain_attestation_interval(chain_key);
 
         let result = self
             .api
@@ -307,10 +307,10 @@ impl<'a> Client {
         Ok(result)
     }
 
-    pub async fn chain_checkpoint_interval(&self, chain_id: ChainId) -> Result<Option<u32>> {
+    pub async fn chain_checkpoint_interval(&self, chain_key: ChainKey) -> Result<Option<u32>> {
         let storage_query = cc3::storage()
             .attestation()
-            .attestation_checkpoint_interval(chain_id);
+            .attestation_checkpoint_interval(chain_key);
 
         let result = self
             .api
@@ -325,10 +325,10 @@ impl<'a> Client {
 
     pub async fn chain_attestation_exists(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
         digest: Digest,
     ) -> Result<bool> {
-        let storage_query = cc3::storage().attestation().attestations(chain_id, digest);
+        let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
             .api
@@ -343,10 +343,10 @@ impl<'a> Client {
 
     pub async fn get_attestation_by_digest(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
-        let storage_query = cc3::storage().attestation().attestations(chain_id, digest);
+        let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
             .api
@@ -361,10 +361,10 @@ impl<'a> Client {
 
     pub async fn get_checkpoint_by_digest(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<AttestationCheckpoint>> {
-        let storage_query = cc3::storage().attestation().checkpoints(chain_id, digest);
+        let storage_query = cc3::storage().attestation().checkpoints(chain_key, digest);
 
         let result = self
             .api
@@ -379,14 +379,14 @@ impl<'a> Client {
 
     pub async fn get_attestations_for_chain(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainId,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
         let mut attestations = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Attestations double map,
         // a ChainId
-        let address = cc3::storage().attestation().attestations_iter1(chain_id);
+        let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
         let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
 
@@ -408,14 +408,14 @@ impl<'a> Client {
 
     pub async fn get_checkpoints_for_chain(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
     ) -> Result<Vec<AttestationCheckpoint>> {
         let mut checkpoints = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Checkpoints double map,
         // a ChainId.
-        let address = cc3::storage().attestation().checkpoints_iter1(chain_id);
+        let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
         let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
 
@@ -496,8 +496,8 @@ impl<'a> Client {
         Ok(nonce)
     }
 
-    pub async fn get_attestor_working_set_size(&self, chain_id: u64) -> Result<usize> {
-        let address = cc3::storage().attestation().attestors_iter1(chain_id);
+    pub async fn get_attestor_working_set_size(&self, chain_key: u64) -> Result<usize> {
+        let address = cc3::storage().attestation().attestors_iter1(chain_key);
 
         let count = self
             .api
@@ -532,7 +532,7 @@ where
 {
     fn from(attestation: CcAttestation<H>) -> Self {
         Attestation {
-            chain_id: attestation.chain_id,
+            chain_key: attestation.chain_key,
             header_number: attestation.header_number,
             header_hash: attestation.header_hash,
             root: attestation.root,

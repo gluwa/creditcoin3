@@ -59,7 +59,7 @@ impl ExtBuilder {
             .unwrap();
 
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
-            supported_chains: vec![(1, "Ethereum".as_bytes().to_vec())],
+            supported_chains: vec![(200, "Ethereum".as_bytes().to_vec())],
             _phantom: Default::default(),
         };
 

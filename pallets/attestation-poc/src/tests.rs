@@ -2,7 +2,7 @@ use super::*;
 use crate::ledger::AttestorLedger;
 use crate::mock::*;
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainId,
+    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainId, ChainKey,
     SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature};
@@ -124,11 +124,11 @@ fn set_chain_reward_should_error_when_not_signed_by_root() {
 #[test]
 fn set_chain_reward_should_error_when_chain_is_not_supported() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = ChainId::MAX;
+        let chain_key = ChainId::MAX;
         let chain_reward = 28;
 
         assert_noop!(
-            Attestation::set_chain_reward(RuntimeOrigin::root(), chain_id, chain_reward),
+            Attestation::set_chain_reward(RuntimeOrigin::root(), chain_key, chain_reward),
             Error::<Test>::ChainNotSupported
         );
     })
@@ -1295,12 +1295,11 @@ fn set_chain_attestation_interval_should_error_when_not_signed_by_root() {
 #[test]
 fn set_chain_attestation_interval_should_error_with_interval_0() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 2;
         let chain_attestation_interval = 0;
         assert_noop!(
             Attestation::set_chain_attestation_interval(
                 RuntimeOrigin::root(),
-                chain_id,
+                DEV_CHAIN_KEY,
                 chain_attestation_interval
             ),
             Error::<Test>::InvalidAttestationInterval
@@ -1311,12 +1310,12 @@ fn set_chain_attestation_interval_should_error_with_interval_0() {
 #[test]
 fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 2;
+        let chain_key = 2;
         let chain_attestation_interval = 101;
         assert_noop!(
             Attestation::set_chain_attestation_interval(
                 RuntimeOrigin::root(),
-                chain_id,
+                chain_key,
                 chain_attestation_interval
             ),
             Error::<Test>::ChainNotSupported
@@ -1340,12 +1339,8 @@ fn set_chain_attestation_interval_updates_internal_storage_and_emits_event() {
         let attestation_interval = Attestation::chain_attestation_interval(DEV_CHAIN_KEY);
         assert_eq!(attestation_interval, 101);
 
-        let chain_id = SupportedChains::supported_chain(DEV_CHAIN_KEY)
-            .expect("Checked that this chain was supported when setting interval.")
-            .chain_id;
-
         System::assert_last_event(
-            crate::Event::AttestationIntervalChanged(chain_id, chain_attestation_interval, 0)
+            crate::Event::AttestationIntervalChanged(DEV_CHAIN_KEY, chain_attestation_interval, 0)
                 .into(),
         );
     })
@@ -1426,12 +1421,12 @@ fn set_attestations_per_checkpoint_should_error_with_invalid_interval_value() {
 #[test]
 fn set_attestations_per_checkpoint_should_error_on_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 2;
+        let chain_key = 2;
         let att_per_check = 101;
         assert_noop!(
             Attestation::set_attestations_per_checkpoint(
                 RuntimeOrigin::root(),
-                chain_id,
+                chain_key,
                 att_per_check
             ),
             Error::<Test>::ChainNotSupported
@@ -1472,12 +1467,12 @@ fn bootstrap_chain_should_error_when_not_signed_by_root() {
 #[test]
 fn bootstrap_chain_should_error_when_chain_is_unsupported() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 2;
+        let chain_key = 2;
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
 
         assert_noop!(
-            Attestation::bootstrap_chain(RuntimeOrigin::root(), chain_id, attestation,),
+            Attestation::bootstrap_chain(RuntimeOrigin::root(), chain_key, attestation,),
             Error::<Test>::ChainNotSupported
         );
     })
@@ -1602,10 +1597,10 @@ fn commit_attestation_should_error_when_signed_by_root() {
 #[test]
 fn commit_attestation_should_error_when_chain_is_not_supported() {
     ExtBuilder.build_and_execute(|| {
-        let chain_id = 2;
+        let chain_key = 2;
 
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], chain_id, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], chain_key, 1, None);
 
         assert_noop!(
             Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
@@ -1915,7 +1910,9 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
         // Inserts a garbage checkpointing queue entry without corresponding
         // attestations entry. We break checkpointing part way through,
         // requiring that all previous state changes be rolled back.
-        Attestation::break_checkpointing();
+        CheckpointingQueues::<Test>::mutate(DEV_CHAIN_KEY, |queue| {
+            queue.push_back([0u8; 32].into());
+        });
 
         // Trigger checkpointing by adding one more full interval of attestations
         for i in (att_per_check)..(att_per_check * 2) {
@@ -2302,7 +2299,7 @@ fn accumulating_rewards_works() {
         // Check that the reward was paid
         System::assert_has_event(
             crate::Event::RewardPaid {
-                chain_id: DEV_CHAIN_KEY,
+                chain_key: DEV_CHAIN_KEY,
                 stash: STASH_1,
                 amount: chain_reward,
             }
@@ -2332,7 +2329,7 @@ fn accumulating_rewards_works() {
         // Check that the reward was paid
         System::assert_has_event(
             crate::Event::RewardPaid {
-                chain_id: DEV_CHAIN_KEY,
+                chain_key: DEV_CHAIN_KEY,
                 stash: STASH_1,
                 amount: chain_reward,
             }
@@ -2792,12 +2789,12 @@ fn accumulating_rewards_with_multiple_stashes_and_attestors_works() {
 
 fn create_signed_attestation(
     attestors: Vec<Attestor>,
-    chain_id: ChainId,
+    chain_key: ChainKey,
     header_number: u64,
     prev_digest: Option<H256>,
 ) -> SignedAttestation<H256, mock::AccountId> {
     let attestation = AttestationPrimitive {
-        chain_id,
+        chain_key,
         header_number,
         header_hash: H256::random(),
         root: [0; 32],

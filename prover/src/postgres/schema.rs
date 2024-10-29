@@ -3,7 +3,7 @@
 diesel::table! {
     attestation (id) {
         id -> Int4,
-        chain_id -> Int8,
+        chain_key -> Int8,
         header_number -> Int8,
         #[max_length = 64]
         header_hash -> Varchar,
@@ -22,7 +22,7 @@ diesel::table! {
 diesel::table! {
     attestationcheckpoint (id) {
         id -> Int4,
-        chain_id -> Int8,
+        chain_key -> Int8,
         block_number -> Int8,
         #[max_length = 64]
         digest -> Varchar,
@@ -32,7 +32,7 @@ diesel::table! {
 diesel::table! {
     blockwithdigest (id) {
         id -> Int4,
-        chain_id -> Int8,
+        chain_key -> Int8,
         header_number -> Int8,
         #[max_length = 64]
         header_hash -> Varchar,
@@ -44,8 +44,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    cachedupto (chain_id) {
-        chain_id -> Int8,
+    cachedupto (chain_key) {
+        chain_key -> Int8,
         #[max_length = 64]
         digest -> Varchar,
     }

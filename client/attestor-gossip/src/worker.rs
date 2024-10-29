@@ -15,7 +15,7 @@ use std::sync::Arc;
 use attestor_primitives::{
     api::AttestorApi,
     bls::{Bls, CryptoScheme, WrapEncode},
-    AttestorId, AttestorStatus, ChainId, SignedAttestation,
+    AttestorId, AttestorStatus, ChainKey, SignedAttestation,
 };
 
 use bls_signatures::{aggregate, Serialize};
@@ -70,7 +70,7 @@ where
     pub backend: Arc<BE>,
 
     /// Block attestations. Maps a blocknumber to a list of actual attestations, not digests
-    pub block_attestations: BTreeMap<ChainId, BTreeMap<BlockNumber, Attestations<B, AccountId>>>,
+    pub block_attestations: BTreeMap<ChainKey, BTreeMap<BlockNumber, Attestations<B, AccountId>>>,
 
     /// Inherent data providers
     #[allow(dead_code)]
@@ -208,10 +208,10 @@ where
 
                         match message.clone() {
                             Message::Attestation(attestation) => {
-                                let chain_id = attestation.attestation_data.chain_id;
+                                let chain_key = attestation.attestation_data.chain_key;
                                 let header_number = attestation.attestation_data.header_number;
 
-                                let round = (chain_id, header_number);
+                                let round = (chain_key, header_number);
                                 info!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
 
                                 // Gossip to peers first
@@ -262,12 +262,12 @@ where
         // Verify the VRF output
         self.verify_vrf(&attestation)?;
 
-        let chain_id = attestation.attestation_data.chain_id;
+        let chain_key = attestation.attestation_data.chain_key;
         let header_number = attestation.attestation_data.header_number;
 
         self.add_to_round(attestation, block_hash)?;
 
-        match self.try_submit_attestation(chain_id, header_number, block_hash) {
+        match self.try_submit_attestation(chain_key, header_number, block_hash) {
             Ok(()) => {
                 info!(target: LOG_TARGET, "📝 Successfully submitted attestation");
             }
@@ -286,13 +286,13 @@ where
     fn verify_vrf(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> Result<(), Error> {
         // Get the blockchain info (current info)
         let blockchain_info = self.backend.blockchain().info();
-        let chain_id = attestation.attestation_data.chain_id;
+        let chain_key = attestation.attestation_data.chain_key;
 
         info!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
         let runtime = self.runtime.runtime_api();
         let is_attestor = runtime.is_attestor(
             blockchain_info.finalized_hash,
-            chain_id,
+            chain_key,
             &attestation.attestor.clone(),
         )?;
         debug!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
@@ -304,7 +304,7 @@ where
         let attestor_status = runtime
             .attestor_status(
                 blockchain_info.finalized_hash,
-                chain_id,
+                chain_key,
                 &attestation.attestor.clone(),
             )?
             .ok_or(Error::NotAnAttestor)?;
@@ -315,7 +315,7 @@ where
 
         let last_digest = runtime.last_digest(
             blockchain_info.finalized_hash,
-            attestation.attestation_data.chain_id,
+            attestation.attestation_data.chain_key,
         )?;
 
         let prev_digest = attestation.attestation_data.prev_digest;
@@ -350,9 +350,9 @@ where
         // Get the threshold and working set size
         let runtime = self.runtime.runtime_api();
         let target_sample_size =
-            runtime.committee_set_size(blockchain_info.finalized_hash, chain_id)?;
+            runtime.committee_set_size(blockchain_info.finalized_hash, chain_key)?;
         let working_set_size =
-            runtime.working_set_size(blockchain_info.finalized_hash, chain_id)?;
+            runtime.working_set_size(blockchain_info.finalized_hash, chain_key)?;
 
         let is_included = vrf::verify_proof_of_inclusion(
             working_set_size.into(),
@@ -377,14 +377,10 @@ where
     ) -> Result<(), Error> {
         let runtime = self.runtime.runtime_api();
         let best_hash = self.backend.blockchain().info().best_hash;
-        // Chain key was substituted for chain_id before attestation submission
-        let chain_key = attestation.attestation_data.chain_id;
+        let chain_key = attestation.attestation_data.chain_key;
 
         let chain_attestation_interval = runtime
-            .chain_attestation_interval(
-                self.backend.blockchain().info().best_hash,
-                attestation.attestation_data.chain_id,
-            )?
+            .chain_attestation_interval(self.backend.blockchain().info().best_hash, chain_key)?
             .ok_or(Error::FailedToGetAttestationInterval)?;
 
         let last_attestation_height =
@@ -417,25 +413,25 @@ where
         attestation: Attestation<HashFor<B>, AccountId>,
         block_hash: HashFor<B>,
     ) -> Result<(), Error> {
-        let chain_id = attestation.attestation_data.chain_id;
+        let chain_key = attestation.attestation_data.chain_key;
         let header_number = attestation.attestation_data.header_number;
-        let round = (chain_id, header_number);
+        let round = (chain_key, header_number);
 
         let attestor_id = attestation.attestor.clone();
 
         // Check last attestation that is submitted on chain. If the new one is older, skip it
         let runtime = self.runtime.runtime_api();
-        let last_digest = runtime.last_digest(block_hash, chain_id)?;
+        let last_digest = runtime.last_digest(block_hash, chain_key)?;
 
         let mut target_block = 0;
 
         if let Some(last_digest) = last_digest {
-            if let Some(last_attestation) = runtime.get(block_hash, chain_id, last_digest)? {
+            if let Some(last_attestation) = runtime.get(block_hash, chain_key, last_digest)? {
                 let last_header = last_attestation.attestation.header_number;
-                let round = (chain_id, last_header);
+                let round = (chain_key, last_header);
 
                 let interval = runtime
-                    .chain_attestation_interval(block_hash, chain_id)?
+                    .chain_attestation_interval(block_hash, chain_key)?
                     .ok_or(Error::FailedToGetAttestationInterval)?;
 
                 // Skip if the attestation is too old
@@ -453,8 +449,8 @@ where
             return Err(Error::AttestationTooEarly);
         }
 
-        // Check if the chain_id exists in the block_attestations
-        if let Some(attestations) = self.block_attestations.get_mut(&chain_id) {
+        // Check if the chain_key exists in the block_attestations
+        if let Some(attestations) = self.block_attestations.get_mut(&chain_key) {
             // Get or initialize the attestations for the header number
             let attestations_for_header = attestations
                 .entry(header_number)
@@ -462,12 +458,12 @@ where
 
             info!(
                 target: LOG_TARGET,
-                "📝 Attestor({:?}) voted for round {:?}", attestor_id, (chain_id, header_number)
+                "📝 Attestor({:?}) voted for round {:?}", attestor_id, (chain_key, header_number)
             );
 
             let old_vote = attestations_for_header.insert(attestor_id.clone(), attestation);
             if old_vote.is_some() {
-                info!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_id, header_number));
+                info!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_key, header_number));
             }
         } else {
             // Insert new attestation if it doesn't exist
@@ -476,7 +472,7 @@ where
             let mut attestations = HashMap::new();
             attestations.insert(attestor_id, attestation.clone());
             map.insert(header_number, attestations);
-            self.block_attestations.insert(chain_id, map);
+            self.block_attestations.insert(chain_key, map);
         }
 
         Ok(())
@@ -488,15 +484,15 @@ where
     /// 3. Flush memory
     fn try_submit_attestation(
         &mut self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
         header_number: u64,
         block_hash: HashFor<B>,
     ) -> Result<(), Error> {
-        let round = (chain_id, header_number);
+        let round = (chain_key, header_number);
 
         let attestations = self
             .block_attestations
-            .get(&chain_id)
+            .get(&chain_key)
             .ok_or(Error::Other(
                 "Error fetching attestations for chain id".to_string(),
             ))?
@@ -513,7 +509,7 @@ where
 
         // Majority is more than half of the committee set size
         let runtime = self.runtime.runtime_api();
-        let committee_set_size = runtime.committee_set_size(block_hash, chain_id)?;
+        let committee_set_size = runtime.committee_set_size(block_hash, chain_key)?;
         let threshold = calculate_threshold(committee_set_size);
 
         // Filter attestations by major digest
@@ -529,7 +525,7 @@ where
             .into_iter()
             .filter(|(attestor_id, _)| {
                 runtime
-                    .is_attestor(block_hash, chain_id, attestor_id)
+                    .is_attestor(block_hash, chain_key, attestor_id)
                     .unwrap_or(false)
             })
             .collect::<Vec<_>>();
@@ -551,17 +547,17 @@ where
         }
 
         let an_attestation = attestations.iter().next().cloned().unwrap();
-        let chain_id = an_attestation.1.attestation_data.chain_id;
+        let chain_key = an_attestation.1.attestation_data.chain_key;
         let header_number = an_attestation.1.attestation_data.header_number;
 
         // check if digest exists
         let runtime = self.runtime.runtime_api();
-        match runtime.contains_digest(block_hash, chain_id, major_digest.into()) {
+        match runtime.contains_digest(block_hash, chain_key, major_digest.into()) {
             Ok(true) => {
                 // remove from storage
-                let block_attestations = self.block_attestations.get_mut(&chain_id).unwrap();
+                let block_attestations = self.block_attestations.get_mut(&chain_key).unwrap();
                 block_attestations.remove(&header_number);
-                info!(target: LOG_TARGET, "📝 Attestation is already included in runtime, need to prune from local memory here. Round: {:?}", (chain_id, header_number));
+                info!(target: LOG_TARGET, "📝 Attestation is already included in runtime, need to prune from local memory here. Round: {:?}", (chain_key, header_number));
                 return Ok(());
             }
             Ok(false) => {
@@ -626,7 +622,7 @@ where
         };
 
         // Flush memory
-        let block_attestations = self.block_attestations.get_mut(&chain_id).unwrap();
+        let block_attestations = self.block_attestations.get_mut(&chain_key).unwrap();
         block_attestations.remove(&header_number);
 
         Ok(())

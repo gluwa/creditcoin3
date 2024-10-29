@@ -18,7 +18,7 @@ use attestor_primitives::{
     ChainId, ChainKey, SignedAttestation,
 };
 
-const DEV_CHAIN_ID: u64 = 1;
+const DEV_CHAIN_KEY: u64 = 1;
 const SEED: u32 = 0;
 
 #[derive(Debug, Clone)]
@@ -78,12 +78,12 @@ impl<T: frame_system::Config> Attestor<T> {
 
 fn create_signed_attestation<T: frame_system::Config>(
     attestors: Vec<Attestor<T>>,
-    chain_id: ChainId,
+    chain_key: ChainKey,
     header_number: u64,
     prev_digest: Option<H256>,
 ) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
     let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
-        chain_id,
+        chain_key,
         header_number,
         header_hash: <T as frame_system::Config>::Hash::default(),
         root: [0; 32],
@@ -131,7 +131,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             chain_attestation_interval,
         )
     }
@@ -145,7 +145,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestations_per_checkpoint,
         )
     }
@@ -159,7 +159,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             set_size,
         )
     }
@@ -176,7 +176,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         )
     }
@@ -190,7 +190,7 @@ mod benchmarks {
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
-             DEV_CHAIN_ID,
+             DEV_CHAIN_KEY,
             attestor_id.clone(),
         ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
         let signed_origin = att.stash_origin;
@@ -198,7 +198,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         )
     }
@@ -212,7 +212,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             new_max,
         )
     }
@@ -226,7 +226,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         )
     }
@@ -239,14 +239,14 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_invulnerable(
             root_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id.clone(),
         ));
 
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         )
     }
@@ -260,7 +260,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             new_max,
         )
     }
@@ -274,7 +274,7 @@ mod benchmarks {
         // Set max attestors to accomodate benchmark
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
 
@@ -288,13 +288,13 @@ mod benchmarks {
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.stash_origin.clone(),
-                DEV_CHAIN_ID,
+                DEV_CHAIN_KEY,
                 attestor_id,
             ));
 
             assert_ok!(Attestation::<T>::attest(
                 attestor.attestor_origin.clone(),
-                DEV_CHAIN_ID,
+                DEV_CHAIN_KEY,
                 attestor.public_key,
                 attestor.signature,
             ));
@@ -318,14 +318,13 @@ mod benchmarks {
     #[benchmark]
     fn commit_attestation(a: Linear<1, MAX_ATTESTORS>) {
         // Setup
-        let chain_id: ChainId = 1;
         let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
 
         // Set max attestors to accomodate benchmark
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
 
@@ -338,13 +337,13 @@ mod benchmarks {
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.stash_origin.clone(),
-                DEV_CHAIN_ID,
+                DEV_CHAIN_KEY,
                 attestor_id,
             ));
 
             assert_ok!(Attestation::<T>::attest(
                 attestor.attestor_origin.clone(),
-                DEV_CHAIN_ID,
+                DEV_CHAIN_KEY,
                 attestor.public_key,
                 attestor.signature,
             ));
@@ -356,7 +355,7 @@ mod benchmarks {
         let prior_attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors.clone(), chain_id, 1, None);
+        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 
@@ -371,7 +370,7 @@ mod benchmarks {
             <T as frame_system::Config>::AccountId,
         > = create_signed_attestation::<T>(
             attestors,
-            chain_id,
+            DEV_CHAIN_KEY,
             11_u64,
             Some(prior_attestation.digest()),
         );
@@ -405,7 +404,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             new_reward,
         )
     }
@@ -419,7 +418,7 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         ));
 
@@ -428,7 +427,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor.public_key,
             attestor.signature,
         )
@@ -443,13 +442,13 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         ));
 
         assert_ok!(Attestation::<T>::attest(
             attestor.attestor_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor.public_key,
             attestor.signature,
         ));
@@ -459,7 +458,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
         )
     }
 
@@ -472,7 +471,7 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         ));
 
@@ -496,13 +495,13 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id.clone(),
         ));
 
         assert_ok!(Attestation::<T>::unregister_attestor(
             attestor.stash_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         ));
 
@@ -514,7 +513,6 @@ mod benchmarks {
 
     #[benchmark]
     fn claim_rewards() {
-        let chain_id: ChainId = 1;
         let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
 
         // Setup
@@ -524,13 +522,13 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor_id,
         ));
 
         assert_ok!(Attestation::<T>::attest(
             attestor.attestor_origin.clone(),
-            DEV_CHAIN_ID,
+            DEV_CHAIN_KEY,
             attestor.public_key,
             attestor.signature,
         ));
@@ -539,7 +537,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(vec![attestor.clone()], chain_id, 1, None);
+        > = create_signed_attestation::<T>(vec![attestor.clone()], DEV_CHAIN_KEY, 1, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 

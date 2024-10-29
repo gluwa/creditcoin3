@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::{AttestationCheckpoint, ChainId, Digest, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainId, ChainKey, Digest, SignedAttestation};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use thiserror::Error;
@@ -51,80 +51,62 @@ impl<'a> Client {
         Ok(Self { cc_client })
     }
 
-    pub async fn fetch_last_digest(&self, chain_id: ChainId) -> Result<Option<Digest>> {
-        self.cc_client.fetch_last_digest(chain_id).await
+    pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>> {
+        self.cc_client.fetch_last_digest(chain_key).await
     }
 
     pub async fn get_attestation_by_digest(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
         self.cc_client
-            .get_attestation_by_digest(chain_id, digest)
+            .get_attestation_by_digest(chain_key, digest)
             .await
     }
 
     pub async fn get_checkpoint_by_digest(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<AttestationCheckpoint>> {
         self.cc_client
-            .get_checkpoint_by_digest(chain_id, digest)
+            .get_checkpoint_by_digest(chain_key, digest)
             .await
     }
 
     pub async fn get_attestations_for_chain(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        self.cc_client.get_attestations_for_chain(chain_id).await
+        self.cc_client.get_attestations_for_chain(chain_key).await
     }
 
     pub async fn get_checkpoints_for_chain(
         &self,
-        chain_id: ChainId,
+        chain_key: ChainKey,
     ) -> Result<Vec<AttestationCheckpoint>> {
-        self.cc_client.get_checkpoints_for_chain(chain_id).await
+        self.cc_client.get_checkpoints_for_chain(chain_key).await
     }
 
-    pub async fn get_attestation_chain_interval(&self, chain_id: ChainId) -> Result<Option<u64>> {
-        self.cc_client.chain_attestation_interval(chain_id).await
+    pub async fn get_attestation_chain_interval(&self, chain_key: ChainKey) -> Result<Option<u64>> {
+        self.cc_client.chain_attestation_interval(chain_key).await
     }
 
-    pub async fn get_chain_checkpoint_interval(&self, chain_id: ChainId) -> Result<Option<u32>> {
-        self.cc_client.chain_checkpoint_interval(chain_id).await
+    pub async fn get_chain_checkpoint_interval(&self, chain_key: ChainKey) -> Result<Option<u32>> {
+        self.cc_client.chain_checkpoint_interval(chain_key).await
     }
 
-    pub async fn get_chain_key(&self, chain_id: ChainId) -> Result<Option<u64>> {
-        match chain_id {
-            1 => {
-                self.cc_client
-                    .clone()
-                    .get_chain_key(chain_id, "Ethereum".to_string())
-                    .await
-            }
-            31337 => {
-                self.cc_client
-                    .clone()
-                    .get_chain_key(chain_id, "Anvil1".to_string())
-                    .await
-            }
-            11_155_111 => {
-                self.cc_client
-                    .clone()
-                    .get_chain_key(chain_id, "Sepolia".to_string())
-                    .await
-            }
-            31338 => {
-                self.cc_client
-                    .clone()
-                    .get_chain_key(chain_id, "Anvil2".to_string())
-                    .await
-            }
-            _ => Err(Error::UnsupportedChain.into()),
-        }
+    pub async fn get_chain_key(&self, chain_id: ChainId) -> Result<Option<ChainKey>> {
+        let chain_name = attestor_primitives::CHAIN_ID_TO_CHAIN_NAME
+            .iter()
+            .find(|(id, _)| *id == chain_id)
+            .expect("Unknown chain id")
+            .1;
+
+        self.cc_client
+            .get_chain_key(chain_id, chain_name.to_string())
+            .await
     }
 }
 
@@ -133,7 +115,7 @@ impl Client {
         &self,
         attestation_chan: mpsc::UnboundedSender<SignedAttestation<H256, AccountId32>>,
         checkpoint_chan: mpsc::UnboundedSender<(AttestationCheckpoint, ChainId)>,
-        filter: ChainId,
+        filter: ChainKey,
     ) -> Result<()> {
         let mut subscription = self.cc_client.subscribe_events(filter)?;
 
@@ -145,22 +127,22 @@ impl Client {
                     // Process the attestation
                     info!(
                         "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
-                        attestation.chain_id(),
+                        attestation.chain_key(),
                         attestation.header_number(),
                         attestation.digest()
                     );
                     // Handle the claim processing logic here
                     attestation_chan.send(attestation)?;
                 }
-                Some(CcEvent::CheckpointReachedEvent(checkpoint, chain_id)) => {
+                Some(CcEvent::CheckpointReachedEvent(checkpoint, chain_key)) => {
                     info!(
                         "Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
-                        chain_id,
+                        chain_key,
                         checkpoint.block_number,
                         checkpoint.digest,
                     );
                     // Handle processing checkpoint here
-                    checkpoint_chan.send((checkpoint, chain_id))?;
+                    checkpoint_chan.send((checkpoint, chain_key))?;
                 }
                 _ => (),
             }

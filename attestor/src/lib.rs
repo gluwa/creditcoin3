@@ -77,7 +77,8 @@ impl Server {
         }
 
         // Start cc3 event subscription
-        let mut event_sub = cc3_client.cc_client.subscribe_events(chain_id)?;
+        let chain_key = cc3_client.get_chain_key();
+        let mut event_sub = cc3_client.cc_client.subscribe_events(chain_key)?;
 
         loop {
             // Biased tokio select, we will prioritze listening to randomness changed events
@@ -181,10 +182,9 @@ async fn subscribe_to_new_heads_task(
     attestation_interval: u64,
 ) -> Result<JoinHandle<()>> {
     let attestor = spawn(attestation::Attestor::default());
+    let chain_key = cc3_client.get_chain_key();
 
-    let last_attestation = cc3_client
-        .get_last_attestation(cc3_client.get_chain_key())
-        .await?;
+    let last_attestation = cc3_client.get_last_attestation(chain_key).await?;
 
     let target_header = if let Some(last_attestation) = last_attestation {
         info!(
@@ -208,6 +208,7 @@ async fn subscribe_to_new_heads_task(
             sender,
             target_header,
             attestation_interval,
+            chain_key,
         )
         .await
         {

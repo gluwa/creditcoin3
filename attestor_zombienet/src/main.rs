@@ -1,4 +1,5 @@
 use anyhow::Result;
+use attestor_primitives::ChainKey;
 use bip39::{Language, Mnemonic, MnemonicType};
 use clap::Parser;
 use rand::seq::SliceRandom;
@@ -72,7 +73,7 @@ struct Process {
     default_args: Option<Vec<String>>,
     num_attestors: u64,
     single_node: bool,
-    chain_id: u64,
+    chain_key: ChainKey,
 }
 
 #[derive(Debug, Clone)]
@@ -192,11 +193,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             info!(
                 "Registering attestor with address({}) for chain: {}",
-                attestor, config.chain_id
+                attestor, config.chain_key
             );
             let handle = tokio::spawn(async move {
                 cc_client
-                    .register_attestor(config.chain_id, attestor, Some(nonce))
+                    .register_attestor(config.chain_key, attestor, Some(nonce))
                     .await
                     .expect("Failed to register attestor")
             });

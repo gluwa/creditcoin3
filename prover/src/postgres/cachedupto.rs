@@ -4,7 +4,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 
-use super::schema::cachedupto::chain_id as db_chain_id;
+use super::schema::cachedupto::chain_key as db_chain_key;
 use super::schema::cachedupto::{self, dsl::cachedupto as cache_state_table};
 
 #[derive(
@@ -22,19 +22,19 @@ use super::schema::cachedupto::{self, dsl::cachedupto as cache_state_table};
 #[diesel(table_name = cachedupto)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CachedUpTo {
-    pub chain_id: i64,
+    pub chain_key: i64,
     pub digest: String,
 }
 
 pub async fn mark_cached_up_to(
     connection: &mut AsyncPgConnection,
-    chain_id: u64,
+    chain_key: u64,
     digest: H256,
 ) -> Result<()> {
-    let new_cached_through: CachedUpTo = (super::to_storage_type(chain_id), digest).into();
+    let new_cached_through: CachedUpTo = (super::to_storage_type(chain_key), digest).into();
     diesel::insert_into(cache_state_table)
         .values(&new_cached_through)
-        .on_conflict(db_chain_id)
+        .on_conflict(db_chain_key)
         .do_update()
         .set(&new_cached_through)
         .execute(connection)
@@ -45,11 +45,11 @@ pub async fn mark_cached_up_to(
 
 pub async fn currently_cached_up_to(
     connection: &mut AsyncPgConnection,
-    chain_id: u64,
+    chain_key: u64,
 ) -> Option<CachedUpTo> {
     match cache_state_table
         .select(CachedUpTo::as_select())
-        .filter(db_chain_id.eq(super::to_storage_type(chain_id)))
+        .filter(db_chain_key.eq(super::to_storage_type(chain_key)))
         .first(connection)
         .await
     {
@@ -58,11 +58,11 @@ pub async fn currently_cached_up_to(
     }
 }
 
-// Mapper from chain id and on-chain digest (i64, H256) to DB type
+// Mapper from chain key and on-chain digest (i64, H256) to DB type
 impl From<(i64, H256)> for CachedUpTo {
     fn from(parts: (i64, H256)) -> Self {
         CachedUpTo {
-            chain_id: parts.0,
+            chain_key: parts.0,
             digest: hex::encode(parts.1),
         }
     }

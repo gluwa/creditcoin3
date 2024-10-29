@@ -76,7 +76,7 @@ where
         let block_hash = self.backend.blockchain().info().best_hash;
         let runtime = self.runtime.runtime_api();
         let is_chain_supported =
-            runtime.is_chain_supported(block_hash, attestation.attestation_data.chain_id)?;
+            runtime.is_chain_supported(block_hash, attestation.attestation_data.chain_key)?;
 
         if !is_chain_supported {
             info!(target: LOG_TARGET, "📝 Chain is not supported, attestation rejected");
@@ -111,7 +111,7 @@ where
         let bls_pubkey = runtime
             .attestor_bls_pubkey(
                 blockchain_info.best_hash,
-                attestation.attestation_data.chain_id,
+                attestation.attestation_data.chain_key,
                 &attestation.attestor,
             )?
             .ok_or(Error::NotAnAttestor)?;

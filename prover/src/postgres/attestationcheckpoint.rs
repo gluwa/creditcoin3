@@ -16,16 +16,16 @@ use super::schema::attestationcheckpoint::{
 #[diesel(table_name = attestationcheckpoint)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AttestationCheckpoint {
-    pub chain_id: i64,
+    pub chain_key: i64,
     pub block_number: i64,
     pub digest: String,
 }
 
 impl AttestationCheckpoint {
     // Mapper from the OnChainCheckpoint to the db type
-    pub fn from_on_chain(value: &OnChainCheckpoint, chain_id: u64) -> Self {
+    pub fn from_on_chain(value: &OnChainCheckpoint, chain_key: u64) -> Self {
         AttestationCheckpoint {
-            chain_id: super::to_storage_type(chain_id),
+            chain_key: super::to_storage_type(chain_key),
             block_number: super::to_storage_type(value.block_number),
             digest: value.digest.encode_hex(),
         }
@@ -46,12 +46,12 @@ pub async fn get_by_digest(
 pub async fn get_by_block_number(
     connection: &mut AsyncPgConnection,
     block_number: i64,
-    chain_id: i64,
+    chain_key: i64,
 ) -> Result<AttestationCheckpoint> {
     Ok(attestation_checkpoint_table
         .select(AttestationCheckpoint::as_select())
         .filter(attestationcheckpoint::block_number.eq(block_number))
-        .filter(attestationcheckpoint::chain_id.eq(chain_id))
+        .filter(attestationcheckpoint::chain_key.eq(chain_key))
         .first(connection)
         .await?)
 }
@@ -85,12 +85,12 @@ pub async fn insert(
 pub async fn get_highest_checkpoint_before(
     connection: &mut AsyncPgConnection,
     block_number: u64,
-    chain_id: u64,
+    chain_key: u64,
 ) -> Result<Option<AttestationCheckpoint>> {
     match attestation_checkpoint_table
         .order(attestationcheckpoint::block_number.desc())
         .filter(attestationcheckpoint::block_number.lt(super::to_storage_type(block_number)))
-        .filter(attestationcheckpoint::chain_id.eq(super::to_storage_type(chain_id)))
+        .filter(attestationcheckpoint::chain_key.eq(super::to_storage_type(chain_key)))
         .select(AttestationCheckpoint::as_select())
         .first(connection)
         .await
@@ -112,12 +112,12 @@ pub async fn get_highest_checkpoint_before(
 pub async fn get_lowest_checkpoint_after(
     connection: &mut AsyncPgConnection,
     block_number: u64,
-    chain_id: u64,
+    chain_key: u64,
 ) -> Result<Option<AttestationCheckpoint>> {
     match attestation_checkpoint_table
         .order(attestationcheckpoint::block_number.asc())
         .filter(attestationcheckpoint::block_number.ge(super::to_storage_type(block_number)))
-        .filter(attestationcheckpoint::chain_id.eq(super::to_storage_type(chain_id)))
+        .filter(attestationcheckpoint::chain_key.eq(super::to_storage_type(chain_key)))
         .select(AttestationCheckpoint::as_select())
         .first(connection)
         .await

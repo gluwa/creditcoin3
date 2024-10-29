@@ -1416,6 +1416,7 @@ name = "attestor_zombienet"
 version = "3.31.0"
 dependencies = [
  "anyhow",
+ "attestor-primitives",
  "cc-client",
  "clap",
  "futures 0.3.30",
@@ -3738,6 +3739,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "async-trait",
+ "attestor-primitives",
  "futures 0.3.30",
  "futures-util",
  "hex",

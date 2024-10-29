@@ -12,6 +12,15 @@ use starknet_types_core::felt::Felt;
 pub mod api;
 pub mod bls;
 
+// Chain id to chain name mapping
+// Only these are supported for now
+pub const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 4] = [
+    (1, "Ethereum"),
+    (31337, "Anvil1"),
+    (11_155_111, "Sepolia ethereum"),
+    (31338, "Anvil2"),
+];
+
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor struct
 pub struct Attestor<AccountId> {
@@ -32,7 +41,7 @@ pub enum AttestorStatus {
 #[derive(Encode, Decode, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 /// Genesis configuration for attestation pallet
 pub struct AttestationChainConfiguration {
-    pub chain_id: ChainId,
+    pub chain_key: ChainKey,
     pub attestation_interval: ChainAttestationIntervalType,
     pub attestations_per_checkpoint: u32,
     pub chain_reward: u128,
@@ -126,8 +135,8 @@ impl<H, A> SignedAttestation<H, A>
 where
     H: AsRef<[u8]>,
 {
-    pub fn chain_id(&self) -> ChainId {
-        self.attestation.chain_id
+    pub fn chain_key(&self) -> ChainKey {
+        self.attestation.chain_key
     }
 
     pub fn header_number(&self) -> u64 {
@@ -156,7 +165,7 @@ type ScaleFelt = [u8; 32];
     Default,
 )]
 pub struct Attestation<H> {
-    pub chain_id: ChainId,
+    pub chain_key: ChainKey,
     pub header_number: u64,
     pub header_hash: H,
     pub root: ScaleFelt,
@@ -172,7 +181,7 @@ where
         let mut bytes = Vec::new();
 
         // Serialize chain_id as little-endian bytes
-        bytes.extend_from_slice(self.chain_id.to_le_bytes().as_ref());
+        bytes.extend_from_slice(self.chain_key.to_le_bytes().as_ref());
 
         // Serialize header_number as little-endian bytes
         bytes.extend_from_slice(self.header_number.to_le_bytes().as_ref());

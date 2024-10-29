@@ -74,7 +74,7 @@ fn hex_to_felt(hex: &str) -> anyhow::Result<FieldElement, String> {
 #[test]
 fn test_from_attestation_to_block() {
     let attestation = crate::postgres::attestation::Attestation {
-        chain_id: 1,
+        chain_key: 1,
         header_number: 1,
         header_hash: "1234".to_string(),
         merkle_root: "1234".to_string(),

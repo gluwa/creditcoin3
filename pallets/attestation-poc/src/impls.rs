@@ -11,7 +11,7 @@ use sp_staking::StakingInterface;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::vec::Vec;
 
-use attestor_primitives::{Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainId};
+use attestor_primitives::{Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainKey};
 use bls_signatures::{PublicKey, Serialize, Signature};
 use randomness_primitives::{OnRandomnessUpdate, Randomness};
 use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -25,17 +25,17 @@ impl<T: Config> Pallet<T> {
     /// Emits an event `AttestorRegistered` if successful
     /// An attestor needs to call `attest` to become active
     pub fn try_insert_attestor_and_emit_event(
-        chain_id: ChainId,
+        chain_key: ChainKey,
         stash: T::AccountId,
         attestor_id: T::AccountId,
     ) -> DispatchResult {
         ensure!(
-            !Self::attestor_is_registered(chain_id, &attestor_id),
+            !Self::attestor_is_registered(chain_key, &attestor_id),
             Error::<T>::AlreadyAttestor
         );
 
         ensure!(
-            Self::attestor_list_has_space(chain_id),
+            Self::attestor_list_has_space(chain_key),
             Error::<T>::AttestorListFull
         );
 
@@ -44,7 +44,7 @@ impl<T: Config> Pallet<T> {
 
         // Insert attestor with status Idle
         Attestors::<T>::insert(
-            chain_id,
+            chain_key,
             attestor_id.clone(),
             Attestor {
                 bls_public_key: None,
@@ -82,7 +82,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // Emit event
-        Self::deposit_event(Event::<T>::AttestorRegistered(chain_id, attestor_id));
+        Self::deposit_event(Event::<T>::AttestorRegistered(chain_key, attestor_id));
 
         Ok(())
     }
@@ -95,12 +95,12 @@ impl<T: Config> Pallet<T> {
     // Attstor needs to call `chill` first before the stash can deregister the attestor
     // Remove that attestor and emit an event
     pub fn remove_attestor_and_emit_event(
-        chain_id: ChainId,
+        chain_key: ChainKey,
         stash: T::AccountId,
         attestor_id: T::AccountId,
     ) -> DispatchResult {
         let attestor =
-            Attestors::<T>::get(chain_id, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
+            Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
         // Only remove your own attestor
         ensure!(attestor.stash == stash, Error::<T>::NotYourAttestor);
@@ -158,9 +158,9 @@ impl<T: Config> Pallet<T> {
         }
 
         // Remove the attestor
-        Attestors::<T>::remove(chain_id, &attestor_id);
+        Attestors::<T>::remove(chain_key, &attestor_id);
 
-        Self::deposit_event(Event::<T>::AttestorUnregistered(chain_id, attestor_id));
+        Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
 
         Ok(())
     }
@@ -198,13 +198,13 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn start_attesting(
-        chain_id: u64,
+        chain_key: ChainKey,
         attestor_id: T::AccountId,
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> DispatchResult {
         let mut attestor =
-            Attestors::<T>::get(chain_id, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
+            Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
         // Verify proof of possession
         let public_key = PublicKey::from_bytes(&bls_public_key[..])
@@ -224,9 +224,9 @@ impl<T: Config> Pallet<T> {
 
         attestor.status = AttestorStatus::Active;
         attestor.bls_public_key = Some(bls_public_key);
-        Attestors::<T>::insert(chain_id, &attestor_id, attestor);
+        Attestors::<T>::insert(chain_key, &attestor_id, attestor);
 
-        Self::deposit_event(Event::<T>::AttestorActivated(chain_id, attestor_id));
+        Self::deposit_event(Event::<T>::AttestorActivated(chain_key, attestor_id));
 
         Ok(())
     }
@@ -270,16 +270,16 @@ impl<T: Config> Pallet<T> {
     /// Payout the rewards to the attestors
     /// This actually saves all the rewards in the `AccumulatedRewards` storage item
     /// A stash can manually withdraw the rewards by calling `claim_rewards`
-    pub(super) fn payout_attestors(chain_id: u64, attestors: &[T::AccountId]) -> DispatchResult {
+    pub(super) fn payout_attestors(chain_key: u64, attestors: &[T::AccountId]) -> DispatchResult {
         // Retrieve the reward amount for the given chain ID or return an error if not found
-        let reward = ChainReward::<T>::get(chain_id).ok_or(Error::<T>::ChainRewardNotFound)?;
+        let reward = ChainReward::<T>::get(chain_key).ok_or(Error::<T>::ChainRewardNotFound)?;
 
         // Create a map to store total rewards per stash
         let mut total_per_stash: BTreeMap<T::AccountId, BalanceOf<T>> = BTreeMap::new();
 
         // Accumulate the rewards for each attestor
         for attestor in attestors {
-            let stash = Attestors::<T>::get(chain_id, attestor)
+            let stash = Attestors::<T>::get(chain_key, attestor)
                 .ok_or(Error::<T>::AddressNotAttestor)?
                 .stash;
 
@@ -294,7 +294,7 @@ impl<T: Config> Pallet<T> {
         for (stash, total) in total_per_stash {
             // Deposit the reward event
             Self::deposit_event(Event::<T>::RewardPaid {
-                chain_id,
+                chain_key,
                 stash: stash.clone(),
                 amount: total,
             });
@@ -365,8 +365,8 @@ impl<T: Config> Pallet<T> {
         let supported_chains =
             T::SupportedChains::supported_chains().ok_or(Error::<T>::NoSupportedChains)?;
 
-        for chain_id in supported_chains {
-            let prefix = Attestors::<T>::iter_prefix(chain_id);
+        for chain_key in supported_chains {
+            let prefix = Attestors::<T>::iter_prefix(chain_key);
 
             let attestors = prefix
                 .filter_map(|(account, attestor)| {
@@ -379,15 +379,15 @@ impl<T: Config> Pallet<T> {
                 .collect::<Vec<_>>();
 
             if attestors.is_empty() {
-                info!("No active attestors for chain {}", chain_id);
+                info!("No active attestors for chain {}", chain_key);
                 continue;
             }
 
-            ActiveAttestors::<T>::insert(chain_id, &attestors);
+            ActiveAttestors::<T>::insert(chain_key, &attestors);
 
             Self::deposit_event(Event::<T>::AttestorsElected {
                 epoch,
-                chain_id,
+                chain_key,
                 attestors,
             });
         }

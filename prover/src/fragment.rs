@@ -67,13 +67,13 @@ pub async fn get_for_claim(
     query: &Query,
     attestation_cache: &AttestationCacheType,
 ) -> std::result::Result<AttestationFragment, Error> {
-    let chain_id = query.chain_id;
+    let chain_key = query.chain_id;
 
     // Before processing claim, check that it is for a valid block number. All blocks up
     // to the height of the latest attestation should be valid.
     let last_attestation_height = from_storage_type(
         attestation_cache
-            .last_synced_attestation(chain_id)
+            .last_synced_attestation(chain_key)
             .await
             .map_err(|e| Error::ProverDBError(e.to_string()))?
             .ok_or(Error::NoAttestationsSynced)?
@@ -94,7 +94,7 @@ pub async fn get_for_claim(
     // Get fragment from cache
     let db_fragment = attestation_cache
         .get_attestation_fragment(
-            chain_id,
+            chain_key,
             lower_endpoint.block_number,
             upper_endpoint.block_number,
         )
@@ -108,7 +108,7 @@ pub async fn get_for_claim(
         construct_fragment(
             db_fragment,
             eth_client,
-            chain_id,
+            chain_key,
             lower_endpoint.block_number,
             upper_endpoint.block_number,
         )
@@ -169,19 +169,19 @@ pub async fn get_for_claim(
     Ok(attestation_fragment)
 }
 
-// Construct a list of blocks for a given chain_id and interval. This function will query
+// Construct a list of blocks for a given chain_key and interval. This function will query
 // the source chain for the blocks in the interval and then generate digests for those
 // blocks. They are mapped to the database model and returned.
 async fn construct_fragment(
     already_in_cache: Vec<BlockWithDigest>,
     eth_client: &Client,
-    chain_id: u64,
+    chain_key: u64,
     lower_bound: u64,
     upper_bound: u64,
 ) -> Result<Vec<BlockWithDigest>> {
     info!(
-        "Not all blocks of attestation fragment found in cache, creating fragment for chain_id: {}, lower_bound: {}, upper_bound: {}",
-        chain_id, lower_bound, upper_bound
+        "Not all blocks of attestation fragment found in cache, creating fragment for chain_key: {}, lower_bound: {}, upper_bound: {}",
+        chain_key, lower_bound, upper_bound
     );
 
     let mut fragment_blocks = vec![];
@@ -203,7 +203,7 @@ async fn construct_fragment(
 
         // Create the primitive to generate a digest after
         let attestation_primitive = AttestationPrimitive {
-            chain_id,
+            chain_key,
             header_hash: block.hash().unwrap(),
             header_number: block_number,
             prev_digest,
@@ -213,8 +213,8 @@ async fn construct_fragment(
         // Get the digest of the source chain block
         let digest = attestation_primitive.digest();
         debug!(
-            "Block with digest for chain_id: {}, header_number: {}, digest: {}",
-            chain_id, attestation_primitive.header_number, digest
+            "Block with digest for chain_key: {}, header_number: {}, digest: {}",
+            chain_key, attestation_primitive.header_number, digest
         );
 
         // Update the prev_digest
@@ -222,7 +222,7 @@ async fn construct_fragment(
 
         // Convert each block to type including digest
         let block_with_digest = BlockWithDigest {
-            chain_id: chain_id as i64,
+            chain_key: chain_key as i64,
             header_number: attestation_primitive.header_number as i64,
             digest: hex::encode(digest.as_bytes()),
             header_hash: attestation_primitive

@@ -10,7 +10,7 @@ use cc_client::{AccountId32, Client as CcClient, Error};
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId,
-    SignedAttestation,
+    SignedAttestation, CHAIN_ID_TO_CHAIN_NAME,
 };
 use creditcoin3_attestor_gossip::{Attestation, Topic};
 use vrf::ProofOfInclusion;
@@ -18,15 +18,6 @@ use vrf::ProofOfInclusion;
 use crate::IntervalUpdate;
 
 pub type Randomness = [u8; 32];
-
-// Chain id to chain name mapping
-// Only these are supported for now
-const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 4] = [
-    (1, "Ethereum"),
-    (31337, "Anvil1"),
-    (11_155_111, "Sepolia ethereum"),
-    (31338, "Anvil2"),
-];
 
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {
@@ -101,10 +92,11 @@ impl<'a> Client {
         let chain_name = CHAIN_ID_TO_CHAIN_NAME
             .iter()
             .find(|(id, _)| *id == chain_id)
-            .expect("Unknown chain id");
+            .expect("Unknown chain id")
+            .1;
 
         let chain_key = cc_client
-            .get_chain_key(chain_id, chain_name.1.to_string())
+            .get_chain_key(chain_id, chain_name.to_string())
             .await?
             .ok_or(Error::FailedToGetChainKey)?;
 
@@ -113,17 +105,18 @@ impl<'a> Client {
             .await?
             .ok_or(Error::FailedToGetAttestationInterval)?;
 
-        let last_attestation_height =
-            if let Some(digest) = cc_client.fetch_last_digest(chain_id).await? {
-                cc_client
-                    .get_attestation_by_digest(chain_id, digest)
-                    .await?
-                    .ok_or(Error::LastAttestationNotFound)?
-                    .header_number()
-            } else {
-                // If no prior attestation found, we start from 0
-                0
-            };
+        // Getting last attestation height
+        let last_digest = cc_client.fetch_last_digest(chain_key).await?;
+        let last_attestation_height = if let Some(digest) = last_digest {
+            cc_client
+                .get_attestation_by_digest(chain_key, digest)
+                .await?
+                .ok_or(Error::LastAttestationNotFound)?
+                .header_number()
+        } else {
+            // If no prior attestation found, we start from 0
+            0
+        };
 
         let chain_config = SourceChainConfig {
             chain_key,
@@ -254,11 +247,8 @@ impl<'a> Client {
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
-        // We need to override the chain_id with the one we are attesting to
-        // because we have a different mapping in cc next
-        attestation.chain_id = self.chain_config.chain_key;
-        let chain_id = attestation.chain_id;
-        let round = (chain_id, attestation.header_number);
+        let chain_key = attestation.chain_key;
+        let round = (chain_key, attestation.header_number);
 
         if (attestation.header_number - self.chain_config.current_interval_start)
             % self.chain_config.current_attestation_interval
@@ -279,7 +269,7 @@ impl<'a> Client {
             // if yes, don't submit
             let exists = self
                 .cc_client
-                .chain_attestation_exists(chain_id, attestation_digest)
+                .chain_attestation_exists(chain_key, attestation_digest)
                 .await?;
 
             if exists {
@@ -289,7 +279,7 @@ impl<'a> Client {
 
             // Get the last digest from the chain
             // and set it as the previous digest of the attestation
-            let prev_digest = self.cc_client.fetch_last_digest(chain_id).await?;
+            let prev_digest = self.cc_client.fetch_last_digest(chain_key).await?;
             attestation.prev_digest = prev_digest;
             info!("Updating previous digest for attestation to submit");
 
@@ -312,7 +302,7 @@ impl<'a> Client {
                 })?;
 
             inclusion =
-                check_attestation_inclusion(self.cc_client.clone(), chain_id, attestation_digest)
+                check_attestation_inclusion(self.cc_client.clone(), chain_key, attestation_digest)
                     .await?;
         }
 
