@@ -49,9 +49,9 @@ pub struct AttestorZombienet {
     #[arg(
         long,
         required = false,
-        help = "If set, override `chain_id` from config file"
+        help = "If set, override `chain_key` from config file"
     )]
-    chain_id: Option<u64>,
+    chain_key: Option<u64>,
 
     #[arg(
         long,
@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config_str = std::fs::read_to_string(args.config_file)?;
         serde_yaml::from_str(&config_str)?
     };
-    config.chain_id = args.chain_id.unwrap_or(config.chain_id);
+    config.chain_key = args.chain_key.unwrap_or(config.chain_key);
 
     let mut keys = vec![];
     for _ in 0..config.num_attestors {

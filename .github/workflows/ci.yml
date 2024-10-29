@@ -1387,8 +1387,8 @@ jobs:
           # always use 5 attestors when running in CI
           sed -i "s/num_attestors: .*/num_attestors: 5/" attestor_zombienet/config.yaml
 
-          ./target/release/attestor_zombienet --cc3-key "//Alice" --chain-id 2 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml &
-          ./target/release/attestor_zombienet --cc3-key "//Bob" --chain-id 4 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml &
+          ./target/release/attestor_zombienet --cc3-key "//Alice" --chain-key 2 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml &
+          ./target/release/attestor_zombienet --cc3-key "//Bob" --chain-key 4 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml &
 
       - name: Wait for 5 attestors to be registered
         run: |
