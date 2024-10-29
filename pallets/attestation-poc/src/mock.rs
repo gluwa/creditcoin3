@@ -272,9 +272,9 @@ pub(crate) const ATTESTOR_3: AccountId = 6;
 pub(crate) const DEFAULT_COMMITTEE_SET_SIZE: u32 = 250;
 
 // Mock source chain id
-pub const DEV_CHAIN_ID: u64 = 155;
+pub const SOURCE_CHAIN_ID: u64 = 200;
 // Corresponding chain key for the above chain id
-pub const DEV_CHAIN_KEY: u64 = 1;
+pub const SUPPORTED_CHAIN_KEY: u64 = 1;
 
 #[derive(Default)]
 pub struct ExtBuilder;
@@ -301,7 +301,7 @@ impl ExtBuilder {
         b.assimilate_storage(&mut t).unwrap();
 
         let chains = pallet_supported_chains::GenesisConfig::<Test> {
-            supported_chains: vec![(DEV_CHAIN_ID, "Ethereum".as_bytes().to_vec())],
+            supported_chains: vec![(SOURCE_CHAIN_ID, "Ethereum".as_bytes().to_vec())],
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();
@@ -310,7 +310,7 @@ impl ExtBuilder {
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             invulnerables: vec![(ATTESTOR_3, BlsPublicKeyWrapper(att.public_key))],
             attestation_chain_configurations: vec![AttestationChainConfiguration {
-                chain_key: DEV_CHAIN_KEY,
+                chain_key: SUPPORTED_CHAIN_KEY,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 10000,

@@ -8,7 +8,9 @@ fn register_chain_works() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
-        let chain_id = 201;
+        // We don't use ExtBuilder from mock in this test. So the chain_id 200
+        // hasn't already been registered to another chain at genesis.
+        let chain_id = 200;
         let chain_name = "Ethereum".to_string();
 
         assert_eq!(SupportedChain::chain_key_value(), 1);

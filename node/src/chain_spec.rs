@@ -393,7 +393,7 @@ fn testnet_genesis(
 
         // EVM compatibility
         evm_chain_id: EVMChainIdConfig {
-            chain_id: chain_id,
+            chain_id,
             ..Default::default()
         },
         evm: EVMConfig {
