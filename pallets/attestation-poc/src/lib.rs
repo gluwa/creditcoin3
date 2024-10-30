@@ -82,6 +82,8 @@ pub mod pallet {
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
         #[pallet::constant]
+        type DefaultCommitteeSetSize: Get<u32>;
+        #[pallet::constant]
         type MaxAttestationNodes: Get<u32>;
         // TODO: Make this useful
         #[pallet::constant]
@@ -215,7 +217,12 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn committee_set_size)]
     pub type CommitteeSetSize<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, CommitteeSetSizeDefault<T>>;
+
+    #[pallet::type_value]
+    pub fn CommitteeSetSizeDefault<T: Config>() -> u32 {
+        T::DefaultCommitteeSetSize::get()
+    }
 
     #[pallet::storage]
     #[pallet::getter(fn chain_attestation_interval)]
@@ -453,6 +460,8 @@ pub mod pallet {
         InvalidAttestationInterval,
         // Tried to set attestations per checkpoint to an invalid value.
         InvalidAttestationsPerCheckpoint,
+        // Tried to set committee set size to an invalid value.
+        InvalidCommitteeSetSize,
     }
 
     #[pallet::call]
@@ -503,6 +512,11 @@ pub mod pallet {
             new_committee_set_size: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
+
+            ensure! {
+                new_committee_set_size > 0,
+                Error::<T>::InvalidCommitteeSetSize
+            };
 
             CommitteeSetSize::<T>::insert(chain_key, new_committee_set_size);
 

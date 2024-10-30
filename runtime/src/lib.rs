@@ -841,6 +841,7 @@ impl pallet_nomination_pools::Config for Runtime {
 parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
+    pub const DefaultCommitteeSetSize: u32 = 1;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const MinBondRequirement: u64 = 100;
@@ -849,6 +850,7 @@ parameter_types! {
 impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
+    type DefaultCommitteeSetSize = DefaultCommitteeSetSize;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful

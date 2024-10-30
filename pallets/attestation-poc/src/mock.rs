@@ -233,6 +233,7 @@ parameter_types! {
 impl attestation_poc::Config for Test {
     type DefaultAttestationsPerCheckpoint = ConstU32<10>;
     type DefaultAttestationInterval = ConstU64<10>;
+    type DefaultCommitteeSetSize = ConstU32<1>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;
