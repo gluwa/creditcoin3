@@ -17,7 +17,7 @@ describe('SetMaxInvulnerables', (): void => {
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
         return new Promise((resolve, reject): void => {
-            // note: use chain Anvil2 b/c this may lead to side effects in other test scenarios
+            // note: using chain Anvil2 b/c this may lead to side effects in other test scenarios
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.attestation.setMaxInvulnerables(chain_Anvil2_Key, 4))
                 .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
