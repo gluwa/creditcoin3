@@ -141,7 +141,7 @@ impl<'a> Client {
         Ok((randomness, two_epoch_ago))
     }
 
-    pub async fn fetch_committee_size(&self, chain_id: u64) -> Result<u32> {
+    pub async fn fetch_committee_size(&self, chain_key: u64) -> Result<u32> {
         let storage_query = cc3::storage().attestation().committee_set_size(chain_key);
 
         let result = self

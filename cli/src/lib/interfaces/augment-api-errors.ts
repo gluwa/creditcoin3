@@ -63,7 +63,6 @@ declare module '@polkadot/api-base/types/errors' {
             NoSupportedChains: AugmentedError<ApiType>;
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;
-            SupportedChainNotFound: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

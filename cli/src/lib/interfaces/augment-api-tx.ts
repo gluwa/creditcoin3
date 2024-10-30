@@ -84,7 +84,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             attest: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     blsPublicKey: U8aFixed | string | Uint8Array,
                     proofOfPossession: U8aFixed | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
@@ -95,7 +95,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             bootstrapChain: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     attestation:
                         | AttestorPrimitivesSignedAttestation
                         | { attestation?: any; signature?: any; attestors?: any }
@@ -108,7 +108,7 @@ declare module '@polkadot/api-base/types/submittable' {
              * See [`Pallet::chill`].
              **/
             chill: AugmentedSubmittable<
-                (chainId: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                (chainKey: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
                 [u64]
             >;
             /**
@@ -133,7 +133,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             registerAttestor: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     attestorId: AccountId32 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
@@ -143,7 +143,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             registerInvulnerable: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     attestor: AccountId32 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
@@ -153,7 +153,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             setAttestationsPerCheckpoint: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     attestationsPerCheckpoint: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
@@ -173,7 +173,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             setChainReward: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     reward: u128 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u128]
@@ -183,7 +183,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             setCommitteeSetSize: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     newCommitteeSetSize: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
@@ -193,7 +193,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             setMaxAttestors: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     newMax: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
@@ -203,7 +203,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             setMaxInvulnerables: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     newMax: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
@@ -235,7 +235,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             unregisterAttestor: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     attestorId: AccountId32 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
@@ -245,7 +245,7 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             unregisterInvulnerable: AugmentedSubmittable<
                 (
-                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainKey: u64 | AnyNumber | Uint8Array,
                     attestor: AccountId32 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]

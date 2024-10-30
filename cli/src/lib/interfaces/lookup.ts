@@ -840,7 +840,7 @@ export default {
             AttestorActivated: '(u64,AccountId32)',
             AttestorChilled: '(u64,AccountId32)',
             RewardPaid: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 stash: 'AccountId32',
                 amount: 'u128',
             },
@@ -850,7 +850,7 @@ export default {
             },
             AttestorsElected: {
                 epoch: 'u64',
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestors: 'Vec<AccountId32>',
             },
             MinBondRequirementUpdated: 'u128',
@@ -870,7 +870,7 @@ export default {
      * Lookup93: attestor_primitives::Attestation<primitive_types::H256>
      **/
     AttestorPrimitivesAttestation: {
-        chainId: 'u64',
+        chainKey: 'u64',
         headerNumber: 'u64',
         headerHash: 'H256',
         root: '[u8;32]',
@@ -2487,58 +2487,58 @@ export default {
                 chainAttestationInterval: 'u64',
             },
             set_committee_set_size: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 newCommitteeSetSize: 'u32',
             },
             register_attestor: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestorId: 'AccountId32',
             },
             unregister_attestor: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestorId: 'AccountId32',
             },
             set_max_attestors: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 newMax: 'u32',
             },
             register_invulnerable: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestor: 'AccountId32',
             },
             unregister_invulnerable: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestor: 'AccountId32',
             },
             set_max_invulnerables: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 newMax: 'u32',
             },
             bootstrap_chain: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestation: 'AttestorPrimitivesSignedAttestation',
             },
             commit_attestation: {
                 attestation: 'AttestorPrimitivesSignedAttestation',
             },
             set_attestations_per_checkpoint: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 attestationsPerCheckpoint: 'u32',
             },
             set_min_bond_requirement: {
                 minBondRequirement: 'u128',
             },
             set_chain_reward: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 reward: 'u128',
             },
             attest: {
-                chainId: 'u64',
+                chainKey: 'u64',
                 blsPublicKey: '[u8;48]',
                 proofOfPossession: '[u8;96]',
             },
             chill: {
-                chainId: 'u64',
+                chainKey: 'u64',
             },
             set_payee: {
                 payee: 'PalletAttestationPocRewardDestination',
@@ -2992,7 +2992,6 @@ export default {
             'AttestorNotIdle',
             'NoSupportedChains',
             'AttestationNotFound',
-            'SupportedChainNotFound',
             'InvalidAttestationInterval',
             'InvalidAttestationsPerCheckpoint',
         ],

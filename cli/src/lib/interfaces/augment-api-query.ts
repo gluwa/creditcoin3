@@ -124,7 +124,7 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
-             * Map from all supported chain ids to the chain reward.
+             * Map from all supported chain keys to the chain rewards.
              *
              * This is used to store the reward for each chain.
              **/

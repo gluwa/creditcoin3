@@ -61,8 +61,8 @@ declare module '@polkadot/api-base/types/events' {
             AttestorRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
             AttestorsElected: AugmentedEvent<
                 ApiType,
-                [epoch: u64, chainId: u64, attestors: Vec<AccountId32>],
-                { epoch: u64; chainId: u64; attestors: Vec<AccountId32> }
+                [epoch: u64, chainKey: u64, attestors: Vec<AccountId32>],
+                { epoch: u64; chainKey: u64; attestors: Vec<AccountId32> }
             >;
             AttestorUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
             BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
@@ -83,8 +83,8 @@ declare module '@polkadot/api-base/types/events' {
             >;
             RewardPaid: AugmentedEvent<
                 ApiType,
-                [chainId: u64, stash: AccountId32, amount: u128],
-                { chainId: u64; stash: AccountId32; amount: u128 }
+                [chainKey: u64, stash: AccountId32, amount: u128],
+                { chainKey: u64; stash: AccountId32; amount: u128 }
             >;
             Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
             Withdrawn: AugmentedEvent<

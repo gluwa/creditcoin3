@@ -1050,7 +1050,7 @@ declare module '@polkadot/types/lookup' {
         readonly asAttestorChilled: ITuple<[u64, AccountId32]>;
         readonly isRewardPaid: boolean;
         readonly asRewardPaid: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly stash: AccountId32;
             readonly amount: u128;
         } & Struct;
@@ -1062,7 +1062,7 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestorsElected: boolean;
         readonly asAttestorsElected: {
             readonly epoch: u64;
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestors: Vec<AccountId32>;
         } & Struct;
         readonly isMinBondRequirementUpdated: boolean;
@@ -1101,7 +1101,7 @@ declare module '@polkadot/types/lookup' {
 
     /** @name AttestorPrimitivesAttestation (93) */
     interface AttestorPrimitivesAttestation extends Struct {
-        readonly chainId: u64;
+        readonly chainKey: u64;
         readonly headerNumber: u64;
         readonly headerHash: H256;
         readonly root: U8aFixed;
@@ -2711,42 +2711,42 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isSetCommitteeSetSize: boolean;
         readonly asSetCommitteeSetSize: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly newCommitteeSetSize: u32;
         } & Struct;
         readonly isRegisterAttestor: boolean;
         readonly asRegisterAttestor: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestorId: AccountId32;
         } & Struct;
         readonly isUnregisterAttestor: boolean;
         readonly asUnregisterAttestor: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestorId: AccountId32;
         } & Struct;
         readonly isSetMaxAttestors: boolean;
         readonly asSetMaxAttestors: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly newMax: u32;
         } & Struct;
         readonly isRegisterInvulnerable: boolean;
         readonly asRegisterInvulnerable: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestor: AccountId32;
         } & Struct;
         readonly isUnregisterInvulnerable: boolean;
         readonly asUnregisterInvulnerable: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestor: AccountId32;
         } & Struct;
         readonly isSetMaxInvulnerables: boolean;
         readonly asSetMaxInvulnerables: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly newMax: u32;
         } & Struct;
         readonly isBootstrapChain: boolean;
         readonly asBootstrapChain: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestation: AttestorPrimitivesSignedAttestation;
         } & Struct;
         readonly isCommitAttestation: boolean;
@@ -2755,7 +2755,7 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isSetAttestationsPerCheckpoint: boolean;
         readonly asSetAttestationsPerCheckpoint: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly attestationsPerCheckpoint: u32;
         } & Struct;
         readonly isSetMinBondRequirement: boolean;
@@ -2764,18 +2764,18 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isSetChainReward: boolean;
         readonly asSetChainReward: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly reward: u128;
         } & Struct;
         readonly isAttest: boolean;
         readonly asAttest: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
             readonly blsPublicKey: U8aFixed;
             readonly proofOfPossession: U8aFixed;
         } & Struct;
         readonly isChill: boolean;
         readonly asChill: {
-            readonly chainId: u64;
+            readonly chainKey: u64;
         } & Struct;
         readonly isSetPayee: boolean;
         readonly asSetPayee: {
@@ -3291,7 +3291,6 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestorNotIdle: boolean;
         readonly isNoSupportedChains: boolean;
         readonly isAttestationNotFound: boolean;
-        readonly isSupportedChainNotFound: boolean;
         readonly isInvalidAttestationInterval: boolean;
         readonly isInvalidAttestationsPerCheckpoint: boolean;
         readonly type:
@@ -3320,7 +3319,6 @@ declare module '@polkadot/types/lookup' {
             | 'AttestorNotIdle'
             | 'NoSupportedChains'
             | 'AttestationNotFound'
-            | 'SupportedChainNotFound'
             | 'InvalidAttestationInterval'
             | 'InvalidAttestationsPerCheckpoint';
     }
