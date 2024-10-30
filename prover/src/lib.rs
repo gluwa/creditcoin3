@@ -109,9 +109,9 @@ impl Server {
         });
 
         // Build historical cache
-        info!("Building historical cache for chain with id: {}", chain_id);
+        info!("Building historical cache for chain with id: {}", chain_key);
         attestation_cache::build_historical_cache_for_chain(
-            chain_id,
+            chain_key,
             attestations_cache.clone(),
             cc3_client.clone(),
             sender,
