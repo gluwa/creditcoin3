@@ -55,39 +55,41 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [chainKey, signedAttn, digest] = event.data;
-                            const chainKeyStr = (chainKey as U64).toString();
+                            const [supportedChainKey, signedAttn, digest] = event.data;
+                            const supportedChainKeyStr = (supportedChainKey as U64).toString();
                             const data = signedAttn as AttestorPrimitivesSignedAttestation;
 
                             const chainAttestationInterval = (
-                                (await api.query.attestation.chainAttestationInterval(chainKey)) as U64
+                                (await api.query.attestation.chainAttestationInterval(supportedChainKey)) as U64
                             ).toNumber();
 
                             // external blocks should be attested at the same interval which is recorded on-chain
-                            if (previousHeader[chainKeyStr] > 0) {
-                                expect(data.attestation.headerNumber.toNumber() - previousHeader[chainKeyStr]).toBe(
-                                    chainAttestationInterval,
-                                );
+                            if (previousHeader[supportedChainKeyStr] > 0) {
+                                expect(
+                                    data.attestation.headerNumber.toNumber() - previousHeader[supportedChainKeyStr],
+                                ).toBe(chainAttestationInterval);
                             }
-                            previousHeader[chainKeyStr] = data.attestation.headerNumber.toNumber();
+                            previousHeader[supportedChainKeyStr] = data.attestation.headerNumber.toNumber();
 
                             // recorded attestations should be linked to each other
-                            if (previousDigest[chainKeyStr] !== '') {
-                                expect(data.attestation.prevDigest.toString()).toBe(previousDigest[chainKeyStr]);
+                            if (previousDigest[supportedChainKeyStr] !== '') {
+                                expect(data.attestation.prevDigest.toString()).toBe(
+                                    previousDigest[supportedChainKeyStr],
+                                );
                             }
                             // note: next attestation will point to the digest of the current one
-                            previousDigest[chainKeyStr] = digest.toString();
+                            previousDigest[supportedChainKeyStr] = digest.toString();
 
-                            attestedEvents[chainKeyStr]++;
+                            attestedEvents[supportedChainKeyStr]++;
                         }
 
                         if (`${event.section}.${event.method}` === 'attestation.AttestorsElected') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [_epoch, chainKey, _attestors] = event.data;
-                            const chainKeyStr = (chainKey as U64).toString();
+                            const [_epoch, supportedChainKey, _attestors] = event.data;
+                            const supportedChainKeyStr = (supportedChainKey as U64).toString();
 
-                            electionEvents[chainKeyStr]++;
+                            electionEvents[supportedChainKeyStr]++;
                         }
                     } // loop over events
 

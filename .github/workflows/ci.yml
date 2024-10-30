@@ -1366,7 +1366,7 @@ jobs:
           curl -L https://foundry.paradigm.xyz | bash
           ~/.foundry/bin/foundryup
 
-          # chain IDs are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 &
@@ -1387,8 +1387,8 @@ jobs:
           # always use 5 attestors when running in CI
           sed -i "s/num_attestors: .*/num_attestors: 5/" attestor_zombienet/config.yaml
 
-          ./target/release/attestor_zombienet --cc3-key "//Alice" --chain-key 2 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml &
-          ./target/release/attestor_zombienet --cc3-key "//Bob" --chain-key 4 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml &
+          ./target/release/attestor_zombienet --cc3-key "//Alice" --supported-chain-key 2 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml &
+          ./target/release/attestor_zombienet --cc3-key "//Bob" --supported-chain-key 4 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml &
 
       - name: Wait for 5 attestors to be registered
         run: |
