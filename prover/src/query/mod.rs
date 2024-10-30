@@ -13,6 +13,8 @@ use prover_primitives::{
 
 use crate::{attestation::fragment, AttestationCacheType, EthClientArc};
 
+pub mod external;
+
 /// Proof as bytes
 pub type Proof = Vec<u8>;
 
