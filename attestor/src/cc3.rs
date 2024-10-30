@@ -23,7 +23,6 @@ pub type Randomness = [u8; 32];
 struct SourceChainConfig {
     pub chain_key: ChainKey,
     pub current_attestation_interval: u64,
-    pub current_interval_start: u64,
 }
 
 #[derive(Clone)]
@@ -105,23 +104,9 @@ impl<'a> Client {
             .await?
             .ok_or(Error::FailedToGetAttestationInterval)?;
 
-        // Getting last attestation height
-        let last_digest = cc_client.fetch_last_digest(chain_key).await?;
-        let last_attestation_height = if let Some(digest) = last_digest {
-            cc_client
-                .get_attestation_by_digest(chain_key, digest)
-                .await?
-                .ok_or(Error::LastAttestationNotFound)?
-                .header_number()
-        } else {
-            // If no prior attestation found, we start from 0
-            0
-        };
-
         let chain_config = SourceChainConfig {
             chain_key,
             current_attestation_interval: attestation_interval,
-            current_interval_start: last_attestation_height,
         };
 
         Ok(Self {
@@ -250,15 +235,15 @@ impl<'a> Client {
         let chain_key = attestation.chain_key;
         let round = (chain_key, attestation.header_number);
 
-        if (attestation.header_number - self.chain_config.current_interval_start)
-            % self.chain_config.current_attestation_interval
-            != 0
-        {
-            warn!(
-                "Skipping Attestation because it's not in the configured interval for this chain"
-            );
-            return Ok(());
-        };
+        let last_attestation = self.get_last_attestation(chain_key).await?;
+        if let Some(last_a) = last_attestation {
+            if last_a.header_number() + self.chain_config.current_attestation_interval
+                != attestation.header_number
+            {
+                warn!("Skipping Attestation because it's not in the configured interval for this chain");
+                return Ok(());
+            }
+        }
 
         // Get the digest of the attestation
         let attestation_digest = attestation.digest();
@@ -316,7 +301,6 @@ impl<'a> Client {
 
     pub fn change_attestation_interval(&mut self, interval_update: IntervalUpdate) {
         self.chain_config.current_attestation_interval = interval_update.new_interval;
-        self.chain_config.current_interval_start = interval_update.attested_height_at_change;
     }
 }
 

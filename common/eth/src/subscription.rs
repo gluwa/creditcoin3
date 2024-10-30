@@ -95,12 +95,6 @@ impl BlockSubscription for BlockFetcher {
     }
 
     async fn next(&mut self) -> Option<OrderedBlock> {
-        // If the current height is not divisible by the interval, increment it to the next interval
-        if self.from_height % self.interval != 0 {
-            let remainder = self.from_height % self.interval;
-            self.from_height += self.interval - remainder;
-        };
-
         // Get the block at the current height
         let block = self.client.get_block(self.from_height).await.ok();
 
