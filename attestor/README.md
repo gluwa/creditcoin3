@@ -105,16 +105,6 @@ Run `anvil --block-time 6`
 
 (Deprecated hardhat because it's not supporting `eth_getTransactionReceipt` rpc call)
 
-### Simulate transactions (Optional)
-
-This script will automatically transfer some funds between the accounts. You can run this script to simulate some transactions.
-
-```sh
-cd scripts/
-npm install
-node AutoTransfers.js
-```
-
 ### Run Attestors
 
 We have a couple of prefunded attestors to start with. To start them you can the run the following commands from the attestor directory. Depending on the `THRESHOLD` variable in `client/atestor-gossip/src/worker.rs` file, you need to start

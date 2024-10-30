@@ -8,14 +8,8 @@ npm install
 
 ## Run Transfer
 
-```bash
-node Transfer.js
-```
-
-## Run automatical transfers
+Will transfer some amount from `Alith` to some other random account.
 
 ```bash
-node AutoTransfers.js
+node transfer.js
 ```
-
-(This script will automatically transfer some funds between the accounts. You can run this script to simulate some transactions.)

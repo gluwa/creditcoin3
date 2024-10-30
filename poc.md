@@ -12,6 +12,16 @@ Components in this proof of concept:
 - Attestation network: Attestor module that will connect to the Ethereum compatible chain and attest to blocks on ccnext chain. In this PoC orchestrated by the `attestor_zombienet`.
 - Query client: Client that will create queries and send them to the prover.
 
+## Useful links
+
+### Devnet deployment
+
+- Ccnext: [https://rpc.ccnext-devnet.creditcoin.network](https://rpc.ccnext-devnet.creditcoin.network) for http, websocket: [wss://rpc.ccnext-devnet.creditcoin.network](wss://rpc.ccnext-devnet.creditcoin.network)
+- Ethereum (anvil): [https://anvil.ccnext-devnet.creditcoin.network](https://anvil.ccnext-devnet.creditcoin.network)
+- Gluwa public prover contract address: `0x21cb3940e6ba5284e1750f1109131a8e8062b9f1`
+- PolkadotJS explorer link: [https://polkadot.js.org/apps/?rpc=wss%3A%2F%2Frpc.ccnext-devnet.creditcoin.network%2Fws#/explorer](https://polkadot.js.org/apps/?rpc=wss%3A%2F%2Frpc.ccnext-devnet.creditcoin.network%2Fws#/explorer)
+- Anvil explorer: [https://explorer.ccnext-devnet.creditcoin.network/](https://explorer.ccnext-devnet.creditcoin.network/)
+
 ## Pre-requisites
 
 - Rust
@@ -43,16 +53,7 @@ This is part of foundry, see [installation](https://book.getfoundry.sh/getting-s
 anvil --block-time 6
 ```
 
-## 4. Start auto transfers
-
-This script will start transfering arbitrary amounts of funds between accounts on the anvil node. This is to simulate real world transactions.
-
-```sh
-cd attestor/scripts
-node AutoTransfers.js
-```
-
-## 5. Start attestor zombienet
+## 4. Start attestor zombienet
 
 First configure to connect to local chain, see `creditcoin3-next/attestor_zombienet/config.yaml`
 
@@ -122,32 +123,23 @@ You should see something like
 
 Once started it will log the prover contract address. Copy this address and use it in the next module. In this example it is `0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3`.
 
-## 7. Query cli
+## 7. Make a transfer
+
+This will transfer some amount from `Alice` to some other random account.
+
+```sh
+cd attestor/scripts
+node transfer.js
+```
+
+Save the ouput to create a Query later.
+
+## 8. Query cli
 
 Create a query, first check on the anvil logs for a transaction in a block. Currently it's only possible to create queries for blocks that are attested to,
 so either check the prover logs for attestations that are being cached or check the chain.
 
-Anvil logs look something like:
-
-```text
-eth_chainId
-
-    Transaction: 0x584ee77611d71f6bd4c1459f08da01b80208ab04a4f3c67c26207b02765a1cd1
-    Gas used: 21000
-
-    Transaction: 0xfbe881d7e4f9e5a5719c727537e26977cbc3b221569767da782b7f9e4c64f104
-    Gas used: 42000
-
-    Transaction:
-
-    Gas used: 63000
-
-    Block Number: 348
-    Block Hash: 0x32d728f2f38f451875d9d5ac707896ab5c9376b7201c9a8e833e535654aad096
-    Block Time: "Wed, 28 Aug 2024 12:34:32 +0000"
-```
-
-In this example. block 348 has two transactions.
+See transfer section for how to make a transfer. Take note of the block number and transaction hash.
 
 to create a query, run the query cli:
 
@@ -172,7 +164,7 @@ Select:
 
 Now the prover should run the query and prove it. The result is submitted back to the cli and eventually it exits.
 
-## 8. Resetting After Tests
+## 9. Resetting After Tests
 Whenever you start up a new chain as in step 2 there is an additional cleanup consideration.
 
 1. This file must be deleted with each restart, `artifacts/chain_deployment_artifacts.json`
@@ -185,3 +177,26 @@ Failing to clean the DB can result in multiple attestations, blocks, or checkpoi
 
 Some of those will have the wrong digests, as they were saved from past chains.
 This can cause mismatches when proving claims.
+
+## 10. Creating a query against devnet
+
+To create a query against the devnet, you first need to run a transfer.
+
+```sh
+cd attestor/scripts
+node transfer.js --devnet
+```
+
+This will output a block number and transaction hash. Use these values to create a query.
+
+```sh
+cd query-cli
+cargo run -- \
+  --cc3-rpc-url https://rpc.ccnext-devnet.creditcoin.network \
+  --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+  --contract-address 0x21cb3940e6ba5284e1750f1109131a8e8062b9f1 \
+  --infura-api-key "somekey" \
+  --eth-rpc-url https://anvil.ccnext-devnet.creditcoin.network
+```
+
+Now you can wait for the prover to finish proving the query.

@@ -2,6 +2,9 @@
   "ignorePatterns": [
     {
       "pattern": "^https://github.com/gluwa/creditcoin3/security/advisories(.*)"
+    },
+    {
+      "pattern": ".*.ccnext-.*.creditcoin.network"
     }
   ],
   "retryOn429": true,
