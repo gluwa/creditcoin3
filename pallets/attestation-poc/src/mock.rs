@@ -1,4 +1,4 @@
-use crate::{self as attestation_poc, tests::Attestor};
+use crate::{self as attestation_poc, tests::Attestor, CommitteeSetSizeDefault};
 use frame_election_provider_support::{
     bounds::{ElectionBounds, ElectionBoundsBuilder},
     onchain, SequentialPhragmen,
@@ -14,7 +14,7 @@ use parity_scale_codec::Encode;
 use sp_consensus_babe::{AuthorityId, AuthorityPair};
 use sp_core::{
     crypto::{KeyTypeId, Pair},
-    H256, U256,
+    Get, H256, U256,
 };
 use sp_runtime::{
     curve::PiecewiseLinear,
@@ -233,7 +233,7 @@ parameter_types! {
 impl attestation_poc::Config for Test {
     type DefaultAttestationsPerCheckpoint = ConstU32<10>;
     type DefaultAttestationInterval = ConstU64<10>;
-    type DefaultCommitteeSetSize = ConstU32<1>;
+    type DefaultCommitteeSetSize = ConstU32<3>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;
@@ -269,8 +269,6 @@ pub(crate) const STASH_3: AccountId = 3;
 pub(crate) const ATTESTOR_1: AccountId = 4;
 pub(crate) const ATTESTOR_2: AccountId = 5;
 pub(crate) const ATTESTOR_3: AccountId = 6;
-
-pub(crate) const DEFAULT_COMMITTEE_SET_SIZE: u32 = 250;
 
 // Mock source chain id
 pub const SOURCE_CHAIN_ID: u64 = 200;
@@ -315,7 +313,7 @@ impl ExtBuilder {
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 10000,
-                committee_set_size: DEFAULT_COMMITTEE_SET_SIZE,
+                committee_set_size: CommitteeSetSizeDefault::<Test>::get(),
             }],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();

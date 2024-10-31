@@ -8,7 +8,7 @@ use attestor_primitives::{
 use attestor_primitives::{BlsPublicKey, BlsSignature};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_support::{assert_noop, assert_ok};
-use sp_core::H256;
+use sp_core::{Get, H256};
 use sp_runtime::traits::BadOrigin;
 
 #[derive(Debug, Clone)]
@@ -1179,12 +1179,29 @@ fn set_committee_set_size_should_error_when_not_signed_by_root() {
 }
 
 #[test]
+fn set_committee_set_size_should_fail_with_set_size_less_than_1() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let new_committee_size = 0;
+        assert_noop!(
+            Attestation::set_committee_set_size(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                new_committee_size
+            ),
+            Error::<Test>::InvalidCommitteeSetSize
+        );
+    })
+}
+
+#[test]
 fn set_committee_set_size_should_update_storage_and_emit_an_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
         let committee_size = Attestation::committee_set_size(SUPPORTED_CHAIN_KEY);
-        assert_eq!(committee_size, DEFAULT_COMMITTEE_SET_SIZE);
+        assert_eq!(committee_size, CommitteeSetSizeDefault::<Test>::get());
 
         let new_committee_size = 512;
         assert_ok!(Attestation::set_committee_set_size(
