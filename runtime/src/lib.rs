@@ -11,6 +11,7 @@
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod output;
+mod w;
 
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, Encode};
@@ -334,7 +335,7 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
 
     fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
         // Copied from the weights for the lock deal order extrinsic which is what is referenced in cc2
-        let deal_order_weight = Weight::from_parts(30_601_000, 0)
+        let deal_order_weight = Weight::from_parts(29_900_000, 0)
             .saturating_add(Weight::from_parts(0, 4089))
             .saturating_add(T::DbWeight::get().reads(1))
             .saturating_add(T::DbWeight::get().writes(1));
@@ -595,7 +596,7 @@ impl pallet_staking::Config for Runtime {
     type MaxUnlockingChunks = frame_support::traits::ConstU32<32>;
     type HistoryDepth = frame_support::traits::ConstU32<84>;
     type BenchmarkingConfig = StakingBenchmarkingConfig;
-    type WeightInfo = ();
+    type WeightInfo = w::X;
 
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
     type EventListeners = (); // TODO: should be pools when nomination pools are added
