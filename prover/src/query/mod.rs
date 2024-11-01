@@ -1,15 +1,12 @@
 use anyhow::Result;
 use either::Either;
-use std::ops::Range;
-use tracing::info;
+use std::{ops::Range, path::PathBuf};
+use thiserror::Error;
+use tracing::{error, info, warn};
 
 use attestation_chain::attestation_fragment::AttestationFragment;
 use pallet_prover_primitives::Query;
-use proof::cairo_generate_proof;
-use prover_primitives::{
-    claim::{ClaimIdentifier, ClaimSerializable},
-    types::StoneProofPublicInput,
-};
+use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
 use crate::{attestation::fragment, AttestationCacheType, EthClientArc};
 
@@ -17,6 +14,20 @@ pub mod external;
 
 /// Proof as bytes
 pub type Proof = Vec<u8>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Failed to get proof")]
+    Proof,
+    #[error("Failed to get query files")]
+    QueryFiles,
+    #[error("Ethereum error: {0:?}")]
+    EthError(#[from] eth::Error),
+    #[error("Fragment error: {0:?}")]
+    FragmentError(#[from] fragment::Error),
+    #[error("Json error: {0:?}")]
+    Json(#[from] serde_json::Error),
+}
 
 // Process a query
 // Parameters:
@@ -30,7 +41,7 @@ pub async fn process(
     query: &Query,
     attestation_cache: &AttestationCacheType,
     stone_proof: bool,
-) -> Result<Either<Proof, StoneProofPublicInput>> {
+) -> Result<Either<Proof, Vec<PathBuf>>, Error> {
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
@@ -60,43 +71,55 @@ pub async fn process(
 
     info!("Generating proof for query with id: {:?}", query_id);
     // Generate proof
-    let cairo_output_of_stone_proof = match cairo_generate_proof(
-        claim_serializable,
-        &attestation_fragment,
-        block,
-        true,
-        stone_proof,
-    )
-    .await
-    {
-        Ok(cairo_output) => {
-            info!("Generated proof for query with id: {:?}", query_id);
-            cairo_output
-        }
-        Err(e) => {
-            info!(
-                "Failed to generate proof for query with id: {:?}, error: {:?}",
-                query_id, e
-            );
-            return Err(anyhow::anyhow!("Failed to generate proof"));
-        }
-    };
+    let query_prover =
+        match proof::run_cairo_verifier(claim_serializable, &attestation_fragment, block).await {
+            Ok(cairo_output) => {
+                info!("Generated proof for query with id: {:?}", query_id);
+                cairo_output
+            }
+            Err(e) => {
+                info!(
+                    "Failed to generate proof for query with id: {:?}, error: {:?}",
+                    query_id, e
+                );
+                return Err(Error::Proof);
+            }
+        };
 
-    // info!("Submitting proof for claim with hash: {:?}", claim.hash);
-    // TODO: what is this either left or right
-    match cairo_output_of_stone_proof {
-        either::Left((mut stone_proof, _stone_proof_dir)) => {
-            // Strip off annotations, prover config, and private input
-            stone_proof
-                .strip_off_annotations()
-                .strip_off_prover_config()
-                .strip_off_private_input();
+    if stone_proof {
+        let result = proof::cairo_generate_proof(query_prover, stone_proof, stone_proof)
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to generate proof for query with id: {:?}, error: {:?}",
+                    query_id, e
+                );
+                Error::Proof
+            })?;
 
-            // json serialize proof
-            let proof_json = serde_json::to_string_pretty(&stone_proof.proof())?;
+        match result {
+            either::Left((mut stone_proof, _stone_proof_dir)) => {
+                // Strip off annotations, prover config, and private input
+                stone_proof
+                    .strip_off_annotations()
+                    .strip_off_prover_config()
+                    .strip_off_private_input();
 
-            Ok(Either::Left(proof_json.as_bytes().to_vec()))
+                // json serialize proof
+                let proof_json = serde_json::to_string_pretty(&stone_proof.proof())?;
+
+                Ok(Either::Left(proof_json.as_bytes().to_vec()))
+            }
+            either::Right(_claim_files) => {
+                warn!("We shouldn't really fall in this code path");
+                Err(Error::Proof)
+            }
         }
-        either::Right(cairo_output) => Ok(Either::Right(cairo_output)),
+    } else {
+        let stone_prover_input_files = query_prover
+            .get_claim_files()
+            .map_err(|_e| Error::QueryFiles)?;
+
+        Ok(Either::Right(stone_prover_input_files))
     }
 }

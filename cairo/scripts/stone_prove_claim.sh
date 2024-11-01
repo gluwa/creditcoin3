@@ -38,7 +38,7 @@ TRACE_FILE="$INPUT_PATH/trace.json"
 
 TRACE_SIZE=$(stat -c "%s" "$TRACE_FILE")
 echo "trace file size: $TRACE_SIZE"
-CHAIN_LEN=$(jq '.blocks | length' "$PROGRAM_INPUT_FILE")
+CHAIN_LEN=$(jq '.attestation_chain.blocks | length' "$PROGRAM_INPUT_FILE")
 echo "chain length from the input file: $CHAIN_LEN"
 #PUBLIC_INPUT_SIZE=$(stat -c "%s" "$PUBLIC_INPUT")
 #PRIVATE_INPUT_SIZE=$(stat -c "%s" "$PRIVATE_INPUT")

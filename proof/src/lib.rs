@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use attestation_chain::AttestationChainParams;
 use colored::Colorize;
 use either::Either;
@@ -16,12 +16,39 @@ pub mod claim_prover;
 pub mod json_serializable;
 
 pub async fn cairo_generate_proof(
+    cairo_verifier: ClaimProver,
+    stone_proof: bool,
+    force_stone_proving: bool,
+) -> Result<Either<(StoneProof, String), CairoVerifierOutput>> {
+    if stone_proof {
+        info!("running stone-prover, will take a while...");
+
+        cairo_verifier
+            .stone_prove(force_stone_proving)
+            .await
+            .map(|msg| {
+                info!("{}", msg);
+            })
+            .map_err(|err| anyhow!("{err:?}"))?;
+
+        cairo_verifier
+            .stone_proof()
+            .map(|stone_proof| Either::Left((stone_proof, cairo_verifier.default_dir())))
+    } else {
+        Ok(Either::Right(
+            cairo_verifier
+                .cairo_output()
+                .ok_or(anyhow!("successful verification expected to yield output"))?
+                .clone(),
+        ))
+    }
+}
+
+pub async fn run_cairo_verifier(
     claim: ClaimSerializable,
     claim_attestation_fragment: &AttestationFragment,
     block: OrderedBlock,
-    cairo_proof_mode: bool,
-    force_stone_proving: bool,
-) -> anyhow::Result<either::Either<(StoneProof, String), CairoVerifierOutput>> {
+) -> Result<ClaimProver> {
     debug!("\n");
     info!("---------- cairo claim proving task is starting ----------");
     debug!("claim: {:?}", claim);
@@ -55,7 +82,8 @@ pub async fn cairo_generate_proof(
         })?;
 
     cairo_verifier
-        .cairo_verify(cairo_proof_mode)
+        // default to true for now
+        .cairo_verify(true)
         .await
         .map_err(|err| anyhow!("{err:?}"))?;
 
@@ -99,23 +127,7 @@ pub async fn cairo_generate_proof(
         ));
     };
 
-    if cairo_proof_mode {
-        info!("running stone-prover, will take a while...");
-
-        cairo_verifier
-            .stone_prove(force_stone_proving)
-            .await
-            .map(|msg| {
-                info!("{}", msg);
-            })
-            .map_err(|err| anyhow!("{err:?}"))?;
-
-        cairo_verifier
-            .stone_proof()
-            .map(|stone_proof| Either::Left((stone_proof, cairo_verifier.default_dir())))
-    } else {
-        Ok(Either::Right(output.clone()))
-    }
+    Ok(cairo_verifier)
 }
 
 #[cfg(test)]
@@ -788,11 +800,13 @@ mod tests {
         // change to false if you don't want to generate stone-proof and rather use output of cairo program
         let generate_stone_proof = true;
         let overwrite_existing_stone_proof = false;
+
+        let cairo_verifier = crate::run_cairo_verifier(cairo_claim, &attestation_fragment, block)
+            .await
+            .unwrap();
+
         let cairo_output_or_stone_proof = crate::cairo_generate_proof(
-            cairo_claim,
-            &attestation_fragment,
-            block,
-            // checkpoints.inner(),
+            cairo_verifier,
             generate_stone_proof,
             overwrite_existing_stone_proof,
         )

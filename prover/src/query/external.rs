@@ -1,6 +1,9 @@
+use anyhow::Result;
+use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
+use std::path::PathBuf;
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WorkOrderResponse {
@@ -15,14 +18,46 @@ struct WorkOrderResult {
     result: Option<String>,
 }
 
-async fn post_work_order(client: &Client) -> Result<WorkOrderResponse, Box<dyn Error>> {
-    let url = "http://127.0.0.1:5000/api/prove";
+/// Handle proof order
+pub async fn handle_proof_order(files: Vec<PathBuf>) -> Result<Proof> {
+    // Initialize HTTP client
+    let client = Client::new();
 
-    let form = reqwest::multipart::Form::new()
-        .text("private_input_file", "dummy_private_input.json")
-        .text("public_input_file", "dummy_public_input.json")
-        .text("prover_config_file", "dummy_prover_config.json")
-        .text("parameter_file", "dummy_parameter.json");
+    // Read and prepare each file for the multipart form
+    let mut form = reqwest::multipart::Form::new();
+    for file in files {
+        let file_content = tokio::fs::read(&file).await?;
+
+        let filename = file
+            .file_name()
+            .ok_or("Invalid file name")
+            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?;
+
+        let filename_string = filename
+            .to_str()
+            .ok_or("Invalid file name")
+            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?
+            .to_string();
+
+        form = form.part(
+            filename_string.clone(),
+            reqwest::multipart::Part::bytes(file_content).file_name(filename_string),
+        );
+    }
+
+    // Post work order
+    let response = post_work_order(&client, form).await?;
+
+    info!("Work order response: {:?}", response);
+
+    Ok(vec![])
+}
+
+async fn post_work_order(
+    client: &Client,
+    form: reqwest::multipart::Form,
+) -> Result<WorkOrderResponse> {
+    let url = "https://dcac-178-51-4-81.ngrok-free.app/api/prove";
 
     let response = client
         .post(url)
@@ -35,11 +70,8 @@ async fn post_work_order(client: &Client) -> Result<WorkOrderResponse, Box<dyn E
     Ok(response)
 }
 
-async fn get_work_order_status(
-    client: &Client,
-    work_order_id: &str,
-) -> Result<WorkOrderResponse, Box<dyn Error>> {
-    let url = format!("http://127.0.0.1:5000/api/prove/{}", work_order_id);
+async fn _get_work_order_status(client: &Client, work_order_id: &str) -> Result<WorkOrderResponse> {
+    let url = format!("http://127.0.0.1:5000/api/prove/{work_order_id}");
 
     let response = client
         .get(&url)
@@ -51,11 +83,8 @@ async fn get_work_order_status(
     Ok(response)
 }
 
-async fn get_work_order_result(
-    client: &Client,
-    work_order_id: &str,
-) -> Result<WorkOrderResult, Box<dyn Error>> {
-    let url = format!("http://127.0.0.1:5000/api/prove/{}/result", work_order_id);
+async fn _get_work_order_result(client: &Client, work_order_id: &str) -> Result<WorkOrderResult> {
+    let url = format!("http://127.0.0.1:5000/api/prove/{work_order_id}/result");
 
     let response = client
         .get(&url)

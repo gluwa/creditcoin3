@@ -169,12 +169,14 @@ impl Server {
 
         match r {
             Either::Left(proof) => {
-                info!("Submitting proof for query: {:?}", query);
+                info!("Submitting proof for query: {:?}", query.id());
                 contract::submit_proof(&self.cc3_client, query, proof).await?;
             }
             Either::Right(stone_proof_public_input) => {
-                info!("No proof generated for query: {:?}", query);
-                info!("Stone proof public input: {:?}", stone_proof_public_input);
+                info!("Handling external proof for query: {:?}", query.id());
+                let _proof = query::external::handle_proof_order(stone_proof_public_input).await?;
+                info!("Submitting proof for query: {:?}", query);
+                // contract::submit_proof(&self.cc3_client, query, proof).await?;
             }
         }
 

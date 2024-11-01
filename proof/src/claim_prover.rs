@@ -11,6 +11,7 @@ use prover_primitives::types::{
 use serde::Serialize;
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use tracing::debug;
 use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 
@@ -74,6 +75,7 @@ impl ClaimProver {
             None => Err(ClaimProverError::InputFileNameNotSet),
         }
     }
+
     pub fn stone_proof(&self) -> anyhow::Result<StoneProof> {
         self.stone_proof_file
             .as_ref()
@@ -85,9 +87,11 @@ impl ClaimProver {
     pub fn file_name(&self) -> Option<&str> {
         self.cairo_input_file.as_deref()
     }
+
     pub fn cairo_output_file(&self) -> Option<&str> {
         self.cairo_output_file.as_deref()
     }
+
     pub fn stone_proof_file(&self) -> Option<&str> {
         self.stone_proof_file.as_deref()
     }
@@ -155,9 +159,11 @@ impl ClaimProver {
     fn default_cairo_input_file_name(dir: &str) -> String {
         format!("{dir}/program_input.json")
     }
+
     fn default_cairo_output_file_name(dir: &str) -> String {
         format!("{dir}/output.txt")
     }
+
     fn default_stone_proof_file_name(dir: &str) -> String {
         format!("{dir}/proof.json")
     }
@@ -173,6 +179,18 @@ impl ClaimProver {
                 CairoVerifierOutput::try_from_prefixed_str(&output_str[..])
                     .map_err(|err| ClaimProverError::OutputParseFailure(format!("{err:?}")))
             })
+    }
+
+    pub fn get_claim_files(&self) -> Result<Vec<PathBuf>, ClaimProverError> {
+        let dir = self.default_dir();
+
+        let paths = std::fs::read_dir(dir)
+            .map_err(|err| ClaimProverError::Other(format!("Claim files not found, {:}", err)))?
+            .map(|entry| entry.map(|e| e.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| ClaimProverError::Other(format!("Claim files not found, {:}", err)))?;
+
+        Ok(paths)
     }
 }
 
