@@ -13,7 +13,7 @@ fi
 
 # prepare the value for use with grep -E
 FILES_WITH_EXTRINSICS=$(echo "$FILES_WITH_EXTRINSICS" | xargs)
-WHITELIST="MaxAttestorsDefault<T MaxInvulernablesDefault<T get_locked_balance is_chain_supported supported_chains AttestationIntervalDefault<T DefaultAttestationsPerCheckpoint<T attestor_bls_pubkey is_attestor last_digest contains_digest get( working_set_size DefaultMinBondRequirement<T address_is_not_attestor attestor_list_has_space attestor_status attestor_is_registered"
+WHITELIST="MaxAttestorsDefault<T MaxInvulernablesDefault<T get_locked_balance is_chain_supported supported_chains AttestationIntervalDefault<T DefaultAttestationsPerCheckpoint<T attestor_bls_pubkey is_attestor last_digest contains_digest get( working_set_size DefaultMinBondRequirement<T address_is_not_attestor attestor_list_has_space attestor_status attestor_is_registered CommitteeSetSizeDefault<T"
 
 # NOTE: $FILES_WITH_EXTRINSICS isn't quoted below because we want the shell
 # to split the words, i.e. tell grep to search only in specific files
