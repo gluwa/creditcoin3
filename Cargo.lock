@@ -9065,6 +9065,7 @@ dependencies = [
  "anyhow",
  "attestation-chain",
  "attestor-primitives",
+ "base64 0.22.1",
  "cc-client",
  "clap",
  "diesel",

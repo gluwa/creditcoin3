@@ -67,3 +67,4 @@ proof = { workspace = true }
 prover-primitives = { workspace = true }
 serde_json.workspace = true
 utils = { workspace = true }
+base64 = "0.22.1"

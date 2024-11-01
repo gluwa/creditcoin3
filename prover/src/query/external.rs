@@ -3,31 +3,34 @@ use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::time::sleep;
 use tracing::info;
+
+use super::QueryId;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WorkOrderResponse {
-    work_order_id: String,
-    work_order_status: String,
+    query_id: String,
+    status: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WorkOrderResult {
-    work_order_id: String,
-    work_order_status: String,
-    result: Option<String>,
+    query_id: String,
+    status: String,
+    proof: Option<String>,
 }
 
 /// Handle proof order
-pub async fn handle_proof_order(files: Vec<PathBuf>) -> Result<Proof> {
-    // Initialize HTTP client
+pub async fn handle_proof_order(query_id: QueryId, files: Vec<PathBuf>) -> Result<Proof> {
+    info!("Handling external proof order");
     let client = Client::new();
 
-    // Read and prepare each file for the multipart form
+    // Prepare each file for the multipart form
     let mut form = reqwest::multipart::Form::new();
     for file in files {
         let file_content = tokio::fs::read(&file).await?;
-
         let filename = file
             .file_name()
             .ok_or("Invalid file name")
@@ -45,20 +48,23 @@ pub async fn handle_proof_order(files: Vec<PathBuf>) -> Result<Proof> {
         );
     }
 
+    // Add query id to the form
+    form = form.text("query_id", query_id.to_string());
+
     // Post work order
     let response = post_work_order(&client, form).await?;
 
-    info!("Work order response: {:?}", response);
-
-    Ok(vec![])
+    // Poll for the result
+    let proof_bytes = poll_for_result(&client, &response.query_id).await?;
+    info!("Work order proof len: {}", proof_bytes.len());
+    Ok(proof_bytes)
 }
 
 async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
 ) -> Result<WorkOrderResponse> {
-    let url = "https://dcac-178-51-4-81.ngrok-free.app/api/prove";
-
+    let url = "https://adc4-178-51-4-81.ngrok-free.app/api/prove";
     let response = client
         .post(url)
         .multipart(form)
@@ -68,6 +74,34 @@ async fn post_work_order(
         .await?;
 
     Ok(response)
+}
+
+async fn poll_for_result(client: &Client, work_order_id: &str) -> Result<Vec<u8>> {
+    let url = format!(
+        "https://adc4-178-51-4-81.ngrok-free.app/api/prove/{}/result",
+        work_order_id
+    );
+
+    let timeout = Duration::from_secs(15 * 60); // 15 minutes
+    let interval = Duration::from_secs(30); // Poll every 10 seconds
+    let start = tokio::time::Instant::now();
+
+    while start.elapsed() < timeout {
+        let response = client.get(&url).send().await?;
+
+        let proof_bytes = response.bytes().await?;
+
+        if proof_bytes.len() > 0 {
+            return Ok(proof_bytes.into());
+        }
+
+        info!("Result not yet available, waiting to retry...");
+        sleep(interval).await;
+    }
+
+    Err(anyhow::anyhow!(
+        "Timeout reached: Result not available within 15 minutes"
+    ))
 }
 
 async fn _get_work_order_status(client: &Client, work_order_id: &str) -> Result<WorkOrderResponse> {

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use either::Either;
+use sp_core::H256;
 use std::{ops::Range, path::PathBuf};
 use thiserror::Error;
 use tracing::{error, info, warn};
@@ -14,6 +15,9 @@ pub mod external;
 
 /// Proof as bytes
 pub type Proof = Vec<u8>;
+
+/// Query id
+pub type QueryId = H256;
 
 #[derive(Debug, Error)]
 pub enum Error {

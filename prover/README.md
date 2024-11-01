@@ -74,3 +74,11 @@ See [query-cli](../query-cli/README.md) for more details.
 ## Claims
 
 Claims that are proven are stored as JSON in `claims` folder.
+
+## External prover example
+
+If you wish you can run the prover in `light` mode (`--light-mode` or `-l`).
+
+In light mode it will not stone proof the query but instead it will compute the inputs files for the stone prover and send them over the network to the external prover.
+
+See [external-prover](./external_prover_example/README.md) for more details.
