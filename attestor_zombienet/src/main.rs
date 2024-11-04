@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 pub use subxt::utils::AccountId32;
 use subxt_signer::{sr25519::Keypair, SecretUri};
-use tempfile::{tempdir, TempDir};
+use tempfile::TempDir;
 use tokio::{
     fs::File,
     process::{Child, Command},
@@ -45,6 +45,13 @@ pub struct AttestorZombienet {
 
     #[arg(long, default_value = "config.yaml", help = "Path to the config file")]
     config_file: String,
+
+    #[arg(
+        long,
+        default_value = "/tmp",
+        help = "A directory for keeping temporary log files from child processes"
+    )]
+    logs_dir: String,
 
     #[arg(
         long,
@@ -220,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Create an Arc and Mutex to manage child processes
         let children = Arc::new(Mutex::new(Vec::new()));
 
-        let temp_dir = tempdir()?;
+        let temp_dir = TempDir::new_in(args.logs_dir)?;
         // Spawn child processes
         let mut rng = rand::thread_rng();
 
