@@ -1353,12 +1353,13 @@ jobs:
 
       - name: Start creditcoin3-node - Alice
         run: |
+          mkdir -p /var/tmp/integration-test-attestor-network/
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --base-path ./alice-data &
+            --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node.log 2>&1 &
 
       - name: Start Ethereum simulation with Anvil - 2 chains
         run: |
@@ -1387,8 +1388,17 @@ jobs:
           # always use 5 attestors when running in CI
           sed -i "s/num_attestors: .*/num_attestors: 5/" attestor_zombienet/config.yaml
 
-          ./target/release/attestor_zombienet --cc3-key "//Alice" --supported-chain-key 2 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml &
-          ./target/release/attestor_zombienet --cc3-key "//Bob" --supported-chain-key 4 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml &
+          mkdir /var/tmp/integration-test-attestor-network/attestors-alice
+          mkdir /var/tmp/integration-test-attestor-network/attestors-bob
+
+          ./target/release/attestor_zombienet \
+                --cc3-key "//Alice" --supported-chain-key 2 \
+                --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
+                --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
+          ./target/release/attestor_zombienet \
+                --cc3-key "//Bob" --supported-chain-key 4 \
+                --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
+                --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
 
       - name: Wait for 5 attestors to be registered
         run: |
@@ -1407,6 +1417,17 @@ jobs:
           yarn install
           yarn test:attestation
 
+      # WARNING: upload logs before killing running processes b/c the created temporary directories
+      # may be removed once the program exits. Read about the implementation details at:
+      # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-attestor-network
+          path: /var/tmp/integration-test-attestor-network/
+          include-hidden-files: true
+
       - name: Kill binaries
         if: always()
         continue-on-error: true
@@ -1424,7 +1445,6 @@ jobs:
         run: |
           # unreliable
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
-
 
   integration-test-cli:
     if: github.base_ref == 'dev'
