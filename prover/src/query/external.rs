@@ -64,7 +64,7 @@ async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
 ) -> Result<WorkOrderResponse> {
-    let url = "https://adc4-178-51-4-81.ngrok-free.app/api/prove";
+    let url = "http://localhost:5000/api/prove";
     let response = client
         .post(url)
         .multipart(form)
@@ -77,10 +77,7 @@ async fn post_work_order(
 }
 
 async fn poll_for_result(client: &Client, work_order_id: &str) -> Result<Vec<u8>> {
-    let url = format!(
-        "https://adc4-178-51-4-81.ngrok-free.app/api/prove/{}/result",
-        work_order_id
-    );
+    let url = format!("http://localhost:5000/api/prove/{work_order_id}/result",);
 
     let timeout = Duration::from_secs(15 * 60); // 15 minutes
     let interval = Duration::from_secs(30); // Poll every 10 seconds
@@ -91,7 +88,7 @@ async fn poll_for_result(client: &Client, work_order_id: &str) -> Result<Vec<u8>
 
         let proof_bytes = response.bytes().await?;
 
-        if proof_bytes.len() > 0 {
+        if !proof_bytes.is_empty() {
             return Ok(proof_bytes.into());
         }
 
@@ -105,7 +102,7 @@ async fn poll_for_result(client: &Client, work_order_id: &str) -> Result<Vec<u8>
 }
 
 async fn _get_work_order_status(client: &Client, work_order_id: &str) -> Result<WorkOrderResponse> {
-    let url = format!("http://127.0.0.1:5000/api/prove/{work_order_id}");
+    let url = format!("http://localhost:5000/api/prove/{work_order_id}");
 
     let response = client
         .get(&url)
