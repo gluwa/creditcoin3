@@ -55,9 +55,24 @@ def post_work_order():
         return jsonify({"error": "query_id is required"}), 400
 
     # Check for files in the multipart request
-    files = request.files
+    files = request.files  # Define 'files' here
     if not files:
         return jsonify({"error": "No files provided"}), 400
+
+    # Required files
+    required_files = [
+        "memory.json",
+        "output.txt",
+        "private_input.json",
+        "program_input.json",
+        "public_input.json",
+        "trace.json"
+    ]
+
+    # Check for required files in the multipart request
+    missing_files = [file for file in required_files if file not in request.files]
+    if missing_files:
+        return jsonify({"error": "Missing files", "missing_files": missing_files}), 400
 
     # Generate a unique work order ID and create a directory for it
     work_order_dir = os.path.join(UPLOAD_FOLDER, query_id)

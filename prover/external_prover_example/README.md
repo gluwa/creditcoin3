@@ -14,3 +14,25 @@ pip install -r requirements.txt
 ```sh
 python main.py
 ```
+
+## Proof the example query
+
+```sh
+curl -X POST http://localhost:5000/api/prove \
+  -F "query_id=somevalue" \
+  -F "private_input.json=@query_example/private_input.json" \
+  -F "public_input.json=@query_example/public_input.json" \
+  -F "trace.json=@query_example/trace.json" \
+  -F "program_input.json=@query_example/program_input.json" \
+  -F "memory.json=@query_example/memory.json" \
+  -F "output.txt=@query_example/output.txt"
+```
+
+You should see something like:
+
+```
+{
+  "query_id": "somevalue",
+  "status": "PENDING"
+}
+```
