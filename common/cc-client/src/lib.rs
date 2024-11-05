@@ -442,7 +442,7 @@ impl<'a> Client {
         A: Serialize,
     {
         let rpc_client = if self.url.contains("http://") || self.url.contains("ws://") {
-            warn!("Creating insucure rpc client to submit attestation");
+            warn!("Creating insecure rpc client to submit attestation");
             RpcClient::from_insecure_url(self.url.clone())
                 .await
                 .map_err(|e| {
