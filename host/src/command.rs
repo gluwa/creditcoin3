@@ -83,10 +83,18 @@ impl VerifierError {
     }
 }
 
-fn write_proof_to_temp_file(proof: &[u8]) -> std::io::Result<NamedTempFile> {
-    let mut temp_file = NamedTempFile::new()?;
-    temp_file.write_all(proof)?;
-    Ok(temp_file)
+fn write_proof_to_temp_file(proof: &[u8]) -> Result<String, VerifierError> {
+    let mut temp_file = NamedTempFile::new().map_err(|_| VerifierError::TempFileWriteError)?;
+    temp_file
+        .write_all(proof)
+        .map_err(|_| VerifierError::TempFileWriteError)?;
+    let (_f, path) = temp_file
+        .keep()
+        .map_err(|_| VerifierError::TempFileKeepError)?;
+
+    let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
+
+    Ok(temp_file_path.to_string())
 }
 
 fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
@@ -101,15 +109,8 @@ pub fn run_verifier(
     log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
 
     // Write proof to a temporary JSON file
-    let temp_file =
+    let temp_file_path =
         write_proof_to_temp_file(&proof).map_err(|_| VerifierError::TempFileWriteError)?;
-
-    // Ensure the temporary file is not deleted automatically
-    let (_f, path) = temp_file
-        .keep()
-        .map_err(|_| VerifierError::TempFileKeepError)?;
-
-    let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
@@ -151,7 +152,7 @@ pub fn run_verifier(
         .output()
         .map_err(|_| VerifierError::VerifierExecutionError)?;
 
-    fs::remove_file(&path).map_err(|_| VerifierError::TempFileRemoveError)?;
+    fs::remove_file(&temp_file_path).map_err(|_| VerifierError::TempFileRemoveError)?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -243,7 +244,10 @@ pub mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.err(),
-            Some(VerifierError::StarkProgramAuthError("AuthenticationFailure(0xe8585588c54f2231fd0f74c263eb9ef4f7bfd77b164317fa4ef224e03c3725c9)".to_string()))
+            Some(VerifierError::StarkProgramAuthError(format!(
+                "AuthenticationFailure({:?})",
+                STARK_PROGRAM_V2_HASH
+            )))
         );
     }
 }
