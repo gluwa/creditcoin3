@@ -1,8 +1,10 @@
 use anyhow::Result;
 use attestor_primitives::Attestation;
 use eth::Client;
+use exponential_backoff::Backoff;
 use kameo::spawn;
 use sp_core::H256;
+use std::{thread, time::Duration};
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -141,17 +143,76 @@ impl Server {
                 Some(attestation) = attestation_rx.recv() => {
                     info!("Received attestation to submit");
                     if let Some(attestation_to_submit) = attestation {
-                        match cc3_client.submit_attestation(attestation_to_submit).await
-                        {
-                            Ok(()) => {}
-                            Err(e) => {
-                                error!("Failed to submit attestation: {:?}", e);
-                            }
-                        }
+                        self.submit_attestation(chain_id, attestation_to_submit).await?;
                     }
                 }
             };
         }
+    }
+
+    /// Submit an attestation to the creditcoin chain
+    /// This function will retry submitting the attestation in case of failure
+    /// The retry logic is based on exponential backoff
+    /// The function will return an error if the attestation could not be submitted after 10 retries
+    /// with a minimum delay of 10 seconds and a maximum delay of 30 seconds
+    async fn submit_attestation(
+        &self,
+        // EVM chain id
+        chain_id: u64,
+        attestation: Attestation<H256>,
+    ) -> Result<()> {
+        let retries = 10;
+        let min = Duration::from_secs(10);
+        // Maximum delay of 14400 seconds (4 hours)
+        let max = Duration::from_secs(14400);
+        // Retry 10 times
+        let backoff = Backoff::new(retries, min, max);
+
+        for duration in &backoff {
+            // Recreate the instance
+            let cc3_client =
+                match cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        warn!(
+                            "Error recreating client: {:?}, going to retry in {}",
+                            e,
+                            duration.as_secs()
+                        );
+                        thread::sleep(duration);
+                        continue;
+                    }
+                };
+
+            // Submit the attestation to the chain
+            match cc3_client.submit_attestation(attestation.clone()).await {
+                Ok(()) => return Ok(()),
+                Err(e) => match e {
+                    // In the case there is a chain client error or rpc error, we will retry
+                    // In other cases, we will return an error and the caller can decide what to do
+                    // For our case, the attestor will exit
+                    cc_client::Error::SubxtError(cc_client::SubxtRpcError(_))
+                    | cc_client::Error::RpcError(_) => {
+                        warn!(
+                            "Error submitting attestation: {:?}, retrying in {} seconds",
+                            e,
+                            duration.as_secs()
+                        );
+                    }
+                    _ => {
+                        error!("Non-retryable error submitting attestation: {:?}", e);
+                        return Err(e.into());
+                    }
+                },
+            }
+
+            // Delay before retrying
+            thread::sleep(duration);
+        }
+
+        Err(anyhow::anyhow!("Failed to submit attestation"))
     }
 }
 

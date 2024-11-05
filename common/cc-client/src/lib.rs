@@ -1,13 +1,15 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sp_core::{
     sr25519::{self},
     Pair, H256, U256,
 };
 use std::str::FromStr;
 pub use subxt::utils::AccountId32;
+pub use subxt::Error::Rpc as SubxtRpcError;
 use subxt::{
     backend::rpc::{RpcClient, RpcParams},
+    error::RpcError,
     ext::futures::StreamExt,
 };
 use subxt::{config::DefaultExtrinsicParamsBuilder, OnlineClient, SubstrateConfig};
@@ -156,7 +158,7 @@ impl<'a> Client {
         Ok(result)
     }
 
-    pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>> {
+    pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>, Error> {
         let storage_query = cc3::storage().attestation().last_digest(chain_key);
 
         let result = self
@@ -327,7 +329,7 @@ impl<'a> Client {
         &self,
         chain_key: ChainKey,
         digest: Digest,
-    ) -> Result<bool> {
+    ) -> Result<bool, Error> {
         let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
@@ -345,7 +347,7 @@ impl<'a> Client {
         &self,
         chain_key: ChainKey,
         digest: Digest,
-    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>, Error> {
         let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
@@ -431,27 +433,52 @@ impl<'a> Client {
         Ok(checkpoints)
     }
 
-    pub async fn submit_attestation<H, A>(&self, attestation: RpcAttestation<H, A>) -> Result<()>
+    pub async fn submit_attestation<H, A>(
+        &self,
+        attestation: RpcAttestation<H, A>,
+    ) -> Result<(), Error>
     where
         H: Serialize,
         A: Serialize,
     {
         let rpc_client = if self.url.contains("http") || self.url.contains("ws") {
             warn!("Creating insucure rpc client to submit attestation");
-            RpcClient::from_insecure_url(self.url.clone()).await?
+            RpcClient::from_insecure_url(self.url.clone())
+                .await
+                .map_err(|e| {
+                    error!("Error creating insecure rpc client: {:?}", e);
+                    Error::InvalidUrl
+                })?
         } else {
-            RpcClient::from_url(self.url.clone()).await?
+            RpcClient::from_url(self.url.clone()).await.map_err(|e| {
+                error!("Error creating rpc client: {:?}", e);
+                Error::InvalidUrl
+            })?
         };
 
         let mut params = RpcParams::new();
-        params.push(attestation)?;
+        params
+            .push(attestation)
+            .map_err(|_| Error::FailedToSubmit)?;
 
-        rpc_client
+        match rpc_client
             .request::<()>("attestor_submitAttestation", params)
-            .await?;
-
-        info!("Attestation submitted");
-        Ok(())
+            .await
+        {
+            Ok(()) => {
+                info!("Attestation submitted");
+                Ok(())
+            }
+            Err(e) => {
+                if let subxt::Error::Rpc(e) = e {
+                    error!("Error submitting attestation: {:?}", e);
+                    Err(Error::RpcError(e))
+                } else {
+                    error!("Error submitting attestation: {:?}", e);
+                    Err(Error::FailedToSubmit)
+                }
+            }
+        }
     }
 
     pub async fn transfer(
@@ -550,7 +577,7 @@ impl From<CcAttestationCheckpoint> for AttestationCheckpoint {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("Cannot attest")]
     CannotAttest,
@@ -590,4 +617,10 @@ pub enum Error {
     FailedToGetAttestorWorkingSetSize,
     #[error("Failed to get attestation for last digest")]
     LastAttestationNotFound,
+    #[error("Subxt error: {0:?}")]
+    SubxtError(#[from] subxt::Error),
+    #[error("Rpc error: {0:?}")]
+    RpcError(#[from] RpcError),
+    #[error("Invalid rpc url")]
+    InvalidUrl,
 }

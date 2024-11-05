@@ -52,7 +52,10 @@ impl<'a> Client {
     }
 
     pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>> {
-        self.cc_client.fetch_last_digest(chain_key).await
+        self.cc_client
+            .fetch_last_digest(chain_key)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn get_attestation_by_digest(
@@ -63,6 +66,7 @@ impl<'a> Client {
         self.cc_client
             .get_attestation_by_digest(chain_key, digest)
             .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn get_checkpoint_by_digest(

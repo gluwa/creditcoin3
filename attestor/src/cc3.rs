@@ -213,7 +213,7 @@ impl<'a> Client {
     pub async fn get_last_attestation(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>, Error> {
         let last_digest = self.cc_client.fetch_last_digest(chain_key).await?;
         if let Some(digest) = last_digest {
             Ok(self
@@ -228,7 +228,7 @@ impl<'a> Client {
     pub async fn submit_attestation<H>(
         &self,
         mut attestation: AttestationPrimitive<H>,
-    ) -> Result<()>
+    ) -> Result<(), Error>
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
@@ -277,14 +277,10 @@ impl<'a> Client {
                     Error::FailedToSignBabeVrf
                 })?;
 
-            // Submit the attestation to the chain
+            // Retry submission
             self.cc_client
-                .submit_attestation(attestation)
-                .await
-                .map_err(|e| {
-                    error!("Error submitting attestation: {:?}", e);
-                    Error::FailedToSubmit
-                })?;
+                .submit_attestation(attestation.clone())
+                .await?;
 
             inclusion =
                 check_attestation_inclusion(self.cc_client.clone(), chain_key, attestation_digest)
@@ -314,7 +310,7 @@ pub async fn check_attestation_inclusion(
     cc_client: CcClient,
     chain_key: ChainKey,
     attestation_digest: H256,
-) -> Result<bool> {
+) -> Result<bool, Error> {
     let retries = 6;
     let min = Duration::from_secs(6);
     // Retry 10 times with 6 seconds interval (blocktime is 6 seconds)
