@@ -13,6 +13,7 @@ attestor-primitives = { workspace = true, default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false }
 hashbrown = { version = "0.14.5", default-features = false }
 rlp = { version = "0.5.2", default-features = false }
+thiserror = { version = "1.0.64", default-features = false, optional = true }
 
 # Workspace dependencies
 frame-support = { workspace = true, default-features = false }
@@ -56,4 +57,5 @@ std = [
     "precompile-utils/std",
     "pallet-prover-primitives/std",
     "hex/std",
+    "thiserror",
 ]

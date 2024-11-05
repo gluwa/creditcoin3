@@ -11,7 +11,8 @@ use tempfile::NamedTempFile;
 
 use pallet_prover_primitives::Query;
 use prover_primitives::stark_program_auth::{
-    StarkProgramAuth, StarkProgramAuthHash, StarkProgramMetadata, StarkProgramMetadataStorage,
+    StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
+    StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{StoneProof, StoneProofJson};
 
@@ -32,7 +33,7 @@ pub enum VerifierError {
     ProofParseError,
 
     #[error("Failed to authenticate STARK program: {0}")]
-    StarkProgramAuthError(String),
+    StarkProgramAuthError(#[from] StarkProgramAuthError),
 
     #[error("Error executing verifier")]
     VerifierExecutionError,
@@ -45,7 +46,7 @@ pub enum VerifierError {
 }
 
 impl VerifierError {
-    pub fn handle_error(&self) -> u8 {
+    pub fn status_code(&self) -> u8 {
         match self {
             VerifierError::TempFileWriteError => {
                 log::error!("error writing to temp file");
@@ -79,6 +80,22 @@ impl VerifierError {
                 log::error!("verifier was not able to verify the proof: {:?}", e);
                 9
             }
+        }
+    }
+}
+
+impl From<u8> for VerifierError {
+    fn from(e: u8) -> Self {
+        match e {
+            2 => VerifierError::TempFileWriteError,
+            3 => VerifierError::TempFileKeepError,
+            4 => VerifierError::TempFileNotFound,
+            5 => VerifierError::TempFileRemoveError,
+            6 => VerifierError::ProofParseError,
+            7 => VerifierError::StarkProgramAuthError(StarkProgramAuthError::Other("".to_string())),
+            8 => VerifierError::VerifierExecutionError,
+            9 => VerifierError::VerifierProcessError("".to_string()),
+            _ => VerifierError::TempFileWriteError,
         }
     }
 }
@@ -140,7 +157,7 @@ pub fn run_verifier(
         &program_metadata_storage,
         blake2_256_stark_program_auth_hasher,
     )
-    .map_err(|e| VerifierError::StarkProgramAuthError(format!("{:?}", e)))?;
+    .map_err(|e| VerifierError::StarkProgramAuthError(e))?;
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
@@ -167,6 +184,8 @@ pub fn run_verifier(
 pub mod tests {
     use crate::command::VerifierError;
     use pallet_prover_primitives::{Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH};
+    use prover_primitives::stark_program_auth::StarkProgramAuthError;
+    use sp_core::H256;
 
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
@@ -214,7 +233,10 @@ pub mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.err(),
-            Some(VerifierError::StarkProgramAuthError("AuthenticationFailure(0x2a9480cea28d8e6a37a8cb1332e5b02594b530ff16e6d1fe6718b9d7be6f7bca)".to_string())));
+            Some(VerifierError::StarkProgramAuthError(
+                StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
+            ))
+        );
     }
 
     // not sure we want to fail, as the prover may work using an older version of STARK,
@@ -244,10 +266,9 @@ pub mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.err(),
-            Some(VerifierError::StarkProgramAuthError(format!(
-                "AuthenticationFailure({:?})",
-                STARK_PROGRAM_V2_HASH
-            )))
+            Some(VerifierError::StarkProgramAuthError(
+                StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
+            ))
         );
     }
 }

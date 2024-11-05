@@ -2,6 +2,7 @@ use crate::types::StoneProof;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use std::collections::HashMap;
+use thiserror::Error;
 use utils::json_serializable::JsonSerializable;
 
 pub type StarkProgramAuthHash = H256;
@@ -78,9 +79,11 @@ impl Default for StarkProgramMetadataStorage {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Error)]
 pub enum StarkProgramAuthError {
+    #[error("Authentication failed with hash: {0}")]
     AuthenticationFailure(StarkProgramAuthHash),
+    #[error("Other error: {0}")]
     Other(String),
 }
 pub struct StarkProgramAuth;

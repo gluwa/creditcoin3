@@ -22,7 +22,7 @@ pub trait HostApi {
                     log::debug!("result of verifying proof: {:?}", r);
                     1
                 }
-                Err(e) => command::VerifierError::handle_error(&e),
+                Err(e) => command::VerifierError::status_code(&e),
             }
         }
 
