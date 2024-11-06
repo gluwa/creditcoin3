@@ -7,7 +7,7 @@ use std::{
     io::Write,
     process::{Command, Stdio},
 };
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, PersistError};
 
 use pallet_prover_primitives::Query;
 use prover_primitives::stark_program_auth::{
@@ -18,10 +18,13 @@ use prover_primitives::types::{StoneProof, StoneProofJson};
 
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum VerifierError {
-    #[error("Failed to write proof to temp file")]
-    TempFileWriteError,
+    #[error("Io error")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Failed to persist temp file")]
+    TempFilePersistError(#[from] PersistError),
 
     #[error("Failed to keep the temp file")]
     TempFileKeepError,
@@ -30,7 +33,7 @@ pub enum VerifierError {
     TempFileNotFound,
 
     #[error("Failed to parse proof JSON")]
-    ProofParseError,
+    ProofParseError(#[from] serde_json::Error),
 
     #[error("Failed to authenticate STARK program: {0}")]
     StarkProgramAuthError(#[from] StarkProgramAuthError),
@@ -48,8 +51,12 @@ pub enum VerifierError {
 impl VerifierError {
     pub fn status_code(&self) -> u8 {
         match self {
-            VerifierError::TempFileWriteError => {
-                log::error!("error writing to temp file");
+            VerifierError::IoError(e) => {
+                log::error!("error writing to temp file: {:?}", e);
+                1
+            }
+            VerifierError::TempFilePersistError(e) => {
+                log::error!("error persisting temp file: {:?}", e);
                 2
             }
             VerifierError::TempFileKeepError => {
@@ -64,8 +71,8 @@ impl VerifierError {
                 log::error!("io error");
                 5
             }
-            VerifierError::ProofParseError => {
-                log::error!("error parsing the proof");
+            VerifierError::ProofParseError(e) => {
+                log::error!("error parsing the proof: {:?}", e);
                 6
             }
             VerifierError::StarkProgramAuthError(e) => {
@@ -84,30 +91,10 @@ impl VerifierError {
     }
 }
 
-impl From<u8> for VerifierError {
-    fn from(e: u8) -> Self {
-        match e {
-            2 => VerifierError::TempFileWriteError,
-            3 => VerifierError::TempFileKeepError,
-            4 => VerifierError::TempFileNotFound,
-            5 => VerifierError::TempFileRemoveError,
-            6 => VerifierError::ProofParseError,
-            7 => VerifierError::StarkProgramAuthError(StarkProgramAuthError::Other("".to_string())),
-            8 => VerifierError::VerifierExecutionError,
-            9 => VerifierError::VerifierProcessError("".to_string()),
-            _ => VerifierError::TempFileWriteError,
-        }
-    }
-}
-
 fn write_proof_to_temp_file(proof: &[u8]) -> Result<String, VerifierError> {
-    let mut temp_file = NamedTempFile::new().map_err(|_| VerifierError::TempFileWriteError)?;
-    temp_file
-        .write_all(proof)
-        .map_err(|_| VerifierError::TempFileWriteError)?;
-    let (_f, path) = temp_file
-        .keep()
-        .map_err(|_| VerifierError::TempFileKeepError)?;
+    let mut temp_file = NamedTempFile::new()?;
+    temp_file.write_all(proof)?;
+    let (_f, path) = temp_file.keep()?;
 
     let temp_file_path = path.to_str().ok_or(VerifierError::TempFileNotFound)?;
 
@@ -123,16 +110,14 @@ pub fn run_verifier(
     _query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
 ) -> Result<String, VerifierError> {
-    log::debug!("current dir: {:?}", env::current_dir().unwrap().as_os_str());
+    log::debug!("current dir: {:?}", env::current_dir()?.as_os_str());
 
     // Write proof to a temporary JSON file
-    let temp_file_path =
-        write_proof_to_temp_file(&proof).map_err(|_| VerifierError::TempFileWriteError)?;
+    let temp_file_path = write_proof_to_temp_file(&proof)?;
 
     log::debug!("Created temp file with proof at: {}", temp_file_path);
 
-    let proof: StoneProofJson =
-        serde_json::from_slice(&proof).map_err(|_| VerifierError::ProofParseError)?;
+    let proof: StoneProofJson = serde_json::from_slice(&proof)?;
 
     let stone_proof = StoneProof::from(proof);
 
@@ -156,8 +141,7 @@ pub fn run_verifier(
         &stone_proof,
         &program_metadata_storage,
         blake2_256_stark_program_auth_hasher,
-    )
-    .map_err(VerifierError::StarkProgramAuthError)?;
+    )?;
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
@@ -166,10 +150,9 @@ pub fn run_verifier(
     let output = Command::new("cpu_air_verifier")
         .arg(format!("--in_file={}", temp_file_path))
         .stdout(Stdio::piped())
-        .output()
-        .map_err(|_| VerifierError::VerifierExecutionError)?;
+        .output()?;
 
-    fs::remove_file(&temp_file_path).map_err(|_| VerifierError::TempFileRemoveError)?;
+    fs::remove_file(&temp_file_path)?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -231,16 +214,22 @@ pub mod tests {
         // Note that the program hash provided in the error message is the one coming from
         // the proof itself which is none of the existing hashes defined in the constants
         assert!(result.is_err());
-        assert_eq!(
-            result.err(),
-            Some(VerifierError::StarkProgramAuthError(
-                StarkProgramAuthError::AuthenticationFailure(
-                    "0x2a9480cea28d8e6a37a8cb1332e5b02594b530ff16e6d1fe6718b9d7be6f7bca"
-                        .parse::<H256>()
-                        .expect("hash to be valid")
-                )
-            ))
-        );
+
+        let error = result.err().unwrap();
+
+        match error {
+            VerifierError::StarkProgramAuthError(e) => {
+                assert_eq!(
+                    e,
+                    StarkProgramAuthError::AuthenticationFailure(
+                        "0x2a9480cea28d8e6a37a8cb1332e5b02594b530ff16e6d1fe6718b9d7be6f7bca"
+                            .parse::<H256>()
+                            .expect("hash to be valid")
+                    )
+                );
+            }
+            _ => panic!("unexpected error"),
+        }
     }
 
     // not sure we want to fail, as the prover may work using an older version of STARK,
@@ -268,11 +257,17 @@ pub mod tests {
         let result = super::run_verifier(proof_example, query, metadata);
 
         assert!(result.is_err());
-        assert_eq!(
-            result.err(),
-            Some(VerifierError::StarkProgramAuthError(
-                StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
-            ))
-        );
+
+        let error = result.err().unwrap();
+
+        match error {
+            VerifierError::StarkProgramAuthError(e) => {
+                assert_eq!(
+                    e,
+                    StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
+                );
+            }
+            _ => panic!("unexpected error"),
+        }
     }
 }

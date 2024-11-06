@@ -88,6 +88,7 @@ pub mod pallet {
         ProofParseError,
         StarkProgramAuthenticationError,
         VerifierExecutionError,
+        VerifierProcessError,
     }
 
     #[pallet::call]
@@ -109,11 +110,12 @@ pub mod pallet {
 
             #[cfg(not(feature = "runtime-benchmarks"))]
             match result {
-                1 => (),
-                2..=5 => return Err(Error::<T>::FileError.into()),
+                0 => (),
+                1..=5 => return Err(Error::<T>::FileError.into()),
                 6 => return Err(Error::<T>::ProofParseError.into()),
                 7 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
                 8 => return Err(Error::<T>::VerifierExecutionError.into()),
+                9 => return Err(Error::<T>::VerifierProcessError.into()),
                 _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
             }
 
