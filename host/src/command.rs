@@ -157,7 +157,7 @@ pub fn run_verifier(
         &program_metadata_storage,
         blake2_256_stark_program_auth_hasher,
     )
-    .map_err(|e| VerifierError::StarkProgramAuthError(e))?;
+    .map_err(VerifierError::StarkProgramAuthError)?;
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
 
@@ -234,7 +234,11 @@ pub mod tests {
         assert_eq!(
             result.err(),
             Some(VerifierError::StarkProgramAuthError(
-                StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
+                StarkProgramAuthError::AuthenticationFailure(
+                    "0x2a9480cea28d8e6a37a8cb1332e5b02594b530ff16e6d1fe6718b9d7be6f7bca"
+                        .parse::<H256>()
+                        .expect("hash to be valid")
+                )
             ))
         );
     }
