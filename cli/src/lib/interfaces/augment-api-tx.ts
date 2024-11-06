@@ -1778,6 +1778,19 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
+        transactionPayment: {
+            /**
+             * See [`Pallet::set_next_fee_multiplier`].
+             **/
+            setNextFeeMultiplier: AugmentedSubmittable<
+                (nextFeeMultiplier: u128 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u128]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         utility: {
             /**
              * See [`Pallet::as_derivative`].

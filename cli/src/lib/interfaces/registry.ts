@@ -164,6 +164,7 @@ import type {
     PalletSudoError,
     PalletSudoEvent,
     PalletTimestampCall,
+    PalletTransactionPaymentCall,
     PalletTransactionPaymentChargeTransactionPayment,
     PalletTransactionPaymentEvent,
     PalletTransactionPaymentReleases,
@@ -367,6 +368,7 @@ declare module '@polkadot/types/types/registry' {
         PalletSudoError: PalletSudoError;
         PalletSudoEvent: PalletSudoEvent;
         PalletTimestampCall: PalletTimestampCall;
+        PalletTransactionPaymentCall: PalletTransactionPaymentCall;
         PalletTransactionPaymentChargeTransactionPayment: PalletTransactionPaymentChargeTransactionPayment;
         PalletTransactionPaymentEvent: PalletTransactionPaymentEvent;
         PalletTransactionPaymentReleases: PalletTransactionPaymentReleases;
