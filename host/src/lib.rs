@@ -30,7 +30,7 @@ pub trait HostApi {
         {
             log::debug!("proof len: {}", proof.len());
             log::warn!("run_verifier is not supported on this architecture.");
-            true
+            0
         }
     }
 }
