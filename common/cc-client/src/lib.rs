@@ -30,7 +30,7 @@ use attestor_primitives::{
     SignedAttestation,
 };
 use creditcoin3_attestor_gossip::Attestation as RpcAttestation;
-use vrf::{make_proof_of_inclusion, ProofOfInclusion};
+use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -45,6 +45,24 @@ pub mod cc3 {}
 pub mod attestation;
 
 pub type Randomness = [u8; 32];
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Failed to submit RPC")]
+    FailedToSubmit,
+    #[error("Failed to get Babe VRF")]
+    FailedToGetBabeVrf,
+    #[error("Failed to get committee set size")]
+    FailedToGetComitteSetSize,
+    #[error("Subxt error: {0:?}")]
+    SubxtError(#[from] subxt::Error),
+    #[error("Rpc error: {0:?}")]
+    RpcError(#[from] RpcError),
+    #[error("Invalid rpc url")]
+    InvalidUrl,
+    #[error("Failed to create proof of inclusion")]
+    FailedToCreateProofOfInclusion(#[from] VrfError),
+}
 
 #[derive(Clone)]
 /// Cc3 client that is configured with an url and keypair
@@ -106,7 +124,7 @@ impl<'a> Client {
 
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random a time + the current block number (where it was calculated from)
-    pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64)> {
+    pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64), Error> {
         let epoch_index = self
             .api
             .storage()
@@ -143,7 +161,7 @@ impl<'a> Client {
         Ok((randomness, two_epoch_ago))
     }
 
-    pub async fn fetch_committee_size(&self, chain_key: u64) -> Result<u32> {
+    pub async fn fetch_committee_size(&self, chain_key: u64) -> Result<u32, Error> {
         let storage_query = cc3::storage().attestation().committee_set_size(chain_key);
 
         let result = self
@@ -256,21 +274,15 @@ impl<'a> Client {
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
-        let committee_size = self.fetch_committee_size(chain_key).await.map_err(|e| {
-            error!("Error getting committee size: {:?}", e);
-            Error::FailedToGetComitteSetSize
-        })?;
+        let committee_size = self.fetch_committee_size(chain_key).await?;
 
-        let attestor_working_set_size = self
-            .get_attestor_working_set_size(chain_key)
-            .await
-            .map_err(|e| {
-                error!("Error getting attestor working set size: {:?}", e);
-                Error::FailedToGetAttestorWorkingSetSize
-            })?;
+        // Get attestor working set size
+        let attestor_working_set_size = self.get_attestor_working_set_size(chain_key).await?;
 
-        info!("Committee set size: {}", committee_size);
-        info!("Attestor working set size: {}", attestor_working_set_size);
+        info!(
+            "Committee set size: {}, working set size: {}",
+            committee_size, attestor_working_set_size
+        );
 
         let proof_of_inclusion = make_proof_of_inclusion(
             attestor_working_set_size as u64,
@@ -279,11 +291,7 @@ impl<'a> Client {
             &self.pair,
             &self.get_attestor_id(),
             epoch_index,
-        )
-        .map_err(|e| {
-            error!("Error creating proof of inclusion: {:?}", e);
-            Error::FailedToGetBabeVrf
-        })?;
+        )?;
 
         Ok(proof_of_inclusion)
     }
@@ -523,7 +531,7 @@ impl<'a> Client {
         Ok(nonce)
     }
 
-    pub async fn get_attestor_working_set_size(&self, chain_key: u64) -> Result<usize> {
+    pub async fn get_attestor_working_set_size(&self, chain_key: u64) -> Result<usize, Error> {
         let address = cc3::storage().attestation().attestors_iter1(chain_key);
 
         let count = self
@@ -575,52 +583,4 @@ impl From<CcAttestationCheckpoint> for AttestationCheckpoint {
             digest: checkpoint.digest,
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Cannot attest")]
-    CannotAttest,
-    #[error("Failed to submit RPC")]
-    FailedToSubmit,
-    #[error("Attetation not included in block")]
-    AttestationNotIncluded,
-    #[error("Failed to get Babe VRF")]
-    FailedToGetBabeVrf,
-    #[error("Failed to get block number")]
-    FailedToGetBlockNumber,
-    #[error("Babe VRF output is invalid")]
-    BabeVrfOuputInvalid,
-    #[error("Failed to sign Babe VRF output")]
-    FailedToSignBabeVrf,
-    #[error("Failed to check eligibility")]
-    FailedToCheckEligibility,
-    #[error("Failed to fetch latest digest")]
-    FailedToFetchDigest,
-    #[error("Invalid attestor")]
-    InvalidAttestor,
-    #[error("Invalid bls key")]
-    InvalidBlsKey,
-    #[error("Invalid proof of possession")]
-    InvalidProofOfPossession,
-    #[error("Failed to get cc3 RPC client")]
-    FailedToGetRPcClient,
-    #[error("Failed to get committee set size")]
-    FailedToGetComitteSetSize,
-    #[error("Failed to get chain price configurations")]
-    FailedToGetChainPriceConfigurations,
-    #[error("Failed to get attestation interval")]
-    FailedToGetAttestationInterval,
-    #[error("Failed to get chain key")]
-    FailedToGetChainKey,
-    #[error("Failed to attestor working set size")]
-    FailedToGetAttestorWorkingSetSize,
-    #[error("Failed to get attestation for last digest")]
-    LastAttestationNotFound,
-    #[error("Subxt error: {0:?}")]
-    SubxtError(#[from] subxt::Error),
-    #[error("Rpc error: {0:?}")]
-    RpcError(#[from] RpcError),
-    #[error("Invalid rpc url")]
-    InvalidUrl,
 }

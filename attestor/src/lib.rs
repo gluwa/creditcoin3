@@ -189,23 +189,18 @@ impl Server {
             // Submit the attestation to the chain
             match cc3_client.submit_attestation(attestation.clone()).await {
                 Ok(()) => return Ok(()),
-                Err(e) => match e {
-                    // In the case there is a chain client error or rpc error, we will retry
-                    // In other cases, we will return an error and the caller can decide what to do
-                    // For our case, the attestor will exit
-                    cc_client::Error::SubxtError(cc_client::SubxtRpcError(_))
-                    | cc_client::Error::RpcError(_) => {
+                Err(e) => {
+                    if let cc3::Error::CclientError(e) = e {
                         warn!(
-                            "Error submitting attestation: {:?}, retrying in {} seconds",
+                            "Client Error submitting attestation: {:?}, retrying in {} seconds",
                             e,
                             duration.as_secs()
                         );
-                    }
-                    _ => {
+                    } else {
                         error!("Non-retryable error submitting attestation: {:?}", e);
                         return Err(e.into());
                     }
-                },
+                }
             }
 
             // Delay before retrying

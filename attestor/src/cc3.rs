@@ -4,9 +4,10 @@ use exponential_backoff::Backoff;
 use serde::Serialize;
 use sp_core::H256;
 use std::{thread, time::Duration};
+use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use cc_client::{AccountId32, Client as CcClient, Error};
+use cc_client::{AccountId32, Client as CcClient};
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey,
@@ -18,6 +19,20 @@ use vrf::ProofOfInclusion;
 use crate::IntervalUpdate;
 
 pub type Randomness = [u8; 32];
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Invalid BLS key")]
+    InvalidBlsKey,
+    #[error("Invalid proof of possession")]
+    InvalidProofOfPossession,
+    #[error("Failed to get chain key")]
+    FailedToGetChainKey,
+    #[error("Failed to get attestation interval")]
+    FailedToGetAttestationInterval,
+    #[error("Client error: {0}")]
+    CclientError(#[from] cc_client::Error),
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {
@@ -160,7 +175,7 @@ impl<'a> Client {
     pub async fn sign_attestation<H>(
         &self,
         attestation: AttestationPrimitive<H>,
-    ) -> Result<Attestation<H, AttestorId>>
+    ) -> Result<Attestation<H, AttestorId>, Error>
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
@@ -186,18 +201,13 @@ impl<'a> Client {
     }
 
     pub async fn sign_vrf(&self) -> Result<ProofOfInclusion, Error> {
-        let (randomness, epoch_index) = self
-            .cc_client
-            .fetch_babe_randomness_two_epoch_ego()
-            .await
-            .map_err(|e| {
-                error!("Error getting babe vrf output: {:?}", e);
-                Error::FailedToGetBabeVrf
-            })?;
+        let (randomness, epoch_index) =
+            self.cc_client.fetch_babe_randomness_two_epoch_ego().await?;
 
-        self.cc_client
+        Ok(self
+            .cc_client
             .sign_babe_vrf(self.get_chain_key(), randomness, epoch_index)
-            .await
+            .await?)
     }
 
     pub async fn sign_vrf_for_header_at_epoch_randmoness(
@@ -205,9 +215,10 @@ impl<'a> Client {
         randomess: Randomness,
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
-        self.cc_client
+        Ok(self
+            .cc_client
             .sign_babe_vrf(self.get_chain_key(), randomess, epoch_index)
-            .await
+            .await?)
     }
 
     pub async fn get_last_attestation(
@@ -269,13 +280,7 @@ impl<'a> Client {
             info!("Updating previous digest for attestation to submit");
 
             info!("Trying to submit attestation... round: {:?}", round);
-            let attestation = self
-                .sign_attestation(attestation.clone())
-                .await
-                .map_err(|e| {
-                    error!("Error signing attestation: {:?}", e);
-                    Error::FailedToSignBabeVrf
-                })?;
+            let attestation = self.sign_attestation(attestation.clone()).await?;
 
             // Retry submission
             self.cc_client
