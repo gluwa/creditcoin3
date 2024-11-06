@@ -1,6 +1,11 @@
 use crate::{BalanceOf, Config};
 use frame_support::traits::Currency;
 
+/// Existential deposit for the chain.
+pub fn existential_deposit<T: Config>() -> BalanceOf<T> {
+    T::Currency::minimum_balance()
+}
+
 /// Set balance that can be staked for `who`.
 ///
 /// This includes any balance that is already staked.

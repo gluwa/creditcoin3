@@ -16,7 +16,10 @@ use bls_signatures::{PublicKey, Serialize, Signature};
 use randomness_primitives::{OnRandomnessUpdate, Randomness};
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
-use crate::ledger::{AttestorLedger, UnlockChunk};
+use crate::{
+    asset::existential_deposit,
+    ledger::{AttestorLedger, UnlockChunk},
+};
 
 use super::pallet::*;
 
@@ -129,7 +132,7 @@ impl<T: Config> Pallet<T> {
             ledger.active -= value;
 
             // Avoid there being a dust balance left in the staking system.
-            if ledger.active < T::Currency::minimum_balance() {
+            if ledger.active < existential_deposit::<T>() {
                 value += ledger.active;
                 ledger.active = Zero::zero();
             }
