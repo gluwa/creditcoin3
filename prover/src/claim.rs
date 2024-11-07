@@ -25,9 +25,9 @@ pub async fn process(
 
     // Get the attestation fragment
     let attestation_fragment: AttestationFragment =
-        fragment::get_for_claim(&eth_client, query, attestation_cache).await.or_else(|e| {
+        fragment::get_for_claim(&eth_client, query, attestation_cache).await.map_err(|e| {
             error!("Query processing failed at fragment construction. Consider clearing your prover DB, then resyncing.");
-            Err(e)
+            e
         })?;
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
