@@ -15,6 +15,7 @@ CREATE TABLE Attestation (
 CREATE INDEX attestation_idx_chain_key ON Attestation (chain_key);
 CREATE INDEX attestation_idx_header_number ON Attestation (header_number);
 CREATE INDEX attestation_idx_digest ON Attestation (digest);
+CREATE INDEX attestation_idx_digest_and_prev on Attestation (digest, prev_digest);
 
 -- Create table for source chain blocks included in fragments
 CREATE TABLE BlockWithDigest (

@@ -9,6 +9,7 @@ use attestor_primitives::SignedAttestation;
 
 use super::schema::attestation::{
     self, digest as SchemaDigest, dsl::attestation as attestation_table,
+    prev_digest as SchemaPrevDigest,
 };
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
@@ -60,7 +61,7 @@ pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String
 pub async fn insert(connection: &mut AsyncPgConnection, attestation: Attestation) -> Result<()> {
     diesel::insert_into(attestation_table)
         .values(attestation)
-        .on_conflict(SchemaDigest)
+        .on_conflict((SchemaDigest, SchemaPrevDigest))
         .do_nothing()
         .execute(connection)
         .await?;

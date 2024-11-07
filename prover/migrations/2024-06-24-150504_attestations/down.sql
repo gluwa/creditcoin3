@@ -7,6 +7,7 @@ DROP INDEX IF EXISTS block_with_digest_idx_digest;
 DROP INDEX IF EXISTS attestation_idx_chain_key;
 DROP INDEX IF EXISTS attestation_idx_header_number;
 DROP INDEX IF EXISTS attestation_idx_digest;
+DROP INDEX IF EXISTS attestation_idx_digest_and_prev;
 
 -- Drop AttestationCheckpoint indices
 DROP INDEX IF EXISTS attestation_checkpoint_idx_chain_key;
