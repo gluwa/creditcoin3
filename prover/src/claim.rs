@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::ops::Range;
-use tracing::info;
+use tracing::{error, info};
 
 use attestation_chain::attestation_fragment::AttestationFragment;
 use pallet_prover_primitives::Query;
@@ -25,7 +25,10 @@ pub async fn process(
 
     // Get the attestation fragment
     let attestation_fragment: AttestationFragment =
-        fragment::get_for_claim(&eth_client, query, attestation_cache).await?;
+        fragment::get_for_claim(&eth_client, query, attestation_cache).await.or_else(|e| {
+            error!("Query processing failed at fragment construction. Consider clearing your prover DB, then resyncing.");
+            Err(e)
+        })?;
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
