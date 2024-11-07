@@ -35,12 +35,6 @@ pub struct Config {
     //pub bls_key: [u8; 32],
 }
 
-#[derive(Clone, Copy)]
-pub struct IntervalUpdate {
-    pub new_interval: u64,
-    pub attested_height_at_change: u64,
-}
-
 impl Server {
     /// Create a new server based on `Config`
     #[must_use]
@@ -127,15 +121,12 @@ impl Server {
                                 }
                             }
                         },
-                        CcEvent::AttestationIntervalChangedEvent(_, new_interval, attested_height_at_change) => {
+                        CcEvent::AttestationIntervalChangedEvent(_, new_interval) => {
                             info!(
-                                "Attestation interval updated. New interval: {:?}, Attested height at change: {:?}", new_interval, attested_height_at_change
+                                "Attestation interval updated. New interval: {:?}", new_interval
                             );
-                            let interval_update = IntervalUpdate {
-                                new_interval,
-                                attested_height_at_change,
-                            };
-                            cc3_client.change_attestation_interval(interval_update);
+
+                            cc3_client.change_attestation_interval(new_interval);
                         },
                         _ => ()
                     }

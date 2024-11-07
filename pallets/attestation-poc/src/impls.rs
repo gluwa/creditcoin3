@@ -428,6 +428,25 @@ impl<T: Config> Pallet<T> {
         // Free balance is the total balance minus the minimum balance and the locked balance
         free_b.saturating_sub(min_b).saturating_sub(locked_balance)
     }
+
+    fn apply_interval_updates() {
+        PendingAttestationInterval::<T>::iter().for_each(
+            |(chain_key, new_attestation_interval)| {
+                ChainAttestationInterval::<T>::set(chain_key, new_attestation_interval);
+
+                Self::deposit_event(Event::<T>::AttestationIntervalChanged(
+                    chain_key,
+                    new_attestation_interval,
+                ));
+            },
+        );
+
+        // Clear PendingAttestationInterval
+        let num_supported_chains = T::SupportedChains::supported_chains()
+            .unwrap_or_default()
+            .len();
+        let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
+    }
 }
 
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
@@ -444,5 +463,9 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
                 log::error!("Error starting election: {:?}", e);
             }
         }
+
+        // We also apply attestation interval updates, if any, at epoch boundaries.
+        // Change attestation intervals and emit events
+        Self::apply_interval_updates();
     }
 }

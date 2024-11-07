@@ -21,7 +21,7 @@ pub enum CcEvent {
     BlockAttestedEvent(SignedAttestation<H256, AccountId32>),
     RandomnessChangedEvent((u64, Randomness)),
     CheckpointReachedEvent(AttestationCheckpoint, ChainKey),
-    AttestationIntervalChangedEvent(ChainKey, u64, u64),
+    AttestationIntervalChangedEvent(ChainKey, u64),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -169,19 +169,20 @@ impl Client {
                         }
                         (ATTESTATION_MODULE, ATTESTATION_INTERVAL_CHANGED_EVENT) => {
                             if let Ok(Some(evt)) = event.as_event::<AttestationIntervalChanged>() {
-                                let (chain_key, new_interval, attested_height_at_change) =
-                                    (evt.0, evt.1, evt.2);
+                                let (chain_key, new_interval) = (evt.0, evt.1);
                                 // If the filter is not empty, check if the chain_key is in the filter
                                 if filter != chain_key {
                                     continue;
                                 }
-                                debug!("Interval changed for chain_key: {:?}, New interval: {:?}, Attested height at time of change: {:?}", chain_key, new_interval, attested_height_at_change);
+                                debug!(
+                                    "Interval changed for chain_key: {:?}, New interval: {:?}",
+                                    chain_key, new_interval
+                                );
 
                                 if sender
                                     .send(CcEvent::AttestationIntervalChangedEvent(
                                         chain_key,
                                         new_interval,
-                                        attested_height_at_change,
                                     ))
                                     .await
                                     .is_err()

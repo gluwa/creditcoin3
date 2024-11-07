@@ -26,7 +26,7 @@ pub mod pallet {
     };
     use bls_signatures::{key::aggregate_public_keys, PublicKey, Serialize, Signature};
     use frame_support::{
-        pallet_prelude::*,
+        pallet_prelude::{OptionQuery, *},
         traits::{Currency, LockableCurrency, OnUnbalanced},
         transactional, Blake2_128Concat, Twox64Concat,
     };
@@ -241,6 +241,11 @@ pub mod pallet {
     }
 
     #[pallet::storage]
+    #[pallet::getter(fn pending_attestation_interval)]
+    pub type PendingAttestationInterval<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, ChainAttestationIntervalType, OptionQuery>;
+
+    #[pallet::storage]
     #[pallet::getter(fn attestation_checkpoint_interval)]
     pub type AttestationCheckpointInterval<T: Config> = StorageMap<
         _,
@@ -398,7 +403,8 @@ pub mod pallet {
         /// Note a change in the attestation interval for a source chain. Also notes the
         /// block number of the latest attestation for that source chain at the time of
         /// the interval change.
-        AttestationIntervalChanged(ChainKey, ChainAttestationIntervalType, u64),
+        AttestationIntervalChanged(ChainKey, ChainAttestationIntervalType),
+        PendingAttestationIntervalSet(ChainKey, ChainAttestationIntervalType),
     }
 
     #[pallet::error]
@@ -453,9 +459,6 @@ pub mod pallet {
         AttestorNotIdle,
         // No supported chains
         NoSupportedChains,
-        // Did not find attestation which should exist. EX: Attestation with
-        // digest matching LastDigest
-        AttestationNotFound,
         // Tried to set attestation interval to an invalid value.
         InvalidAttestationInterval,
         // Tried to set attestations per checkpoint to an invalid value.
@@ -485,22 +488,13 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
-            ChainAttestationInterval::<T>::set(chain_key, chain_attestation_interval);
+            PendingAttestationInterval::<T>::set(chain_key, Some(chain_attestation_interval));
 
-            let last_digest = Self::last_attestation_digest(chain_key);
-            let last_block_number = if let Some(digest) = last_digest {
-                Self::attestations(chain_key, digest)
-                    .ok_or(Error::<T>::AttestationNotFound)?
-                    .header_number()
-            } else {
-                0
-            };
-
-            Self::deposit_event(Event::<T>::AttestationIntervalChanged(
+            Self::deposit_event(Event::<T>::PendingAttestationIntervalSet(
                 chain_key,
                 chain_attestation_interval,
-                last_block_number,
             ));
+
             Ok(())
         }
 

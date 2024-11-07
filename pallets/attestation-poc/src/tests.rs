@@ -471,7 +471,7 @@ fn attestor_should_be_able_to_toggle_status() {
 }
 
 #[test]
-fn attestor_should_be_elected_after_5_blocks() {
+fn attestor_should_be_elected_after_5_blocks_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
@@ -507,6 +507,27 @@ fn attestor_should_be_elected_after_5_blocks() {
         progress_to_block(5);
 
         assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+
+        // Get events in reverse order
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let attestors_elected_event = all_events
+            .iter()
+            .filter_map(|event| {
+                if let RuntimeEvent::Attestation(event) = &event.event {
+                    Some(event)
+                } else {
+                    None
+                }
+            })
+            .next();
+        assert_eq!(
+            attestors_elected_event,
+            Some(&Event::<Test>::AttestorsElected {
+                epoch: 1,
+                chain_key: 1,
+                attestors: vec![ATTESTOR_1]
+            })
+        );
     })
 }
 
@@ -1370,8 +1391,8 @@ fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
 #[test]
 fn set_chain_attestation_interval_updates_internal_storage_and_emits_event() {
     ExtBuilder.build_and_execute(|| {
-        let attestation_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
-        assert_eq!(attestation_interval, 10); // Interval set in mock genesis
+        let attestation_interval = Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(attestation_interval, None); // Interval set in mock genesis
 
         let chain_attestation_interval = 101;
         assert_ok!(Attestation::set_chain_attestation_interval(
@@ -1380,14 +1401,13 @@ fn set_chain_attestation_interval_updates_internal_storage_and_emits_event() {
             chain_attestation_interval
         ));
 
-        let attestation_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
-        assert_eq!(attestation_interval, 101);
+        let attestation_interval = Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(attestation_interval, Some(101));
 
         System::assert_last_event(
-            crate::Event::AttestationIntervalChanged(
+            crate::Event::PendingAttestationIntervalSet(
                 SUPPORTED_CHAIN_KEY,
                 chain_attestation_interval,
-                0,
             )
             .into(),
         );
@@ -1395,23 +1415,56 @@ fn set_chain_attestation_interval_updates_internal_storage_and_emits_event() {
 }
 
 #[test]
-fn set_chain_attestation_interval_fails_when_attestation_matching_last_digest_is_not_found() {
+fn on_new_epoch_randomness_updates_attestation_interval_with_pending_value_and_emits_event() {
     ExtBuilder.build_and_execute(|| {
+        // Set up pending interval change
+        assert_eq!(<Test as pallet_babe::Config>::EpochDuration::get(), 3);
+        System::set_block_number(1);
+        Timestamp::set_timestamp(1);
+
+        // this sets the genesis slot to 6;
+        go_to_block(1, 6);
+
+        assert_eq!(*Babe::genesis_slot(), 6);
+        assert_eq!(*Babe::current_slot(), 6);
+        assert_eq!(Babe::epoch_index(), 0);
+
         let chain_attestation_interval = 101;
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            chain_attestation_interval
+        ));
 
-        // Setting last digest without inserting a corresponding attestation.
-        let digest: H256 = [0u8; 32].into();
-        LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, digest);
+        let pending_interval = Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(pending_interval, Some(101));
 
-        assert_noop!(
-            Attestation::set_chain_attestation_interval(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                chain_attestation_interval
-            ),
-            Error::<Test>::AttestationNotFound
+        // Update interval in on_initialize hook
+        progress_to_block(4);
+
+        let applied_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(applied_interval, 101);
+
+        let pending_interval = Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(pending_interval, None);
+
+        // Get events in reverse order
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let interval_update_event = all_events
+            .iter()
+            .filter_map(|event| {
+                if let RuntimeEvent::Attestation(event) = &event.event {
+                    Some(event)
+                } else {
+                    None
+                }
+            })
+            .next();
+        assert_eq!(
+            interval_update_event,
+            Some(&Event::<Test>::AttestationIntervalChanged(1, 101))
         );
-    })
+    });
 }
 
 #[test]

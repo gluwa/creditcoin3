@@ -16,8 +16,6 @@ use attestor_primitives::{
 use creditcoin3_attestor_gossip::{Attestation, Topic};
 use vrf::ProofOfInclusion;
 
-use crate::IntervalUpdate;
-
 pub type Randomness = [u8; 32];
 
 #[derive(Debug, Error)]
@@ -300,8 +298,8 @@ impl<'a> Client {
         Ok(())
     }
 
-    pub fn change_attestation_interval(&mut self, interval_update: IntervalUpdate) {
-        self.chain_config.current_attestation_interval = interval_update.new_interval;
+    pub fn change_attestation_interval(&mut self, new_interval: u64) {
+        self.chain_config.current_attestation_interval = new_interval;
     }
 }
 
