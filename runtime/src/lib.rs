@@ -43,7 +43,7 @@ use frame_support::{
         OnTimestampSet,
     },
     weights::{
-        constants::WEIGHT_REF_TIME_PER_MILLIS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
+        constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
     },
     PalletId,
 };
@@ -148,6 +148,8 @@ macro_rules! prod_or_fast {
 pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
+
+pub const MILLI_CTC: u128 = 1_000_000_000_000_000;
 
 // WARNING: the next should be defined on a single line b/c of
 // the assertions made in .github/check-for-changes-in-epoch-duration.sh
@@ -326,6 +328,12 @@ impl pallet_balances::Config for Runtime {
     type MaxFreezes = ();
 }
 
+parameter_types! {
+    /// Executing a NO-OP `System::remarks` Extrinsic.
+    pub const ExtrinsicBaseWeight: Weight =
+        Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(125_000), 0);
+}
+
 pub const TARGET_FEE_CREDO: Balance = 10_000_000_000_000_000;
 pub struct WeightToCtcFee<T>(PhantomData<T>);
 
@@ -333,21 +341,14 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
     type Balance = Balance;
 
     fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
-        // Copied from the weights for the lock deal order extrinsic which is what is referenced in cc2
-        let deal_order_weight = Weight::from_parts(30_601_000, 0)
-            .saturating_add(Weight::from_parts(0, 4089))
-            .saturating_add(T::DbWeight::get().reads(1))
-            .saturating_add(T::DbWeight::get().writes(1));
-
-        let base = Balance::from(deal_order_weight.ref_time());
-        let ratio = TARGET_FEE_CREDO / base;
-        let rem = TARGET_FEE_CREDO % base;
-        smallvec::smallvec!(WeightToFeeCoefficient {
-            coeff_integer: ratio,
-            coeff_frac: Perbill::from_rational(rem, base),
-            negative: false,
-            degree: 1,
-        })
+        let p = MILLI_CTC / 2;
+		let q = 100 * Balance::from(ExtrinsicBaseWeight::get().ref_time());
+		smallvec::smallvec![WeightToFeeCoefficient {
+			degree: 1,
+			negative: false,
+			coeff_frac: Perbill::from_rational(p % q, q),
+			coeff_integer: p / q,
+		}]
     }
 }
 
@@ -530,6 +531,7 @@ impl pallet_staking::BenchmarkingConfig for StakingBenchmarkingConfig {
 }
 
 pub const CTC: Balance = 1_000_000_000_000_000_000;
+
 
 const CTC_REWARD_PER_BLOCK: Balance = 2 * CTC;
 
