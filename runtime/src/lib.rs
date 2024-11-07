@@ -43,7 +43,8 @@ use frame_support::{
         OnTimestampSet,
     },
     weights::{
-        constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS, ConstantMultiplier, Weight, WeightToFeeCoefficient,
+        constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS,
+        ConstantMultiplier, Weight, WeightToFeeCoefficient,
     },
     PalletId,
 };
@@ -342,13 +343,13 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
 
     fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
         let p = MILLI_CTC / 2;
-		let q = 100 * Balance::from(ExtrinsicBaseWeight::get().ref_time());
-		smallvec::smallvec![WeightToFeeCoefficient {
-			degree: 1,
-			negative: false,
-			coeff_frac: Perbill::from_rational(p % q, q),
-			coeff_integer: p / q,
-		}]
+        let q = 100 * Balance::from(ExtrinsicBaseWeight::get().ref_time());
+        smallvec::smallvec![WeightToFeeCoefficient {
+            degree: 1,
+            negative: false,
+            coeff_frac: Perbill::from_rational(p % q, q),
+            coeff_integer: p / q,
+        }]
     }
 }
 
@@ -531,7 +532,6 @@ impl pallet_staking::BenchmarkingConfig for StakingBenchmarkingConfig {
 }
 
 pub const CTC: Balance = 1_000_000_000_000_000_000;
-
 
 const CTC_REWARD_PER_BLOCK: Balance = 2 * CTC;
 
