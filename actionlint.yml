@@ -11,3 +11,9 @@ self-hosted-runner:
     - type-docker
     - type-native
     - type-wasm
+    - type-runtime-upgrade
+paths:
+  .github/workflows/runtime-upgrade.yml:
+    ignore:
+      # Ignore the specific error from shellcheck
+      - 'shellcheck reported issue in this script: SC2129:.+'
