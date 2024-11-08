@@ -252,9 +252,14 @@ pub fn run_verifier(
 
     let proof: StoneProofJson = serde_json::from_slice(&proof)?;
 
-    let stone_proof = StoneProof::from(proof.clone());
+    let mut stone_proof = StoneProof::from(proof.clone());
 
-    let cairo_verifier_output = CairoVerifierOutput::try_from(&proof)?;
+    stone_proof
+        .strip_off_annotations()
+        .strip_off_prover_config()
+        .strip_off_private_input();
+
+    let cairo_verifier_output = CairoVerifierOutput::try_from(stone_proof.proof())?;
 
     // Last version is the highest version in the metadata
     let last_version = metadata.last().map(|(v, _)| *v).unwrap_or(0);
@@ -279,8 +284,8 @@ pub fn run_verifier(
     )?;
 
     match validate_query_against_proof(query.clone(), &cairo_verifier_output) {
-        Ok(_) => log::debug!("Proof validated successfully"),
-        Err(e) => return Err(format!("Proof validation failed: {:?}", e)),
+        Ok(_) => log::debug!("Query validated successfully"),
+        Err(e) => return Err(format!("Query validation failed: {:?}", e)),
     }
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);

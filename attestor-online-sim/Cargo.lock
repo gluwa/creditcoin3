@@ -1166,7 +1166,6 @@ dependencies = [
  "bls-signatures",
  "frame-support",
  "parity-scale-codec",
- "rand 0.8.5",
  "scale-info",
  "serde",
  "serde_bytes",
@@ -2384,7 +2383,7 @@ dependencies = [
  "futures-util",
  "hex",
  "mmr",
- "prover-primitives",
+ "pallet-prover-primitives",
  "serde",
  "thiserror",
  "tokio",
@@ -4686,6 +4685,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-prover-primitives"
+version = "3.31.0"
+dependencies = [
+ "attestor-primitives",
+ "parity-scale-codec",
+ "precompile-utils",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime-interface",
+ "sp-std",
+]
+
+[[package]]
 name = "parity-scale-codec"
 version = "3.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5122,30 +5135,6 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
-]
-
-[[package]]
-name = "prover-primitives"
-version = "3.31.0"
-dependencies = [
- "anyhow",
- "attestor-primitives",
- "ethereum-types",
- "frame-support",
- "hashbrown 0.14.5",
- "mmr",
- "parity-scale-codec",
- "precompile-utils",
- "rlp",
- "scale-info",
- "serde",
- "serde_json",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-runtime-interface",
- "sp-std",
- "utils",
 ]
 
 [[package]]
