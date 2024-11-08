@@ -335,7 +335,6 @@ parameter_types! {
         Weight::from_parts(WEIGHT_REF_TIME_PER_NANOS.saturating_mul(125_000), 0);
 }
 
-pub const TARGET_FEE_CREDO: Balance = 10_000_000_000_000_000;
 pub struct WeightToCtcFee<T>(PhantomData<T>);
 
 impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
