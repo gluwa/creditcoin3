@@ -11,7 +11,7 @@ use crate::Error;
 
 #[async_trait]
 pub trait BlockSubscription: Send + Sync {
-    fn cancel(&self) -> Result<()>;
+    fn cancel(&self);
     async fn next(&mut self) -> Option<OrderedBlock>;
 }
 
@@ -25,14 +25,19 @@ struct NewBlockSubscription {
     handle: JoinHandle<Result<(), Error>>,
 }
 
+impl Drop for NewBlockSubscription {
+    fn drop(&mut self) {
+        self.cancel()
+    }
+}
+
 #[async_trait]
 impl BlockSubscription for NewBlockSubscription {
     /// Cancel the subscription
-    fn cancel(&self) -> Result<()> {
+    fn cancel(&self) {
         // Cancel the subscription task
         debug!("Canceling subscription");
         self.handle.abort();
-        Ok(())
     }
 
     /// Get the next block from the channel
@@ -89,10 +94,7 @@ impl BlockFetcher {
 
 #[async_trait]
 impl BlockSubscription for BlockFetcher {
-    fn cancel(&self) -> Result<()> {
-        debug!("Canceling subscription");
-        Ok(())
-    }
+    fn cancel(&self) {}
 
     async fn next(&mut self) -> Option<OrderedBlock> {
         // Get the block at the current height
