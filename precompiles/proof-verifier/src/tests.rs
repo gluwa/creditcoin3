@@ -14,7 +14,7 @@ fn precompiles() -> Precompiles<Runtime> {
 }
 
 #[test]
-fn submit_proof_fails_proof_more_then_50_mb() {
+fn verify_should_revert_when_proof_larger_than_50_mb() {
     let bob: H160 = Bob.into();
     let alice: H160 = Alice.into();
 
