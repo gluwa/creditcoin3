@@ -35,7 +35,6 @@ fn transfer_substrate_when_sender_has_enough_funds_should_work() {
                         amount: 200.into(),
                     },
                 )
-                // .execute_returns(true)
                 .expect_log(log3(
                     Precompile,
                     SELECTOR_LOG_TRANSFER,
