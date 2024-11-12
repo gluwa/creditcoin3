@@ -54,7 +54,6 @@ updates:
       - "/pallets/prover"
       - "/pallets/randomness"
       - "/pallets/supported-chains"
-      - "/precompiles/claim"
       - "/precompiles/proof-verifier"
       - "/precompiles/substrate-transfer"
       - "/primitives/account"
