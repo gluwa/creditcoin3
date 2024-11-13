@@ -1516,7 +1516,7 @@ jobs:
 
       - name: Install subxt-cli
         run: |
-          cargo install subxt-cli --locked
+          cargo install subxt-cli@0.37.0 --locked
 
       - name: Install Node.js
         uses: actions/setup-node@v4
