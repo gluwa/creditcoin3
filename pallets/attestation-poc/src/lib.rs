@@ -167,12 +167,13 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn max_attestors)]
-    pub type MaxAttestors<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+    pub type MaxAttestors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, MaxAttestorsDefault<T>>;
 
     #[pallet::storage]
     #[pallet::getter(fn max_invulnerables)]
     pub type MaxInvulnerables<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, MaxInvulernablesDefault<T>>;
 
     #[pallet::type_value]
     pub fn MaxAttestorsDefault<T: Config>() -> u32 {
@@ -305,13 +306,12 @@ pub mod pallet {
     pub type AccumulatedRewards<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, OptionQuery>;
 
-    /// A progress marker for removing the checkpoints associated with a source chain that is
-    /// no longer supported. Maps from chain_key to a cursor representing the point up to which
-    /// that chain's checkpoints have been removed.
+    /// Map to flags indicating whether checkpoints are currently being cleared for
+    /// chains that are no longer supported.
     #[pallet::storage]
     #[pallet::getter(fn checkpoint_clearing_cursors)]
-    pub type CheckpointClearingCursors<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+    pub type ClearingCheckpointsForChain<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, bool>;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -416,6 +416,12 @@ pub mod pallet {
         /// the interval change.
         AttestationIntervalChanged(ChainKey, ChainAttestationIntervalType),
         PendingAttestationIntervalSet(ChainKey, ChainAttestationIntervalType),
+        /// Signals that checkpoints were cleared for a chain that is no longer supported.
+        /// A fixed number of checkpoints will be cleared per block until none remain.
+        CheckpointsCleared(ChainKey),
+        /// A source chain was removed via pallet supported chains. Associated storage
+        /// in pallet attestation was cleaned up.
+        ClearedStorageForRemovedChain(ChainKey),
     }
 
     #[pallet::error]
@@ -482,14 +488,25 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
-            if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
-                let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                    chain_key,
-                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                    Some(&cursor[..]),
-                )
-                .maybe_cursor;
-                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            if let Some((chain_key, _)) = ClearingCheckpointsForChain::<T>::iter().next() {
+                let mut counter = 0;
+                let iter = Checkpoints::<T>::iter_prefix(chain_key);
+                let mut checkpoints_remaining = false;
+                for (digest, _) in iter {
+                    if counter >= MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
+                        checkpoints_remaining = true;
+                        break;
+                    }
+                    Checkpoints::<T>::remove(chain_key, digest);
+                    counter += 1;
+                }
+
+                // If there aren't any checkpoints left, then remove clearing flag
+                if !checkpoints_remaining {
+                    ClearingCheckpointsForChain::<T>::remove(chain_key);
+                }
+
+                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
             }
 
             <T as Config>::WeightInfo::on_initialize(Self::chains_to_remove_checkpoints_for())
@@ -645,11 +662,11 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::bootstrap_chain(attestation.attestors.len() as u32))]
         pub fn bootstrap_chain(
             origin: OriginFor<T>,
-            chain_key: ChainKey,
             attestation: SignedAttestation<T::Hash, T::AccountId>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
+            let chain_key = attestation.chain_key();
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported

@@ -5,7 +5,7 @@ use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainKey,
     SignedAttestation,
 };
-use attestor_primitives::{BlsPublicKey, BlsSignature};
+use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_support::{assert_noop, assert_ok};
 use sp_core::{Get, H256};
@@ -1543,10 +1543,10 @@ fn set_attestations_per_checkpoint_should_error_on_unsupported_chain() {
 fn bootstrap_chain_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 1, None);
 
         assert_noop!(
-            Attestation::bootstrap_chain(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, attestation,),
+            Attestation::bootstrap_chain(RuntimeOrigin::none(), attestation,),
             BadOrigin
         );
     })
@@ -1556,14 +1556,10 @@ fn bootstrap_chain_should_error_when_not_signed() {
 fn bootstrap_chain_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 1, None);
 
         assert_noop!(
-            Attestation::bootstrap_chain(
-                RuntimeOrigin::signed(ATTESTOR_1),
-                SUPPORTED_CHAIN_KEY,
-                attestation,
-            ),
+            Attestation::bootstrap_chain(RuntimeOrigin::signed(ATTESTOR_1), attestation,),
             BadOrigin
         );
     })
@@ -1574,10 +1570,10 @@ fn bootstrap_chain_should_error_when_chain_is_unsupported() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 2;
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], chain_key, 1, None);
 
         assert_noop!(
-            Attestation::bootstrap_chain(RuntimeOrigin::root(), chain_key, attestation,),
+            Attestation::bootstrap_chain(RuntimeOrigin::root(), attestation),
             Error::<Test>::ChainNotSupported
         );
     })
@@ -1589,7 +1585,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
         System::set_block_number(1);
 
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], 30, 1, None);
+        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 1, None);
         let expected_checkpoint = AttestationCheckpoint {
             block_number: attestation.header_number(),
             digest: attestation.digest(),
@@ -1610,7 +1606,6 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
 
         assert_ok!(Attestation::bootstrap_chain(
             RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
             attestation.clone(),
         ),);
 
@@ -3009,18 +3004,240 @@ fn withdraw_unbonded_should_error_when_signer_is_not_a_stash() {
 }
 
 #[test]
-fn on_supported_chain_removed_cleans_up_all_related_storage_items() {
+fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
     ExtBuilder.build_and_execute(|| {
-        // Set up all storage items we might want to remove:
-        // Attestors, ActiveAttestors, Invulnerables, MaxAttestors,
-        // MaxInvulnerables, Attestations, Checkpoints, CheckpointingQueues,
+        System::set_block_number(1);
+
+        // register attestor
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        let min_bond_requirement = Attestation::min_bond_requirement();
+
+        let ledger = Ledger::<Test>::get(STASH_1);
+        assert!(ledger.is_some());
+        let ledger = ledger.unwrap();
+        assert_eq!(ledger.stash, STASH_1);
+        // The total staked amount should be equal to the min bond requirement
+        assert_eq!(ledger.total_staked, min_bond_requirement);
+
+        // Remove chain
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+
+        // We are no longer staked
+        let ledger = Ledger::<Test>::get(STASH_1);
+        // Ledger is nuked
+        assert!(ledger.is_none());
+
+        // Get balance locks
+        let locks = Balances::locks(STASH_1);
+        assert_eq!(locks.len(), 0);
+
+        let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
+        assert_eq!(locked_balance, 0);
+
+        // Get the last event from pallet attestation poc
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let cleared_storage_event = all_events
+            .into_iter()
+            .filter(|record| {
+                if let mock::RuntimeEvent::Attestation(_) = record.event {
+                    true
+                } else {
+                    false
+                }
+            })
+            .last()
+            .unwrap()
+            .event;
+        assert_eq!(
+            cleared_storage_event,
+            mock::RuntimeEvent::Attestation(crate::Event::ClearedStorageForRemovedChain(
+                SUPPORTED_CHAIN_KEY
+            ))
+        );
+    })
+}
+
+#[test]
+fn on_supported_chain_removed_cleans_up_all_storage_other_than_attestors_and_checkpoints() {
+    ExtBuilder.build_and_execute(|| {
+        let dummy_val: u32 = 5000;
+        // Set up all storage items we want to remove:
+        // ActiveAttestors, Invulnerables, MaxAttestors,
+        // MaxInvulnerables, Attestations, CheckpointingQueues,
         // LastDigest, CommitteeSetSize, ChainAttestationInterval,
         // PendingAttestationInterval, AttestationCheckpointInterval,
         // ChainReward
+        System::set_block_number(1);
 
-        assert_noop!(
-            Attestation::withdraw_unbonded(RuntimeOrigin::signed(STASH_1)),
-            Error::<Test>::NotStash
+        ActiveAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, vec![ATTESTOR_1]);
+        Invulnerables::<Test>::insert(SUPPORTED_CHAIN_KEY, ATTESTOR_1, true);
+        MaxAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
+        MaxInvulnerables::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
+
+        // Fill in attestations, checkpointing queue, and last digest
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let max_attestations =
+            AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY) * 2 + 1; // +1 because very first attestation is kept
+        for i in 0..max_attestations {
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                (i * 10) as u64,
+                None,
+            );
+            Attestations::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                attestation.digest(),
+                attestation.clone(),
+            );
+
+            if i != 0 {
+                // Very first attestation never goes in a checkpointing queue
+                let mut queue = CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+                queue.push_back(attestation.digest());
+                CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, queue);
+            }
+            if i == max_attestations - 1 {
+                LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, attestation.digest());
+            }
+        }
+
+        CommitteeSetSize::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u64);
+        PendingAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u64);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
+        ChainReward::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u128);
+
+        // Remove supported chain
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+
+        // Check that all storage items have been cleared
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Vec::<mock::AccountId>::new()
         );
+        assert_eq!(
+            Invulnerables::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            0
+        );
+        assert_eq!(
+            MaxAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
+            <Test as Config>::MaxAttestationNodes::get()
+        );
+        assert_eq!(
+            MaxInvulnerables::<Test>::get(SUPPORTED_CHAIN_KEY),
+            <Test as Config>::MaxAttestationNodes::get()
+        );
+        assert_eq!(
+            Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            0
+        );
+        assert_eq!(
+            CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Vec::<Digest>::new()
+        );
+        assert_eq!(LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY), None);
+        assert_eq!(
+            CommitteeSetSize::<Test>::get(SUPPORTED_CHAIN_KEY),
+            <Test as Config>::DefaultCommitteeSetSize::get()
+        );
+        assert_eq!(
+            ChainAttestationInterval::<Test>::get(SUPPORTED_CHAIN_KEY),
+            <Test as Config>::DefaultAttestationInterval::get()
+        );
+        assert_eq!(
+            PendingAttestationInterval::<Test>::get(SUPPORTED_CHAIN_KEY),
+            None
+        );
+        assert_eq!(
+            AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY),
+            <Test as Config>::DefaultAttestationsPerCheckpoint::get()
+        );
+        assert_eq!(ChainReward::<Test>::get(SUPPORTED_CHAIN_KEY), None);
+
+        // Get the last event from pallet attestation poc
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let cleared_storage_event = all_events
+            .into_iter()
+            .filter(|record| {
+                if let mock::RuntimeEvent::Attestation(_) = record.event {
+                    true
+                } else {
+                    false
+                }
+            })
+            .last()
+            .unwrap()
+            .event;
+        assert_eq!(
+            cleared_storage_event,
+            mock::RuntimeEvent::Attestation(crate::Event::ClearedStorageForRemovedChain(
+                SUPPORTED_CHAIN_KEY
+            ))
+        );
+    })
+}
+
+#[test]
+fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) {
+            let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
+            let checkpoint = AttestationCheckpoint {
+                block_number: j as u64 * 100, // Mimic gap between checkpoint blocks
+                digest: checkpoint_digest,
+            };
+            Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint_digest, checkpoint);
+        }
+
+        assert_eq!(
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 10
+        );
+
+        // Remove supported chain
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+
+        assert_eq!(
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 10
+        );
+
+        progress_to_block(2);
+
+        assert_eq!(
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            10
+        );
+        System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
+
+        progress_to_block(3);
+
+        assert_eq!(
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            0
+        );
+        assert_eq!(
+            ClearingCheckpointsForChain::<Test>::get(SUPPORTED_CHAIN_KEY),
+            None
+        );
+        System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
     })
 }

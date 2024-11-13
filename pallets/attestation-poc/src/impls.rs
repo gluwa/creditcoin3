@@ -194,13 +194,16 @@ impl<T: Config> Pallet<T> {
 
             ledger.total_staked -= value;
 
-            // Update the ledger
-            ledger.update()?;
-
-            Self::deposit_event(Event::<T>::Unbonded {
-                stash: attestor.stash,
-                amount: value,
-            });
+            let ed = T::Currency::minimum_balance();
+            if ledger.unlocking.is_empty() && (ledger.active < ed || ledger.active.is_zero()) {
+                // This account must have called `unbond()` with some value that caused the active
+                // portion to fall below existential deposit + will have no more unlocking chunks
+                // left. We can now safely remove all staking-related information.
+                Self::kill_stash(&ledger.stash)?;
+            } else {
+                // This was the consequence of a partial unbond. just update the ledger and move on.
+                ledger.update()?;
+            };
         }
 
         // Remove the attestor
@@ -507,7 +510,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub(crate) fn chains_to_remove_checkpoints_for() -> u32 {
-        if let Some(_ongoing_removal) = CheckpointClearingCursors::<T>::iter().next() {
+        if let Some(_ongoing_removal) = ClearingCheckpointsForChain::<T>::iter().next() {
             1
         } else {
             0
@@ -563,16 +566,35 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         // Can dispense with result, since limit is equal to maximum storage size
         _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
 
+        CheckpointingQueues::<T>::remove(chain_key);
+        LastDigest::<T>::remove(chain_key);
+        CommitteeSetSize::<T>::remove(chain_key);
+        ChainAttestationInterval::<T>::remove(chain_key);
+        PendingAttestationInterval::<T>::remove(chain_key);
+        AttestationCheckpointInterval::<T>::remove(chain_key);
+        ChainReward::<T>::remove(chain_key);
+
         // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
         // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
         // block.
-        let maybe_cursor = Checkpoints::<T>::clear_prefix(
-            chain_key,
-            u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-            None,
-        )
-        .maybe_cursor;
-        // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
-        CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+        let mut counter = 0;
+        let iter = Checkpoints::<T>::iter_prefix(chain_key);
+        let mut checkpoints_remaining = false;
+        for (digest, _) in iter {
+            if counter >= MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
+                checkpoints_remaining = true;
+                break;
+            }
+            Checkpoints::<T>::remove(chain_key, digest);
+            counter += 1;
+        }
+
+        // If there are any checkpoints left, then we set a flag to continue
+        // removal next block
+        if checkpoints_remaining {
+            ClearingCheckpointsForChain::<T>::insert(chain_key, true);
+        }
+
+        Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
     }
 }

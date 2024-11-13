@@ -311,7 +311,6 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_key,
             attestation,
         )
     }
@@ -564,20 +563,23 @@ mod benchmarks {
             for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) {
                 let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
                 let checkpoint = AttestationCheckpoint {
-                    block_number: (j * 100) as u64, // Mimic gap between checkpoint blocks
+                    block_number: j as u64 * 100, // Mimic gap between checkpoint blocks
                     digest: checkpoint_digest,
                 };
                 Checkpoints::<T>::insert(chain_key, checkpoint_digest, checkpoint);
             }
 
-            // Mimic the effects of on_supported_chain_removed
-            let maybe_cursor = Checkpoints::<T>::clear_prefix(
-                chain_key,
-                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
-                None,
-            )
-            .maybe_cursor;
-            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            let mut counter = 0;
+            let iter = Checkpoints::<T>::iter_prefix(chain_key);
+            for (digest, _) in iter {
+                if counter >= MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
+                    break;
+                }
+                Checkpoints::<T>::remove(chain_key, digest);
+                counter += 1;
+            }
+
+            ClearingCheckpointsForChain::<T>::insert(chain_key, true);
         }
 
         // If a == 1, then we should have checkpoints left over equal to MAX_CHECKPOINTS_CLEARED_PER_BLOCK + 10

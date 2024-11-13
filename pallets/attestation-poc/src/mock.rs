@@ -226,24 +226,29 @@ use attestor_primitives::BlsPublicKeyWrapper;
 parameter_types! {
     pub const ExistentialDeposit: u128 = 500;
     pub const MaxLocks: u32 = 50;
-    pub const MaxAttestorsDefault:u32 = 100;
+    pub const MaxAttestorsDefault: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
+    pub const DefaultAttestationsPerCheckpoint: u32 = 10;
+    pub const DefaultAttestationInterval: u64 = 10;
+    pub const DefaultCommitteeSetSize: u32 = 3;
+    pub const DefaultMinBondRequirement: u64 = 10_000;
+    pub const MaxUnlockingChunks: u32 = 10;
 }
 
 impl attestation_poc::Config for Test {
-    type DefaultAttestationsPerCheckpoint = ConstU32<10>;
-    type DefaultAttestationInterval = ConstU64<10>;
-    type DefaultCommitteeSetSize = ConstU32<3>;
+    type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type DefaultAttestationInterval = DefaultAttestationInterval;
+    type DefaultCommitteeSetSize = DefaultCommitteeSetSize;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
-    type DefaultMinBondRequirement = ConstU64<10_000>;
+    type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type Currency = Balances;
     type CurrencyBalance = Balance;
-    type MaxUnlockingChunks = ConstU32<10>;
+    type MaxUnlockingChunks = MaxUnlockingChunks;
     type BondingDuration = BondingDuration;
     type Staking = Staking;
     type Reward = ();
@@ -389,7 +394,7 @@ pub fn go_to_block(n: u64, s: u64) {
     Staking::on_finalize(System::block_number());
     RandomnessPallet::on_finalize(System::block_number());
 
-    let parent_hash = if System::block_number() > 1 {
+    let parent_hash = if System::block_number() > 0 {
         let hdr = System::finalize();
         hdr.hash()
     } else {
@@ -408,6 +413,7 @@ pub fn go_to_block(n: u64, s: u64) {
     Session::on_initialize(n);
     Staking::on_initialize(n);
     RandomnessPallet::on_initialize(n);
+    Attestation::on_initialize(n);
 }
 
 /// Slots will grow accordingly to blocks
