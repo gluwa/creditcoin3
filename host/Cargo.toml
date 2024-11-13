@@ -23,7 +23,6 @@ sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true }
 tempfile = "3.10"
 thiserror = { version = "1.0.64", default-features = false, optional = true }
-utils = { workspace = true, default-features = false, optional = true }
 utils = { workspace = true, optional = true }
 
 [features]

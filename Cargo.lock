@@ -8955,6 +8955,7 @@ dependencies = [
  "log",
  "pallet-prover-primitives",
  "prover-primitives",
+ "rlp",
  "serde_json",
  "sp-core",
  "sp-io",
@@ -8962,6 +8963,7 @@ dependencies = [
  "sp-std",
  "tempfile",
  "thiserror",
+ "utils",
 ]
 
 [[package]]
