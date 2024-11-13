@@ -7,15 +7,16 @@ use super::*;
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
-use frame_support::traits::OriginTrait;
+use frame_support::traits::{OnInitialize, OriginTrait};
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
+use sp_runtime::traits::One;
 use sp_std::vec;
 use sp_std::vec::Vec;
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
-    ChainKey, SignedAttestation,
+    Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
+    ChainAttestationIntervalType, ChainKey, SignedAttestation,
 };
 
 const DEV_CHAIN_KEY: ChainKey = 1;
@@ -550,5 +551,40 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn on_initialize(a: Linear<0, 1>) {
+        frame_system::Pallet::<T>::set_block_number(One::one());
+        // Set up 0-1 chains with checkpoints to be removed. Should add at least
+        // MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 attestations to ensure appropriately
+        // pessemistic weight.
+        if a == 1 {
+            let chain_key = 5;
+            for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) {
+                let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
+                let checkpoint = AttestationCheckpoint {
+                    block_number: (j * 100) as u64, // Mimic gap between checkpoint blocks
+                    digest: checkpoint_digest,
+                };
+                Checkpoints::<T>::insert(chain_key, checkpoint_digest, checkpoint);
+            }
+
+            // Mimic the effects of on_supported_chain_removed
+            let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                chain_key,
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                None,
+            )
+            .maybe_cursor;
+            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+        }
+
+        // If a == 1, then we should have checkpoints left over equal to MAX_CHECKPOINTS_CLEARED_PER_BLOCK + 10
+        // So on_initialize will remove an additional MAX_CHECKPOINTS_CLEARED_PER_BLOCK
+        #[block]
+        {
+            Attestation::<T>::on_initialize(One::one());
+        }
     }
 }

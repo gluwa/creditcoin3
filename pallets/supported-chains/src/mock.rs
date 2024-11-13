@@ -47,6 +47,7 @@ impl frame_system::Config for Test {
 impl supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = supported_chains::weights::WeightInfo<Test>;
+    type EventListeners = ();
 }
 
 #[derive(Default)]

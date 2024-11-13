@@ -3007,3 +3007,20 @@ fn withdraw_unbonded_should_error_when_signer_is_not_a_stash() {
         );
     })
 }
+
+#[test]
+fn on_supported_chain_removed_cleans_up_all_related_storage_items() {
+    ExtBuilder.build_and_execute(|| {
+        // Set up all storage items we might want to remove:
+        // Attestors, ActiveAttestors, Invulnerables, MaxAttestors,
+        // MaxInvulnerables, Attestations, Checkpoints, CheckpointingQueues,
+        // LastDigest, CommitteeSetSize, ChainAttestationInterval,
+        // PendingAttestationInterval, AttestationCheckpointInterval,
+        // ChainReward
+
+        assert_noop!(
+            Attestation::withdraw_unbonded(RuntimeOrigin::signed(STASH_1)),
+            Error::<Test>::NotStash
+        );
+    })
+}

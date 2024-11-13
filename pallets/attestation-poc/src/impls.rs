@@ -14,7 +14,9 @@ use sp_std::vec::Vec;
 use attestor_primitives::{Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainKey};
 use bls_signatures::{PublicKey, Serialize, Signature};
 use randomness_primitives::{OnRandomnessUpdate, Randomness};
-use supported_chains_primitives::provider::SupportedChainsProvider;
+use supported_chains_primitives::{
+    chain_removal_listener::ChainRemovalListener, provider::SupportedChainsProvider,
+};
 
 use crate::{
     asset::existential_deposit,
@@ -156,6 +158,47 @@ impl<T: Config> Pallet<T> {
 
             Self::deposit_event(Event::<T>::Unbonded {
                 stash,
+                amount: value,
+            });
+        }
+
+        // Remove the attestor
+        Attestors::<T>::remove(chain_key, &attestor_id);
+
+        Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
+
+        Ok(())
+    }
+
+    fn force_remove_attestor_and_emit_event(
+        chain_key: ChainKey,
+        attestor: Attestor<T::AccountId>,
+        attestor_id: T::AccountId,
+    ) -> DispatchResult {
+        // Get the min bond requirement for the attestor
+        let bond = Self::min_bond_requirement();
+
+        let mut ledger = Self::ledger(&attestor.stash).ok_or(Error::<T>::NotStash)?;
+        // Value is the minimum of the bond and the active amount
+        let mut value = bond.min(ledger.active);
+
+        if !value.is_zero() {
+            // Decrease the active amount
+            ledger.active -= value;
+
+            // Avoid there being a dust balance left in the staking system.
+            if ledger.active < existential_deposit::<T>() {
+                value += ledger.active;
+                ledger.active = Zero::zero();
+            }
+
+            ledger.total_staked -= value;
+
+            // Update the ledger
+            ledger.update()?;
+
+            Self::deposit_event(Event::<T>::Unbonded {
+                stash: attestor.stash,
                 amount: value,
             });
         }
@@ -447,6 +490,29 @@ impl<T: Config> Pallet<T> {
             .len();
         let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
     }
+
+    fn remove_all_attestors_for_chain(chain_key: ChainKey) {
+        let attestors = Attestors::<T>::iter_prefix(chain_key);
+        for (attestor_id, attestor) in attestors {
+            let result =
+                Self::force_remove_attestor_and_emit_event(chain_key, attestor, attestor_id);
+            if let Err(error) = result {
+                log::error!(
+                    "Failure removing all attestors while unregistering chain. chain_key: {:?}, error: {:?}",
+                    chain_key,
+                    error
+                );
+            }
+        }
+    }
+
+    pub(crate) fn chains_to_remove_checkpoints_for() -> u32 {
+        if let Some(_ongoing_removal) = CheckpointClearingCursors::<T>::iter().next() {
+            1
+        } else {
+            0
+        }
+    }
 }
 
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
@@ -467,5 +533,46 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
+    }
+}
+
+impl<T: Config> ChainRemovalListener for Pallet<T> {
+    fn on_supported_chain_removed(chain_key: ChainKey) {
+        // Attestors, ActiveAttestors, Invulnerables, MaxAttestors,
+        // MaxInvulnerables, Attestations, Checkpoints, CheckpointingQueues,
+        // LastDigest, CommitteeSetSize, ChainAttestationInterval,
+        // PendingAttestationInterval, AttestationCheckpointInterval,
+        // ChainReward
+        Self::remove_all_attestors_for_chain(chain_key);
+
+        ActiveAttestors::<T>::remove(chain_key);
+
+        // Can dispense with result, since limit is equal to maximum storage size
+        _ = Invulnerables::<T>::clear_prefix(
+            chain_key,
+            MaxInvulnerables::<T>::get(chain_key),
+            None,
+        );
+
+        MaxAttestors::<T>::remove(chain_key);
+
+        MaxInvulnerables::<T>::remove(chain_key);
+
+        // Clearing attestations
+        let max_attestations_to_remove = AttestationCheckpointInterval::<T>::get(chain_key) * 2 + 1;
+        // Can dispense with result, since limit is equal to maximum storage size
+        _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
+
+        // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
+        // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
+        // block.
+        let maybe_cursor = Checkpoints::<T>::clear_prefix(
+            chain_key,
+            u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+            None,
+        )
+        .maybe_cursor;
+        // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
+        CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
     }
 }

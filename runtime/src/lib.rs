@@ -870,6 +870,7 @@ impl pallet_attestation_poc::Config for Runtime {
 impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
+    type EventListeners = Attestation;
 }
 
 impl pallet_randomness::Config for Runtime {

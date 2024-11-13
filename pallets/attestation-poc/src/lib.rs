@@ -39,6 +39,8 @@ pub mod pallet {
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::SupportedChainsProvider;
 
+    pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
+
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
     pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
@@ -136,6 +138,7 @@ pub mod pallet {
         fn withdraw_unbonded() -> Weight;
         fn set_chain_reward() -> Weight;
         fn claim_rewards() -> Weight;
+        fn on_initialize(a: u32) -> Weight;
     }
 
     #[pallet::storage]
@@ -302,6 +305,14 @@ pub mod pallet {
     pub type AccumulatedRewards<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, OptionQuery>;
 
+    /// A progress marker for removing the checkpoints associated with a source chain that is
+    /// no longer supported. Maps from chain_key to a cursor representing the point up to which
+    /// that chain's checkpoints have been removed.
+    #[pallet::storage]
+    #[pallet::getter(fn checkpoint_clearing_cursors)]
+    pub type CheckpointClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -465,6 +476,24 @@ pub mod pallet {
         InvalidAttestationsPerCheckpoint,
         // Tried to set committee set size to an invalid value.
         InvalidCommitteeSetSize,
+    }
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        /// Initialization
+        fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
+            if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
+                let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                    chain_key,
+                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                    Some(&cursor[..]),
+                )
+                .maybe_cursor;
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            }
+
+            <T as Config>::WeightInfo::on_initialize(Self::chains_to_remove_checkpoints_for())
+        }
     }
 
     #[pallet::call]

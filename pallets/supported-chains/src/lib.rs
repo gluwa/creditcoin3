@@ -24,7 +24,10 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
-    use supported_chains_primitives::{provider::SupportedChainsProvider, SupportedChain};
+    use supported_chains_primitives::{
+        chain_removal_listener::ChainRemovalListener, provider::SupportedChainsProvider,
+        SupportedChain,
+    };
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -36,6 +39,8 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// A type representing the weights required by the dispatchables of this pallet.
         type WeightInfo: WeightInfo;
+        /// Informs other pallets if a supported chain is removed
+        type EventListeners: ChainRemovalListener;
     }
 
     pub trait WeightInfo {
@@ -184,6 +189,9 @@ pub mod pallet {
             ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
 
             SupportedChains::<T>::remove(chain_key);
+
+            // Notify event listeners
+            T::EventListeners::on_supported_chain_removed(chain_key);
 
             Self::deposit_event(Event::ChainRemoved {
                 chain_key,

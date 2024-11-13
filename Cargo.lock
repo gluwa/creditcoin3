@@ -13044,6 +13044,7 @@ name = "supported-chains-primitives"
 version = "3.31.0"
 dependencies = [
  "attestor-primitives",
+ "impl-trait-for-tuples",
  "parity-scale-codec",
  "scale-info",
  "sp-api",

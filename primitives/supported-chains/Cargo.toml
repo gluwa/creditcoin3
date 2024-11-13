@@ -11,6 +11,7 @@ version.workspace = true
 
 [dependencies]
 attestor-primitives = { workspace = true }
+impl-trait-for-tuples = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }

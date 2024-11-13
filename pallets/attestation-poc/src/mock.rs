@@ -252,6 +252,7 @@ impl attestation_poc::Config for Test {
 impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
+    type EventListeners = Attestation;
 }
 
 impl pallet_randomness::Config for Test {

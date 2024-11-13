@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 pub mod api;
+pub mod chain_removal_listener;
 pub mod provider;
 use parity_scale_codec::{Decode, Encode};
 use scale_info::TypeInfo;
