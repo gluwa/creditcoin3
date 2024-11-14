@@ -181,7 +181,11 @@ pub mod pallet {
 
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::remove_chain())]
-        pub fn remove_chain(origin: OriginFor<T>, chain_key: ChainId) -> DispatchResult {
+        pub fn remove_chain(
+            origin: OriginFor<T>,
+            chain_key: ChainId,
+            remove_checkpoints: bool,
+        ) -> DispatchResult {
             ensure_root(origin)?;
 
             let item = SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
@@ -191,7 +195,7 @@ pub mod pallet {
             SupportedChains::<T>::remove(chain_key);
 
             // Notify event listeners
-            T::EventListeners::on_supported_chain_removed(chain_key);
+            T::EventListeners::on_supported_chain_removed(chain_key, remove_checkpoints);
 
             Self::deposit_event(Event::ChainRemoved {
                 chain_key,

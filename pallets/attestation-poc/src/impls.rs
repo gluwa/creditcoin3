@@ -538,7 +538,7 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
 }
 
 impl<T: Config> ChainRemovalListener for Pallet<T> {
-    fn on_supported_chain_removed(chain_key: ChainKey) {
+    fn on_supported_chain_removed(chain_key: ChainKey, remove_checkpoints: bool) {
         Self::remove_all_attestors_for_chain(chain_key);
 
         ActiveAttestors::<T>::remove(chain_key);
@@ -567,23 +567,25 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         AttestationCheckpointInterval::<T>::remove(chain_key);
         ChainReward::<T>::remove(chain_key);
 
-        // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
-        // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
-        // block.
-        let iter = Checkpoints::<T>::iter_prefix(chain_key);
-        let mut checkpoints_remaining = false;
-        for (counter, (digest, _)) in iter.enumerate() {
-            if counter >= usize::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK) {
-                checkpoints_remaining = true;
-                break;
+        if remove_checkpoints {
+            // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
+            // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
+            // block.
+            let iter = Checkpoints::<T>::iter_prefix(chain_key);
+            let mut checkpoints_remaining = false;
+            for (counter, (digest, _)) in iter.enumerate() {
+                if counter >= usize::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK) {
+                    checkpoints_remaining = true;
+                    break;
+                }
+                Checkpoints::<T>::remove(chain_key, digest);
             }
-            Checkpoints::<T>::remove(chain_key, digest);
-        }
 
-        // If there are any checkpoints left, then we set a flag to continue
-        // removal next block
-        if checkpoints_remaining {
-            ClearingCheckpointsForChain::<T>::insert(chain_key, true);
+            // If there are any checkpoints left, then we set a flag to continue
+            // removal next block
+            if checkpoints_remaining {
+                ClearingCheckpointsForChain::<T>::insert(chain_key, true);
+            }
         }
 
         Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));

@@ -173,7 +173,8 @@ fn remove_chain_works() {
         assert_eq!(SupportedChain::chain_key_value(), 2);
         assert_ok!(SupportedChain::remove_chain(
             RuntimeOrigin::root(),
-            chain_key
+            chain_key,
+            false
         ));
         assert_eq!(SupportedChains::<Test>::get(chain_key), None);
 
@@ -199,7 +200,7 @@ fn remove_chain_should_error_when_not_signed() {
         let chain_key = 1;
 
         assert_noop!(
-            SupportedChain::remove_chain(RuntimeOrigin::none(), chain_key),
+            SupportedChain::remove_chain(RuntimeOrigin::none(), chain_key, false),
             BadOrigin
         );
     });
@@ -213,7 +214,7 @@ fn remove_chain_should_error_when_not_signed_by_root() {
         let acct: AccountId = 4;
 
         assert_noop!(
-            SupportedChain::remove_chain(RuntimeOrigin::signed(acct), chain_key),
+            SupportedChain::remove_chain(RuntimeOrigin::signed(acct), chain_key, false),
             BadOrigin
         );
     });
@@ -227,7 +228,7 @@ fn remove_chain_should_error_when_chain_is_not_supported() {
         let chain_key = 1;
 
         assert_noop!(
-            SupportedChain::remove_chain(RuntimeOrigin::root(), chain_key),
+            SupportedChain::remove_chain(RuntimeOrigin::root(), chain_key, false),
             Error::<Test>::ChainNotSupported
         );
     });
