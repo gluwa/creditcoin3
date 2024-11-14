@@ -196,12 +196,10 @@ impl<T: Config> Pallet<T> {
 
             let ed = T::Currency::minimum_balance();
             if ledger.unlocking.is_empty() && (ledger.active < ed || ledger.active.is_zero()) {
-                // This account must have called `unbond()` with some value that caused the active
-                // portion to fall below existential deposit + will have no more unlocking chunks
-                // left. We can now safely remove all staking-related information.
+                // We can now safely remove all staking-related information.
                 Self::kill_stash(&ledger.stash)?;
             } else {
-                // This was the consequence of a partial unbond. just update the ledger and move on.
+                // This resulted in a partial unbond. just update the ledger and move on.
                 ledger.update()?;
             };
         }
@@ -541,11 +539,6 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
 
 impl<T: Config> ChainRemovalListener for Pallet<T> {
     fn on_supported_chain_removed(chain_key: ChainKey) {
-        // Attestors, ActiveAttestors, Invulnerables, MaxAttestors,
-        // MaxInvulnerables, Attestations, Checkpoints, CheckpointingQueues,
-        // LastDigest, CommitteeSetSize, ChainAttestationInterval,
-        // PendingAttestationInterval, AttestationCheckpointInterval,
-        // ChainReward
         Self::remove_all_attestors_for_chain(chain_key);
 
         ActiveAttestors::<T>::remove(chain_key);
@@ -577,16 +570,14 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
         // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
         // block.
-        let mut counter = 0;
         let iter = Checkpoints::<T>::iter_prefix(chain_key);
         let mut checkpoints_remaining = false;
-        for (digest, _) in iter {
-            if counter >= MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
+        for (counter, (digest, _)) in iter.enumerate() {
+            if counter >= usize::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK) {
                 checkpoints_remaining = true;
                 break;
             }
             Checkpoints::<T>::remove(chain_key, digest);
-            counter += 1;
         }
 
         // If there are any checkpoints left, then we set a flag to continue

@@ -221,6 +221,7 @@ impl pallet_prover::Config for Runtime {
 impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
+    type EventListeners = ();
 }
 
 // Configure a mock runtime to test the pallet.

@@ -489,16 +489,14 @@ pub mod pallet {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             if let Some((chain_key, _)) = ClearingCheckpointsForChain::<T>::iter().next() {
-                let mut counter = 0;
                 let iter = Checkpoints::<T>::iter_prefix(chain_key);
                 let mut checkpoints_remaining = false;
-                for (digest, _) in iter {
-                    if counter >= MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
+                for (counter, (digest, _)) in iter.enumerate() {
+                    if counter >= usize::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK) {
                         checkpoints_remaining = true;
                         break;
                     }
                     Checkpoints::<T>::remove(chain_key, digest);
-                    counter += 1;
                 }
 
                 // If there aren't any checkpoints left, then remove clearing flag

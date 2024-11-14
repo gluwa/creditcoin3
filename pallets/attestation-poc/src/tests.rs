@@ -3016,6 +3016,13 @@ fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
             attestor.attestor_id,
         ));
 
+        let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            attestor2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.attestor_id,
+        ));
+
         let min_bond_requirement = Attestation::min_bond_requirement();
 
         let ledger = Ledger::<Test>::get(STASH_1);
@@ -3023,7 +3030,7 @@ fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
         let ledger = ledger.unwrap();
         assert_eq!(ledger.stash, STASH_1);
         // The total staked amount should be equal to the min bond requirement
-        assert_eq!(ledger.total_staked, min_bond_requirement);
+        assert_eq!(ledger.total_staked, min_bond_requirement * 2);
 
         // Remove chain
         assert_ok!(SupportedChains::remove_chain(
@@ -3047,13 +3054,7 @@ fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
         let all_events = <frame_system::Pallet<Test>>::events();
         let cleared_storage_event = all_events
             .into_iter()
-            .filter(|record| {
-                if let mock::RuntimeEvent::Attestation(_) = record.event {
-                    true
-                } else {
-                    false
-                }
-            })
+            .filter(|record| matches!(record.event, mock::RuntimeEvent::Attestation(_)))
             .last()
             .unwrap()
             .event;
@@ -3070,14 +3071,9 @@ fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
 fn on_supported_chain_removed_cleans_up_all_storage_other_than_attestors_and_checkpoints() {
     ExtBuilder.build_and_execute(|| {
         let dummy_val: u32 = 5000;
-        // Set up all storage items we want to remove:
-        // ActiveAttestors, Invulnerables, MaxAttestors,
-        // MaxInvulnerables, Attestations, CheckpointingQueues,
-        // LastDigest, CommitteeSetSize, ChainAttestationInterval,
-        // PendingAttestationInterval, AttestationCheckpointInterval,
-        // ChainReward
         System::set_block_number(1);
 
+        // Set up all storage items we want to remove:
         ActiveAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, vec![ATTESTOR_1]);
         Invulnerables::<Test>::insert(SUPPORTED_CHAIN_KEY, ATTESTOR_1, true);
         MaxAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
@@ -3171,13 +3167,7 @@ fn on_supported_chain_removed_cleans_up_all_storage_other_than_attestors_and_che
         let all_events = <frame_system::Pallet<Test>>::events();
         let cleared_storage_event = all_events
             .into_iter()
-            .filter(|record| {
-                if let mock::RuntimeEvent::Attestation(_) = record.event {
-                    true
-                } else {
-                    false
-                }
-            })
+            .filter(|record| matches!(record.event, mock::RuntimeEvent::Attestation(_)))
             .last()
             .unwrap()
             .event;
@@ -3220,6 +3210,7 @@ fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints(
             MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 10
         );
 
+        // Trigger on_initialize to remove another batch of checkpoints
         progress_to_block(2);
 
         assert_eq!(
@@ -3228,6 +3219,7 @@ fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints(
         );
         System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
 
+        // Trigger on_initialize to remove another batch of checkpoints
         progress_to_block(3);
 
         assert_eq!(

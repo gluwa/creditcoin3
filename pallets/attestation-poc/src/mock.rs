@@ -394,7 +394,7 @@ pub fn go_to_block(n: u64, s: u64) {
     Staking::on_finalize(System::block_number());
     RandomnessPallet::on_finalize(System::block_number());
 
-    let parent_hash = if System::block_number() > 0 {
+    let parent_hash = if System::block_number() > 1 {
         let hdr = System::finalize();
         hdr.hash()
     } else {

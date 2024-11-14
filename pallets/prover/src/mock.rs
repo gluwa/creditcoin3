@@ -85,6 +85,7 @@ impl prover_pallet::Config for Test {
 impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
+    type EventListeners = ();
 }
 
 // add more accounts when you need them
