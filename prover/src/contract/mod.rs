@@ -42,9 +42,14 @@ pub async fn deploy(eth_client: &Client) -> Result<()> {
 pub async fn get_unprocessed_queries(eth_client: &Client) -> Result<Vec<Query>> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let _artifact = artifacts::get_deployment_artifact(chain_id).await?;
+    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
 
-    Ok(vec![])
+    let queries = artifact
+        .contract
+        .get_unprocessed_queries(eth_client)
+        .await?;
+
+    Ok(queries)
 }
 
 pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> Result<String> {

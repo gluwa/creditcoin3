@@ -242,4 +242,34 @@ impl GluwaPublicProverContract {
             "Stream ended without matching proof verification"
         ))
     }
+
+    pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>> {
+        info!("Getting unprocessed queries");
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .on_http(client.get_url());
+
+        let contract = CreditcoinPublicProver::new(self.address, provider);
+
+        let unprocessed = contract.getUnprocessedQueries().call().await?;
+
+        Ok(unprocessed
+            ._0
+            .into_iter()
+            .map(|q| Query {
+                chain_id: q.chainId,
+                height: q.height,
+                index: q.index,
+                layout_segments: q
+                    .layoutSegments
+                    .iter()
+                    .map(|l| LayoutSegment {
+                        offset: l.offset,
+                        size: l.size,
+                    })
+                    .collect(),
+            })
+            .collect())
+    }
 }

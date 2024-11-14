@@ -8,6 +8,7 @@ address constant PROOF_VERIFIER_ADDRESS = 0x000000000000000000000000000000000000
 
 contract CreditcoinPublicProver is Ownable {
     mapping(QueryId => QueryDetails) public queries;
+    QueryId[] public queryIds;
     Balance totalEscrowBalance;
     QueryVerifierContract verifier;
     address proceedsAccount;
@@ -53,6 +54,9 @@ contract CreditcoinPublicProver is Ownable {
         queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
         // .timestamp
         queries[queryId].timestamp = block.number;
+
+        // Add to unprocessed queries
+        queryIds.push(queryId);
 
         // Emit event
         emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
@@ -111,6 +115,9 @@ contract CreditcoinPublicProver is Ownable {
 
         emit QueryProofVerified(queryId, proof);
 
+        // Clean up the processed queryId from the array
+        _removeQueryId(queryId);
+
         return result;
     }
 
@@ -118,6 +125,42 @@ contract CreditcoinPublicProver is Ownable {
         // requires owner guard
         // allows the prover to withdraw the balance of the contract that's not
         // still escrowed
+    }
+
+    function getUnprocessedQueries() public view returns (Query[] memory) {
+        uint256 unprocessedCount;
+
+        for (uint256 i = 0; i < queryIds.length; i++) {
+            if (queries[queryIds[i]].state == QueryState.Submitted) {
+                unprocessedCount++;
+            }
+        }
+
+        Query[] memory unprocessedQueries = new Query[](unprocessedCount);
+        uint256 index;
+
+        for (uint256 i = 0; i < queryIds.length; i++) {
+            if (queries[queryIds[i]].state == QueryState.Submitted) {
+                unprocessedQueries[index] = queries[queryIds[i]].query;
+                index++;
+            }
+        }
+
+        return unprocessedQueries;
+    }
+
+    function _removeQueryId(QueryId queryId) private {
+        uint256 length = queryIds.length;
+        for (uint256 i = 0; i < length; i++) {
+            // Cast both to bytes for comparison
+            if (QueryId.unwrap(queryIds[i]) == QueryId.unwrap(queryId)) {
+                if (i != length - 1) {
+                    queryIds[i] = queryIds[length - 1];
+                }
+                queryIds.pop();
+                return;
+            }
+        }
     }
 }
 
