@@ -52,7 +52,7 @@ declare module '@polkadot/api-base/types/events' {
              * block number of the latest attestation for that source chain at the time of
              * the interval change.
              **/
-            AttestationIntervalChanged: AugmentedEvent<ApiType, [u64, u64, u64]>;
+            AttestationIntervalChanged: AugmentedEvent<ApiType, [u64, u64]>;
             AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32]>;
             AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
             /**
@@ -76,6 +76,7 @@ declare module '@polkadot/api-base/types/events' {
             InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
             InvulnerableUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
             MinBondRequirementUpdated: AugmentedEvent<ApiType, [u128]>;
+            PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
             RewardClaimed: AugmentedEvent<
                 ApiType,
                 [stash: AccountId32, amount: u128],

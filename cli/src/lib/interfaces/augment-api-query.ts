@@ -197,6 +197,12 @@ declare module '@polkadot/api-base/types/storage' {
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
+            pendingAttestationInterval: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Generic query
              **/

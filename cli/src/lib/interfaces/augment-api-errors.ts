@@ -26,7 +26,6 @@ declare module '@polkadot/api-base/types/errors' {
             AlreadyAttestor: AugmentedError<ApiType>;
             AlreadyBonded: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
-            AttestationNotFound: AugmentedError<ApiType>;
             /**
              * The attestor list is at the max size allowed by the current configuration
              **/
@@ -48,6 +47,7 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestorAccount: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
+            InvalidCommitteeSetSize: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             /**
              * The invulnerable list is full
@@ -509,10 +509,15 @@ declare module '@polkadot/api-base/types/errors' {
             [key: string]: AugmentedError<ApiType>;
         };
         prover: {
+            FileError: AugmentedError<ApiType>;
             InvalidProofSubmitted: AugmentedError<ApiType>;
+            ProofParseError: AugmentedError<ApiType>;
+            StarkProgramAuthenticationError: AugmentedError<ApiType>;
             StarkProgramMetadataAlreadySet: AugmentedError<ApiType>;
             StarkProgramMetadataNotFound: AugmentedError<ApiType>;
             StarkProgramMetadataNotSet: AugmentedError<ApiType>;
+            VerifierExecutionError: AugmentedError<ApiType>;
+            VerifierProcessError: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

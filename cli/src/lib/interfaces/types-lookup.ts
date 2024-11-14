@@ -1070,7 +1070,9 @@ declare module '@polkadot/types/lookup' {
         readonly isChainRewardUpdated: boolean;
         readonly asChainRewardUpdated: ITuple<[u64, u128]>;
         readonly isAttestationIntervalChanged: boolean;
-        readonly asAttestationIntervalChanged: ITuple<[u64, u64, u64]>;
+        readonly asAttestationIntervalChanged: ITuple<[u64, u64]>;
+        readonly isPendingAttestationIntervalSet: boolean;
+        readonly asPendingAttestationIntervalSet: ITuple<[u64, u64]>;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1089,7 +1091,8 @@ declare module '@polkadot/types/lookup' {
             | 'AttestorsElected'
             | 'MinBondRequirementUpdated'
             | 'ChainRewardUpdated'
-            | 'AttestationIntervalChanged';
+            | 'AttestationIntervalChanged'
+            | 'PendingAttestationIntervalSet';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (92) */
@@ -3290,9 +3293,9 @@ declare module '@polkadot/types/lookup' {
         readonly isAlreadyBonded: boolean;
         readonly isAttestorNotIdle: boolean;
         readonly isNoSupportedChains: boolean;
-        readonly isAttestationNotFound: boolean;
         readonly isInvalidAttestationInterval: boolean;
         readonly isInvalidAttestationsPerCheckpoint: boolean;
+        readonly isInvalidCommitteeSetSize: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3318,9 +3321,9 @@ declare module '@polkadot/types/lookup' {
             | 'AlreadyBonded'
             | 'AttestorNotIdle'
             | 'NoSupportedChains'
-            | 'AttestationNotFound'
             | 'InvalidAttestationInterval'
-            | 'InvalidAttestationsPerCheckpoint';
+            | 'InvalidAttestationsPerCheckpoint'
+            | 'InvalidCommitteeSetSize';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (401) */
@@ -3343,11 +3346,21 @@ declare module '@polkadot/types/lookup' {
         readonly isStarkProgramMetadataNotSet: boolean;
         readonly isStarkProgramMetadataAlreadySet: boolean;
         readonly isStarkProgramMetadataNotFound: boolean;
+        readonly isFileError: boolean;
+        readonly isProofParseError: boolean;
+        readonly isStarkProgramAuthenticationError: boolean;
+        readonly isVerifierExecutionError: boolean;
+        readonly isVerifierProcessError: boolean;
         readonly type:
             | 'InvalidProofSubmitted'
             | 'StarkProgramMetadataNotSet'
             | 'StarkProgramMetadataAlreadySet'
-            | 'StarkProgramMetadataNotFound';
+            | 'StarkProgramMetadataNotFound'
+            | 'FileError'
+            | 'ProofParseError'
+            | 'StarkProgramAuthenticationError'
+            | 'VerifierExecutionError'
+            | 'VerifierProcessError';
     }
 
     /** @name PalletRandomnessError (405) */

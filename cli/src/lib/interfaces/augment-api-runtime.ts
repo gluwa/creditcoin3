@@ -6,7 +6,7 @@
 import '@polkadot/api-base/types/calls';
 
 import type { ApiTypes, AugmentedCall, DecoratedCallBase } from '@polkadot/api-base/types';
-import type { Bytes, Null, Option, Result, U256, Vec, bool, u256, u32, u64 } from '@polkadot/types-codec';
+import type { Bytes, Null, Option, Result, Text, U256, Vec, bool, u256, u32, u64 } from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type {
     BabeEquivocationProof,
@@ -14,6 +14,7 @@ import type {
     Epoch,
     OpaqueKeyOwnershipProof,
 } from '@polkadot/types/interfaces/babe';
+import type { BenchmarkBatch, BenchmarkConfig, BenchmarkList } from '@polkadot/types/interfaces/benchmark';
 import type { CheckInherentsResult, InherentData } from '@polkadot/types/interfaces/blockbuilder';
 import type { BlockHash } from '@polkadot/types/interfaces/chain';
 import type { AuthorityId } from '@polkadot/types/interfaces/consensus';
@@ -41,6 +42,7 @@ import type {
     KeyTypeId,
     Permill,
     Slot,
+    StorageInfo,
     Weight,
 } from '@polkadot/types/interfaces/runtime';
 import type { RuntimeVersion } from '@polkadot/types/interfaces/state';
@@ -105,6 +107,39 @@ declare module '@polkadot/api-base/types/calls' {
                         | Uint8Array,
                     keyOwnerProof: OpaqueKeyOwnershipProof | string | Uint8Array,
                 ) => Observable<Option<Null>>
+            >;
+            /**
+             * Generic call
+             **/
+            [key: string]: DecoratedCallBase<ApiType>;
+        };
+        /** 0x67f4b8fba858782a/1 */
+        benchmark: {
+            /**
+             * Get the benchmark metadata available for this runtime.
+             **/
+            benchmarkMetadata: AugmentedCall<
+                ApiType,
+                (extra: bool | boolean | Uint8Array) => Observable<ITuple<[Vec<BenchmarkList>, Vec<StorageInfo>]>>
+            >;
+            /**
+             * Dispatch the given benchmark.
+             **/
+            dispatchBenchmark: AugmentedCall<
+                ApiType,
+                (
+                    config:
+                        | BenchmarkConfig
+                        | {
+                              pallet?: any;
+                              benchmark?: any;
+                              selectedComponents?: any;
+                              verify?: any;
+                              internalRepeats?: any;
+                          }
+                        | string
+                        | Uint8Array,
+                ) => Observable<Result<Vec<BenchmarkBatch>, Text>>
             >;
             /**
              * Generic call

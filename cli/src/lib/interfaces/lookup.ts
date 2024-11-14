@@ -855,7 +855,8 @@ export default {
             },
             MinBondRequirementUpdated: 'u128',
             ChainRewardUpdated: '(u64,u128)',
-            AttestationIntervalChanged: '(u64,u64,u64)',
+            AttestationIntervalChanged: '(u64,u64)',
+            PendingAttestationIntervalSet: '(u64,u64)',
         },
     },
     /**
@@ -2991,9 +2992,9 @@ export default {
             'AlreadyBonded',
             'AttestorNotIdle',
             'NoSupportedChains',
-            'AttestationNotFound',
             'InvalidAttestationInterval',
             'InvalidAttestationsPerCheckpoint',
+            'InvalidCommitteeSetSize',
         ],
     },
     /**
@@ -3018,6 +3019,11 @@ export default {
             'StarkProgramMetadataNotSet',
             'StarkProgramMetadataAlreadySet',
             'StarkProgramMetadataNotFound',
+            'FileError',
+            'ProofParseError',
+            'StarkProgramAuthenticationError',
+            'VerifierExecutionError',
+            'VerifierProcessError',
         ],
     },
     /**
