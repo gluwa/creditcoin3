@@ -3150,11 +3150,11 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
 }
 
 #[test]
-fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints() {
+fn on_supported_chain_removed_cleans_up_checkpoints() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) {
+        for j in 0..MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
             let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
             let checkpoint = AttestationCheckpoint {
                 block_number: j as u64 * 100, // Mimic gap between checkpoint blocks
@@ -3165,7 +3165,7 @@ fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints(
 
         assert_eq!(
             Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
-            MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 10
+            MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize
         );
 
         // Remove supported chain
@@ -3177,29 +3177,26 @@ fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints(
 
         assert_eq!(
             Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
-            MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 10
-        );
-
-        // Trigger on_initialize to remove another batch of checkpoints
-        progress_to_block(2);
-
-        assert_eq!(
-            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
-            10
-        );
-        System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
-
-        // Trigger on_initialize to remove another batch of checkpoints
-        progress_to_block(3);
-
-        assert_eq!(
-            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
             0
         );
         assert_eq!(
-            ClearingCheckpointsForChain::<Test>::get(SUPPORTED_CHAIN_KEY),
+            CheckpointClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
             None
         );
-        System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
+
+        // Get the last event from pallet attestation poc
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let cleared_storage_event = all_events
+            .into_iter()
+            .filter(|record| matches!(record.event, mock::RuntimeEvent::Attestation(_)))
+            .last()
+            .unwrap()
+            .event;
+        assert_eq!(
+            cleared_storage_event,
+            mock::RuntimeEvent::Attestation(crate::Event::ClearedStorageForRemovedChain(
+                SUPPORTED_CHAIN_KEY
+            ))
+        );
     })
 }

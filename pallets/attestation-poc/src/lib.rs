@@ -306,12 +306,13 @@ pub mod pallet {
     pub type AccumulatedRewards<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, OptionQuery>;
 
-    /// Map to flags indicating whether checkpoints are currently being cleared for
-    /// chains that are no longer supported.
+    /// Progress markers for removing the checkpoints associated with source chains that are
+    /// no longer supported. Maps from a chain_key to a cursor representing the point up to which
+    /// that chain's checkpoints have been removed.
     #[pallet::storage]
     #[pallet::getter(fn checkpoint_clearing_cursors)]
-    pub type ClearingCheckpointsForChain<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, bool>;
+    pub type CheckpointClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -488,23 +489,14 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
-            if let Some((chain_key, _)) = ClearingCheckpointsForChain::<T>::iter().next() {
-                let iter = Checkpoints::<T>::iter_prefix(chain_key);
-                let mut checkpoints_remaining = false;
-                for (counter, (digest, _)) in iter.enumerate() {
-                    if counter >= usize::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK) {
-                        checkpoints_remaining = true;
-                        break;
-                    }
-                    Checkpoints::<T>::remove(chain_key, digest);
-                }
-
-                // If there aren't any checkpoints left, then remove clearing flag
-                if !checkpoints_remaining {
-                    ClearingCheckpointsForChain::<T>::remove(chain_key);
-                }
-
-                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
+            if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
+                let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                    chain_key,
+                    u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                    Some(&cursor[..]),
+                )
+                .maybe_cursor;
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
             }
 
             <T as Config>::WeightInfo::on_initialize(Self::chains_to_remove_checkpoints_for())

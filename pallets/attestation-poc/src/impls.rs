@@ -461,7 +461,7 @@ impl<T: Config> Pallet<T> {
     // ongoing checkpoint removal is taking place. The output is u32 rather
     // than bool because that's the type benchmarks and weights expect.
     pub(crate) fn chains_to_remove_checkpoints_for() -> u32 {
-        if let Some(_ongoing_removal) = ClearingCheckpointsForChain::<T>::iter().next() {
+        if let Some(_ongoing_removal) = CheckpointClearingCursors::<T>::iter().next() {
             1
         } else {
             0
@@ -535,21 +535,14 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
             // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
             // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
             // block.
-            let iter = Checkpoints::<T>::iter_prefix(chain_key);
-            let mut checkpoints_remaining = false;
-            for (counter, (digest, _)) in iter.enumerate() {
-                if counter >= usize::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK) {
-                    checkpoints_remaining = true;
-                    break;
-                }
-                Checkpoints::<T>::remove(chain_key, digest);
-            }
-
-            // If there are any checkpoints left, then we set a flag to continue
-            // removal next block
-            if checkpoints_remaining {
-                ClearingCheckpointsForChain::<T>::insert(chain_key, true);
-            }
+            let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                chain_key,
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                None,
+            )
+            .maybe_cursor;
+            // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
+            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
         }
 
         Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
