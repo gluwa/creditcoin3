@@ -3004,16 +3004,23 @@ fn withdraw_unbonded_should_error_when_signer_is_not_a_stash() {
 }
 
 #[test]
-fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
+fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
     ExtBuilder.build_and_execute(|| {
+        let dummy_val: u32 = 5000;
         System::set_block_number(1);
 
-        // register attestor
+        // Set up attestors to be chilled
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             attestor.stash.clone(),
             SUPPORTED_CHAIN_KEY,
             attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
         ));
 
         let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
@@ -3022,56 +3029,12 @@ fn on_supported_chain_removed_cleans_up_attestors_and_unlocks_funds() {
             SUPPORTED_CHAIN_KEY,
             attestor2.attestor_id,
         ));
-
-        let min_bond_requirement = Attestation::min_bond_requirement();
-
-        let ledger = Ledger::<Test>::get(STASH_1);
-        assert!(ledger.is_some());
-        let ledger = ledger.unwrap();
-        assert_eq!(ledger.stash, STASH_1);
-        // The total staked amount should be equal to the min bond requirement
-        assert_eq!(ledger.total_staked, min_bond_requirement * 2);
-
-        // Remove chain
-        assert_ok!(SupportedChains::remove_chain(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor2.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.public_key,
+            attestor2.signature
         ));
-
-        // We are no longer staked
-        let ledger = Ledger::<Test>::get(STASH_1);
-        // Ledger is nuked
-        assert!(ledger.is_none());
-
-        // Get balance locks
-        let locks = Balances::locks(STASH_1);
-        assert_eq!(locks.len(), 0);
-
-        let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
-        assert_eq!(locked_balance, 0);
-
-        // Get the last event from pallet attestation poc
-        let all_events = <frame_system::Pallet<Test>>::events();
-        let cleared_storage_event = all_events
-            .into_iter()
-            .filter(|record| matches!(record.event, mock::RuntimeEvent::Attestation(_)))
-            .last()
-            .unwrap()
-            .event;
-        assert_eq!(
-            cleared_storage_event,
-            mock::RuntimeEvent::Attestation(crate::Event::ClearedStorageForRemovedChain(
-                SUPPORTED_CHAIN_KEY
-            ))
-        );
-    })
-}
-
-#[test]
-fn on_supported_chain_removed_cleans_up_all_storage_other_than_attestors_and_checkpoints() {
-    ExtBuilder.build_and_execute(|| {
-        let dummy_val: u32 = 5000;
-        System::set_block_number(1);
 
         // Set up all storage items we want to remove:
         ActiveAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, vec![ATTESTOR_1]);
@@ -3116,10 +3079,16 @@ fn on_supported_chain_removed_cleans_up_all_storage_other_than_attestors_and_che
         // Remove supported chain
         assert_ok!(SupportedChains::remove_chain(
             RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY
+            SUPPORTED_CHAIN_KEY,
+            true
         ));
 
-        // Check that all storage items have been cleared
+        // Check that attestors were chilled
+        for (_, attestor) in Attestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY) {
+            assert_eq!(attestor.status, AttestorStatus::Idle);
+        }
+
+        // Check that storage items have been cleared
         assert_eq!(
             ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
             Vec::<mock::AccountId>::new()
@@ -3202,7 +3171,8 @@ fn on_supported_chain_removed_and_on_initialize_eventually_clean_up_checkpoints(
         // Remove supported chain
         assert_ok!(SupportedChains::remove_chain(
             RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY
+            SUPPORTED_CHAIN_KEY,
+            true
         ));
 
         assert_eq!(

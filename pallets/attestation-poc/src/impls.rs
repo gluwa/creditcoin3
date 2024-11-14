@@ -452,15 +452,31 @@ impl<T: Config> Pallet<T> {
 
     fn chill_all_attestors_for_chain(chain_key: ChainKey) {
         let attestors = Attestors::<T>::iter_prefix(chain_key);
-        for (attestor_id, attestor) in attestors {}
+        for (attestor_id, attestor) in attestors {
+            Self::do_chill_attestor(chain_key, attestor_id, attestor);
+        }
     }
 
+    // We use this to determine whether there is at least one chain for which
+    // ongoing checkpoint removal is taking place. The output is u32 rather
+    // than bool because that's the type benchmarks and weights expect.
     pub(crate) fn chains_to_remove_checkpoints_for() -> u32 {
         if let Some(_ongoing_removal) = ClearingCheckpointsForChain::<T>::iter().next() {
             1
         } else {
             0
         }
+    }
+
+    pub(crate) fn do_chill_attestor(
+        chain_key: ChainKey,
+        attestor_id: T::AccountId,
+        mut attestor: Attestor<T::AccountId>,
+    ) {
+        attestor.status = AttestorStatus::Idle;
+        Attestors::<T>::insert(chain_key, &attestor_id, attestor);
+
+        Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
     }
 }
 

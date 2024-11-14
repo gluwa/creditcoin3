@@ -902,13 +902,10 @@ pub mod pallet {
         pub fn chill(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let mut attestor =
+            let attestor =
                 Attestors::<T>::get(chain_key, &who).ok_or(Error::<T>::AddressNotAttestor)?;
 
-            attestor.status = AttestorStatus::Idle;
-            Attestors::<T>::insert(chain_key, &who, attestor);
-
-            Self::deposit_event(Event::<T>::AttestorChilled(chain_key, who));
+            Self::do_chill_attestor(chain_key, who, attestor);
 
             Ok(())
         }
