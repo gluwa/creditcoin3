@@ -170,48 +170,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    fn force_remove_attestor_and_emit_event(
-        chain_key: ChainKey,
-        attestor: Attestor<T::AccountId>,
-        attestor_id: T::AccountId,
-    ) -> DispatchResult {
-        // Get the min bond requirement for the attestor
-        let bond = Self::min_bond_requirement();
-
-        let mut ledger = Self::ledger(&attestor.stash).ok_or(Error::<T>::NotStash)?;
-        // Value is the minimum of the bond and the active amount
-        let mut value = bond.min(ledger.active);
-
-        if !value.is_zero() {
-            // Decrease the active amount
-            ledger.active -= value;
-
-            // Avoid there being a dust balance left in the staking system.
-            if ledger.active < existential_deposit::<T>() {
-                value += ledger.active;
-                ledger.active = Zero::zero();
-            }
-
-            ledger.total_staked -= value;
-
-            let ed = T::Currency::minimum_balance();
-            if ledger.unlocking.is_empty() && (ledger.active < ed || ledger.active.is_zero()) {
-                // We can now safely remove all staking-related information.
-                Self::kill_stash(&ledger.stash)?;
-            } else {
-                // This resulted in a partial unbond. just update the ledger and move on.
-                ledger.update()?;
-            };
-        }
-
-        // Remove the attestor
-        Attestors::<T>::remove(chain_key, &attestor_id);
-
-        Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
-
-        Ok(())
-    }
-
     pub(super) fn bond_extra(stash: &T::AccountId) -> DispatchResult {
         let bond = Self::min_bond_requirement();
 
@@ -492,19 +450,9 @@ impl<T: Config> Pallet<T> {
         let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
     }
 
-    fn remove_all_attestors_for_chain(chain_key: ChainKey) {
+    fn chill_all_attestors_for_chain(chain_key: ChainKey) {
         let attestors = Attestors::<T>::iter_prefix(chain_key);
-        for (attestor_id, attestor) in attestors {
-            let result =
-                Self::force_remove_attestor_and_emit_event(chain_key, attestor, attestor_id);
-            if let Err(error) = result {
-                log::error!(
-                    "Failure removing all attestors while unregistering chain. chain_key: {:?}, error: {:?}",
-                    chain_key,
-                    error
-                );
-            }
-        }
+        for (attestor_id, attestor) in attestors {}
     }
 
     pub(crate) fn chains_to_remove_checkpoints_for() -> u32 {
@@ -539,7 +487,7 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
 
 impl<T: Config> ChainRemovalListener for Pallet<T> {
     fn on_supported_chain_removed(chain_key: ChainKey, remove_checkpoints: bool) {
-        Self::remove_all_attestors_for_chain(chain_key);
+        Self::chill_all_attestors_for_chain(chain_key);
 
         ActiveAttestors::<T>::remove(chain_key);
 
