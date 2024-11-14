@@ -76,8 +76,6 @@ fn set_min_bond_requirement_should_error_when_not_signed_by_root() {
 #[test]
 fn set_min_bond_requirement_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let min_bond_requirement = Attestation::min_bond_requirement();
         assert_eq!(min_bond_requirement, 10_000);
 
@@ -137,7 +135,6 @@ fn set_chain_reward_should_error_when_chain_is_not_supported() {
 #[test]
 fn set_chain_reward_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
         let chain_reward = 28;
 
         let from_storage = Attestation::chain_reward(SUPPORTED_CHAIN_KEY).unwrap();
@@ -181,8 +178,6 @@ fn chill_should_error_when_not_signed_by_an_attestor() {
 #[test]
 fn chill_should_update_status_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // setup - register attestor
         assert_ok!(Attestation::register_attestor(
             RuntimeOrigin::signed(STASH_1),
@@ -209,8 +204,6 @@ fn chill_should_update_status_and_emit_event() {
 #[test]
 fn register_attestor_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash,
@@ -232,8 +225,6 @@ fn register_attestor_should_update_storage_and_emit_event() {
 #[test]
 fn register_attestor_should_create_ledger_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash,
@@ -277,8 +268,6 @@ fn register_attestor_should_create_ledger_and_emit_event() {
 #[test]
 fn register_attestor_without_sufficient_funds_should_fail() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // Set min bond
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
@@ -299,8 +288,6 @@ fn register_attestor_without_sufficient_funds_should_fail() {
 #[test]
 fn register_attestor_without_sufficient_funds_should_fail_2() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let free_balance = Attestation::get_free_balance(&STASH_3);
         // 100_000 balance - 500 existential deposit
         assert_eq!(free_balance, 99500);
@@ -334,8 +321,6 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
 #[test]
 fn registering_multiple_attestor_increases_locked_balance() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_3, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash,
@@ -374,8 +359,6 @@ fn registering_multiple_attestor_increases_locked_balance() {
 #[test]
 fn registering_dergegistering_multiple_attestor_increases_decreases_locked_balance() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_3, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash,
@@ -425,8 +408,6 @@ fn registering_dergegistering_multiple_attestor_increases_decreases_locked_balan
 #[test]
 fn attestor_should_be_able_to_toggle_status() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
@@ -473,8 +454,6 @@ fn attestor_should_be_able_to_toggle_status() {
 #[test]
 fn attestor_should_be_elected_after_5_blocks_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
@@ -534,8 +513,6 @@ fn attestor_should_be_elected_after_5_blocks_and_emit_event() {
 #[test]
 fn attestor_should_be_not_be_elected_after_5_blocks_if_not_signaling_start() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
@@ -565,8 +542,6 @@ fn attestor_should_be_not_be_elected_after_5_blocks_if_not_signaling_start() {
 #[test]
 fn stash_should_be_able_to_set_payee() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
@@ -603,8 +578,6 @@ fn stash_should_be_able_to_set_payee() {
 #[test]
 fn stash_ledger_schould_increase_when_registering_multiple_attestors() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash,
@@ -1032,8 +1005,6 @@ fn unregister_attestor_should_error_when_address_is_not_registered_as_attestor()
 #[test]
 fn unregister_attestor_should_update_storage_and_emit_an_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // setup
         let att = Attestor::new(STASH_1, ATTESTOR_1);
 
@@ -1064,8 +1035,6 @@ fn unregister_attestor_should_update_storage_and_emit_an_event() {
 #[test]
 fn unregister_invulnerable_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // setup
         assert!(!Invulnerables::<Test>::contains_key(
             SUPPORTED_CHAIN_KEY,
@@ -1178,8 +1147,6 @@ fn unregister_invulnerable_should_fail_when_address_is_an_attestor_but_not_invul
 #[test]
 fn set_committee_set_size_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         assert_noop!(
             Attestation::set_committee_set_size(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, 512),
             BadOrigin
@@ -1202,8 +1169,6 @@ fn set_committee_set_size_should_error_when_not_signed_by_root() {
 #[test]
 fn set_committee_set_size_should_fail_with_set_size_less_than_1() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let new_committee_size = 0;
         assert_noop!(
             Attestation::set_committee_set_size(
@@ -1219,8 +1184,6 @@ fn set_committee_set_size_should_fail_with_set_size_less_than_1() {
 #[test]
 fn set_committee_set_size_should_update_storage_and_emit_an_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let committee_size = Attestation::committee_set_size(SUPPORTED_CHAIN_KEY);
         assert_eq!(committee_size, CommitteeSetSizeDefault::<Test>::get());
 
@@ -1275,8 +1238,6 @@ fn register_invulnerable_should_error_when_not_signed_by_root() {
 #[test]
 fn register_invulnerable_adds_attestor_and_invulnerable_and_emits_events() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         assert!(!Invulnerables::<Test>::contains_key(
             SUPPORTED_CHAIN_KEY,
             ATTESTOR_1
@@ -1322,8 +1283,6 @@ fn remove_invulnerable_works() {
 #[test]
 fn set_chain_attestation_interval_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let chain_attestation_interval = 101;
 
         assert_noop!(
@@ -1340,8 +1299,6 @@ fn set_chain_attestation_interval_should_error_when_not_signed() {
 #[test]
 fn set_chain_attestation_interval_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let chain_attestation_interval = 101;
 
         let acct: AccountId = 4;
@@ -1419,8 +1376,6 @@ fn on_new_epoch_randomness_updates_attestation_interval_with_pending_value_and_e
     ExtBuilder.build_and_execute(|| {
         // Set up pending interval change
         assert_eq!(<Test as pallet_babe::Config>::EpochDuration::get(), 3);
-        System::set_block_number(1);
-        Timestamp::set_timestamp(1);
 
         // this sets the genesis slot to 6;
         go_to_block(1, 6);
@@ -1582,8 +1537,6 @@ fn bootstrap_chain_should_error_when_chain_is_unsupported() {
 #[test]
 fn bootstrap_chain_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 1, None);
         let expected_checkpoint = AttestationCheckpoint {
@@ -1887,7 +1840,6 @@ fn test_signing() {
 #[test]
 fn creating_checkpoint_works() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
         // Setup almost two full checkpoints of attestations, so that
         // the next attestation submitted triggers checkpoint creation.
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -1982,8 +1934,6 @@ fn creating_checkpoint_works() {
 fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_match_attestations_map()
 {
     ExtBuilder.build_and_execute(|| {
-        // Needed to emit event
-        System::set_block_number(1);
         // Setup almost two full checkpoints of attestations, so that
         // the next attestation submitted triggers checkpoint creation.
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -2087,8 +2037,6 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
 #[test]
 fn removing_attestor_and_unbonding_staked_funds_work() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // register attestor
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -2162,8 +2110,6 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
 #[test]
 fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // register attestor
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -2208,8 +2154,6 @@ fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
 #[test]
 fn removing_attestor_and_withdrawing_fails_if_not_waited_long_enough() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // register attestor
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -2271,8 +2215,6 @@ fn removing_attestor_and_withdrawing_fails_if_not_waited_long_enough() {
 #[test]
 fn unregistering_attestor_which_is_not_yours_fails() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         // register attestor
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -2295,8 +2237,6 @@ fn unregistering_attestor_which_is_not_yours_fails() {
 #[test]
 fn unregistering_non_existant_attestor_fails() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         assert_noop!(
             Attestation::unregister_attestor(
                 RuntimeOrigin::signed(STASH_1),
@@ -3007,7 +2947,6 @@ fn withdraw_unbonded_should_error_when_signer_is_not_a_stash() {
 fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
     ExtBuilder.build_and_execute(|| {
         let dummy_val: u32 = 5000;
-        System::set_block_number(1);
 
         // Set up attestors to be chilled
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -3152,8 +3091,6 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
 #[test]
 fn on_supported_chain_removed_cleans_up_checkpoints() {
     ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
         for j in 0..MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
             let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
             let checkpoint = AttestationCheckpoint {
