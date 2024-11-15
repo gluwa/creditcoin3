@@ -9,6 +9,7 @@ use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use frame_support::{assert_noop, assert_ok};
 use sp_core::{Get, H256};
+use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
 
 #[derive(Debug, Clone)]
@@ -3071,69 +3072,87 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
         );
         assert_eq!(ChainReward::<Test>::get(SUPPORTED_CHAIN_KEY), None);
 
-        // Get the last event from pallet attestation poc
-        let all_events = <frame_system::Pallet<Test>>::events();
-        let cleared_storage_event = all_events
-            .into_iter()
-            .filter(|record| matches!(record.event, mock::RuntimeEvent::Attestation(_)))
-            .last()
-            .unwrap()
-            .event;
-        assert_eq!(
-            cleared_storage_event,
-            mock::RuntimeEvent::Attestation(crate::Event::ClearedStorageForRemovedChain(
-                SUPPORTED_CHAIN_KEY
-            ))
+        System::assert_has_event(
+            crate::Event::ClearedStorageForRemovedChain(SUPPORTED_CHAIN_KEY).into(),
         );
     })
 }
 
+// Repeated calls to clear_prefix within the same block do not stack. For this reason
+// we need to commit storage overlays to backend storage between calls to clear_prefix.
+// In doing so, we simulate the committing of changes at the end of a block.
+#[extend::ext]
+impl TestExternalities {
+    fn run<F: FnOnce() -> R, R>(&mut self, f: F) -> R {
+        let res = self.execute_with(f);
+        self.commit_all().unwrap();
+        res
+    }
+    fn then_run(&mut self, f: impl FnOnce()) -> &mut TestExternalities {
+        self.run(f);
+        self
+    }
+}
+
 #[test]
 fn on_supported_chain_removed_cleans_up_checkpoints() {
-    ExtBuilder.build_and_execute(|| {
-        for j in 0..MAX_CHECKPOINTS_CLEARED_PER_BLOCK {
-            let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
-            let checkpoint = AttestationCheckpoint {
-                block_number: j as u64 * 100, // Mimic gap between checkpoint blocks
-                digest: checkpoint_digest,
-            };
-            Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint_digest, checkpoint);
-        }
+    let added_checkpoints = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10;
+    let mut test_ext = ExtBuilder.build();
+    test_ext
+        .then_run(|| {
+            for i in 0..added_checkpoints {
+                let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[i]));
+                let checkpoint = AttestationCheckpoint {
+                    block_number: i as u64 * 100, // Mimic gap between checkpoint blocks
+                    digest: checkpoint_digest,
+                };
+                crate::Checkpoints::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    checkpoint_digest,
+                    checkpoint,
+                );
+            }
+            System::set_block_number(1);
+            Timestamp::set_timestamp(1);
 
-        assert_eq!(
-            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
-            MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize
-        );
+            assert_eq!(
+                Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize * 2 + 10
+            );
+        })
+        .then_run(|| {
+            // Remove supported chain
+            assert_ok!(SupportedChains::remove_chain(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                true
+            ));
 
-        // Remove supported chain
-        assert_ok!(SupportedChains::remove_chain(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            true
-        ));
+            assert_eq!(
+                Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize + 10
+            );
+        })
+        .then_run(|| {
+            progress_to_block(2);
 
-        assert_eq!(
-            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
-            0
-        );
-        assert_eq!(
-            CheckpointClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
-            None
-        );
+            assert_eq!(
+                Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                10
+            );
+        })
+        .run(|| {
+            progress_to_block(3);
 
-        // Get the last event from pallet attestation poc
-        let all_events = <frame_system::Pallet<Test>>::events();
-        let cleared_storage_event = all_events
-            .into_iter()
-            .filter(|record| matches!(record.event, mock::RuntimeEvent::Attestation(_)))
-            .last()
-            .unwrap()
-            .event;
-        assert_eq!(
-            cleared_storage_event,
-            mock::RuntimeEvent::Attestation(crate::Event::ClearedStorageForRemovedChain(
-                SUPPORTED_CHAIN_KEY
-            ))
-        );
-    })
+            assert_eq!(
+                Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                0
+            );
+            assert_eq!(
+                CheckpointClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                None
+            );
+
+            System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
+        })
 }

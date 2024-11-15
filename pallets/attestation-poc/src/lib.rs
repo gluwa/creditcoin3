@@ -497,9 +497,15 @@ pub mod pallet {
                 )
                 .maybe_cursor;
                 CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
-            }
 
-            <T as Config>::WeightInfo::on_initialize(Self::chains_to_remove_checkpoints_for())
+                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
+
+                // Cleared checkpoints for 1 chain
+                <T as Config>::WeightInfo::on_initialize(1)
+            } else {
+                // Cleared checkpoints for 0 chains
+                <T as Config>::WeightInfo::on_initialize(0)
+            }
         }
     }
 
