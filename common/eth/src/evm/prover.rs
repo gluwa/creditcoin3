@@ -96,6 +96,9 @@ impl GluwaPublicProverContract {
                 .collect::<Vec<_>>(),
         };
 
+        // probably here we can pass another argument like distance to nearest
+        // checkpoint to be included in the cost calculations
+        // TODO: add distance to nearest checkpoint to the query
         let builder = contract.computeQueryCost(query);
         let cost = builder.call().await?._0;
 
