@@ -141,9 +141,32 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     function withdrawProceeds() public onlyOwner {
-        // requires owner guard
+        // requires owner guard ?? imo not needed since onlyOwner
         // allows the prover to withdraw the balance of the contract that's not
         // still escrowed
+
+        // I dont see @totalEscrowBalance being used so I calculate the total escrowed amount again
+        uint256 totalEscrowed = 0;
+        for (uint256 i = 0; i < queryIds.length; i++) {
+            QueryId queryId = queryIds[i];
+
+            // If the query is in submitted state add the escrowedAmount to the total escrowed
+            if (queries[queryId].state == QueryState.Submitted) {
+                totalEscrowed += Balance.unwrap(queries[queryId].escrowedAmount);
+            }
+        }
+
+        // Compute the withdrawable balance
+        uint256 contractBalance = address(this).balance;
+        uint256 withdrawable = contractBalance > totalEscrowed ? contractBalance - totalEscrowed : 0;
+
+        require(withdrawable > 0, "No withdrawable proceeds available");
+
+        // Transfer the amount to the proceeds account
+        (bool success, ) = proceedsAccount.call{value: withdrawable}("");
+        require(success, "Failed to Withdraw proceeds");
+
+        emit ProceedsWithdrawn(proceedsAccount, withdrawable);
     }
 
     function getUnprocessedQueries() public view returns (Query[] memory) {
