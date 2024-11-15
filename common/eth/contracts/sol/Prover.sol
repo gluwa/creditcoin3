@@ -19,6 +19,12 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     function computeQueryCost(Query calldata query) public pure returns (uint256) {
+        // Cost function is based on the size of the query layoutsegments
+        // I think it should also somehow include the distance between the required
+        // block height and its nearest checkpoint or something of sorts (if distance
+        // to a checkpoint determines the time prover needs to generate the proof)
+        // not sure yet how to implement something like that
+
         // Define the base cost per byte
         uint256 baseCostPerByte = 10; // Dummy default value for now
 
