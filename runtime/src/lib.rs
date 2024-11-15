@@ -39,7 +39,7 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
         OnTimestampSet,
     },
     weights::{
