@@ -20,8 +20,11 @@ WORKDIR /creditcoin-node
 FROM runtime-base AS devel-base
 USER 0
 # NOTE: only devel releated dependencies here
-RUN apt-get install -y --no-install-recommends \
-    gcc libgmp-dev libpq-dev make python3.10-dev python3-virtualenv
+RUN apt-get install -y --no-install-recommends software-properties-common && \
+    add-apt-repository ppa:ethereum/ethereum && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc libgmp-dev libpq-dev make python3.10-dev python3-virtualenv solc
 USER creditcoin
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 ENV PATH=/creditcoin-node/venv/bin:${PATH} \
@@ -50,6 +53,8 @@ RUN source ~/.cargo/env && \
 
 
 FROM devel-base AS cli-builder
+WORKDIR /creditcoin-node/precompiles/metadata
+RUN solc --version && ./abi-creator.sh
 WORKDIR /creditcoin-node/cli
 RUN yarn install && yarn build && yarn pack
 

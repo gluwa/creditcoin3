@@ -773,6 +773,18 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
       - name: Configure testing environment
         id: test-env
         working-directory: ./cli
@@ -1411,6 +1423,18 @@ jobs:
           node-version: 20
       - run: npm install -g yarn
 
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
       - name: Run attestation tests
         working-directory: ./cli
         run: |
@@ -1686,6 +1710,18 @@ jobs:
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
@@ -1745,6 +1781,18 @@ jobs:
       - name: Wait for node(s)s to start
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
 
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
@@ -1839,6 +1887,18 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
 
       - name: Run tools
         working-directory: ${{ matrix.directory }}

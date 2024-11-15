@@ -60,20 +60,3 @@ else
 
     exit 3
 fi
-
-# shellcheck disable=SC2046
-ABI_FROM_TEST=$(cat $(find ./cli/src/test/blockchain-tests/artifacts/*.json | grep -v SendForYou))
-if [ "$ABI_FROM_DISK" == "$ABI_FROM_TEST" ]; then
-    echo "INFO: ABI on disk matches ABI in tests"
-else
-    echo "FAIL: ABI on disk differs from ABI in tests"
-    echo "TODO: Update the tests to make sure we're testing what we build"
-
-    echo "FROM_DISK=$ABI_FROM_DISK"
-    echo "FROM_TEST=$ABI_FROM_TEST"
-    echo "========================"
-
-    diff -u <(echo "$ABI_FROM_DISK") <(echo "$ABI_FROM_TEST") | colordiff
-
-    exit 4
-fi
