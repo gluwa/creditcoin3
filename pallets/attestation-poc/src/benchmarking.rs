@@ -560,7 +560,7 @@ mod benchmarks {
         // pessemistic weight.
         if a == 1 {
             let chain_key = 5;
-            for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK + 10) {
+            for j in 0..(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10) {
                 let checkpoint_digest = H256::from(&sp_io::hashing::blake2_256(&[j]));
                 let checkpoint = AttestationCheckpoint {
                     block_number: j as u64 * 100, // Mimic gap between checkpoint blocks
@@ -569,7 +569,14 @@ mod benchmarks {
                 Checkpoints::<T>::insert(chain_key, checkpoint_digest, checkpoint);
             }
 
-            ClearingCheckpointsForChain::<T>::insert(chain_key, true);
+            // Mimic the effects of on_supported_chain_removed
+            let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                chain_key,
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                None,
+            )
+            .maybe_cursor;
+            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
         }
 
         #[block]

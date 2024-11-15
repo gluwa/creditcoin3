@@ -46,6 +46,7 @@ mod benchmarks {
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             chain_id,
+            true,
         )
     }
 }
