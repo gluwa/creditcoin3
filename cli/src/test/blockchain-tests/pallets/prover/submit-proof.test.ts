@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { u8aToHex } from '../../../../lib/common';
 import { extractFee } from '../../../utils';
 import { starkProgramHash, starkProgramVersion } from './consts';
-import validProof = require('./valid_proof.json');
+import validProof = require('../../artifacts/valid_proof.json');
 
 describe('SubmitProof', (): void => {
     let api: ApiPromise;

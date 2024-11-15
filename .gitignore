@@ -60,7 +60,6 @@ data/db/*
 **/*output.txt
 **/program_input*.json
 #**/block_*.json
-**/proof_*.json
 **/*compiled.json
 **/*trace.json
 **/*memory.json
