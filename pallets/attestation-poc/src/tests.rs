@@ -3023,10 +3023,20 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
             true
         ));
 
-        // Check that attestors were chilled
-        for (_, attestor) in Attestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY) {
-            assert_eq!(attestor.status, AttestorStatus::Idle);
-        }
+        // Check that attestor 1 is chilled
+        assert_eq!(
+            Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
+                .unwrap()
+                .status,
+            AttestorStatus::Idle
+        );
+        // Check that attestor 2 is chilled
+        assert_eq!(
+            Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor2.attestor_id)
+                .unwrap()
+                .status,
+            AttestorStatus::Idle
+        );
 
         // Check that storage items have been cleared
         assert_eq!(
