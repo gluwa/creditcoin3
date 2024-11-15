@@ -18,12 +18,25 @@ contract CreditcoinPublicProver is Ownable {
         proceedsAccount = _proceedsAccount;
     }
 
-    function computeQueryCost(Query calldata /*query*/) public pure returns (uint256) {
-        // An arbitrary cost function defined by the prover.
-        // The cost may be a function of the query's target height,
-        // the number of segments, the number of bytes in each segment, etc.
-        return 1337;
+    function computeQueryCost(Query calldata query) public pure returns (uint256) {
+        // Define the base cost per byte
+        uint256 baseCostPerByte = 10; // Dummy default value for now
+
+        // Define a base fee for the query submission
+        uint256 baseFee = 1000; // Dummy default value for now
+
+        // Calculate the total size of the query based on its layout segments
+        uint256 totalBytes = 0;
+        for (uint256 i = 0; i < query.layoutSegments.length; i++) {
+            totalBytes += query.layoutSegments[i].size;
+        }
+
+        // Calculate the total cost as a function of the size and base cost
+        uint256 cost = (totalBytes * baseCostPerByte) + baseFee;
+
+        return cost;
     }
+
 
     function submitQuery(Query calldata query, address principal) public payable {
         // Guards
@@ -176,3 +189,5 @@ interface QueryVerifierContract {
 event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, Query query);
 event QueryProofVerified(QueryId indexed queryId, bytes proof);
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
+event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
+
