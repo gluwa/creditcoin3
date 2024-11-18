@@ -654,7 +654,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [devnet, ci]
+        target: [benchmarks, ci]
     name: build-creditcoin-node-for-testing-${{ matrix.target }}
     runs-on:
       [
@@ -692,16 +692,16 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Extra compiler flags
-        if: matrix.target == 'devnet'
+        if: matrix.target == 'benchmarks'
         id: compiler-flags
         run: |
-          echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
+          echo "extra=--features=runtime-benchmarks" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: --release --features=fast-runtime --features=runtime-benchmarks ${{ steps.compiler-flags.outputs.extra }}
+          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
@@ -873,7 +873,7 @@ jobs:
           - proxy: benchmark
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
-          - proxy: build-creditcoin-node-for-testing-devnet
+          - proxy: build-creditcoin-node-for-testing-benchmarks
           - proxy: build-creditcoin-node-for-testing-ci
           - proxy: clippy
           - proxy: check
@@ -1120,7 +1120,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - proxy: build-creditcoin-node-for-testing-devnet
+          - proxy: build-creditcoin-node-for-testing-benchmarks
           - proxy: build-creditcoin-node-for-testing-ci
 
     steps:
@@ -1991,7 +1991,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: creditcoin-node-for-testing-benchmarks
           path: target/release
 
       - name: Check if runner machine meets chain's requirements
