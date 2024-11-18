@@ -1,6 +1,6 @@
-// see StarkProgramMetadataStorage in primitives/prover/src/stark_program_auth.rs
+// see STARK_PROGRAM_V2_HASH in primitives/prover/src/stark_program_auth.rs
 export const starkProgramHash = new Uint8Array([
-    232, 88, 85, 136, 197, 79, 34, 49, 253, 15, 116, 194, 99, 235, 158, 244, 247, 191, 215, 123, 22, 67, 23, 250, 78,
-    242, 36, 224, 60, 55, 37, 201,
+    23, 60, 142, 139, 65, 10, 94, 136, 148, 221, 116, 19, 248, 132, 191, 237, 163, 61, 32, 184, 115, 108, 71, 87, 26,
+    208, 49, 13, 0, 45, 173, 249,
 ]);
-export const starkProgramVersion = 3;
+export const starkProgramVersion = 2;
