@@ -1694,6 +1694,10 @@ jobs:
       - name: Run blockchain tests
         working-directory: ./cli
         run: |
+          # configure the path so we can discover external binaries
+          VERIFIER_PATH=$(readlink -f ../cairo/stone-verifier)
+          export PATH="$PATH:$VERIFIER_PATH"
+
           yarn test:blockchain
 
       - name: Kill nodes

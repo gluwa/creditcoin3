@@ -1,6 +1,8 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
+import { u8aToHex } from '../../../../lib/common';
 import { extractFee } from '../../../utils';
 import { starkProgramHash, starkProgramVersion } from './consts';
+import validProof = require('./valid_proof.json');
 
 describe('SubmitProof', (): void => {
     let api: ApiPromise;
@@ -21,8 +23,6 @@ describe('SubmitProof', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
-        // note: these are dummy values used only to extract the fee
-        const proof = '0x012345';
         const query = {
             chainId: 0,
             height: 0,
@@ -34,6 +34,8 @@ describe('SubmitProof', (): void => {
                 },
             ],
         };
+        // this is a hex encoded bytes array
+        const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
 
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.prover
