@@ -39,7 +39,7 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
         OnTimestampSet,
     },
     weights::{
@@ -150,7 +150,7 @@ pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
-pub const MILLI_CTC: u128 = 1_000_000_000_000_000;
+pub const CENTS: u128 = CTC / 100;
 
 // WARNING: the next should be defined on a single line b/c of
 // the assertions made in .github/check-for-changes-in-epoch-duration.sh
@@ -341,8 +341,8 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
     type Balance = Balance;
 
     fn polynomial() -> frame_support::weights::WeightToFeeCoefficients<Self::Balance> {
-        let p = MILLI_CTC / 2;
-        let q = 100 * Balance::from(ExtrinsicBaseWeight::get().ref_time());
+        let p = CENTS;
+        let q = 10 * Balance::from(ExtrinsicBaseWeight::get().ref_time());
         smallvec::smallvec![WeightToFeeCoefficient {
             degree: 1,
             negative: false,
@@ -352,8 +352,11 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
     }
 }
 
+pub const TRANSACTION_BYTE_FEE: Balance = 10 * CENTS / 1_000;
+
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
+    pub const TransactionByteFee: Balance = TRANSACTION_BYTE_FEE;
 }
 
 impl pallet_transaction_payment::Config for Runtime {
@@ -361,7 +364,7 @@ impl pallet_transaction_payment::Config for Runtime {
     type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
     type OperationalFeeMultiplier = ConstU8<1u8>;
     type WeightToFee = WeightToCtcFee<Runtime>;
-    type LengthToFee = ConstantMultiplier<u128, ConstU128<1_500_000_000u128>>;
+    type LengthToFee = ConstantMultiplier<u128, TransactionByteFee>;
     type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
