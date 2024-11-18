@@ -94,7 +94,6 @@ impl GluwaPublicProverContract {
                     size: l.size,
                 })
                 .collect::<Vec<_>>(),
-            data: query.data,
         };
 
         // probably here we can pass another argument like distance to nearest
@@ -173,7 +172,6 @@ impl GluwaPublicProverContract {
                         size: l.size,
                     })
                     .collect::<Vec<_>>(),
-                data: query_submitted.query.data,
             };
 
             query_channel.send(query)?;
@@ -205,7 +203,6 @@ impl GluwaPublicProverContract {
                     size: l.size,
                 })
                 .collect::<Vec<_>>(),
-            data: query.data,
         };
 
         let builder = contract

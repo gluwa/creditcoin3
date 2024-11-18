@@ -16,7 +16,6 @@ benchmarks! {
             height: 1,
             index: 1,
             layout_segments: vec![],
-            data: vec![],
         };
         let query_id = query.id();
 

@@ -32,7 +32,6 @@ pub struct Query {
     pub height: u64,
     pub index: u64,
     pub layout_segments: Vec<LayoutSegment>,
-    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec)]

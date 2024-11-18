@@ -26,7 +26,6 @@ fn submit_proof_should_error_when_not_signed() {
             height: 1,
             index: 1,
             layout_segments: vec![],
-            data: vec![],
         };
 
         assert_noop!(
@@ -46,7 +45,6 @@ fn submit_proof_should_error_when_proof_is_empty() {
             height: 1,
             index: 1,
             layout_segments: vec![],
-            data: vec![],
         };
 
         assert_noop!(
@@ -75,7 +73,6 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
             height: 1,
             index: 1,
             layout_segments: vec![],
-            data: vec![],
         };
 
         assert_noop!(
@@ -104,7 +101,6 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
             height: 1,
             index: 1,
             layout_segments: vec![LayoutSegment { offset: 0, size: 1 }],
-            data: vec![1],
         };
 
         assert_ok!(ProverModule::submit_proof(
@@ -140,7 +136,6 @@ fn submit_proof_should_error_when_stark_metadata_not_set() {
             height: 1,
             index: 1,
             layout_segments: vec![],
-            data: vec![],
         };
 
         assert_err!(
@@ -173,7 +168,6 @@ fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
             height: 1,
             index: 1,
             layout_segments: vec![],
-            data: vec![],
         };
 
         assert_noop!(

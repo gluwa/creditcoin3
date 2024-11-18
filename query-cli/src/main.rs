@@ -101,7 +101,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         chain_id: prompt.network.id(),
         index: tx_index as u64,
         layout_segments,
-        data,
     };
 
     let query_id = query.id();
@@ -143,7 +142,6 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
             offset: 0,
             size: 99326,
         }],
-        data: vec![0; 99326],
     };
 
     let query_id = query.id();
