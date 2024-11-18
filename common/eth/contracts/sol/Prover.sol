@@ -16,6 +16,7 @@ contract CreditcoinPublicProver is Ownable {
     constructor(address _proceedsAccount) Ownable() {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
+        totalEscrowBalance = Balance.wrap(0);
     }
 
     function computeQueryCost(Query calldata query) public pure returns (uint256) {
@@ -53,6 +54,8 @@ contract CreditcoinPublicProver is Ownable {
 
         uint256 estimatedCost = computeQueryCost(query);
         require(msg.value > estimatedCost);
+
+        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
         // Store query details
         // .state
@@ -99,8 +102,13 @@ contract CreditcoinPublicProver is Ownable {
         require(state == QueryState.TimedOut || state == QueryState.InvalidQuery);
 
         uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
+
+        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - escrowedAmount);
+
         (bool sent, ) = msg.sender.call{value: escrowedAmount}("");
         require(sent, "Failed to send Fee");
+
+        queries[queryId].escrowedAmount = Balance.wrap(0);
 
         emit EscrowedPaymentReclaimed(queryId, escrowedAmount);
     }
@@ -113,9 +121,14 @@ contract CreditcoinPublicProver is Ownable {
         // Calculate the prover's fee
         // Transfer the prover's fee to the prover
         uint256 proverFee = Balance.unwrap(queries[queryId].escrowedAmount);
+
+        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
+
         // Send to proceedsAccount
         (bool sent, ) = proceedsAccount.call{value: proverFee}("");
         require(sent, "Failed to send Fee");
+
+        queries[queryId].escrowedAmount = Balance.wrap(0);
 
         // Check the result of the proof verification
         // After the fee is processed, the state of the query should be updated
@@ -141,23 +154,12 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     function withdrawProceeds() public onlyOwner {
-        // requires owner guard ?? imo not needed since onlyOwner
         // allows the prover to withdraw the balance of the contract that's not
         // still escrowed
 
-        // I dont see @totalEscrowBalance being used so I calculate the total escrowed amount again
-        uint256 totalEscrowed = 0;
-        for (uint256 i = 0; i < queryIds.length; i++) {
-            QueryId queryId = queryIds[i];
-
-            // If the query is in submitted state add the escrowedAmount to the total escrowed
-            if (queries[queryId].state == QueryState.Submitted) {
-                totalEscrowed += Balance.unwrap(queries[queryId].escrowedAmount);
-            }
-        }
-
         // Compute the withdrawable balance
         uint256 contractBalance = address(this).balance;
+        uint256 totalEscrowed = Balance.unwrap(totalEscrowBalance);
         uint256 withdrawable = contractBalance > totalEscrowed ? contractBalance - totalEscrowed : 0;
 
         require(withdrawable > 0, "No withdrawable proceeds available");
