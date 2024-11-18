@@ -9,10 +9,8 @@ use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::{OnInitialize, OriginTrait};
 use sp_core::H256;
-use sp_runtime::traits::Bounded;
-use sp_runtime::traits::One;
-use sp_std::vec;
-use sp_std::vec::Vec;
+use sp_runtime::traits::{Bounded, One};
+use sp_std::vec::{self, Vec};
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
