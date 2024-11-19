@@ -3166,3 +3166,56 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
             System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
         })
 }
+
+#[test]
+fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
+    ExtBuilder.build_and_execute(|| {
+        // Set up attestor
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        // Check that attestor 1 is present and active
+        assert_eq!(
+            Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
+                .unwrap()
+                .status,
+            AttestorStatus::Active
+        );
+
+        // Remove supported chain
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true
+        ));
+
+        // Check that attestor 1 is present but inactive
+        assert_eq!(
+            Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
+                .unwrap()
+                .status,
+            AttestorStatus::Idle
+        );
+
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
+        ));
+
+        assert_eq!(
+            Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id),
+            None
+        );
+    })
+}
