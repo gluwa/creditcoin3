@@ -28,7 +28,7 @@ describe('RemoveChain', (): void => {
     it('fee is min 0.01 CTC', async (): Promise<void> => {
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
-                .sudo(api.tx.supportedChains.removeChain(chainKey))
+                .sudo(api.tx.supportedChains.removeChain(chainKey, true))
                 .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
