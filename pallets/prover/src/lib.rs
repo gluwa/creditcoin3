@@ -112,10 +112,10 @@ pub mod pallet {
             match result {
                 0 => (),
                 1..=5 => return Err(Error::<T>::FileError.into()),
-                6 => return Err(Error::<T>::ProofParseError.into()),
-                7 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
-                8 => return Err(Error::<T>::VerifierExecutionError.into()),
-                9 => return Err(Error::<T>::VerifierProcessError.into()),
+                6 | 7 => return Err(Error::<T>::ProofParseError.into()),
+                8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
+                9 => return Err(Error::<T>::VerifierExecutionError.into()),
+                10 => return Err(Error::<T>::VerifierProcessError.into()),
                 _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
             }
 

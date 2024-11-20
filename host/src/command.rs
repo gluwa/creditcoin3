@@ -6,23 +6,19 @@ use std::{
     collections::HashMap,
     env, fs,
     io::Write,
-    ops::Range,
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, PersistError};
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::ClaimValidationError;
-use prover_primitives::claim::ClaimValidationError::{
-    ClaimIdNotValidated, ClaimOutOfBounds, QueryOffsetsMismatch,
-};
+use prover_primitives::claim::ClaimValidationError::{ClaimIdNotValidated, ClaimOutOfBounds};
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
     StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
-use utils::pedersen_hash::pedersen_array;
-use utils::{utils::felts_from_bytes, Felt};
+use utils::utils::felts_from_bytes;
 
 use thiserror::Error;
 
@@ -42,6 +38,9 @@ pub enum VerifierError {
 
     #[error("Failed to parse proof JSON")]
     ProofParseError(#[from] serde_json::Error),
+
+    #[error("Failed to convert StoneProof to CairoVerifierOutput: {0}")]
+    CairoVerifierOutputConversionError(String),
 
     #[error("Failed to authenticate STARK program: {0}")]
     StarkProgramAuthError(#[from] StarkProgramAuthError),
@@ -83,17 +82,24 @@ impl VerifierError {
                 log::error!("error parsing the proof: {:?}", e);
                 6
             }
+            VerifierError::CairoVerifierOutputConversionError(e) => {
+                log::error!(
+                    "error converting StoneProof to CairoVerifierOutput: {:?}",
+                    e
+                );
+                7
+            }
             VerifierError::StarkProgramAuthError(e) => {
                 log::error!("stark program authentication error: {:?}", e);
-                7
+                8
             }
             VerifierError::VerifierExecutionError => {
                 log::error!("error running verifier");
-                8
+                9
             }
             VerifierError::VerifierProcessError(e) => {
                 log::error!("verifier was not able to verify the proof: {:?}", e);
-                9
+                10
             }
         }
     }
@@ -124,15 +130,6 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                // validate query hash
-                let query_offsets_hash = query_hash(&query);
-                if query_offsets_hash != cairo_verifier_output.query_hash {
-                    return Err(QueryOffsetsMismatch(
-                        cairo_verifier_output.query_hash,
-                        query_offsets_hash,
-                    ));
-                }
-
                 Ok(())
             }
         }
@@ -142,22 +139,6 @@ pub fn validate_query_against_proof(
             cairo_verifier_output.claim_index,
         )),
     }
-}
-
-fn query_hash(query: &Query) -> Felt {
-    let felt_offsets = query
-        .layout_segments
-        .iter()
-        .map(|layout| Range {
-            start: usize::try_from(layout.offset).expect("layout offset is too large"),
-            end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
-        })
-        .collect::<Vec<_>>()
-        .iter()
-        .flat_map(|range| range.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
-        .collect::<Vec<Felt>>();
-
-    pedersen_array(&felt_offsets[..])
 }
 
 pub fn run_verifier(
@@ -181,8 +162,6 @@ pub fn run_verifier(
         .strip_off_prover_config()
         .strip_off_private_input();
 
-    let cairo_verifier_output = CairoVerifierOutput::try_from(stone_proof.proof()).unwrap();
-
     // Last version is the highest version in the metadata
     let last_version = metadata.last().map(|(v, _)| *v).unwrap_or(0);
     // Prepare cairo program metadata
@@ -205,9 +184,18 @@ pub fn run_verifier(
         blake2_256_stark_program_auth_hasher,
     )?;
 
+    let cairo_verifier_output =
+        CairoVerifierOutput::try_from(stone_proof.proof()).map_err(|e| {
+            log::error!(
+                "Failed to convert StoneProof to CairoVerifierOutput: {:?}",
+                e
+            );
+            VerifierError::CairoVerifierOutputConversionError(e)
+        })?;
+
     match validate_query_against_proof(query.clone(), &cairo_verifier_output) {
         Ok(_) => log::debug!("Query validated successfully"),
-        Err(_e) => return Err(VerifierError::VerifierExecutionError),
+        Err(e) => return Err(VerifierError::VerifierProcessError(e.to_string())),
     }
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);
@@ -239,6 +227,9 @@ pub mod tests {
     use prover_primitives::stark_program_auth::StarkProgramAuthError;
     use sp_core::H256;
 
+    // note: the proof example has changed, the proof_example.json file is now
+    // in correspondence with the provided query and metadata (block 1, index 0, full data layout),
+    // thus the proof is valid and should be verified successfully
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
         let proof_path = "../cairo/stone-verifier/proof_example.json";
@@ -248,8 +239,11 @@ pub mod tests {
         let query = Query {
             chain_id: 31337,
             height: 1,
-            index: 1,
-            layout_segments: vec![LayoutSegment { offset: 0, size: 5 }],
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
         };
 
         let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
@@ -314,7 +308,7 @@ pub mod tests {
         let query = Query {
             chain_id: 31337,
             height: 1,
-            index: 1,
+            index: 0,
             layout_segments: vec![],
         };
 

@@ -5,7 +5,7 @@ use core::ops::Range;
 use rlp::Rlp;
 use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
-use sp_std::{vec, vec::Vec};
+use sp_std::{fmt, vec, vec::Vec};
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::{
     pedersen_hash::pedersen_array,
@@ -31,13 +31,37 @@ pub enum ClaimValidationError {
     ClaimOutOfBounds(u64),
 }
 
-// #[derive(
-//     Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TypeInfo, MaxEncodedLen,
-// )]
-// pub struct ClaimIdentifier {
-// //    pub kind: ClaimKind,
-//     pub block_item_id: BlockItemIdentifier,
-// }
+impl fmt::Display for ClaimValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ClaimIdNotValidated(expected, actual) => {
+                write!(
+                    f,
+                    "Claim ID mismatch - expected: {}, got: {}",
+                    expected, actual
+                )
+            }
+            Self::FieldNotValidated(range, expected, actual) => {
+                write!(
+                    f,
+                    "Field validation failed at range {:?} - expected: {:?}, got: {:?}",
+                    range, expected, actual
+                )
+            }
+            Self::FieldInner(err) => write!(f, "Field inner error: {:?}", err),
+            Self::QueryOffsetsMismatch(expected, actual) => {
+                write!(
+                    f,
+                    "Query offsets mismatch - expected: {}, got: {}",
+                    expected, actual
+                )
+            }
+            Self::ProofOutputTruncated => write!(f, "Proof output was truncated"),
+            Self::ClaimOutOfBounds(idx) => write!(f, "Claim index {} is out of bounds", idx),
+        }
+    }
+}
+
 pub type ClaimIdentifier = BlockItemIdentifier;
 
 #[derive(Debug, Clone)]
