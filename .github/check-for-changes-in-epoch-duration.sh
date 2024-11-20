@@ -20,7 +20,7 @@ check_block_time() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" | grep 'MILLISECS_PER_BLOCK'; then
+    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'MILLISECS_PER_BLOCK' | grep const | grep --regexp='^[\+|\-]'; then
         redprint "FAIL: modified line(s) referencing MILLISECS_PER_BLOCK found!"
         redprint "FAIL: Don't change the value of this variable! This will brick the blockchain!"
         exit 1
@@ -34,7 +34,7 @@ check_blocks_for_faster_epoch() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" | grep 'BLOCKS_FOR_FASTER_EPOCH'; then
+    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'BLOCKS_FOR_FASTER_EPOCH' | grep const | grep --regexp='^[\+|\-]'; then
         redprint "FAIL: modified line(s) referencing BLOCKS_FOR_FASTER_EPOCH found!"
         redprint "FAIL: Don't change the value of this variable! This will brick Devnet!"
         exit 1
@@ -48,7 +48,7 @@ check_epoch_duration() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" | grep 'EPOCH_DURATION'; then
+    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'EPOCH_DURATION' | grep const | grep --regexp='^[\+|\-]'; then
         redprint "FAIL: modified line(s) referencing EPOCH_DURATION found!"
         redprint "FAIL: Don't change the value of this variable! This will brick the blockchain!"
         exit 1
@@ -62,7 +62,7 @@ check_slot_duration() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" | grep 'SLOT_DURATION'; then
+    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'SLOT_DURATION' | grep const | grep --regexp='^[\+|\-]'; then
         redprint "FAIL: modified line(s) referencing SLOT_DURATION found!"
         redprint "FAIL: Don't change the value of this variable! This will brick the blockchain!"
         exit 1
