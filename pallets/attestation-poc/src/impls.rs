@@ -1,17 +1,23 @@
 use frame_support::{
     pallet_prelude::*,
     traits::{Currency, DefensiveSaturating, OnUnbalanced},
+    transactional,
 };
-use log::info;
+use log::{debug, info};
 use sp_runtime::{
     traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
     ArithmeticError,
 };
 use sp_staking::StakingInterface;
 use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::vec_deque::VecDeque;
 use sp_std::vec::Vec;
 
-use attestor_primitives::{Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainKey};
+use attestor_primitives::{
+    AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainKey, Digest,
+    InherentError, SignedAttestation,
+};
+use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
 use randomness_primitives::{OnRandomnessUpdate, Randomness};
 use supported_chains_primitives::{
@@ -25,6 +31,7 @@ use crate::{
 
 use super::pallet::*;
 
+//// PALLET CALL IMPLS ////
 impl<T: Config> Pallet<T> {
     /// Inserts an attestor and sets the default status to Idle
     /// Emits an event `AttestorRegistered` if successful
@@ -170,34 +177,153 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub(super) fn bond_extra(stash: &T::AccountId) -> DispatchResult {
-        let bond = Self::min_bond_requirement();
-
-        let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
-
-        let extra = bond.min(
-            T::Currency::free_balance(stash)
-                .checked_sub(&ledger.total_staked)
-                .ok_or(ArithmeticError::Overflow)?,
+    pub(crate) fn do_bootstrap_chain(
+        attestation: SignedAttestation<T::Hash, T::AccountId>,
+    ) -> DispatchResult {
+        let chain_key = attestation.chain_key();
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
         );
 
-        // Update total staked and active amount
-        ledger.total_staked = ledger
-            .total_staked
-            .checked_add(&extra)
-            .ok_or(ArithmeticError::Overflow)?;
-        ledger.active = ledger
-            .active
-            .checked_add(&extra)
-            .ok_or(ArithmeticError::Overflow)?;
+        let previous_digest = Self::last_digest(chain_key);
 
-        // NOTE: ledger must be updated prior to calling `Self::weight_of`.
-        ledger.update()?;
+        // Store the attestation
+        let digest = attestation.digest();
+        let header_number = attestation.header_number();
+        Attestations::<T>::insert(chain_key, digest, &attestation);
 
-        Self::deposit_event(Event::<T>::Bonded {
-            stash: stash.clone(),
-            amount: extra,
-        });
+        // Update last digest
+        LastDigest::<T>::set(chain_key, Some(digest));
+
+        Self::deposit_event(Event::<T>::BlockAttested(
+            chain_key,
+            attestation.clone(),
+            digest,
+        ));
+
+        match previous_digest {
+            None => {
+                // Very first attestation should have a corresponding checkpoint
+                // even though it doesn't condense any prior attestations.
+                let checkpoint = AttestationCheckpoint {
+                    block_number: header_number,
+                    digest,
+                };
+
+                Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
+            }
+            Some(_prev_digest) => {
+                // Add to checkpointing queue
+                let mut queue = CheckpointingQueues::<T>::get(chain_key);
+                queue.push_back(digest);
+
+                // Make checkpoint if necessary.
+                // The extrinsic didn't fail even if checkpointing failed. We want
+                // to keep the new attestation rather than removing it from storage
+                // via extrinsic rollback in the case of checkpointing failure.
+                if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
+                    log::error!("Error: {:?}", e);
+                }
+                CheckpointingQueues::<T>::insert(chain_key, queue);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn do_commit_attestation(
+        attestation: SignedAttestation<T::Hash, T::AccountId>,
+    ) -> DispatchResult {
+        let chain_key = attestation.chain_key();
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
+
+        ensure!(
+            !Attestations::<T>::contains_key(chain_key, attestation.digest()),
+            Error::<T>::AttestationExists
+        );
+
+        ensure!(
+            Self::validate_attestation(&attestation).is_ok(),
+            Error::<T>::InvalidAttestation
+        );
+
+        let previous_digest = Self::last_digest(chain_key);
+        ensure!(
+            previous_digest == attestation.attestation.prev_digest,
+            Error::<T>::InvalidAttestation
+        );
+
+        if let Some(previous_digest) = previous_digest {
+            let previous_attestation = Attestations::<T>::get(chain_key, previous_digest)
+                .ok_or(Error::<T>::NoPreviousDigest)?;
+
+            let interval = ChainAttestationInterval::<T>::get(chain_key);
+            let prev_block_number = previous_attestation.attestation.header_number;
+
+            debug!(
+                "Checking if block number is at the interval, expected: {:?}, got: {:?}",
+                prev_block_number + interval,
+                attestation.attestation.header_number
+            );
+
+            if attestation.attestation.header_number != prev_block_number + interval {
+                debug!(
+                    "Block number is not at the interval, expected: {:?}, got: {:?}",
+                    prev_block_number + interval,
+                    attestation.attestation.header_number
+                );
+                return Err(Error::<T>::InvalidAttestation.into());
+            }
+        }
+
+        // Store the attestation
+        let digest = attestation.digest();
+        let header_number = attestation.header_number();
+        Attestations::<T>::insert(chain_key, digest, &attestation);
+
+        // Update last digest
+        LastDigest::<T>::set(chain_key, Some(digest));
+
+        // Pay out attestation rewards
+        Self::payout_attestors(chain_key, &attestation.attestors)?;
+
+        // Emit event
+        Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
+
+        match previous_digest {
+            None => {
+                // Very first attestation should have a corresponding checkpoint
+                // even though it doesn't condense any prior attestations.
+                let checkpoint = AttestationCheckpoint {
+                    block_number: header_number,
+                    digest,
+                };
+
+                Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
+            }
+            Some(_prev_digest) => {
+                // Add to checkpointing queue
+                let mut queue = CheckpointingQueues::<T>::get(chain_key);
+                queue.push_back(digest);
+
+                // Make checkpoint if necessary.
+                // The extrinsic didn't fail even if checkpointing failed. We want
+                // to keep the new attestation rather than removing it from storage
+                // via extrinsic rollback in the case of checkpointing failure.
+                if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
+                    log::error!("Error: {:?}", e);
+                }
+                CheckpointingQueues::<T>::insert(chain_key, queue);
+            }
+        }
 
         Ok(())
     }
@@ -236,6 +362,17 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub(crate) fn do_chill_attestor(
+        chain_key: ChainKey,
+        attestor_id: T::AccountId,
+        mut attestor: Attestor<T::AccountId>,
+    ) {
+        attestor.status = AttestorStatus::Idle;
+        Attestors::<T>::insert(chain_key, &attestor_id, attestor);
+
+        Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
+    }
+
     pub(super) fn do_withdraw_unbonded(stash: &T::AccountId) -> DispatchResult {
         let mut ledger = Self::ledger(stash).ok_or(Error::<T>::NotStash)?;
 
@@ -268,6 +405,70 @@ impl<T: Config> Pallet<T> {
                 amount: value,
             });
         }
+
+        Ok(())
+    }
+
+    /// Claim the rewards for the given stash
+    /// The rewards are transferred to the reward destination
+    /// If the reward destination is not set, the rewards are not claimed
+    pub(super) fn do_claim_rewards(stash: T::AccountId) -> DispatchResult {
+        let amount = AccumulatedRewards::<T>::take(&stash).ok_or(Error::<T>::NoRewards)?;
+        if amount.is_zero() {
+            return Ok(());
+        }
+
+        let imbalance = if let Some(payee) = Payee::<T>::get(&stash) {
+            match payee {
+                // No reward destination, do nothing
+                RewardDestination::None => return Ok(()),
+                RewardDestination::Account(a) => T::Currency::deposit_creating(&a, amount),
+                RewardDestination::Stash => T::Currency::deposit_into_existing(&stash, amount)?,
+            }
+        } else {
+            // Transfer the amount to the reward destination
+            T::Currency::deposit_into_existing(&stash, amount)?
+        };
+
+        // Make sure we try to drop any imbalance that may have occurred
+        T::Reward::on_unbalanced(imbalance);
+
+        Self::deposit_event(Event::<T>::RewardClaimed { stash, amount });
+
+        Ok(())
+    }
+}
+
+//// NON-CALL FUNCTIONS ////
+impl<T: Config> Pallet<T> {
+    pub(super) fn bond_extra(stash: &T::AccountId) -> DispatchResult {
+        let bond = Self::min_bond_requirement();
+
+        let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
+
+        let extra = bond.min(
+            T::Currency::free_balance(stash)
+                .checked_sub(&ledger.total_staked)
+                .ok_or(ArithmeticError::Overflow)?,
+        );
+
+        // Update total staked and active amount
+        ledger.total_staked = ledger
+            .total_staked
+            .checked_add(&extra)
+            .ok_or(ArithmeticError::Overflow)?;
+        ledger.active = ledger
+            .active
+            .checked_add(&extra)
+            .ok_or(ArithmeticError::Overflow)?;
+
+        // NOTE: ledger must be updated prior to calling `Self::weight_of`.
+        ledger.update()?;
+
+        Self::deposit_event(Event::<T>::Bonded {
+            stash: stash.clone(),
+            amount: extra,
+        });
 
         Ok(())
     }
@@ -313,35 +514,6 @@ impl<T: Config> Pallet<T> {
                 }
             });
         }
-
-        Ok(())
-    }
-
-    /// Claim the rewards for the given stash
-    /// The rewards are transferred to the reward destination
-    /// If the reward destination is not set, the rewards are not claimed
-    pub(super) fn do_claim_rewards(stash: T::AccountId) -> DispatchResult {
-        let amount = AccumulatedRewards::<T>::take(&stash).ok_or(Error::<T>::NoRewards)?;
-        if amount.is_zero() {
-            return Ok(());
-        }
-
-        let imbalance = if let Some(payee) = Payee::<T>::get(&stash) {
-            match payee {
-                // No reward destination, do nothing
-                RewardDestination::None => return Ok(()),
-                RewardDestination::Account(a) => T::Currency::deposit_creating(&a, amount),
-                RewardDestination::Stash => T::Currency::deposit_into_existing(&stash, amount)?,
-            }
-        } else {
-            // Transfer the amount to the reward destination
-            T::Currency::deposit_into_existing(&stash, amount)?
-        };
-
-        // Make sure we try to drop any imbalance that may have occurred
-        T::Reward::on_unbalanced(imbalance);
-
-        Self::deposit_event(Event::<T>::RewardClaimed { stash, amount });
 
         Ok(())
     }
@@ -457,17 +629,250 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub(crate) fn do_chill_attestor(
+    // Remove address as invulnerable and attestor
+    pub(crate) fn remove_invulnerable_and_emit_event(
         chain_key: ChainKey,
-        attestor_id: T::AccountId,
-        mut attestor: Attestor<T::AccountId>,
-    ) {
-        attestor.status = AttestorStatus::Idle;
-        Attestors::<T>::insert(chain_key, &attestor_id, attestor);
+        address: T::AccountId,
+    ) -> DispatchResult {
+        // Remove from invulnerables
+        Invulnerables::<T>::remove(chain_key, &address);
+        Self::deposit_event(Event::<T>::InvulnerableUnregistered(
+            chain_key,
+            address.clone(),
+        ));
 
-        Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
+        Ok(())
+    }
+
+    pub fn working_set_size(chain_key: ChainKey) -> u32 {
+        ActiveAttestors::<T>::get(chain_key).len() as u32
+    }
+
+    pub fn is_attestor(chain_key: ChainKey, address: &T::AccountId) -> bool {
+        let active_attestors = ActiveAttestors::<T>::get(chain_key);
+        active_attestors.contains(address)
+    }
+
+    pub fn attestor_status(chain_key: ChainKey, address: &T::AccountId) -> Option<AttestorStatus> {
+        Attestors::<T>::get(chain_key, address).map(|attestor| attestor.status)
+    }
+
+    pub fn address_is_not_attestor(chain_key: ChainKey, address: &T::AccountId) -> bool {
+        !Self::is_attestor(chain_key, address)
+    }
+
+    pub fn attestor_is_registered(chain_key: ChainKey, address: &T::AccountId) -> bool {
+        Attestors::<T>::contains_key(chain_key, address)
+    }
+
+    pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {
+        LastDigest::<T>::get(chain_key)
+    }
+
+    pub fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
+        Attestations::<T>::contains_key(chain_key, digest)
+    }
+
+    pub fn attestor_bls_pubkey(
+        chain_key: ChainKey,
+        address: &T::AccountId,
+    ) -> Option<BlsPublicKey> {
+        let pk = Attestors::<T>::get(chain_key, address).map(|attestor| attestor.bls_public_key);
+        match pk {
+            Some(pk) => pk,
+            None => None,
+        }
+    }
+
+    pub fn attestor_list_has_space(chain_key: ChainKey) -> bool {
+        let count = Attestors::<T>::iter_prefix_values(chain_key)
+            .collect::<Vec<_>>()
+            .len() as u32;
+        count < MaxAttestors::<T>::get(chain_key)
+    }
+
+    pub fn get(
+        chain_key: ChainKey,
+        digest: Digest,
+    ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
+        Attestations::<T>::get(chain_key, digest)
+    }
+
+    pub(crate) fn vulnerable_list_has_space(chain_key: ChainKey) -> bool {
+        let count = Invulnerables::<T>::iter_prefix_values(chain_key)
+            .collect::<Vec<_>>()
+            .len() as u32;
+        count < MaxInvulnerables::<T>::get(chain_key)
+    }
+
+    /// Insert address as attestor & invulnerable
+    pub(crate) fn try_insert_invulnerable_and_emit_event(
+        chain_key: ChainKey,
+        address: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            Self::vulnerable_list_has_space(chain_key),
+            Error::<T>::InvulnerableListFull
+        );
+
+        Invulnerables::<T>::insert(chain_key, address, true);
+        Self::deposit_event(Event::<T>::InvulnerableRegistered(
+            chain_key,
+            address.clone(),
+        ));
+        Ok(())
+    }
+
+    pub(crate) fn address_is_invulnerable(chain_key: ChainKey, address: &T::AccountId) -> bool {
+        Invulnerables::<T>::contains_key(chain_key, address)
+    }
+
+    pub(crate) fn validate_attestation(
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+    ) -> Result<(), InherentError> {
+        Self::check_duplicate(attestation)?;
+        let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
+        let attestor_public_keys =
+            Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
+        let aggregated_public_key =
+            aggregate_public_keys(&attestor_public_keys[..]).map_err(|_| {
+                log::error!("Failed to aggregate public keys");
+                InherentError::NotValid
+            })?;
+
+        let message = &attestation.attestation.serialize()[..];
+
+        Self::verify_agg_signature(&agg_signature, message, aggregated_public_key)?;
+
+        log::info!("Attestation signature is valid");
+
+        Ok(())
+    }
+
+    // When current checkpoint interval is completed by the commitment of its final attestation,
+    // then the prior checkpoint interval is considered "stabilized". We condense all the
+    // attestations for that prior interval into a single checkpoint.
+    #[transactional]
+    pub(crate) fn try_make_checkpoint(
+        queue: &mut VecDeque<Digest>,
+        chain_key: ChainKey,
+    ) -> DispatchResult {
+        let num_to_condense = Self::attestation_checkpoint_interval(chain_key);
+        // Only move forward if two full checkpoints of attestations are committed.
+        if queue.len() < (num_to_condense * 2) as usize {
+            return Ok(());
+        }
+
+        // Because checkpointing queue storage is written to after this function
+        // returns, it isn't covered by the #[transactional] macro and must be manually
+        // rolled back.
+        let mut checkpointing_rollback: Vec<Digest> = Vec::new();
+        for i in 0..num_to_condense {
+            let to_be_removed: Digest = match queue.pop_front() {
+                Some(digest) => digest,
+                None => {
+                    for digest in checkpointing_rollback {
+                        queue.push_front(digest);
+                    }
+                    return Err(Error::<T>::CheckpointCreationError.into());
+                }
+            };
+            checkpointing_rollback.push(to_be_removed);
+
+            // Until then, removing attestations from storage breaks proving.
+            let removed = match Attestations::<T>::take(chain_key, to_be_removed) {
+                Some(attestation) => attestation,
+                None => {
+                    for digest in checkpointing_rollback {
+                        queue.push_front(digest);
+                    }
+                    return Err(Error::<T>::CheckpointCreationError.into());
+                }
+            };
+
+            if i == num_to_condense - 1 {
+                let checkpoint = AttestationCheckpoint {
+                    block_number: removed.header_number(),
+                    digest: removed.digest(),
+                };
+
+                Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
+            }
+        }
+
+        Ok(())
     }
 }
+// helper functions for checking inherent data
+impl<T: Config> Pallet<T> {
+    pub(crate) fn check_duplicate(
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+    ) -> Result<(), InherentError> {
+        if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_key) {
+            if digest == attestation.attestation.digest() {
+                log::error!("Attestation with digest: {:?} is duplicate", digest);
+                return Err(InherentError::Duplicate(digest));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn extract_agg_signature(signature: &[u8]) -> Result<Signature, InherentError> {
+        Signature::from_bytes(signature).map_err(|_| {
+            log::error!("Failed to aggregate BLS signature");
+            InherentError::NotValid
+        })
+    }
+
+    pub(crate) fn gather_attestor_public_keys(
+        chain_key: ChainKey,
+        attestors: &[T::AccountId],
+    ) -> Result<Vec<PublicKey>, InherentError> {
+        attestors
+            .iter()
+            .map(|attestor| {
+                let active_attestors = ActiveAttestors::<T>::get(chain_key);
+                let contains = active_attestors.contains(attestor);
+
+                if contains {
+                    let attestor = Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
+                        log::error!("Attestor {:?} not found", attestor);
+                        InherentError::InvalidAttestorFound
+                    })?;
+                    match attestor.bls_public_key {
+                        Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
+                            log::error!("Invalid BLS key for attestor {:?}", attestor);
+                            InherentError::AttestorWithInvalidPublicKey
+                        }),
+                        None => {
+                            log::error!("No BLS key for attestor {:?}", attestor);
+                            Err(InherentError::AttestorWithInvalidPublicKey)
+                        }
+                    }
+                } else {
+                    log::error!("Attestor {:?} is not active", attestor);
+                    Err(InherentError::AttestorNotActive)
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn verify_agg_signature(
+        agg_signature: &Signature,
+        message: &[u8],
+        agg_public_key: PublicKey,
+    ) -> Result<(), InherentError> {
+        if !bls_signatures::verify_agg_message(agg_signature, message, agg_public_key) {
+            log::error!("Aggregated signature is invalid");
+            return Err(InherentError::NotValid);
+        }
+        Ok(())
+    }
+}
+
+//// TRAIT IMPLS ////
 
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
     fn on_new_epoch_randomness(epoch: u64, randomness: Randomness) {
