@@ -42,6 +42,10 @@ jobs:
           # All available variables are described at https://megalinter.io/latest/configuration/
           # and configured in .mega-linter.yml
           VALIDATE_ALL_CODEBASE: true
+          # tells gitleaks to scan only commits in the current PR without setting VALIDATE_ALL_CODEBASE==false
+          # which has other side effects. See https://github.com/oxsecurity/megalinter/issues/2487 and
+          # https://megalinter.io/8.2.0/descriptors/repository_gitleaks/
+          REPOSITORY_GITLEAKS_ARGUMENTS: --log-opts '--no-merges --first-parent ${{ github.event.pull_request.base.sha }}^..${{ github.event.pull_request.head.sha }}'
           JSON_JSONLINT_FILTER_REGEX_EXCLUDE: (chainspecs/dryRun*)
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
