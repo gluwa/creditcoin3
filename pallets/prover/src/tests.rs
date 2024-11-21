@@ -96,11 +96,15 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
         let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
             .expect("Proof example to be there");
 
+        // create a correct query
         let query = Query {
             chain_id: 1,
             height: 1,
-            index: 1,
-            layout_segments: vec![LayoutSegment { offset: 0, size: 1 }],
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
         };
 
         assert_ok!(ProverModule::submit_proof(
