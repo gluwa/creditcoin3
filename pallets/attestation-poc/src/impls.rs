@@ -31,7 +31,7 @@ use crate::{
 
 use super::pallet::*;
 
-//// PALLET CALL IMPLS ////
+/// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
     /// Inserts an attestor and sets the default status to Idle
     /// Emits an event `AttestorRegistered` if successful
@@ -439,7 +439,7 @@ impl<T: Config> Pallet<T> {
     }
 }
 
-//// NON-CALL FUNCTIONS ////
+/// NON-CALL FUNCTIONS ///
 impl<T: Config> Pallet<T> {
     pub(super) fn bond_extra(stash: &T::AccountId) -> DispatchResult {
         let bond = Self::min_bond_requirement();
@@ -872,7 +872,7 @@ impl<T: Config> Pallet<T> {
     }
 }
 
-//// TRAIT IMPLS ////
+/// TRAIT IMPLS ///
 
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
     fn on_new_epoch_randomness(epoch: u64, randomness: Randomness) {
