@@ -3,7 +3,7 @@
 use super::{Pallet as Prover, *};
 use frame_benchmarking::{account, benchmarks};
 use frame_system::RawOrigin;
-use pallet_prover_primitives::{Query, VerifierExitStatus, STARK_PROGRAM_V2_HASH};
+use pallet_prover_primitives::{LayoutSegment, Query, VerifierExitStatus, STARK_PROGRAM_V2_HASH};
 use sp_core::H256;
 use sp_std::vec;
 
@@ -14,8 +14,8 @@ benchmarks! {
         let query = Query {
             chain_id: 31337,
             height: 1,
-            index: 1,
-            layout_segments: vec![],
+            index: 0,
+            layout_segments: vec![LayoutSegment { offset: 0, size: 418 }],
         };
         let query_id = query.id();
 
