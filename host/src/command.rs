@@ -51,6 +51,9 @@ pub enum VerifierError {
     #[error("Verifier process failed with stderr: {0}")]
     VerifierProcessError(String),
 
+    #[error("Claim validation error: {0}")]
+    QueryValidationError(#[from] ClaimValidationError),
+
     #[error("Failed to remove temp file")]
     TempFileRemoveError,
 }
@@ -100,6 +103,10 @@ impl VerifierError {
             VerifierError::VerifierProcessError(e) => {
                 log::error!("verifier was not able to verify the proof: {:?}", e);
                 10
+            }
+            VerifierError::QueryValidationError(e) => {
+                log::error!("query validation error: {:?}", e);
+                11
             }
         }
     }
@@ -195,7 +202,7 @@ pub fn run_verifier(
 
     match validate_query_against_proof(query.clone(), &cairo_verifier_output) {
         Ok(_) => log::debug!("Query validated successfully"),
-        Err(e) => return Err(VerifierError::VerifierProcessError(e.to_string())),
+        Err(e) => return Err(VerifierError::QueryValidationError(e)),
     }
 
     log::debug!("stark program authenticated with metadata: {:?}", metadata);

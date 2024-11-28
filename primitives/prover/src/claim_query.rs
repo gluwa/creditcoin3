@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sp_core::ConstU32;
 use sp_runtime::BoundedVec;
 use sp_std::vec::Vec;
+use thiserror::Error;
 
 mod query_field {
     use super::ClaimQueryFieldError;
@@ -115,10 +116,15 @@ pub trait ClaimQuery {
     fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError>;
     fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError>;
 }
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Error)]
 pub enum ClaimQueryFieldError {
-    RlpDecoder(rlp::DecoderError),
+    #[error("RLP decoding error: {0}")]
+    RlpDecoder(#[from] rlp::DecoderError),
+
+    #[error("Invalid field index: {0}")]
     InvalidFieldIndex(usize),
+
+    #[error("Invalid payload offset: range {0:?}")]
     InvalidPayloadOffset(Range<u64>),
 }
 

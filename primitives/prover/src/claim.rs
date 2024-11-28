@@ -5,7 +5,8 @@ use core::ops::Range;
 use rlp::Rlp;
 use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
-use sp_std::{fmt, vec, vec::Vec};
+use sp_std::{vec, vec::Vec};
+use thiserror::Error;
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::{
     pedersen_hash::pedersen_array,
@@ -13,53 +14,25 @@ use utils::{
     Felt,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Error)]
 pub enum ClaimValidationError {
-    // proof contains not the same id that the claim
+    #[error("Query ID mismatch: expected {0}, found {1}")]
     ClaimIdNotValidated(u64, u64),
-    //    ClaimIdNotValidated(ClaimIdentifier, ClaimIdentifier),
-    // field at range (.0) not validated because value (.1) doesn't match expected value (.2)
-    FieldNotValidated(Range<usize>, Vec<u8>, Vec<u8>),
-    FieldInner(ClaimQueryFieldError),
-    // query hash contained in the proof mismatches that in the claim
-    // query hash contained in the proof mismatches that in the claim
-    QueryOffsetsMismatch(Felt, Felt),
-    // prover yielded less felts than expected
-    ProofOutputTruncated,
-    // prover provided a witness that given claim index exceeds the number of entities in the block
-    //    ClaimOutOfBounds(ClaimOutOfBoundsWitness)
-    ClaimOutOfBounds(u64),
-}
 
-impl fmt::Display for ClaimValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::ClaimIdNotValidated(expected, actual) => {
-                write!(
-                    f,
-                    "Claim ID mismatch - expected: {}, got: {}",
-                    expected, actual
-                )
-            }
-            Self::FieldNotValidated(range, expected, actual) => {
-                write!(
-                    f,
-                    "Field validation failed at range {:?} - expected: {:?}, got: {:?}",
-                    range, expected, actual
-                )
-            }
-            Self::FieldInner(err) => write!(f, "Field inner error: {:?}", err),
-            Self::QueryOffsetsMismatch(expected, actual) => {
-                write!(
-                    f,
-                    "Query offsets mismatch - expected: {}, got: {}",
-                    expected, actual
-                )
-            }
-            Self::ProofOutputTruncated => write!(f, "Proof output was truncated"),
-            Self::ClaimOutOfBounds(idx) => write!(f, "Claim index {} is out of bounds", idx),
-        }
-    }
+    #[error("Field at range {0:?} not validated: value {1:?} doesn't match expected value {2:?}")]
+    FieldNotValidated(Range<usize>, Vec<u8>, Vec<u8>),
+
+    #[error("Field validation error: {0}")]
+    FieldInner(ClaimQueryFieldError),
+
+    #[error("Query offsets mismatch: expected {0:?}, found {1:?}")]
+    QueryOffsetsMismatch(Felt, Felt),
+
+    #[error("Prover yielded fewer felts than expected")]
+    ProofOutputTruncated,
+
+    #[error("Prover provided an out-of-bounds witness for query index {0}")]
+    ClaimOutOfBounds(u64),
 }
 
 pub type ClaimIdentifier = BlockItemIdentifier;
