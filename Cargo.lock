@@ -1534,16 +1534,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "base64-serde"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e964e3e0a930303c7c0bdb28ebf691dd98d9eee4b8b68019d2c995710b58a18"
-dependencies = [
- "base64 0.13.1",
- "serde",
-]
-
-[[package]]
 name = "base64ct"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1786,25 +1776,16 @@ dependencies = [
 [[package]]
 name = "bls-signatures"
 version = "0.15.0"
+source = "git+https://github.com/gluwa/bls-signatures#665a4323dc0a050a0d818856f7245707f98faf17"
 dependencies = [
  "acid_io",
- "base64 0.13.1",
- "base64-serde",
  "bls12_381",
- "blst",
- "blstrs",
  "ff",
  "group",
  "hkdf 0.11.0",
  "pairing",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
  "rand_core 0.6.4",
- "serde",
- "serde_json",
  "sha2 0.9.9",
- "sp-std",
- "subtle",
  "thiserror-no-std",
 ]
 
@@ -1832,21 +1813,6 @@ dependencies = [
  "glob",
  "threadpool",
  "zeroize",
-]
-
-[[package]]
-name = "blstrs"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a8a8ed6fefbeef4a8c7b460e4110e12c5e22a5b7cf32621aae6ad650c4dcf29"
-dependencies = [
- "blst",
- "byte-slice-cast",
- "ff",
- "group",
- "pairing",
- "rand_core 0.6.4",
- "subtle",
 ]
 
 [[package]]
@@ -5081,9 +5047,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
 dependencies = [
  "ff",
- "rand 0.8.5",
  "rand_core 0.6.4",
- "rand_xorshift",
  "subtle",
 ]
 

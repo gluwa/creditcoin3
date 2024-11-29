@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["common/bls-signatures-cdylib"]
 members = [
     "node",
     "runtime",
@@ -255,7 +256,7 @@ proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
 
 # Common
-bls-signatures = { path = "common/bls-signatures", default-features = false, features = [
+bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [
     "pairing",
 ] }
 cc-client = { path = "common/cc-client" }
