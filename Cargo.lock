@@ -604,9 +604,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.76"
+version = "0.1.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "531b97fb4cd3dfdce92c35dedbfdc1f0b9d8091c8ca943d6dae340ef5012d514"
+checksum = "721cae7de5c34fbb2acd27e21e6d2cf7b886dce0c27388d46c4e6c47ea4318dd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1206,9 +1206,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.20"
+version = "4.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b97f376d85a664d5837dbae44bf546e6477a679ff6610010f17276f686d867e8"
+checksum = "fb3b4b9e5a7c7514dfa52869339ee98b3156b0bfb4e8a77c4ff4babb64b1604f"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1216,9 +1216,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.20"
+version = "4.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19bc80abd44e4bed93ca373a0704ccbd1b710dc5749406201bb018272808dc54"
+checksum = "b17a95aa67cc7b5ebd32aa5370189aa0d79069ef1c64ce893bd30fb24bff20ec"
 dependencies = [
  "anstream",
  "anstyle",
@@ -3158,7 +3158,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "fork-tree"
 version = "3.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
 ]
@@ -3289,7 +3289,7 @@ checksum = "6c2141d6d6c8512188a7891b4b01590a45f6dac67afb4f255c4124dbb86d4eaa"
 [[package]]
 name = "frame-benchmarking"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-support-procedural",
@@ -3314,7 +3314,7 @@ dependencies = [
 [[package]]
 name = "frame-benchmarking-cli"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "Inflector",
  "array-bytes",
@@ -3362,7 +3362,7 @@ dependencies = [
 [[package]]
 name = "frame-election-provider-solution-type"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "proc-macro-crate 1.1.3",
  "proc-macro2",
@@ -3373,7 +3373,7 @@ dependencies = [
 [[package]]
 name = "frame-election-provider-support"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-election-provider-solution-type",
  "frame-support",
@@ -3390,7 +3390,7 @@ dependencies = [
 [[package]]
 name = "frame-executive"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -3420,7 +3420,7 @@ dependencies = [
 [[package]]
 name = "frame-support"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "aquamarine",
  "bitflags 1.3.2",
@@ -3460,7 +3460,7 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "Inflector",
  "cfg-expr",
@@ -3478,7 +3478,7 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural-tools"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support-procedural-tools-derive",
  "proc-macro-crate 1.1.3",
@@ -3490,7 +3490,7 @@ dependencies = [
 [[package]]
 name = "frame-support-procedural-tools-derive"
 version = "3.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3500,7 +3500,7 @@ dependencies = [
 [[package]]
 name = "frame-system"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "cfg-if",
  "frame-support",
@@ -3519,7 +3519,7 @@ dependencies = [
 [[package]]
 name = "frame-system-benchmarking"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -3534,7 +3534,7 @@ dependencies = [
 [[package]]
 name = "frame-system-rpc-runtime-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "sp-api",
@@ -3543,7 +3543,7 @@ dependencies = [
 [[package]]
 name = "frame-try-runtime"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
@@ -3735,7 +3735,7 @@ dependencies = [
 [[package]]
 name = "generate-bags"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "chrono",
  "frame-election-provider-support",
@@ -5966,7 +5966,7 @@ dependencies = [
 [[package]]
 name = "pallet-authorship"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -5980,7 +5980,7 @@ dependencies = [
 [[package]]
 name = "pallet-babe"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6004,7 +6004,7 @@ dependencies = [
 [[package]]
 name = "pallet-bags-list"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "aquamarine",
  "docify",
@@ -6026,7 +6026,7 @@ dependencies = [
 [[package]]
 name = "pallet-balances"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6162,7 +6162,7 @@ dependencies = [
 name = "pallet-evm-precompile-substrate-transfer"
 version = "0.1.0"
 dependencies = [
- "derive_more 0.99.18",
+ "derive_more 1.0.0",
  "fp-account",
  "fp-evm",
  "frame-support",
@@ -6190,7 +6190,7 @@ dependencies = [
 [[package]]
 name = "pallet-fast-unstake"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "docify",
  "frame-benchmarking",
@@ -6209,7 +6209,7 @@ dependencies = [
 [[package]]
 name = "pallet-grandpa"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6248,7 +6248,7 @@ dependencies = [
 [[package]]
 name = "pallet-identity"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "enumflags2",
  "frame-benchmarking",
@@ -6264,7 +6264,7 @@ dependencies = [
 [[package]]
 name = "pallet-im-online"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6284,7 +6284,7 @@ dependencies = [
 [[package]]
 name = "pallet-nomination-pools"
 version = "1.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6303,7 +6303,7 @@ dependencies = [
 [[package]]
 name = "pallet-nomination-pools-runtime-api"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "pallet-nomination-pools",
  "parity-scale-codec",
@@ -6314,7 +6314,7 @@ dependencies = [
 [[package]]
 name = "pallet-offences"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6331,7 +6331,7 @@ dependencies = [
 [[package]]
 name = "pallet-proxy"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6346,7 +6346,7 @@ dependencies = [
 [[package]]
 name = "pallet-session"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6368,7 +6368,7 @@ dependencies = [
 [[package]]
 name = "pallet-staking"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -6391,7 +6391,7 @@ dependencies = [
 [[package]]
 name = "pallet-sudo"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6406,7 +6406,7 @@ dependencies = [
 [[package]]
 name = "pallet-timestamp"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6425,7 +6425,7 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -6441,7 +6441,7 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment-rpc"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "jsonrpsee",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -6457,7 +6457,7 @@ dependencies = [
 [[package]]
 name = "pallet-transaction-payment-rpc-runtime-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "pallet-transaction-payment",
  "parity-scale-codec",
@@ -6469,7 +6469,7 @@ dependencies = [
 [[package]]
 name = "pallet-utility"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -6505,9 +6505,9 @@ dependencies = [
 
 [[package]]
 name = "parity-scale-codec"
-version = "3.6.12"
+version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "306800abfa29c7f16596b5970a588435e3d5b3149683d00c12b699cc19f895ee"
+checksum = "8be4817d39f3272f69c59fe05d0535ae6456c2dc2fa1ba02910296c7e0a5c590"
 dependencies = [
  "arrayvec 0.7.4",
  "bitvec",
@@ -6515,6 +6515,7 @@ dependencies = [
  "bytes",
  "impl-trait-for-tuples",
  "parity-scale-codec-derive",
+ "rustversion",
  "serde",
 ]
 
@@ -7799,7 +7800,7 @@ dependencies = [
 [[package]]
 name = "sc-allocator"
 version = "4.1.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "log",
  "sp-core",
@@ -7810,7 +7811,7 @@ dependencies = [
 [[package]]
 name = "sc-basic-authorship"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "futures 0.3.31",
  "futures-timer",
@@ -7833,7 +7834,7 @@ dependencies = [
 [[package]]
 name = "sc-block-builder"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "sc-client-api",
@@ -7848,7 +7849,7 @@ dependencies = [
 [[package]]
 name = "sc-chain-spec"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "memmap2",
  "sc-chain-spec-derive",
@@ -7867,7 +7868,7 @@ dependencies = [
 [[package]]
 name = "sc-chain-spec-derive"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "proc-macro-crate 1.1.3",
  "proc-macro2",
@@ -7878,7 +7879,7 @@ dependencies = [
 [[package]]
 name = "sc-cli"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "chrono",
@@ -7917,7 +7918,7 @@ dependencies = [
 [[package]]
 name = "sc-client-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "fnv",
  "futures 0.3.31",
@@ -7943,7 +7944,7 @@ dependencies = [
 [[package]]
 name = "sc-client-db"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "hash-db 0.16.0",
  "kvdb",
@@ -7969,7 +7970,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -7994,7 +7995,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-aura"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -8023,7 +8024,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-babe"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "fork-tree",
@@ -8059,7 +8060,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-babe-rpc"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "futures 0.3.31",
  "jsonrpsee",
@@ -8081,7 +8082,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-epochs"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "fork-tree",
  "parity-scale-codec",
@@ -8094,7 +8095,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-grandpa"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "ahash 0.8.11",
  "array-bytes",
@@ -8135,7 +8136,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-grandpa-rpc"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "finality-grandpa",
  "futures 0.3.31",
@@ -8155,7 +8156,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-manual-seal"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -8190,7 +8191,7 @@ dependencies = [
 [[package]]
 name = "sc-consensus-slots"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -8213,7 +8214,7 @@ dependencies = [
 [[package]]
 name = "sc-executor"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.3",
@@ -8235,7 +8236,7 @@ dependencies = [
 [[package]]
 name = "sc-executor-common"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "sc-allocator",
  "sp-maybe-compressed-blob",
@@ -8247,7 +8248,7 @@ dependencies = [
 [[package]]
 name = "sc-executor-wasmtime"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -8264,7 +8265,7 @@ dependencies = [
 [[package]]
 name = "sc-informant"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "ansi_term",
  "futures 0.3.31",
@@ -8280,7 +8281,7 @@ dependencies = [
 [[package]]
 name = "sc-keystore"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "parking_lot 0.12.3",
@@ -8294,7 +8295,7 @@ dependencies = [
 [[package]]
 name = "sc-network"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "async-channel",
@@ -8335,7 +8336,7 @@ dependencies = [
 [[package]]
 name = "sc-network-bitswap"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-channel",
  "cid",
@@ -8355,7 +8356,7 @@ dependencies = [
 [[package]]
 name = "sc-network-common"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "bitflags 1.3.2",
@@ -8372,7 +8373,7 @@ dependencies = [
 [[package]]
 name = "sc-network-gossip"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "ahash 0.8.11",
  "futures 0.3.31",
@@ -8390,7 +8391,7 @@ dependencies = [
 [[package]]
 name = "sc-network-light"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "async-channel",
@@ -8411,7 +8412,7 @@ dependencies = [
 [[package]]
 name = "sc-network-sync"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "async-channel",
@@ -8445,7 +8446,7 @@ dependencies = [
 [[package]]
 name = "sc-network-transactions"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "futures 0.3.31",
@@ -8463,7 +8464,7 @@ dependencies = [
 [[package]]
 name = "sc-offchain"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "bytes",
@@ -8497,7 +8498,7 @@ dependencies = [
 [[package]]
 name = "sc-proposer-metrics"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "log",
  "substrate-prometheus-endpoint",
@@ -8506,7 +8507,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "futures 0.3.31",
  "jsonrpsee",
@@ -8537,7 +8538,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc-api"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "jsonrpsee",
  "parity-scale-codec",
@@ -8556,7 +8557,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc-server"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "http",
  "jsonrpsee",
@@ -8571,7 +8572,7 @@ dependencies = [
 [[package]]
 name = "sc-rpc-spec-v2"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "futures 0.3.31",
@@ -8599,7 +8600,7 @@ dependencies = [
 [[package]]
 name = "sc-service"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "directories",
@@ -8663,7 +8664,7 @@ dependencies = [
 [[package]]
 name = "sc-state-db"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "log",
  "parity-scale-codec",
@@ -8674,7 +8675,7 @@ dependencies = [
 [[package]]
 name = "sc-sysinfo"
 version = "6.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "futures 0.3.31",
  "libc",
@@ -8693,7 +8694,7 @@ dependencies = [
 [[package]]
 name = "sc-telemetry"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "chrono",
  "futures 0.3.31",
@@ -8712,7 +8713,7 @@ dependencies = [
 [[package]]
 name = "sc-tracing"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "ansi_term",
  "atty",
@@ -8741,7 +8742,7 @@ dependencies = [
 [[package]]
 name = "sc-tracing-proc-macro"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "proc-macro-crate 1.1.3",
  "proc-macro2",
@@ -8752,7 +8753,7 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -8778,7 +8779,7 @@ dependencies = [
 [[package]]
 name = "sc-transaction-pool-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -8794,7 +8795,7 @@ dependencies = [
 [[package]]
 name = "sc-utils"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-channel",
  "futures 0.3.31",
@@ -8808,9 +8809,9 @@ dependencies = [
 
 [[package]]
 name = "scale-info"
-version = "2.11.5"
+version = "2.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aa7ffc1c0ef49b0452c6e2986abf2b07743320641ffd5fc63d552458e3b779b"
+checksum = "346a3b32eba2640d17a9cb5927056b08f3de90f65b72fe09402c2ad07d684d0b"
 dependencies = [
  "bitvec",
  "cfg-if",
@@ -8822,9 +8823,9 @@ dependencies = [
 
 [[package]]
 name = "scale-info-derive"
-version = "2.11.5"
+version = "2.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46385cc24172cf615450267463f937c10072516359b3ff1cb24228a4a08bf951"
+checksum = "c6630024bf739e2179b91fb424b28898baf819414262c5d376677dbff1fe7ebf"
 dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
@@ -9018,18 +9019,18 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
-version = "1.0.214"
+version = "1.0.215"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f55c3193aca71c12ad7890f1785d2b73e1b9f63a0bbc353c08ef26fe03fc56b5"
+checksum = "6513c1ad0b11a9376da888e3e0baa0077f1aed55c17f50e7b2397136129fb88f"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.214"
+version = "1.0.215"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de523f781f095e28fa605cdce0f8307e451cc0fd14e2eb4cd2e98a355b147766"
+checksum = "ad1e866f866923f252f05c889987993144fb74e722403468a4ebd70c3cd756c0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9038,9 +9039,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.132"
+version = "1.0.133"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d726bfaff4b320266d395898905d0eba0345aae23b54aee3a737e260fd46db03"
+checksum = "c7fceb2473b9166b2294ef05efcb65a3db80803f0b03ef86a5fc88a2b85ee377"
 dependencies = [
  "itoa",
  "memchr",
@@ -9306,7 +9307,7 @@ dependencies = [
 [[package]]
 name = "sp-api"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "hash-db 0.16.0",
  "log",
@@ -9327,7 +9328,7 @@ dependencies = [
 [[package]]
 name = "sp-api-proc-macro"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "Inflector",
  "blake2",
@@ -9341,7 +9342,7 @@ dependencies = [
 [[package]]
 name = "sp-application-crypto"
 version = "23.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9354,7 +9355,7 @@ dependencies = [
 [[package]]
 name = "sp-arithmetic"
 version = "16.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "integer-sqrt",
  "num-traits",
@@ -9368,7 +9369,7 @@ dependencies = [
 [[package]]
 name = "sp-block-builder"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "sp-api",
  "sp-inherents",
@@ -9379,7 +9380,7 @@ dependencies = [
 [[package]]
 name = "sp-blockchain"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "futures 0.3.31",
  "log",
@@ -9397,7 +9398,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "futures 0.3.31",
@@ -9412,7 +9413,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-aura"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9429,7 +9430,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-babe"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9448,7 +9449,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-grandpa"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "finality-grandpa",
  "log",
@@ -9466,7 +9467,7 @@ dependencies = [
 [[package]]
 name = "sp-consensus-slots"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9478,7 +9479,7 @@ dependencies = [
 [[package]]
 name = "sp-core"
 version = "21.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "array-bytes",
  "arrayvec 0.7.4",
@@ -9525,7 +9526,7 @@ dependencies = [
 [[package]]
 name = "sp-core-hashing"
 version = "9.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "blake2b_simd",
  "byteorder",
@@ -9538,7 +9539,7 @@ dependencies = [
 [[package]]
 name = "sp-core-hashing-proc-macro"
 version = "9.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "quote",
  "sp-core-hashing",
@@ -9548,7 +9549,7 @@ dependencies = [
 [[package]]
 name = "sp-database"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "kvdb",
  "parking_lot 0.12.3",
@@ -9557,7 +9558,7 @@ dependencies = [
 [[package]]
 name = "sp-debug-derive"
 version = "8.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9567,7 +9568,7 @@ dependencies = [
 [[package]]
 name = "sp-externalities"
 version = "0.19.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "environmental",
  "parity-scale-codec",
@@ -9578,7 +9579,7 @@ dependencies = [
 [[package]]
 name = "sp-genesis-builder"
 version = "0.1.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "serde_json",
  "sp-api",
@@ -9589,7 +9590,7 @@ dependencies = [
 [[package]]
 name = "sp-inherents"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "impl-trait-for-tuples",
@@ -9603,7 +9604,7 @@ dependencies = [
 [[package]]
 name = "sp-io"
 version = "23.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "bytes",
  "ed25519-dalek",
@@ -9627,7 +9628,7 @@ dependencies = [
 [[package]]
 name = "sp-keyring"
 version = "24.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "lazy_static",
  "sp-core",
@@ -9638,7 +9639,7 @@ dependencies = [
 [[package]]
 name = "sp-keystore"
 version = "0.27.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.3",
@@ -9650,7 +9651,7 @@ dependencies = [
 [[package]]
 name = "sp-maybe-compressed-blob"
 version = "4.1.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "thiserror",
  "zstd 0.12.4",
@@ -9659,7 +9660,7 @@ dependencies = [
 [[package]]
 name = "sp-metadata-ir"
 version = "0.1.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-metadata",
  "parity-scale-codec",
@@ -9670,7 +9671,7 @@ dependencies = [
 [[package]]
 name = "sp-npos-elections"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9684,7 +9685,7 @@ dependencies = [
 [[package]]
 name = "sp-offchain"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "sp-api",
  "sp-core",
@@ -9694,7 +9695,7 @@ dependencies = [
 [[package]]
 name = "sp-panic-handler"
 version = "8.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -9704,7 +9705,7 @@ dependencies = [
 [[package]]
 name = "sp-rpc"
 version = "6.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "rustc-hash",
  "serde",
@@ -9714,7 +9715,7 @@ dependencies = [
 [[package]]
 name = "sp-runtime"
 version = "24.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "either",
  "hash256-std-hasher",
@@ -9736,7 +9737,7 @@ dependencies = [
 [[package]]
 name = "sp-runtime-interface"
 version = "17.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "bytes",
  "impl-trait-for-tuples",
@@ -9754,7 +9755,7 @@ dependencies = [
 [[package]]
 name = "sp-runtime-interface-proc-macro"
 version = "11.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "Inflector",
  "proc-macro-crate 1.1.3",
@@ -9766,7 +9767,7 @@ dependencies = [
 [[package]]
 name = "sp-session"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -9781,7 +9782,7 @@ dependencies = [
 [[package]]
 name = "sp-staking"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "impl-trait-for-tuples",
  "parity-scale-codec",
@@ -9795,7 +9796,7 @@ dependencies = [
 [[package]]
 name = "sp-state-machine"
 version = "0.28.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "hash-db 0.16.0",
  "log",
@@ -9816,7 +9817,7 @@ dependencies = [
 [[package]]
 name = "sp-statement-store"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "aes-gcm 0.10.3",
  "curve25519-dalek 4.1.1",
@@ -9840,12 +9841,12 @@ dependencies = [
 [[package]]
 name = "sp-std"
 version = "8.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 
 [[package]]
 name = "sp-storage"
 version = "13.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "impl-serde",
  "parity-scale-codec",
@@ -9858,7 +9859,7 @@ dependencies = [
 [[package]]
 name = "sp-timestamp"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9871,7 +9872,7 @@ dependencies = [
 [[package]]
 name = "sp-tracing"
 version = "10.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "sp-std",
@@ -9883,7 +9884,7 @@ dependencies = [
 [[package]]
 name = "sp-transaction-pool"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "sp-api",
  "sp-runtime",
@@ -9892,7 +9893,7 @@ dependencies = [
 [[package]]
 name = "sp-transaction-storage-proof"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "async-trait",
  "parity-scale-codec",
@@ -9907,7 +9908,7 @@ dependencies = [
 [[package]]
 name = "sp-trie"
 version = "22.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "ahash 0.8.11",
  "hash-db 0.16.0",
@@ -9930,7 +9931,7 @@ dependencies = [
 [[package]]
 name = "sp-version"
 version = "22.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "impl-serde",
  "parity-scale-codec",
@@ -9947,7 +9948,7 @@ dependencies = [
 [[package]]
 name = "sp-version-proc-macro"
 version = "8.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "proc-macro2",
@@ -9958,7 +9959,7 @@ dependencies = [
 [[package]]
 name = "sp-wasm-interface"
 version = "14.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "anyhow",
  "impl-trait-for-tuples",
@@ -9971,7 +9972,7 @@ dependencies = [
 [[package]]
 name = "sp-weights"
 version = "20.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "parity-scale-codec",
  "scale-info",
@@ -10263,12 +10264,12 @@ dependencies = [
 [[package]]
 name = "substrate-build-script-utils"
 version = "3.0.0"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 
 [[package]]
 name = "substrate-frame-rpc-system"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "frame-system-rpc-runtime-api",
  "futures 0.3.31",
@@ -10287,7 +10288,7 @@ dependencies = [
 [[package]]
 name = "substrate-prometheus-endpoint"
 version = "0.10.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "hyper",
  "log",
@@ -10299,7 +10300,7 @@ dependencies = [
 [[package]]
 name = "substrate-wasm-builder"
 version = "5.0.0-dev"
-source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#1bedddde01ad43032bf30705da0e78c9043098d0"
+source = "git+https://github.com/gluwa/polkadot-sdk?branch=release-polkadot-v1.1.0-patch#afaa29de741540386408bcb216c59f23c13aaccf"
 dependencies = [
  "ansi_term",
  "build-helper",
@@ -10562,9 +10563,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.41.0"
+version = "1.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "145f3413504347a2be84393cc8a7d2fb4d863b375909ea59f2158261aa258bbb"
+checksum = "22cfb5bee7a6a52939ca9224d6ac897bb669134078daa8735560897f69de4d33"
 dependencies = [
  "backtrace",
  "bytes",
@@ -10723,9 +10724,9 @@ checksum = "b6bc1c9ce2b5135ac7f93c72918fc37feb872bdc6a5533a8b85eb4b86bfdae52"
 
 [[package]]
 name = "tracing"
-version = "0.1.40"
+version = "0.1.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
+checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
 dependencies = [
  "log",
  "pin-project-lite 0.2.13",
@@ -10735,9 +10736,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.27"
+version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
+checksum = "395ae124c09f9e6918a2310af6038fba074bcf474ac352496d5910dd59a2226d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10746,9 +10747,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.32"
+version = "0.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
+checksum = "e672c95779cf947c5311f83787af4fa8fffd12fb27e4993211a84bdfd9610f9c"
 dependencies = [
  "once_cell",
  "valuable",
