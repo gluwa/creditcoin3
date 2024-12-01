@@ -570,7 +570,7 @@ jobs:
           yarn install
           yarn test:unit
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v5
         with:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
@@ -863,7 +863,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload code coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
