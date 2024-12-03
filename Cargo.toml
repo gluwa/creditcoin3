@@ -1,5 +1,4 @@
 [workspace]
-exclude = ["common/bls-signatures-cdylib"]
 members = [
     "node",
     "runtime",
