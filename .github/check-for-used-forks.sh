@@ -16,7 +16,9 @@ USED_FORKS=$(find ./ -name Cargo.toml -print0 | xargs --null grep git |
     # frontier depends on this specific version
     grep -v github.com/rust-blockchain/evm |
     # no_std fork + TS bindings
-    grep -v github.com/gluwa/bls-signatures
+    grep -v github.com/gluwa/bls-signatures |
+    # same version available on crates.io but causes compilation errors
+    grep -v github.com/dataphract/acid_io
 # whitelist end
 )
 echo "INFO: Used forks in Cargo.toml files"
