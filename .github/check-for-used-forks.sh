@@ -14,7 +14,9 @@ USED_FORKS=$(find ./ -name Cargo.toml -print0 | xargs --null grep git |
     grep -v github.com/gluwa/frontier |
     grep -v github.com/gluwa/polkadot-sdk |
     # frontier depends on this specific version
-    grep -v github.com/rust-blockchain/evm
+    grep -v github.com/rust-blockchain/evm |
+    # no_std fork + TS bindings
+    grep -v github.com/gluwa/bls-signatures
 # whitelist end
 )
 echo "INFO: Used forks in Cargo.toml files"
