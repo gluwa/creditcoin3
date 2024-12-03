@@ -487,6 +487,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check featalign
+        # see https://gluwa.atlassian.net/browse/CSUB-1388
+        if: false
         run: |
           cargo install cargo-featalign
 
