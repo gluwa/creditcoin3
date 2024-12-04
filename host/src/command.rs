@@ -6,21 +6,24 @@ use std::{
     collections::HashMap,
     env, fs,
     io::Write,
+    ops::Range,
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, PersistError};
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::ClaimValidationError;
-use prover_primitives::claim::ClaimValidationError::{ClaimIdNotValidated, ClaimOutOfBounds};
+use prover_primitives::claim::ClaimValidationError::{
+    ClaimIdNotValidated, ClaimOutOfBounds, QueryOffsetsMismatch,
+};
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
     StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
-use utils::utils::felts_from_bytes;
-
 use thiserror::Error;
+use utils::pedersen_hash::pedersen_array;
+use utils::{utils::felts_from_bytes, Felt};
 
 #[derive(Error, Debug)]
 pub enum VerifierError {
@@ -137,7 +140,22 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                Ok(())
+                let local_offset_hash = hash_layout_segments(&query);
+
+                println!("local_offset_hash: {:?}", local_offset_hash);
+                println!(
+                    "cairo_verifier_output.query_hash: {:?}",
+                    cairo_verifier_output.query_hash
+                );
+
+                if local_offset_hash != cairo_verifier_output.query_hash {
+                    Err(QueryOffsetsMismatch(
+                        cairo_verifier_output.query_hash,
+                        local_offset_hash,
+                    ))
+                } else {
+                    Ok(())
+                }
             }
         }
 
@@ -146,6 +164,23 @@ pub fn validate_query_against_proof(
             cairo_verifier_output.claim_index,
         )),
     }
+}
+
+pub fn hash_layout_segments(query: &Query) -> Felt {
+    let felt_ranges = query
+        .layout_segments
+        .iter()
+        .map(|layout| Range {
+            start: usize::try_from(layout.offset).expect("layout offset is too large"),
+            end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+        })
+        .collect::<Vec<_>>();
+
+    let felts_offsets = felt_ranges
+        .iter()
+        .flat_map(|r| r.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
+        .collect::<Vec<Felt>>();
+    pedersen_array(&felts_offsets[..])
 }
 
 pub fn run_verifier(

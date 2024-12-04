@@ -40,7 +40,7 @@ pub async fn process(
             .iter()
             .map(|layout| Range {
                 start: usize::try_from(layout.offset).expect("layout offset is too large"),
-                end: usize::try_from(layout.size).expect("layout end is too large"),
+                end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
             })
             .collect::<Vec<_>>(),
     };

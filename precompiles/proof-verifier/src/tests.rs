@@ -7,7 +7,7 @@ use crate::{
 };
 
 use frame_support::assert_ok;
-use pallet_prover_primitives::{Query, STARK_PROGRAM_V2_HASH};
+use pallet_prover_primitives::{LayoutSegment, Query, STARK_PROGRAM_V2_HASH};
 use precompile_utils::{evm::logs::log3, solidity, testing::*};
 use sp_core::{H160, H256};
 use std::str::from_utf8;
@@ -95,7 +95,10 @@ fn verify_should_return_zero_when_all_good() {
         chain_id: 31337,
         height: 1,
         index: 0,
-        layout_segments: vec![],
+        layout_segments: vec![LayoutSegment {
+            offset: 0,
+            size: 418,
+        }],
     };
     let proof_json = std::fs::read("../../cairo/stone-verifier/proof_example.json")
         .expect("Proof example not found");
