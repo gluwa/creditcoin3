@@ -1,12 +1,17 @@
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use utils::Felt;
+
 pub trait MaybeCreatedFromEmpty {
     fn created_from_empty(&self) -> bool;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum BlockError {
+    #[error("Block number mismatch: {0}")]
     BlockNumberMismatch(u64),
+    #[error("Block: {0} was created from empty")]
     Empty(u64),
 }
 
@@ -30,15 +35,19 @@ impl Block {
             digest,
         }
     }
+
     pub fn n(&self) -> u64 {
         self.block_number
     }
+
     pub fn digest(&self) -> Felt {
         self.digest
     }
+
     pub fn prev_digest(&self) -> Felt {
         self.prev_digest
     }
+
     pub fn try_from_previous(prev: &Self, block: Self) -> Result<Self, BlockError> {
         if block.block_number != prev.block_number + 1 {
             return Err(BlockError::BlockNumberMismatch(block.block_number));
@@ -52,6 +61,7 @@ impl Block {
             digest,
         })
     }
+
     pub fn from_block_number_and_digest(block_number: u64, digest: Felt) -> Self {
         Self {
             block_number,
@@ -60,7 +70,7 @@ impl Block {
         }
     }
 
-    fn hash_payload(block_number: &Felt, root: &Felt, prev_digest: &Felt) -> Felt {
+    pub fn hash_payload(block_number: &Felt, root: &Felt, prev_digest: &Felt) -> Felt {
         let d = starknet_crypto::pedersen_hash(block_number, root);
         starknet_crypto::pedersen_hash(&d, prev_digest)
     }
@@ -72,7 +82,7 @@ impl MaybeCreatedFromEmpty for Block {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockSerializable {
     block_number: String,
     root: String,

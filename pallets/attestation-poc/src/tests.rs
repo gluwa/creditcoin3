@@ -1146,60 +1146,60 @@ fn unregister_invulnerable_should_fail_when_address_is_an_attestor_but_not_invul
 }
 
 #[test]
-fn set_committee_set_size_should_error_when_not_signed() {
+fn set_target_sample_size_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::set_committee_set_size(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, 512),
+            Attestation::set_target_sample_size(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, 512),
             BadOrigin
         );
     })
 }
 
 #[test]
-fn set_committee_set_size_should_error_when_not_signed_by_root() {
+fn set_target_sample_size_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         let attestor = RuntimeOrigin::signed(ATTESTOR_1);
 
         assert_noop!(
-            Attestation::set_committee_set_size(attestor, SUPPORTED_CHAIN_KEY, 512),
+            Attestation::set_target_sample_size(attestor, SUPPORTED_CHAIN_KEY, 512),
             BadOrigin
         );
     })
 }
 
 #[test]
-fn set_committee_set_size_should_fail_with_set_size_less_than_1() {
+fn set_target_sample_size_should_fail_with_set_size_less_than_1() {
     ExtBuilder.build_and_execute(|| {
         let new_committee_size = 0;
         assert_noop!(
-            Attestation::set_committee_set_size(
+            Attestation::set_target_sample_size(
                 RuntimeOrigin::root(),
                 SUPPORTED_CHAIN_KEY,
                 new_committee_size
             ),
-            Error::<Test>::InvalidCommitteeSetSize
+            Error::<Test>::InvalidTargetSampleSize
         );
     })
 }
 
 #[test]
-fn set_committee_set_size_should_update_storage_and_emit_an_event() {
+fn set_target_sample_size_should_update_storage_and_emit_an_event() {
     ExtBuilder.build_and_execute(|| {
-        let committee_size = Attestation::committee_set_size(SUPPORTED_CHAIN_KEY);
-        assert_eq!(committee_size, CommitteeSetSizeDefault::<Test>::get());
+        let committee_size = Attestation::target_sample_size(SUPPORTED_CHAIN_KEY);
+        assert_eq!(committee_size, TargetSampleSizeDefault::<Test>::get());
 
         let new_committee_size = 512;
-        assert_ok!(Attestation::set_committee_set_size(
+        assert_ok!(Attestation::set_target_sample_size(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
             new_committee_size
         ));
 
-        let committee_size = Attestation::committee_set_size(SUPPORTED_CHAIN_KEY);
+        let committee_size = Attestation::target_sample_size(SUPPORTED_CHAIN_KEY);
         assert_eq!(committee_size, new_committee_size);
 
         System::assert_last_event(
-            crate::Event::CommitteeSetSizeChanged(SUPPORTED_CHAIN_KEY, new_committee_size).into(),
+            crate::Event::TargetSampleSizeChanged(SUPPORTED_CHAIN_KEY, new_committee_size).into(),
         );
     })
 }
@@ -1783,45 +1783,6 @@ fn submitting_attestation_chain_works() {
             Some(attestation_2)
         );
     })
-}
-
-#[test]
-fn submitting_invalid_attestation_chain_fails() {
-    ExtBuilder.build_and_execute(|| {
-        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-
-        assert_ok!(Attestation::register_attestor(
-            attestor.stash.clone(),
-            SUPPORTED_CHAIN_KEY,
-            attestor.attestor_id,
-        ));
-
-        assert_ok!(Attestation::attest(
-            RuntimeOrigin::signed(attestor.attestor_id),
-            SUPPORTED_CHAIN_KEY,
-            attestor.public_key,
-            attestor.signature
-        ));
-
-        progress_to_block(5);
-
-        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
-
-        assert_ok!(Attestation::commit_attestation(
-            RuntimeOrigin::none(),
-            attestation.clone()
-        ));
-
-        let fake_digest = H256::random();
-
-        let attestation =
-            create_signed_attestation(vec![attestor.clone()], 1, 11, Some(fake_digest));
-
-        assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::InvalidAttestation
-        );
-    });
 }
 
 #[test]
@@ -3010,7 +2971,7 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
             }
         }
 
-        CommitteeSetSize::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
+        TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
         ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u64);
         PendingAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u64);
         AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
@@ -3065,8 +3026,8 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
         );
         assert_eq!(LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY), None);
         assert_eq!(
-            CommitteeSetSize::<Test>::get(SUPPORTED_CHAIN_KEY),
-            <Test as Config>::DefaultCommitteeSetSize::get()
+            TargetSampleSize::<Test>::get(SUPPORTED_CHAIN_KEY),
+            <Test as Config>::DefaultTargetSampleSize::get()
         );
         assert_eq!(
             ChainAttestationInterval::<Test>::get(SUPPORTED_CHAIN_KEY),

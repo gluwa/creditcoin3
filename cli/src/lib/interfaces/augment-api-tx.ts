@@ -178,16 +178,6 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, u128]
             >;
             /**
-             * See [`Pallet::set_committee_set_size`].
-             **/
-            setCommitteeSetSize: AugmentedSubmittable<
-                (
-                    chainKey: u64 | AnyNumber | Uint8Array,
-                    newCommitteeSetSize: u32 | AnyNumber | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u64, u32]
-            >;
-            /**
              * See [`Pallet::set_max_attestors`].
              **/
             setMaxAttestors: AugmentedSubmittable<
@@ -228,6 +218,16 @@ declare module '@polkadot/api-base/types/submittable' {
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [PalletAttestationPocRewardDestination]
+            >;
+            /**
+             * See [`Pallet::set_target_sample_size`].
+             **/
+            setTargetSampleSize: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    newTargetSampleSize: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
             >;
             /**
              * See [`Pallet::unregister_attestor`].

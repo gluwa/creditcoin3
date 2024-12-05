@@ -83,7 +83,7 @@ pub mod pallet {
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
         #[pallet::constant]
-        type DefaultCommitteeSetSize: Get<u32>;
+        type DefaultTargetSampleSize: Get<u32>;
         #[pallet::constant]
         type MaxAttestationNodes: Get<u32>;
         // TODO: Make this useful
@@ -127,7 +127,7 @@ pub mod pallet {
         fn set_max_invulnerables() -> Weight;
         fn bootstrap_chain(a: u32) -> Weight;
         fn commit_attestation(a: u32) -> Weight;
-        fn set_committee_set_size() -> Weight;
+        fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
         fn set_min_bond_requirement() -> Weight;
@@ -154,7 +154,7 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
-    #[pallet::getter(fn active_attestors)]
+    #[pallet::getter(fn active_attestor_set)]
     // Active attestors are the ones that have been registered and are not in the chilling state
     pub type ActiveAttestors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<T::AccountId>, ValueQuery>;
@@ -218,13 +218,13 @@ pub mod pallet {
     pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, Digest, OptionQuery>;
 
     #[pallet::storage]
-    #[pallet::getter(fn committee_set_size)]
-    pub type CommitteeSetSize<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, CommitteeSetSizeDefault<T>>;
+    #[pallet::getter(fn target_sample_size)]
+    pub type TargetSampleSize<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, TargetSampleSizeDefault<T>>;
 
     #[pallet::type_value]
-    pub fn CommitteeSetSizeDefault<T: Config>() -> u32 {
-        T::DefaultCommitteeSetSize::get()
+    pub fn TargetSampleSizeDefault<T: Config>() -> u32 {
+        T::DefaultTargetSampleSize::get()
     }
 
     #[pallet::storage]
@@ -329,9 +329,9 @@ pub mod pallet {
         fn build(&self) {
             for chain_configuration in self.attestation_chain_configurations.iter() {
                 // Set the committee set size for the chain
-                CommitteeSetSize::<T>::insert(
+                TargetSampleSize::<T>::insert(
                     chain_configuration.chain_key,
-                    chain_configuration.committee_set_size,
+                    chain_configuration.target_sample_size,
                 );
 
                 ChainAttestationInterval::<T>::insert(
@@ -379,7 +379,7 @@ pub mod pallet {
         InvulnerableUnregistered(ChainKey, T::AccountId),
         BlockAttested(ChainKey, SignedAttestation<T::Hash, T::AccountId>, Digest),
         CheckpointReached(ChainKey, AttestationCheckpoint),
-        CommitteeSetSizeChanged(ChainKey, u32),
+        TargetSampleSizeChanged(ChainKey, u32),
         Bonded {
             stash: T::AccountId,
             amount: BalanceOf<T>,
@@ -481,7 +481,7 @@ pub mod pallet {
         // Tried to set attestations per checkpoint to an invalid value.
         InvalidAttestationsPerCheckpoint,
         // Tried to set committee set size to an invalid value.
-        InvalidCommitteeSetSize,
+        InvalidTargetSampleSize,
     }
 
     #[pallet::hooks]
@@ -540,24 +540,24 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_committee_set_size())]
-        pub fn set_committee_set_size(
+        #[pallet::weight(<T as Config>::WeightInfo::set_target_sample_size())]
+        pub fn set_target_sample_size(
             origin: OriginFor<T>,
             chain_key: ChainKey,
-            new_committee_set_size: u32,
+            new_target_sample_size: u32,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
             ensure! {
-                new_committee_set_size > 0,
-                Error::<T>::InvalidCommitteeSetSize
+                new_target_sample_size > 0,
+                Error::<T>::InvalidTargetSampleSize
             };
 
-            CommitteeSetSize::<T>::insert(chain_key, new_committee_set_size);
+            TargetSampleSize::<T>::insert(chain_key, new_target_sample_size);
 
-            Self::deposit_event(Event::<T>::CommitteeSetSizeChanged(
+            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
                 chain_key,
-                new_committee_set_size,
+                new_target_sample_size,
             ));
 
             Ok(())

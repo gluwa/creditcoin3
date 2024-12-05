@@ -1,3 +1,4 @@
+use attestation_chain::block::{Block, BlockSerializable};
 use log::{error, info};
 use parity_scale_codec::Codec;
 use parity_scale_codec::Decode;
@@ -8,6 +9,7 @@ use sc_network_gossip::{ValidationResult, Validator, ValidatorContext};
 use sp_api::ProvideRuntimeApi;
 use sp_core::{Pair, H256};
 use sp_runtime::traits::Block as BlockT;
+use starknet_crypto::Felt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::marker::PhantomData;
@@ -73,8 +75,48 @@ where
             return Err(Error::InvalidAttestationDataSignature);
         };
 
-        let block_hash = self.backend.blockchain().info().best_hash;
         let runtime = self.runtime.runtime_api();
+        let block_hash = self.backend.blockchain().info().best_hash;
+
+        // Check that continuity from prior attestation is valid
+        let flattened_proof = attestation
+            .continuity_proof
+            .iter()
+            .flat_map(|frag| frag.get_blocks_ref().clone())
+            .collect::<Vec<BlockSerializable>>();
+        let mut last_block_digest: Option<Felt> = None;
+        for serializable in flattened_proof {
+            let block: Block = Block::try_from(serializable)
+                .map_err(|_| Error::InvalidAttestationContinuityProof)?;
+
+            let computed_digest =
+                Block::hash_payload(&block.block_number.into(), &block.root, &block.prev_digest);
+
+            if computed_digest != block.digest {
+                return Err(Error::InvalidAttestationContinuityProof);
+            }
+
+            if let Some(last_digest) = last_block_digest {
+                if last_digest == block.prev_digest {
+                    last_block_digest = Some(block.digest);
+                } else {
+                    return Err(Error::InvalidAttestationContinuityProof);
+                }
+            } else {
+                // The digest of the first block in our continutiy proof
+                // should be identical to the prior attestation digest
+                let last_digest = runtime
+                    .last_digest(block_hash, attestation.attestation_data.chain_key)?
+                    .ok_or(Error::InvalidAttestationContinuityProof)?;
+                let last_digest_felt = Felt::from_dec_str(&hex::encode(last_digest)).unwrap();
+                if block.digest == last_digest_felt {
+                    last_block_digest = Some(block.digest);
+                } else {
+                    return Err(Error::InvalidAttestationContinuityProof);
+                }
+            }
+        }
+
         let is_chain_supported =
             runtime.is_chain_supported(block_hash, attestation.attestation_data.chain_key)?;
 
@@ -114,7 +156,7 @@ where
                 attestation.attestation_data.chain_key,
                 &attestation.attestor,
             )?
-            .ok_or(Error::NotAnAttestor)?;
+            .ok_or(Error::NotAnAttestor(attestation.attestor_id()))?;
 
         let bls_pubkey = PublicKey::from_bytes(&bls_pubkey[..]).map_err(|e| {
             error!(target: LOG_TARGET, "📝 invalid bls signature: {:?}", e);

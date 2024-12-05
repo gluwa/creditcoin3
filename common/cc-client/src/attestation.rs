@@ -18,10 +18,10 @@ use crate::cc3::{
 use crate::{Client, Randomness};
 
 pub enum CcEvent {
-    BlockAttestedEvent(SignedAttestation<H256, AccountId32>),
-    RandomnessChangedEvent((u64, Randomness)),
-    CheckpointReachedEvent(AttestationCheckpoint, ChainKey),
-    AttestationIntervalChangedEvent(ChainKey, u64),
+    BlockAttested(SignedAttestation<H256, AccountId32>),
+    RandomnessChanged((u64, Randomness)),
+    CheckpointReached(AttestationCheckpoint, ChainKey),
+    AttestationIntervalChanged(ChainKey, u64),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -115,7 +115,7 @@ impl Client {
                                 debug!("attestation digest: {:?}", attestation.digest());
 
                                 if sender
-                                    .send(CcEvent::BlockAttestedEvent(attestation))
+                                    .send(CcEvent::BlockAttested(attestation))
                                     .await
                                     .is_err()
                                 {
@@ -132,7 +132,7 @@ impl Client {
                                 );
 
                                 if sender
-                                    .send(CcEvent::RandomnessChangedEvent((
+                                    .send(CcEvent::RandomnessChanged((
                                         evt.epoch_index,
                                         evt.randomness,
                                     )))
@@ -147,18 +147,20 @@ impl Client {
                         }
                         (ATTESTATION_MODULE, CHECKPOINT_REACHED_EVENT) => {
                             if let Ok(Some(evt)) = event.as_event::<CheckpointReached>() {
-                                debug!("Checkpoint chain_key: {:?}", evt.0);
+                                let (chain_key, checkpoint) = (evt.0, evt.1);
+
+                                debug!("Checkpoint chain_key: {:?}", chain_key);
 
                                 // If the filter is not empty, check if the chain_key is in the filter
-                                if filter != evt.0 {
+                                if filter != chain_key {
                                     continue;
                                 }
 
-                                let checkpoint: AttestationCheckpoint = evt.1.into();
+                                let checkpoint: AttestationCheckpoint = checkpoint.into();
                                 debug!("Checkpoint digest: {:?}", checkpoint.digest);
 
                                 if sender
-                                    .send(CcEvent::CheckpointReachedEvent(checkpoint, evt.0))
+                                    .send(CcEvent::CheckpointReached(checkpoint, chain_key))
                                     .await
                                     .is_err()
                                 {
@@ -180,7 +182,7 @@ impl Client {
                                 );
 
                                 if sender
-                                    .send(CcEvent::AttestationIntervalChangedEvent(
+                                    .send(CcEvent::AttestationIntervalChanged(
                                         chain_key,
                                         new_interval,
                                     ))

@@ -1027,8 +1027,8 @@ declare module '@polkadot/types/lookup' {
         readonly asBlockAttested: ITuple<[u64, AttestorPrimitivesSignedAttestation, H256]>;
         readonly isCheckpointReached: boolean;
         readonly asCheckpointReached: ITuple<[u64, AttestorPrimitivesAttestationCheckpoint]>;
-        readonly isCommitteeSetSizeChanged: boolean;
-        readonly asCommitteeSetSizeChanged: ITuple<[u64, u32]>;
+        readonly isTargetSampleSizeChanged: boolean;
+        readonly asTargetSampleSizeChanged: ITuple<[u64, u32]>;
         readonly isBonded: boolean;
         readonly asBonded: {
             readonly stash: AccountId32;
@@ -1084,7 +1084,7 @@ declare module '@polkadot/types/lookup' {
             | 'InvulnerableUnregistered'
             | 'BlockAttested'
             | 'CheckpointReached'
-            | 'CommitteeSetSizeChanged'
+            | 'TargetSampleSizeChanged'
             | 'Bonded'
             | 'Unbonded'
             | 'Withdrawn'
@@ -2718,10 +2718,10 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly chainAttestationInterval: u64;
         } & Struct;
-        readonly isSetCommitteeSetSize: boolean;
-        readonly asSetCommitteeSetSize: {
+        readonly isSetTargetSampleSize: boolean;
+        readonly asSetTargetSampleSize: {
             readonly chainKey: u64;
-            readonly newCommitteeSetSize: u32;
+            readonly newTargetSampleSize: u32;
         } & Struct;
         readonly isRegisterAttestor: boolean;
         readonly asRegisterAttestor: {
@@ -2793,7 +2793,7 @@ declare module '@polkadot/types/lookup' {
         readonly isClaimRewards: boolean;
         readonly type:
             | 'SetChainAttestationInterval'
-            | 'SetCommitteeSetSize'
+            | 'SetTargetSampleSize'
             | 'RegisterAttestor'
             | 'UnregisterAttestor'
             | 'SetMaxAttestors'
@@ -3301,7 +3301,7 @@ declare module '@polkadot/types/lookup' {
         readonly isNoSupportedChains: boolean;
         readonly isInvalidAttestationInterval: boolean;
         readonly isInvalidAttestationsPerCheckpoint: boolean;
-        readonly isInvalidCommitteeSetSize: boolean;
+        readonly isInvalidTargetSampleSize: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3329,7 +3329,7 @@ declare module '@polkadot/types/lookup' {
             | 'NoSupportedChains'
             | 'InvalidAttestationInterval'
             | 'InvalidAttestationsPerCheckpoint'
-            | 'InvalidCommitteeSetSize';
+            | 'InvalidTargetSampleSize';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (401) */

@@ -1,4 +1,4 @@
-use crate::{self as attestation_poc, tests::Attestor, CommitteeSetSizeDefault};
+use crate::{self as attestation_poc, tests::Attestor, TargetSampleSizeDefault};
 use frame_election_provider_support::{
     bounds::{ElectionBounds, ElectionBoundsBuilder},
     onchain, SequentialPhragmen,
@@ -230,7 +230,7 @@ parameter_types! {
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
-    pub const DefaultCommitteeSetSize: u32 = 3;
+    pub const DefaultTargetSampleSize: u32 = 3;
     pub const DefaultMinBondRequirement: u64 = 10_000;
     pub const MaxUnlockingChunks: u32 = 10;
 }
@@ -238,7 +238,7 @@ parameter_types! {
 impl attestation_poc::Config for Test {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
-    type DefaultCommitteeSetSize = DefaultCommitteeSetSize;
+    type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;
@@ -319,7 +319,7 @@ impl ExtBuilder {
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 10000,
-                committee_set_size: CommitteeSetSizeDefault::<Test>::get(),
+                target_sample_size: TargetSampleSizeDefault::<Test>::get(),
             }],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();

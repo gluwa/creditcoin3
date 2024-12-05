@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{error, info};
+use log::{debug, error};
 use parity_scale_codec::{Decode, Encode};
 use schnorrkel::SignatureError;
 use serde::{Deserialize, Serialize};
@@ -81,9 +81,10 @@ pub fn make_proof_of_inclusion(
     keys: &sr25519::Pair,
     attestor_id: &AttestorId,
     epoch: u64,
+    header_number: u64,
 ) -> Result<ProofOfInclusion, Error> {
     // Create the transcript
-    let transcript = make_transcript(randomness, attestor_id);
+    let transcript = make_transcript(header_number, randomness, attestor_id);
 
     // Create the random number
     let random = keys.make_bytes(VRF_CONTEXT, &transcript);
@@ -93,14 +94,14 @@ pub fn make_proof_of_inclusion(
     // Check if the random number is less than the target_sample_size
     let threshold = calculate_threshold(target_sample_size as u128, working_set_size as u128);
     if random > threshold {
-        info!(
+        debug!(
             "attestor was not selected, random: {}, threshold: {}",
             random, threshold
         );
         return Err(Error::NotSelected);
     }
 
-    info!(
+    debug!(
         "attestor {:?} was selected, random: {}, threshold: {}",
         attestor_id, random, threshold
     );
@@ -138,8 +139,9 @@ pub fn verify_proof_of_inclusion(
     randomness: &Randomness,
     proof_of_inclusion: &ProofOfInclusion,
     attestor_id: &AttestorId,
+    header_number: u64,
 ) -> Result<bool, Error> {
-    let vrf_input = VrfSignData::new(make_transcript(randomness, attestor_id));
+    let vrf_input = VrfSignData::new(make_transcript(header_number, randomness, attestor_id));
 
     let vrf_signature = VrfSignature {
         output: VrfOutput(
@@ -172,14 +174,14 @@ pub fn verify_proof_of_inclusion(
 
     let threshold = calculate_threshold(target_sample_size as u128, working_set_size as u128);
     if random_pub > threshold {
-        info!(
+        debug!(
             "attestor was not selected, random: {}, threshold: {}",
             random_pub, threshold
         );
         return Ok(false);
     }
 
-    info!(
+    debug!(
         "attestor {:?} was selected, random: {}, threshold: {}",
         attestor_id, random_pub, threshold
     );
@@ -199,10 +201,15 @@ pub fn verify_proof_of_inclusion(
 /// # Returns
 ///
 /// Returns a `VrfTranscript` object to be used in the VRF process.
-fn make_transcript(randomness: &Randomness, attestor_id: &AttestorId) -> VrfTranscript {
+fn make_transcript(
+    header_number: u64,
+    randomness: &Randomness,
+    attestor_id: &AttestorId,
+) -> VrfTranscript {
     VrfTranscript::new(
         b"attestation_engine",
         &[
+            (b"block_number", &header_number.encode()),
             (b"randomness", randomness.as_ref()),
             (b"id", &attestor_id.encode()),
         ],
@@ -246,6 +253,7 @@ mod tests {
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
         let epoch = 1;
+        let header_number = 100;
 
         let proof_of_inclusion = make_proof_of_inclusion(
             working_set_size,
@@ -254,6 +262,7 @@ mod tests {
             &keys,
             &attestor_id,
             epoch,
+            header_number,
         )
         .unwrap();
 
@@ -263,6 +272,7 @@ mod tests {
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
+            header_number
         )
         .unwrap());
     }
@@ -277,6 +287,7 @@ mod tests {
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
         let epoch = 1;
+        let header_number = 100;
 
         let res = make_proof_of_inclusion(
             working_set_size,
@@ -285,6 +296,7 @@ mod tests {
             &keys,
             &attestor_id,
             epoch,
+            header_number,
         );
 
         assert_eq!(res, Err(Error::NotSelected));
@@ -300,6 +312,7 @@ mod tests {
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
         let epoch = 1;
+        let header_number = 100;
 
         let proof_of_inclusion = make_proof_of_inclusion(
             threshold,
@@ -308,6 +321,7 @@ mod tests {
             &keys,
             &attestor_id,
             epoch,
+            header_number,
         )
         .unwrap();
 
@@ -320,6 +334,7 @@ mod tests {
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
+            header_number
         )
         .unwrap());
     }

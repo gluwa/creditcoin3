@@ -3,7 +3,7 @@ use frame_support::{
     traits::{Currency, DefensiveSaturating, OnUnbalanced},
     transactional,
 };
-use log::{debug, info};
+use log::info;
 use sp_runtime::{
     traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
     ArithmeticError,
@@ -253,35 +253,6 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidAttestation
         );
 
-        let previous_digest = Self::last_digest(chain_key);
-        ensure!(
-            previous_digest == attestation.attestation.prev_digest,
-            Error::<T>::InvalidAttestation
-        );
-
-        if let Some(previous_digest) = previous_digest {
-            let previous_attestation = Attestations::<T>::get(chain_key, previous_digest)
-                .ok_or(Error::<T>::NoPreviousDigest)?;
-
-            let interval = ChainAttestationInterval::<T>::get(chain_key);
-            let prev_block_number = previous_attestation.attestation.header_number;
-
-            debug!(
-                "Checking if block number is at the interval, expected: {:?}, got: {:?}",
-                prev_block_number + interval,
-                attestation.attestation.header_number
-            );
-
-            if attestation.attestation.header_number != prev_block_number + interval {
-                debug!(
-                    "Block number is not at the interval, expected: {:?}, got: {:?}",
-                    prev_block_number + interval,
-                    attestation.attestation.header_number
-                );
-                return Err(Error::<T>::InvalidAttestation.into());
-            }
-        }
-
         // Store the attestation
         let digest = attestation.digest();
         let header_number = attestation.header_number();
@@ -296,34 +267,33 @@ impl<T: Config> Pallet<T> {
         // Emit event
         Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
 
-        match previous_digest {
-            None => {
-                // Very first attestation should have a corresponding checkpoint
-                // even though it doesn't condense any prior attestations.
-                let checkpoint = AttestationCheckpoint {
-                    block_number: header_number,
-                    digest,
-                };
+        if Checkpoints::<T>::iter_prefix(chain_key).next().is_none() {
+            // Very first attestation should have a corresponding checkpoint
+            // even though it doesn't condense any prior attestations.
+            let checkpoint = AttestationCheckpoint {
+                block_number: header_number,
+                digest,
+            };
 
-                Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+            Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
-            }
-            Some(_prev_digest) => {
-                // Add to checkpointing queue
-                let mut queue = CheckpointingQueues::<T>::get(chain_key);
-                queue.push_back(digest);
+            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
 
-                // Make checkpoint if necessary.
-                // The extrinsic didn't fail even if checkpointing failed. We want
-                // to keep the new attestation rather than removing it from storage
-                // via extrinsic rollback in the case of checkpointing failure.
-                if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
-                    log::error!("Error: {:?}", e);
-                }
-                CheckpointingQueues::<T>::insert(chain_key, queue);
-            }
+            return Ok(());
         }
+
+        // Add to checkpointing queue
+        let mut queue = CheckpointingQueues::<T>::get(chain_key);
+        queue.push_back(digest);
+
+        // Make checkpoint if necessary.
+        // The extrinsic didn't fail even if checkpointing failed. We want
+        // to keep the new attestation rather than removing it from storage
+        // via extrinsic rollback in the case of checkpointing failure.
+        if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
+            log::error!("Error: {:?}", e);
+        }
+        CheckpointingQueues::<T>::insert(chain_key, queue);
 
         Ok(())
     }
@@ -539,8 +509,7 @@ impl<T: Config> Pallet<T> {
     /// This will select the active attestors for the given epoch
     /// All attestors with `Active` status will be selected
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
-        let supported_chains =
-            T::SupportedChains::supported_chains().ok_or(Error::<T>::NoSupportedChains)?;
+        let supported_chains = T::SupportedChains::supported_chains();
 
         for chain_key in supported_chains {
             let prefix = Attestors::<T>::iter_prefix(chain_key);
@@ -616,9 +585,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Clear PendingAttestationInterval
-        let num_supported_chains = T::SupportedChains::supported_chains()
-            .unwrap_or_default()
-            .len();
+        let num_supported_chains = T::SupportedChains::supported_chains().len();
         let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
     }
 
@@ -919,7 +886,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
         CheckpointingQueues::<T>::remove(chain_key);
         LastDigest::<T>::remove(chain_key);
-        CommitteeSetSize::<T>::remove(chain_key);
+        TargetSampleSize::<T>::remove(chain_key);
         ChainAttestationInterval::<T>::remove(chain_key);
         PendingAttestationInterval::<T>::remove(chain_key);
         AttestationCheckpointInterval::<T>::remove(chain_key);

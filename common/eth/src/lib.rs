@@ -52,6 +52,8 @@ pub enum Error {
     ClientError(#[from] anyhow::Error),
     #[error("transaction conversion {0}")]
     TransactionConversion(ConversionError),
+    #[error("end of subscription")]
+    EndOfSubscription,
 }
 
 #[derive(Debug)]

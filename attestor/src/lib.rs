@@ -1,25 +1,27 @@
 use anyhow::Result;
-use attestor_primitives::Attestation;
 use eth::Client;
-use exponential_backoff::Backoff;
-use kameo::spawn;
 use sp_core::H256;
 use std::{thread, time::Duration};
-use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 pub mod attestation;
 pub mod cc3;
+pub mod engine;
 pub mod eth_sub;
+pub mod fragment;
 pub mod merkle;
 
+use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId};
+use cc3::Error;
 use cc_client::attestation::CcEvent;
+use creditcoin3_attestor_gossip::Attestation;
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
 pub struct Server {
     config: Config,
+    // Last sent attestation by the attestor
+    last_sent_attestation: Option<Attestation<H256, AttestorId>>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,227 +41,138 @@ impl Server {
     /// Create a new server based on `Config`
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Server { config }
+        Server {
+            config,
+            last_sent_attestation: None,
+        }
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         let eth_client = Client::new(&self.config.eth_rpc_url, &String::new()).await?;
         let chain_id = eth_client.get_chain_id().await?;
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
-        let mut cc3_client =
+        let cc3_client =
             cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id).await?;
         cc3_client.init().await?;
 
-        let attestation_interval = cc3_client.get_attestation_interval();
+        // Construct the attestation engine
+        let mut engine = engine::Engine::new(eth_client, cc3_client);
 
-        let (mut attestation_tx, mut attestation_rx) = tokio::sync::mpsc::channel(1);
-
-        // Start with an empty task
-        let mut task: JoinHandle<_> = tokio::spawn(async {});
-        // Check eligibility and start subscription if we are eligible
-        // Otherwise, we will wait for the next randomness change event
-        if check_elgibility(&cc3_client).await? {
-            info!("Attestor eligible to start attesting!");
-            task = subscribe_to_new_heads_task(
-                eth_client.clone(),
-                cc3_client.clone(),
-                attestation_tx.clone(),
-                attestation_interval,
-            )
+        self.respond_to_new_events_and_attestations(&mut engine)
             .await?;
-        } else {
-            info!("Going to sleep because we are not eligible this epoch...");
-        }
 
-        // Start cc3 event subscription
-        let chain_key = cc3_client.get_chain_key();
-        let mut event_sub = cc3_client.cc_client.subscribe_events(chain_key)?;
+        Ok(())
+    }
 
+    async fn respond_to_new_events_and_attestations(
+        &mut self,
+        engine: &mut engine::Engine,
+    ) -> Result<()> {
+        let chain_key = engine.chain_key();
+
+        // Start the attestation engine
+        engine.start().await?;
+
+        let mut event_sub = engine.event_sub()?;
+
+        // Biased tokio select, we will prioritze listening to randomness changed events
+        // because this will re-evaluate the eligibility for attestors
         loop {
-            // Biased tokio select, we will prioritze listening to randomness changed events
-            // because this will re-evaluate the eligibility for attestors
             tokio::select! {
                 biased;
-
+                // Enact on new events from the chain
+                // These have influence on the attestation engine
                 Some(event) = event_sub.next() => {
                     match event {
-                        CcEvent::RandomnessChangedEvent((epoch, randomness)) => {
-                            // Abort the previous task otherwise we will end up with multiple subscriptions
-                            task.abort();
-
-                            info!(
-                                "Randomness changed: epoch {}, randomness: {}",
-                                epoch,
-                                hex::encode(randomness)
-                            );
-
-                            // Re-evaluate eligibility and start a new subscription
-                            if check_elgibility(&cc3_client).await? {
-                                info!("Attestor eligible to start attesting!");
-
-                                // Must fetch attestation interval again, in case it changed
-                                let attestation_interval = cc3_client.get_attestation_interval();
-
-                                // reopen the channel
-                                info!("Reopening attestation channel");
-                                (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(1);
-
-                                info!("Starting new subscription task");
-                                task = subscribe_to_new_heads_task(
-                                    eth_client.clone(),
-                                    cc3_client.clone(),
-                                    attestation_tx.clone(),
-                                    attestation_interval,
-                                ).await?;
-                            } else {
-                                info!("Going to sleep because we are not eligible this epoch...");
-                                // drain channel
-                                attestation_rx.close();
-                                while (attestation_rx.recv().await).is_some() {
-                                    info!("Draining attestation channel");
-                                }
-                            }
-                        },
-                        CcEvent::AttestationIntervalChangedEvent(_, new_interval) => {
+                        // When randomness changes, re-evaluate the eligibility for the attestor
+                        CcEvent::RandomnessChanged((epoch, randomness)) => {
+                            info!("Randomness changed. Epoch: {:?}, Randomness: {:?}", epoch, randomness);
+                            engine.evaluate().await?;
+                        }
+                        CcEvent::AttestationIntervalChanged(_, new_interval) => {
                             info!(
                                 "Attestation interval updated. New interval: {:?}", new_interval
                             );
-
-                            cc3_client.change_attestation_interval(new_interval);
+                            engine.change_interval(new_interval);
                         },
-                        _ => ()
+                        CcEvent::CheckpointReached(checkpoint, ck) => {
+                            info!("Checkpoint reached: {:?}", checkpoint);
+                            if chain_key != ck {
+                                return Ok(());
+                            }
+                            engine.evaluate().await?;
+                        }
+                        CcEvent::BlockAttested(_) => ()
                     }
                 },
-                Some(attestation) = attestation_rx.recv() => {
-                    info!("Received attestation to submit");
-                    if let Some(attestation_to_submit) = attestation {
-                        self.submit_attestation(chain_id, attestation_to_submit).await?;
-                    }
-                }
-            };
-        }
-    }
+                // Poll the attestation engine for the next attestation
+                Some(attestation_to_submit) = engine.next() => {
+                    match self.handle_attestation(chain_key, engine.eth_client(), engine.cc_client(), attestation_to_submit).await {
+                        Ok(attestation) => {
+                            let digest = attestation.digest();
+                            info!("Submitting attestation with digest: {:?}",digest);
+                            // Submit the attestation to the chain
+                            engine.cc_client().submit_attestation::<H256>(attestation.clone()).await?;
+                            self.last_sent_attestation = Some(attestation);
+                            info!("Attestation with digest: {:?} submitted", digest);
+                        },
+                        Err(e) => {
+                            if e.is_not_selected_error() {
+                                warn!("Failed to create proof of inclusion, attestor not selected. Nothing to do here, waiting for next attestation");
+                            } else if e.is_duplicate_submission() {
+                                warn!("Attestation already submitted, skipping");
+                            } else {
+                                error!("Non-retryable error submitting attestation: {:?}", e);
+                                return Err(e.into());
+                            }
 
-    /// Submit an attestation to the creditcoin chain
-    /// This function will retry submitting the attestation in case of failure
-    /// The retry logic is based on exponential backoff
-    /// The function will return an error if the attestation could not be submitted after 10 retries
-    /// with a minimum delay of 10 seconds and a maximum delay of 30 seconds
-    async fn submit_attestation(
-        &self,
-        // EVM chain id
-        chain_id: u64,
-        attestation: Attestation<H256>,
-    ) -> Result<()> {
-        let retries = 10;
-        let min = Duration::from_secs(10);
-        // Maximum delay of 14400 seconds (4 hours)
-        let max = Duration::from_secs(14400);
-        // Retry 10 times
-        let backoff = Backoff::new(retries, min, max);
+                        }
+                    };
 
-        for duration in &backoff {
-            // Recreate the instance
-            let cc3_client =
-                match cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id)
-                    .await
-                {
-                    Ok(client) => client,
-                    Err(e) => {
-                        warn!(
-                            "Error recreating client: {:?}, going to retry in {}",
-                            e,
-                            duration.as_secs()
-                        );
-                        thread::sleep(duration);
-                        continue;
-                    }
-                };
-
-            // Submit the attestation to the chain
-            match cc3_client.submit_attestation(attestation.clone()).await {
-                Ok(()) => return Ok(()),
-                Err(e) => {
-                    if let cc3::Error::CclientError(e) = e {
-                        warn!(
-                            "Client Error submitting attestation: {:?}, retrying in {} seconds",
-                            e,
-                            duration.as_secs()
-                        );
-                    } else {
-                        error!("Non-retryable error submitting attestation: {:?}", e);
-                        return Err(e.into());
-                    }
-                }
+                    // Sleep for a while to avoid spamming the chain
+                    thread::sleep(Duration::from_secs(6));
+                },
             }
-
-            // Delay before retrying
-            thread::sleep(duration);
         }
-
-        Err(anyhow::anyhow!("Failed to submit attestation"))
     }
-}
 
-/// Checks if the attestor is eligible to attest
-/// - Check if the attestor is still a member of the attestor set
-/// - Check if the attestor can be included in the current epoch with the current randomness
-async fn check_elgibility(cc3_client: &cc3::Client) -> Result<bool> {
-    // First check if we are still an attestor member
-    let is_attestor_member = cc3_client
-        .cc_client
-        .check_attestors_membership(cc3_client.get_chain_key())
-        .await?;
-    if !is_attestor_member {
-        warn!("Attestor is not valid at current timeframe, cannot attest!");
-        return Ok(false);
-    };
+    /// Check if we can sign the attestation, if we cannot sign it it means we are not selected
+    /// In the case we are selected we need to build a fragment for the interval
+    async fn handle_attestation(
+        &mut self,
+        chain_key: u64,
+        eth_client: &Client,
+        cc3_client: &cc3::Client,
+        attestation: AttestationPrimitive<H256>,
+    ) -> Result<Attestation<H256, AttestorId>, Error> {
+        let mut signed_attestation = cc3_client.sign_attestation(attestation).await?;
 
-    let result = cc3_client.sign_vrf().await;
-
-    Ok(result.is_ok())
-}
-
-/// Subscribes to new Ethereum heads and starts the attestation process.
-async fn subscribe_to_new_heads_task(
-    eth_client: Client,
-    cc3_client: cc3::Client,
-    sender: Sender<Option<Attestation<H256>>>,
-    attestation_interval: u64,
-) -> Result<JoinHandle<()>> {
-    let attestor = spawn(attestation::Attestor::default());
-    let chain_key = cc3_client.get_chain_key();
-
-    let last_attestation = cc3_client.get_last_attestation(chain_key).await?;
-
-    let target_header = if let Some(last_attestation) = last_attestation {
-        info!(
-            "Last finalized attestation digest: {}",
-            last_attestation.digest()
-        );
-        last_attestation.header_number() + attestation_interval
-    } else {
-        info!("No last attestation found, starting from 0");
-        0
-    };
-
-    Ok(tokio::spawn(async move {
-        info!(
-            "Subscribing to new heads at target block: {}",
-            target_header
-        );
-        if let Err(e) = eth_sub::subscribe_to_new_heads(
-            eth_client,
-            attestor,
-            sender,
-            target_header,
-            attestation_interval,
-            chain_key,
-        )
-        .await
-        {
-            debug!("Error in subscribing to new heads: {:?}", e);
+        // Exit early if the attestation has already been submitted
+        if let Some(last_sent_attestation) = self.last_sent_attestation.clone() {
+            if last_sent_attestation.attestation_data.header_number
+                >= signed_attestation.attestation_data.header_number
+            {
+                warn!("Attestation already submitted, skipping");
+                return Err(Error::DuplicateSubmission);
+            }
         }
-    }))
+
+        let last_attestation = cc3_client.get_last_attestation(chain_key).await?;
+
+        let start_block = if let Some(attestation) = self.last_sent_attestation.clone() {
+            attestation.attestation_data.header_number
+        } else if let Some(attestation) = last_attestation {
+            attestation.attestation.header_number
+        } else {
+            0
+        };
+        info!("fragment start block: {start_block}");
+
+        // Create the fragment for the signed attestation
+        // This is the continuity proof of this signed attestation
+        fragment::create(chain_key, start_block, &mut signed_attestation, eth_client).await?;
+
+        Ok(signed_attestation)
+    }
 }

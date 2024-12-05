@@ -79,7 +79,6 @@ declare module '@polkadot/api-base/types/events' {
              * in pallet attestation was cleaned up.
              **/
             ClearedStorageForRemovedChain: AugmentedEvent<ApiType, [u64]>;
-            CommitteeSetSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             /**
              * Emitted when an invulnerable is properly registered with the attestation system
              **/
@@ -97,6 +96,7 @@ declare module '@polkadot/api-base/types/events' {
                 [chainKey: u64, stash: AccountId32, amount: u128],
                 { chainKey: u64; stash: AccountId32; amount: u128 }
             >;
+            TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
             Withdrawn: AugmentedEvent<
                 ApiType,

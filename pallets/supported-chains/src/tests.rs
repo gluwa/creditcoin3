@@ -257,7 +257,7 @@ fn test_method_supported_chains() {
         let supported_chains = SupportedChain::supported_chains();
         assert_eq!(
             supported_chains,
-            Some(vec![chain_key.expect("Should have a chain key")])
+            vec![chain_key.expect("Should have a chain key")]
         );
     });
 }
@@ -282,7 +282,7 @@ fn test_function_is_chain_supported() {
 fn empty_supported_chains() {
     new_test_ext().execute_with(|| {
         let supported_chains = SupportedChain::supported_chains();
-        assert_eq!(supported_chains, None);
+        assert!(supported_chains.is_empty());
     });
 }
 

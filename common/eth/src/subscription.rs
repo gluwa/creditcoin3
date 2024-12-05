@@ -12,7 +12,7 @@ use crate::Error;
 #[async_trait]
 pub trait BlockSubscription: Send + Sync {
     fn cancel(&self);
-    async fn next(&mut self) -> Option<OrderedBlock>;
+    async fn next(&mut self) -> Result<Option<OrderedBlock>, Error>;
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -41,15 +41,18 @@ impl BlockSubscription for NewBlockSubscription {
     }
 
     /// Get the next block from the channel
-    async fn next(&mut self) -> Option<OrderedBlock> {
+    async fn next(&mut self) -> Result<Option<OrderedBlock>, Error> {
         // Receive the next proof from the channel
-        self.receiver.recv().await
+        Ok(self.receiver.recv().await)
     }
 }
 
 /// Subscribe to the latest heads of the chain
 /// This function returns a `BlockSubscription` trait object
-fn subscribe_latest_heads(client: Client) -> Result<Box<dyn BlockSubscription>, Error> {
+fn subscribe_latest_heads(
+    client: Client,
+    interval: u64,
+) -> Result<Box<dyn BlockSubscription>, Error> {
     let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
     let client = client.clone();
@@ -62,6 +65,11 @@ fn subscribe_latest_heads(client: Client) -> Result<Box<dyn BlockSubscription>, 
         loop {
             if let Some(block) = stream.next().await {
                 let block_number = block.header.number.unwrap_or_default();
+
+                // Skip blocks that are not at the interval
+                if block_number % interval != 0 {
+                    continue;
+                }
 
                 info!("Received block number: {}", block_number);
 
@@ -78,15 +86,15 @@ fn subscribe_latest_heads(client: Client) -> Result<Box<dyn BlockSubscription>, 
 /// `BlockFetcher` is a struct that fetches blocks from a given height with a given interval
 struct BlockFetcher {
     pub client: Client,
-    pub from_height: u64,
+    pub config: SubscriptionConfig,
     pub interval: u64,
 }
 
 impl BlockFetcher {
-    pub fn new(client: Client, from_height: u64, interval: u64) -> Self {
+    pub fn new(client: Client, config: SubscriptionConfig, interval: u64) -> Self {
         Self {
             client,
-            from_height,
+            config,
             interval,
         }
     }
@@ -96,46 +104,49 @@ impl BlockFetcher {
 impl BlockSubscription for BlockFetcher {
     fn cancel(&self) {}
 
-    async fn next(&mut self) -> Option<OrderedBlock> {
+    async fn next(&mut self) -> Result<Option<OrderedBlock>, Error> {
+        // If we reached the end block, return None
+        if self.config.start_block >= self.config.end_block {
+            return Err(Error::EndOfSubscription);
+        }
+
         // Get the block at the current height
-        let block = self.client.get_block(self.from_height).await.ok();
+        let block = self.client.get_block(self.config.start_block).await?;
 
         // Increment the height
-        self.from_height += self.interval;
+        self.config.start_block += self.interval;
 
-        block
+        Ok(Some(block))
     }
 }
 
 /// Subscription configuration
 /// - `start_block`: The block number to start the subscription from
-/// - `interval`: The interval to fetch blocks
+/// - `end_block`: The block number to end the subscription
 /// This is only relevant when fetching blocks from a specific height
 /// An interval is provided to speed up the fetching process
 pub struct SubscriptionConfig {
     pub start_block: u64,
-    pub interval: u64,
+    pub end_block: u64,
 }
 
 impl Client {
     /// Open a subscription to the chain
     /// This function returns a `BlockSubscription` trait object
     /// - `config`: Subscription configuration
+    /// - `interval`: The interval to fetch blocks
     /// If no configuration is provided, it will subscribe to the latest heads
     /// If a configuration is provided, it will fetch blocks from a specific height with a given interval & switch to latest heads if it's all caught up
     pub fn open_subscription(
         &self,
         config: Option<SubscriptionConfig>,
+        interval: u64,
     ) -> Result<Box<dyn BlockSubscription>> {
         let client = self.clone();
         if let Some(config) = config {
-            Ok(Box::new(BlockFetcher::new(
-                client,
-                config.start_block,
-                config.interval,
-            )))
+            Ok(Box::new(BlockFetcher::new(client, config, interval)))
         } else {
-            Ok(subscribe_latest_heads(client)?)
+            Ok(subscribe_latest_heads(client, interval)?)
         }
     }
 }

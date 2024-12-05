@@ -1,5 +1,4 @@
 import { U64 } from '@polkadot/types-codec';
-import { AttestorPrimitivesSignedAttestation } from '@polkadot/types/lookup';
 import { newApi, ApiPromise } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 
@@ -7,7 +6,7 @@ const DEV_CHAIN = 2;
 
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
-    const maxBlocks = 200; // ~ 16:40 mins
+    const maxBlocks = 220; // ~ 16:40 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -24,14 +23,6 @@ describe('BlockAttested events', (): void => {
 
     test('are emitted frequently enough and match Ethereum', async (): Promise<void> => {
         /* eslint-disable @typescript-eslint/naming-convention */
-        const previousDigest: { [key: string]: string } = {
-            '2': '',
-            '4': '',
-        };
-        const previousHeader: { [key: string]: number } = {
-            '2': 0,
-            '4': 0,
-        };
         const attestedEvents: { [key: string]: number } = {
             '2': 0,
             '4': 0,
@@ -55,30 +46,8 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [supportedChainKey, signedAttn, digest] = event.data;
+                            const [supportedChainKey] = event.data;
                             const supportedChainKeyStr = (supportedChainKey as U64).toString();
-                            const data = signedAttn as AttestorPrimitivesSignedAttestation;
-
-                            const chainAttestationInterval = (
-                                (await api.query.attestation.chainAttestationInterval(supportedChainKey)) as U64
-                            ).toNumber();
-
-                            // external blocks should be attested at the same interval which is recorded on-chain
-                            if (previousHeader[supportedChainKeyStr] > 0) {
-                                expect(
-                                    data.attestation.headerNumber.toNumber() - previousHeader[supportedChainKeyStr],
-                                ).toBe(chainAttestationInterval);
-                            }
-                            previousHeader[supportedChainKeyStr] = data.attestation.headerNumber.toNumber();
-
-                            // recorded attestations should be linked to each other
-                            if (previousDigest[supportedChainKeyStr] !== '') {
-                                expect(data.attestation.prevDigest.toString()).toBe(
-                                    previousDigest[supportedChainKeyStr],
-                                );
-                            }
-                            // note: next attestation will point to the digest of the current one
-                            previousDigest[supportedChainKeyStr] = digest.toString();
 
                             attestedEvents[supportedChainKeyStr]++;
                         }

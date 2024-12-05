@@ -39,13 +39,13 @@ impl Message<(ChainKey, OrderedBlock)> for Attestor {
         msg: (ChainKey, OrderedBlock),
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
-        Ok(Some(create::<H256>(msg.0, &msg.1)))
+        Ok(Some(create(msg.0, &msg.1)))
     }
 }
 
 // Create the attestation data from a NewBlock
 #[must_use]
-pub fn create<H>(chain_key: ChainKey, new_block: &OrderedBlock) -> Attestation<H256> {
+pub fn create(chain_key: ChainKey, new_block: &OrderedBlock) -> Attestation<H256> {
     let mt = eth::starknet_pedersen_mmr(new_block);
     Attestation {
         chain_key,

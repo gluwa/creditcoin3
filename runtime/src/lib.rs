@@ -841,7 +841,7 @@ impl pallet_nomination_pools::Config for Runtime {
 parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
-    pub const DefaultCommitteeSetSize: u32 = 3;
+    pub const DefaultTargetSampleSize: u32 = 3;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const MinBondRequirement: u64 = 100;
@@ -850,7 +850,7 @@ parameter_types! {
 impl pallet_attestation_poc::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
-    type DefaultCommitteeSetSize = DefaultCommitteeSetSize;
+    type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
     // TODO make this setting useful
@@ -1386,8 +1386,8 @@ impl_runtime_apis! {
             Attestation::is_attestor(chain_key, attestor)
         }
 
-        fn committee_set_size(chain_key: ChainKey) -> u32 {
-            Attestation::committee_set_size(chain_key)
+        fn target_sample_size(chain_key: ChainKey) -> u32 {
+            Attestation::target_sample_size(chain_key)
         }
 
         fn working_set_size(chain_key: ChainKey) -> u32 {
@@ -1417,6 +1417,10 @@ impl_runtime_apis! {
         fn attestor_status(chain_key: ChainKey, attestor: &AccountId) -> Option<AttestorStatus> {
             Attestation::attestor_status(chain_key, attestor)
         }
+
+        fn active_attestor_set(chain_key: ChainKey) -> Vec<AccountId> {
+            Attestation::active_attestor_set(chain_key)
+        }
     }
 
     impl supported_chains_primitives::api::SupportedChainsApi<Block> for Runtime {
@@ -1424,7 +1428,7 @@ impl_runtime_apis! {
             SupportedChains::is_chain_supported(chain_key)
         }
 
-        fn supported_chains() -> Option<Vec<ChainKey>> {
+        fn supported_chains() -> Vec<ChainKey> {
             SupportedChains::supported_chains()
         }
 

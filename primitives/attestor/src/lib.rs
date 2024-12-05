@@ -45,7 +45,7 @@ pub struct AttestationChainConfiguration {
     pub attestation_interval: ChainAttestationIntervalType,
     pub attestations_per_checkpoint: u32,
     pub chain_reward: u128,
-    pub committee_set_size: u32,
+    pub target_sample_size: u32,
 }
 
 /// Identifier for a source chain
@@ -122,6 +122,16 @@ impl AttestorId {
     pub fn encode(&self) -> Vec<u8> {
         self.0.encode()
     }
+
+    pub fn account_id(&self) -> &AccountId32 {
+        &self.0
+    }
+}
+
+impl From<AttestorId> for [u8; 32] {
+    fn from(attestor_id: AttestorId) -> [u8; 32] {
+        attestor_id.0.into()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -172,6 +182,10 @@ pub struct Attestation<H> {
     pub prev_digest: Option<Digest>,
 }
 
+/// Attestation round
+/// Is the chain key and the header number
+pub type Round = (ChainKey, u64);
+
 impl<H> Attestation<H>
 where
     H: AsRef<[u8]>,
@@ -198,6 +212,10 @@ where
     /// Blake2 256 hash from attestation data
     pub fn digest(&self) -> Digest {
         H256::from(&sp_io::hashing::blake2_256(&self.serialize()))
+    }
+
+    pub fn round(&self) -> Round {
+        (self.chain_key, self.header_number)
     }
 }
 

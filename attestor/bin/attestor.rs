@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cc3_key: args.cc3_key,
     };
 
-    let server = Server::new(config);
+    let mut server = Server::new(config);
 
     server.run().await?;
 

@@ -54,6 +54,8 @@ pub enum Error {
     FailedToGetBabeVrf,
     #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
+    #[error("No Checkpoint interval set for chain with key {0}")]
+    NoCheckpointIntervalSet(ChainKey),
     #[error("Subxt error: {0:?}")]
     SubxtError(#[from] subxt::Error),
     #[error("Rpc error: {0:?}")]
@@ -161,8 +163,8 @@ impl<'a> Client {
         Ok((randomness, two_epoch_ago))
     }
 
-    pub async fn fetch_committee_size(&self, chain_key: u64) -> Result<u32, Error> {
-        let storage_query = cc3::storage().attestation().committee_set_size(chain_key);
+    pub async fn target_sample_size(&self, chain_key: u64) -> Result<u32, Error> {
+        let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
 
         let result = self
             .api
@@ -270,27 +272,29 @@ impl<'a> Client {
     pub async fn sign_babe_vrf(
         &self,
         chain_key: ChainKey,
+        header_number: u64,
         randomness: Randomness,
         epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
-        let committee_size = self.fetch_committee_size(chain_key).await?;
+        let target_sample_size = self.target_sample_size(chain_key).await?;
 
         // Get attestor working set size
-        let attestor_working_set_size = self.get_attestor_working_set_size(chain_key).await?;
+        let committee_set_size = self.get_attestor_working_set_size(chain_key).await?;
 
         info!(
-            "Committee set size: {}, working set size: {}",
-            committee_size, attestor_working_set_size
+            "Target set size: {}, committee set size: {}",
+            target_sample_size, committee_set_size
         );
 
         let proof_of_inclusion = make_proof_of_inclusion(
-            attestor_working_set_size as u64,
-            u64::from(committee_size),
+            committee_set_size as u64,
+            u64::from(target_sample_size),
             &randomness,
             &self.pair,
             &self.get_attestor_id(),
             epoch_index,
+            header_number,
         )?;
 
         Ok(proof_of_inclusion)
@@ -317,7 +321,10 @@ impl<'a> Client {
         Ok(result)
     }
 
-    pub async fn chain_checkpoint_interval(&self, chain_key: ChainKey) -> Result<Option<u32>> {
+    pub async fn chain_checkpoint_interval(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<u32>, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .attestation_checkpoint_interval(chain_key);

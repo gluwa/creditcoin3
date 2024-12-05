@@ -1,11 +1,9 @@
 use anyhow::Result;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
-use exponential_backoff::Backoff;
 use serde::Serialize;
 use sp_core::H256;
-use std::{thread, time::Duration};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use cc_client::{AccountId32, Client as CcClient};
 
@@ -30,6 +28,33 @@ pub enum Error {
     FailedToGetAttestationInterval,
     #[error("Client error: {0}")]
     CclientError(#[from] cc_client::Error),
+    #[error("Ethereum error: {0}")]
+    EthError(#[from] eth::Error),
+    #[error("Attestation fragment error: {0}")]
+    FragmentError(#[from] attestation_chain::attestation_fragment::AttestationFragmentError),
+    #[error("Attestation fragment block error: {0}")]
+    FragmentBlockError(#[from] attestation_chain::block::BlockError),
+    #[error("Failed to cast attestation_interval to usize: attestation_interval: {0}")]
+    InvalidFragmentLength(u64),
+    #[error("Trying to submit duplicate attestation")]
+    DuplicateSubmission,
+}
+
+impl Error {
+    #[must_use]
+    pub fn is_not_selected_error(&self) -> bool {
+        matches!(
+            self,
+            Error::CclientError(cc_client::Error::FailedToCreateProofOfInclusion(
+                vrf::Error::NotSelected
+            ))
+        )
+    }
+
+    #[must_use]
+    pub fn is_duplicate_submission(&self) -> bool {
+        matches!(self, Error::DuplicateSubmission)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -158,6 +183,12 @@ impl<'a> Client {
         Ok(())
     }
 
+    pub async fn can_attest(&self) -> Result<bool> {
+        self.cc_client
+            .check_attestors_membership(self.get_chain_key())
+            .await
+    }
+
     /// Register to the attestation pallet
     pub async fn start_attesting(&self) -> Result<()> {
         info!("Signaling intention to start attesting...");
@@ -185,7 +216,7 @@ impl<'a> Client {
         let signature_bls = self.bls_keypair.sign(msg);
 
         // Sign the VRF output
-        let vrf_output = self.sign_vrf().await?;
+        let vrf_output = self.sign_vrf(attestation.header_number).await?;
 
         // Create final attestation object
         Ok(Attestation {
@@ -195,27 +226,17 @@ impl<'a> Client {
             proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
+            continuity_proof: vec![],
         })
     }
 
-    pub async fn sign_vrf(&self) -> Result<ProofOfInclusion, Error> {
+    pub async fn sign_vrf(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
         let (randomness, epoch_index) =
             self.cc_client.fetch_babe_randomness_two_epoch_ego().await?;
 
         Ok(self
             .cc_client
-            .sign_babe_vrf(self.get_chain_key(), randomness, epoch_index)
-            .await?)
-    }
-
-    pub async fn sign_vrf_for_header_at_epoch_randmoness(
-        &self,
-        randomess: Randomness,
-        epoch_index: u64,
-    ) -> Result<ProofOfInclusion, Error> {
-        Ok(self
-            .cc_client
-            .sign_babe_vrf(self.get_chain_key(), randomess, epoch_index)
+            .sign_babe_vrf(self.get_chain_key(), header_number, randomness, epoch_index)
             .await?)
     }
 
@@ -234,105 +255,26 @@ impl<'a> Client {
         }
     }
 
+    pub async fn get_checkpoint_interval(&self) -> Result<u32, Error> {
+        self.cc_client
+            .chain_checkpoint_interval(self.get_chain_key())
+            .await?
+            .ok_or(Error::CclientError(
+                cc_client::Error::NoCheckpointIntervalSet(self.get_chain_key()),
+            ))
+    }
+
     pub async fn submit_attestation<H>(
         &self,
-        mut attestation: AttestationPrimitive<H>,
+        attestation: Attestation<H, AttestorId>,
     ) -> Result<(), Error>
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
-        let chain_key = attestation.chain_key;
-        let round = (chain_key, attestation.header_number);
-
-        let last_attestation = self.get_last_attestation(chain_key).await?;
-        if let Some(last_a) = last_attestation {
-            if last_a.header_number() + self.chain_config.current_attestation_interval
-                != attestation.header_number
-            {
-                warn!("Skipping Attestation because it's not in the configured interval for this chain");
-                return Ok(());
-            }
-        }
-
-        // Get the digest of the attestation
-        let attestation_digest = attestation.digest();
-
-        let mut inclusion = false;
-        while !inclusion {
-            // check if attestation already exists
-            // if yes, don't submit
-            let exists = self
-                .cc_client
-                .chain_attestation_exists(chain_key, attestation_digest)
-                .await?;
-
-            if exists {
-                warn!("Attestation already exists, skipping... round: {:?}", round);
-                return Ok(());
-            }
-
-            // Get the last digest from the chain
-            // and set it as the previous digest of the attestation
-            let prev_digest = self.cc_client.fetch_last_digest(chain_key).await?;
-            attestation.prev_digest = prev_digest;
-            info!("Updating previous digest for attestation to submit");
-
-            info!("Trying to submit attestation... round: {:?}", round);
-            let attestation = self.sign_attestation(attestation.clone()).await?;
-
-            // Retry submission
-            self.cc_client
-                .submit_attestation(attestation.clone())
-                .await?;
-
-            inclusion =
-                check_attestation_inclusion(self.cc_client.clone(), chain_key, attestation_digest)
-                    .await?;
-        }
-
-        info!(
-            "✅ Attestation for round {:?} with digest {attestation_digest} included in chain",
-            round
-        );
-
-        Ok(())
+        Ok(self.cc_client.submit_attestation(attestation).await?)
     }
 
     pub fn change_attestation_interval(&mut self, new_interval: u64) {
         self.chain_config.current_attestation_interval = new_interval;
     }
-}
-
-/// Check if the attestation is included in the chain
-/// - `cc_client`: Creditcoin3 client
-/// - `chain_key`: Chain key from pallet-supported-chains
-/// - `attestation_digest`: Attestation digest
-/// Returns a boolean indicating if the attestation is included in the chain
-/// It retries 4 times with 6 seconds interval
-pub async fn check_attestation_inclusion(
-    cc_client: CcClient,
-    chain_key: ChainKey,
-    attestation_digest: H256,
-) -> Result<bool, Error> {
-    let retries = 6;
-    let min = Duration::from_secs(6);
-    // Retry 10 times with 6 seconds interval (blocktime is 6 seconds)
-    let backoff = Backoff::new(retries, min, min);
-
-    info!("Validating attestation submission now...");
-    for duration in &backoff {
-        // get last digest from cc3
-        let digest_exists = cc_client
-            .chain_attestation_exists(chain_key, attestation_digest)
-            .await?;
-
-        if digest_exists {
-            debug!("Attestation confirmed on chain");
-            return Ok(true);
-        }
-
-        thread::sleep(duration);
-    }
-
-    Ok(false)
 }

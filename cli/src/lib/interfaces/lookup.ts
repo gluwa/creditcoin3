@@ -824,7 +824,7 @@ export default {
             InvulnerableUnregistered: '(u64,AccountId32)',
             BlockAttested: '(u64,AttestorPrimitivesSignedAttestation,H256)',
             CheckpointReached: '(u64,AttestorPrimitivesAttestationCheckpoint)',
-            CommitteeSetSizeChanged: '(u64,u32)',
+            TargetSampleSizeChanged: '(u64,u32)',
             Bonded: {
                 stash: 'AccountId32',
                 amount: 'u128',
@@ -2489,9 +2489,9 @@ export default {
                 chainKey: 'u64',
                 chainAttestationInterval: 'u64',
             },
-            set_committee_set_size: {
+            set_target_sample_size: {
                 chainKey: 'u64',
-                newCommitteeSetSize: 'u32',
+                newTargetSampleSize: 'u32',
             },
             register_attestor: {
                 chainKey: 'u64',
@@ -2996,7 +2996,7 @@ export default {
             'NoSupportedChains',
             'InvalidAttestationInterval',
             'InvalidAttestationsPerCheckpoint',
-            'InvalidCommitteeSetSize',
+            'InvalidTargetSampleSize',
         ],
     },
     /**

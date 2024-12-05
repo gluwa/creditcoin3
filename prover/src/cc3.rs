@@ -98,7 +98,10 @@ impl<'a> Client {
     }
 
     pub async fn get_chain_checkpoint_interval(&self, chain_key: ChainKey) -> Result<Option<u32>> {
-        self.cc_client.chain_checkpoint_interval(chain_key).await
+        self.cc_client
+            .chain_checkpoint_interval(chain_key)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn get_chain_key(&self, chain_id: ChainId) -> Result<Option<ChainKey>> {
@@ -127,7 +130,7 @@ impl Client {
         loop {
             let event = subscription.next().await;
             match event {
-                Some(CcEvent::BlockAttestedEvent(attestation)) => {
+                Some(CcEvent::BlockAttested(attestation)) => {
                     // Process the attestation
                     info!(
                         "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
@@ -138,7 +141,7 @@ impl Client {
                     // Handle the claim processing logic here
                     attestation_chan.send(attestation)?;
                 }
-                Some(CcEvent::CheckpointReachedEvent(checkpoint, chain_key)) => {
+                Some(CcEvent::CheckpointReached(checkpoint, chain_key)) => {
                     info!(
                         "Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
                         chain_key,

@@ -15,7 +15,8 @@ pub mod weights;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    pub use attestor_primitives::{ChainId, ChainKey};
+    pub use attestor_primitives::ChainId;
+    use attestor_primitives::ChainKey;
     use frame_support::{
         pallet_prelude::*,
         traits::{BuildGenesisConfig, ConstU64},
@@ -212,14 +213,10 @@ pub mod pallet {
             SupportedChains::<T>::contains_key(chain_key)
         }
 
-        fn supported_chains() -> Option<Vec<ChainKey>> {
-            let chains: Vec<ChainKey> = SupportedChains::<T>::iter()
+        fn supported_chains() -> Vec<ChainKey> {
+            SupportedChains::<T>::iter()
                 .map(|(chain_key, _)| chain_key)
-                .collect();
-            match chains.is_empty() {
-                true => None,
-                false => Some(chains),
-            }
+                .collect::<Vec<ChainKey>>()
         }
 
         fn chain_key_by_chain_id_and_name(

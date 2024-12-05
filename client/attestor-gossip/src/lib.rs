@@ -17,14 +17,16 @@ use substrate_prometheus_endpoint::Registry;
 use thiserror::Error;
 use worker::{Worker, WorkerParams};
 
+use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use attestor_primitives::bls::{Bls, CryptoScheme};
 use attestor_primitives::{
-    api::AttestorApi, Attestation as AttestationPrimitive, AttestorId, Digest,
+    api::AttestorApi, Attestation as AttestationPrimitive, AttestorId, Digest, Round,
 };
 use randomness_primitives::api::RandomnessPalletApi;
 use supported_chains_primitives::api::SupportedChainsApi;
 
 pub mod inherent;
+pub mod round;
 pub mod validator;
 pub mod worker;
 
@@ -76,8 +78,8 @@ pub enum Error {
     AttestationHeaderNumberInvalid,
     #[error("Error creating inherent data")]
     ErrorCreatingInherent,
-    #[error("Sender is not an attestor")]
-    NotAnAttestor,
+    #[error("Sender {0:?} is not an attestor")]
+    NotAnAttestor(AttestorId),
     #[error("Digest missmatch")]
     DigestMissMatch,
     #[error("Failed to fetch last digest")]
@@ -92,16 +94,26 @@ pub enum Error {
     SpApiError(#[from] sp_api::ApiError),
     #[error("Vrf error")]
     VrfError(#[from] vrf::Error),
-    #[error("Attestor not eligible")]
-    AttestorNotEligible,
-    #[error("Attestor not active")]
-    AttestorNotActive,
+    #[error("Attestor {0:?} not eligible")]
+    AttestorNotEligible(AttestorId),
+    #[error("Attestor {0:?} not active")]
+    AttestorNotActive(AttestorId),
     #[error("Failed to get attestation interval")]
     FailedToGetAttestationInterval,
     #[error("Failed to get last attestation after existance confirmed")]
     FailedToGetLastAttestation,
+    #[error("Failed to get round configuration")]
+    RoundConfigNotSet,
+    #[error("Majority for round({0:?}) not reached")]
+    MajorityNotReached(Round),
     #[error("Other error: {0}")]
     Other(String),
+    #[error("Finality stream terminated")]
+    FinalityStreamTerminated,
+    #[error("Attestation data contains invalid epoch")]
+    InvalidEpoch,
+    #[error("Attestation contains an invalid continuity proof")]
+    InvalidAttestationContinuityProof,
 }
 
 #[derive(Debug, PartialEq)]
@@ -109,8 +121,6 @@ pub enum Action<H> {
     Keep(H),
     Discard,
 }
-
-pub type Round = u64;
 
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Topic(u64);
@@ -129,14 +139,24 @@ pub struct Attestation<B, AccountId> {
     pub proof_of_inclusion: vrf::ProofOfInclusion,
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
+    pub continuity_proof: Vec<AttestationFragmentSerializable>,
 }
 
 impl<B, AccountId> Attestation<B, AccountId>
 where
     B: AsRef<[u8]>,
+    AccountId: Into<[u8; 32]> + Clone,
 {
     pub fn digest(&self) -> Digest {
         self.attestation_data.digest()
+    }
+
+    pub fn round(&self) -> Round {
+        self.attestation_data.round()
+    }
+
+    pub fn attestor_id(&self) -> AttestorId {
+        AttestorId::from_public(self.attestor.clone().into())
     }
 }
 
@@ -242,6 +262,10 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
         ..
     } = network_params;
 
+    // Subscribe to finality notifications and justifications before waiting for runtime pallet and
+    // reuse the streams, so we don't miss notifications while waiting for pallet to be available.
+    let finality_notifications = client.finality_notification_stream();
+
     let gossip_validator =
         AttestorGossipValidator::<B, AccountId, R, BE>::new(runtime.clone(), backend.clone());
     let validator: Arc<AttestorGossipValidator<B, AccountId, R, BE>> = Arc::new(gossip_validator);
@@ -271,7 +295,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
 
     let worker: Worker<B, R, BE, C, CIDP, AccountId> = Worker::new(worker_params);
 
-    worker.start().await;
+    worker.start(finality_notifications).await;
 }
 
 pub fn peers_set_config(protocol_name: ProtocolName) -> sc_network::config::NonDefaultSetConfig {

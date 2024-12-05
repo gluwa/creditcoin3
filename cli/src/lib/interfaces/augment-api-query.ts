@@ -160,8 +160,6 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, H256]
             > &
                 QueryableStorageEntry<ApiType, [u64, H256]>;
-            committeeSetSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
-                QueryableStorageEntry<ApiType, [u64]>;
             invulnerables: AugmentedQuery<
                 ApiType,
                 (
@@ -213,6 +211,8 @@ declare module '@polkadot/api-base/types/storage' {
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,
                 [u64]
             > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Generic query

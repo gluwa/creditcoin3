@@ -1,7 +1,8 @@
 use futures::StreamExt;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use parity_scale_codec::{Codec, Decode, Encode};
-use sc_client_api::{Backend, BlockBackend, HeaderBackend};
+use sc_client_api::{Backend, BlockBackend, FinalityNotification, HeaderBackend};
+use sc_utils::mpsc::TracingUnboundedReceiver;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use attestor_primitives::{
     api::AttestorApi,
     bls::{Bls, CryptoScheme, WrapEncode},
-    AttestorId, AttestorStatus, ChainKey, SignedAttestation,
+    ChainKey, Round, SignedAttestation,
 };
 
 use bls_signatures::{aggregate, Serialize};
@@ -24,6 +25,7 @@ use supported_chains_primitives::api::SupportedChainsApi;
 use vrf;
 
 use super::{inherent, Attestation, AttestorComms, Client, Error, HashFor, Message, LOG_TARGET};
+use crate::round::RoundConfig;
 
 /// Gossip engine votes messages topic
 pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
@@ -71,6 +73,18 @@ where
 
     /// Block attestations. Maps a blocknumber to a list of actual attestations, not digests
     pub block_attestations: BTreeMap<ChainKey, BTreeMap<BlockNumber, Attestations<B, AccountId>>>,
+
+    /// Round configuration per chain
+    /// Per chain key we should have a round config keyed by epoch index
+    /// This is to support multiple epochs per chain
+    pub round_config: BTreeMap<ChainKey, BTreeMap<u64, RoundConfig>>,
+
+    /// Active attestor set per chain / epoch
+    /// Per chain key we should have a map of epoch index to a list of active attestors
+    pub active_attestor_set: BTreeMap<ChainKey, BTreeMap<u64, Vec<AccountId>>>,
+
+    /// Current epoch index
+    pub current_epoch_index: u64,
 
     /// Inherent data providers
     #[allow(dead_code)]
@@ -148,19 +162,33 @@ where
         + std::hash::Hash,
 {
     pub fn new(params: WorkerParams<B, RA, BE, C, CIDP, AccountId>) -> Self {
+        let block_hash = params.backend.blockchain().info().finalized_hash;
+
+        let current_epoch_index = params
+            .runtime
+            .runtime_api()
+            .current_epoch(block_hash)
+            .expect("Failed to get current epoch index");
+
         Worker {
             comms: params.comms,
             runtime: params.runtime,
             client: params.client,
             create_inherent_data_providers: params.create_inherent_data_providers,
             block_attestations: BTreeMap::new(),
+            round_config: BTreeMap::new(),
+            active_attestor_set: BTreeMap::new(),
+            current_epoch_index: current_epoch_index.epoch_index,
             backend: params.backend,
             inherent_provider: params.inherent_provider,
             _phantom: PhantomData,
         }
     }
 
-    pub async fn start(mut self) -> Error {
+    pub async fn start(
+        mut self,
+        mut finality_notifications: TracingUnboundedReceiver<FinalityNotification<B>>,
+    ) -> Error {
         let mut votes = Box::pin(
             self.comms
                 .gossip_engine
@@ -178,6 +206,17 @@ where
             let message_stream = &mut self.comms.gossip_report_stream;
 
             futures::select_biased! {
+                // Use `select_biased!` to prioritize order below.
+                // Process finality notifications first since these drive the voter.
+                notification = finality_notifications.next() => {
+                    if let Some(notif) = notification {
+                        if let Err(err) = self.handle_finality_notification(&notif) {
+                            break err;
+                        }
+                    } else {
+                        break Error::FinalityStreamTerminated;
+                    }
+                },
                 // Make sure to pump gossip engine.
                 _ = gossip_engine => {
                     break Error::GossipEngineExited;
@@ -185,17 +224,17 @@ where
                 // Handler that handles incoming attestation from the gossip netowrk
                 vote = votes.next() => {
                     if let Some(vote) = vote {
-                        log::info!(target: LOG_TARGET, "📝 Got a vote from the network");
+                        debug!(target: LOG_TARGET, "📝 Got a vote from the network");
                         match self.triage_message(vote.clone()).await {
                             Ok(()) => {
-                                info!(target: LOG_TARGET, "📝 Got a valid gossiped message");
+                                debug!(target: LOG_TARGET, "📝 Got a valid gossiped message");
                             },
                             Err(e) => {
                                 info!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
                             }
                         }
                     } else {
-                        info!(target: LOG_TARGET, "📝 Got a vote, but it was invalid");
+                        warn!(target: LOG_TARGET, "📝 Got a vote, but it was invalid");
                         break Error::GossipEngineExited;
                     }
                 },
@@ -212,7 +251,7 @@ where
                                 let header_number = attestation.attestation_data.header_number;
 
                                 let round = (chain_key, header_number);
-                                info!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
+                                debug!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
 
                                 // Gossip to peers first
                                 gossip_engine.gossip_message(
@@ -256,128 +295,44 @@ where
     ) -> Result<(), Error> {
         let block_hash = self.backend.blockchain().info().best_hash;
 
-        // Verify the attestation data
-        self.verify_attestation_data(&attestation)?;
+        // Get the round for the attestation
+        // This is the chain key and header number
+        let round = attestation.round();
+
+        // Triage the round
+        // This will check if the round is valid
+        // self.triage_round(round, attestation.attestation_data.prev_digest)?;
 
         // Verify the VRF output
-        self.verify_vrf(&attestation)?;
+        self.verify_vrf(round, &attestation)?;
 
-        let chain_key = attestation.attestation_data.chain_key;
-        let header_number = attestation.attestation_data.header_number;
+        // Add the attestation to the round
+        self.add_to_round(round, &attestation, block_hash)?;
 
-        self.add_to_round(attestation, block_hash)?;
-
-        match self.try_submit_attestation(chain_key, header_number, block_hash) {
+        match self.try_submit_attestation(round, attestation, block_hash) {
             Ok(()) => {
-                info!(target: LOG_TARGET, "📝 Successfully submitted attestation");
+                info!(target: LOG_TARGET, "📝 Successfully submitted attestation for round{:?} ✅", round);
             }
             Err(e) => {
-                info!(target: LOG_TARGET, "📝 Failed to submit attestation err: {:?}", e);
+                if matches!(e, Error::MajorityNotReached(_)) {
+                    warn!(target: LOG_TARGET, "📝 Majoriy not reached yet, skipping submission...");
+                } else {
+                    error!(target: LOG_TARGET, "📝 Failed to submit attestation for round{:?} err: {:?}", round, e);
+                }
             }
         }
 
         Ok(())
     }
 
-    /// Verify the VRF output for an attestation.
-    /// This checks if the attestor that submitted this attestations vrf output is correct
-    /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
-    /// TODO: check if the eligibility check is good enough
-    fn verify_vrf(&self, attestation: &Attestation<HashFor<B>, AccountId>) -> Result<(), Error> {
-        // Get the blockchain info (current info)
-        let blockchain_info = self.backend.blockchain().info();
-        let chain_key = attestation.attestation_data.chain_key;
-
-        info!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
-        let runtime = self.runtime.runtime_api();
-        let is_attestor = runtime.is_attestor(
-            blockchain_info.finalized_hash,
-            chain_key,
-            &attestation.attestor.clone(),
-        )?;
-        debug!(target: LOG_TARGET, "📝 {} Is attestor {}", attestation.attestor, is_attestor);
-
-        if !is_attestor {
-            return Err(Error::NotAnAttestor);
-        }
-
-        let attestor_status = runtime
-            .attestor_status(
-                blockchain_info.finalized_hash,
-                chain_key,
-                &attestation.attestor.clone(),
-            )?
-            .ok_or(Error::NotAnAttestor)?;
-
-        if attestor_status != AttestorStatus::Active {
-            return Err(Error::AttestorNotActive);
-        }
-
-        let last_digest = runtime.last_digest(
-            blockchain_info.finalized_hash,
-            attestation.attestation_data.chain_key,
-        )?;
-
-        let prev_digest = attestation.attestation_data.prev_digest;
-
-        if last_digest != prev_digest {
-            info!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, prev_digest);
-
-            return Err(Error::DigestMissMatch);
-        }
-
-        // Get randomness from the attestation
-        info!(target: LOG_TARGET, "Getting randomness for attestation at epoch: {}", attestation.proof_of_inclusion.epoch);
-        let runtime = self.runtime.runtime_api();
-        let randomness_from_attestation = runtime.randomness_by_epoch_id(
-            blockchain_info.finalized_hash,
-            attestation.proof_of_inclusion.epoch,
-        )?;
-
-        let current_epoch = runtime.current_epoch(blockchain_info.finalized_hash)?;
-        let two_epochs_ago = current_epoch.epoch_index.saturating_sub(2);
-
-        let randomness_from_two_epochs_ago =
-            runtime.randomness_by_epoch_id(blockchain_info.finalized_hash, two_epochs_ago)?;
-
-        // Enforce that an attestor can only submit an attestation if they signed the VRF output from two epochs ago
-        // calculated from "now" which means the current epoch on a synced node
-        if randomness_from_attestation != randomness_from_two_epochs_ago {
-            info!(target: LOG_TARGET, "📝 Randomness from attestation: {:?}, randomness from two epochs ago: {:?}", randomness_from_attestation, randomness_from_two_epochs_ago);
-            return Err(Error::InvalidAttestationVrfOuput);
-        }
-
-        // Get the threshold and working set size
-        let runtime = self.runtime.runtime_api();
-        let target_sample_size =
-            runtime.committee_set_size(blockchain_info.finalized_hash, chain_key)?;
-        let working_set_size =
-            runtime.working_set_size(blockchain_info.finalized_hash, chain_key)?;
-
-        let is_included = vrf::verify_proof_of_inclusion(
-            working_set_size.into(),
-            target_sample_size.into(),
-            &randomness_from_two_epochs_ago,
-            &attestation.proof_of_inclusion,
-            &AttestorId::from_public(attestation.attestor.clone().into()),
-        )?;
-
-        if !is_included {
-            info!(target: LOG_TARGET, "📝 Vrf output for {:?} is invalid ❌", attestation.attestor);
-            return Err(Error::AttestorNotEligible);
-        }
-
-        info!(target: LOG_TARGET, "📝 Vrf output for {:?} is valid ✅", attestation.attestor);
-        Ok(())
-    }
-
-    fn verify_attestation_data(
-        &self,
-        attestation: &Attestation<HashFor<B>, AccountId>,
-    ) -> Result<(), Error> {
+    /// Triage the round
+    /// This function will check if the attestation's header number is within the chain's attestation interval
+    /// This enforces sequential attestations
+    fn _triage_round(&self, round: Round, prev_digest: Option<H256>) -> Result<(), Error> {
         let runtime = self.runtime.runtime_api();
         let best_hash = self.backend.blockchain().info().best_hash;
-        let chain_key = attestation.attestation_data.chain_key;
+        let chain_key = round.0;
+        let header_number = round.1;
 
         let chain_attestation_interval = runtime
             .chain_attestation_interval(self.backend.blockchain().info().best_hash, chain_key)?
@@ -395,14 +350,80 @@ where
             };
 
         // Attestation height should be greater than last attestation height by exactly `interval`
-        if (attestation.attestation_data.header_number - last_attestation_height)
-            % chain_attestation_interval
-            != 0
-        {
+        if (header_number - last_attestation_height) % chain_attestation_interval != 0 {
             debug!(target: LOG_TARGET, "📝 Attestation header number is invalid");
             return Err(Error::AttestationHeaderNumberInvalid);
         }
 
+        // Check if the attestation is sequential
+        // By checking if the attestation's prev digest matches the last digest
+        let runtime = self.runtime.runtime_api();
+        let last_digest = runtime.last_digest(best_hash, chain_key)?;
+        if last_digest != prev_digest {
+            warn!(target: LOG_TARGET, "📝 last digest: {:?}, attestation digest {:?}", last_digest, prev_digest);
+
+            return Err(Error::DigestMissMatch);
+        }
+
+        Ok(())
+    }
+
+    /// Verify the VRF output for an attestation.
+    /// This checks if the attestor that submitted this attestations vrf output is correct
+    /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
+    fn verify_vrf(
+        &self,
+        round: Round,
+        attestation: &Attestation<HashFor<B>, AccountId>,
+    ) -> Result<(), Error> {
+        info!(target: LOG_TARGET, "📝 Verifying VRF output for attestation, round: {:?}", round);
+        let best_hash = self.backend.blockchain().info().finalized_hash;
+        let chain_key = round.0;
+        let header_number = round.1;
+
+        let current_epoch = self
+            .runtime
+            .runtime_api()
+            .current_epoch(best_hash)?
+            .epoch_index;
+
+        // Now check if the attestor was valid in the epoch that it tells us it's attesting for
+        let is_valid_attestor = self.check_chain_attestor_epoch_inclusion(
+            chain_key,
+            current_epoch,
+            attestation.attestor.clone(),
+        )?;
+
+        let attestor_id = attestation.attestor_id();
+        if !is_valid_attestor {
+            info!(target: LOG_TARGET, "📝 Attestor is not valid for attestation epoch: {}", current_epoch);
+            return Err(Error::NotAnAttestor(attestor_id));
+        }
+
+        // Get randomness from the attestation
+        let attestation_epoch = attestation.proof_of_inclusion.epoch;
+        let runtime = self.runtime.runtime_api();
+        let randomness = runtime.randomness_by_epoch_id(best_hash, attestation_epoch)?;
+
+        // Here we verify the proof of inclusion
+        // based on the round config
+        // Get round config at the attestation epoch
+        let round_config = self.get_round_config_at_epoch(chain_key, current_epoch)?;
+        let is_included = vrf::verify_proof_of_inclusion(
+            round_config.committee_set_size.into(),
+            round_config.target_sample_size.into(),
+            &randomness,
+            &attestation.proof_of_inclusion,
+            &attestor_id,
+            header_number,
+        )?;
+
+        if !is_included {
+            warn!(target: LOG_TARGET, "📝 Attestor {:?} not eligible", attestor_id);
+            return Err(Error::AttestorNotEligible(attestor_id));
+        }
+
+        debug!(target: LOG_TARGET, "📝 Attestor {:?} selected ✅", attestor_id);
         Ok(())
     }
 
@@ -410,12 +431,12 @@ where
     /// If the attestation is too old, it will be skipped
     fn add_to_round(
         &mut self,
-        attestation: Attestation<HashFor<B>, AccountId>,
+        round: Round,
+        attestation: &Attestation<HashFor<B>, AccountId>,
         block_hash: HashFor<B>,
     ) -> Result<(), Error> {
-        let chain_key = attestation.attestation_data.chain_key;
-        let header_number = attestation.attestation_data.header_number;
-        let round = (chain_key, header_number);
+        let chain_key = round.0;
+        let header_number = round.1;
 
         let attestor_id = attestation.attestor.clone();
 
@@ -423,30 +444,17 @@ where
         let runtime = self.runtime.runtime_api();
         let last_digest = runtime.last_digest(block_hash, chain_key)?;
 
-        let mut target_block = 0;
-
         if let Some(last_digest) = last_digest {
             if let Some(last_attestation) = runtime.get(block_hash, chain_key, last_digest)? {
                 let last_header = last_attestation.attestation.header_number;
                 let round = (chain_key, last_header);
 
-                let interval = runtime
-                    .chain_attestation_interval(block_hash, chain_key)?
-                    .ok_or(Error::FailedToGetAttestationInterval)?;
-
                 // Skip if the attestation is too old
                 if header_number <= last_header {
-                    info!(target: LOG_TARGET, "📝 Attestation is too old, round {:?} already concluded on chain", round);
+                    warn!(target: LOG_TARGET, "📝 Attestation is too old, round {:?} already concluded on chain", round);
                     return Err(Error::AttestationTooOld);
                 }
-
-                target_block = last_header + interval;
             }
-        }
-
-        if header_number > target_block {
-            info!(target: LOG_TARGET, "📝 Attestation is too early, round {:?} not yet concluded on chain", round);
-            return Err(Error::AttestationTooEarly);
         }
 
         // Check if the chain_key exists in the block_attestations
@@ -456,18 +464,18 @@ where
                 .entry(header_number)
                 .or_insert_with(HashMap::new);
 
-            info!(
+            debug!(
                 target: LOG_TARGET,
                 "📝 Attestor({:?}) voted for round {:?}", attestor_id, (chain_key, header_number)
             );
 
-            let old_vote = attestations_for_header.insert(attestor_id.clone(), attestation);
+            let old_vote = attestations_for_header.insert(attestor_id.clone(), attestation.clone());
             if old_vote.is_some() {
-                info!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_key, header_number));
+                warn!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_key, header_number));
             }
         } else {
             // Insert new attestation if it doesn't exist
-            log::info!(target: LOG_TARGET, "📝 Inserting new attestation for round {:?}", round);
+            debug!(target: LOG_TARGET, "📝 First time a vote comes in for new chain: {}, round: {:?}", chain_key, round);
             let mut map = BTreeMap::new();
             let mut attestations = HashMap::new();
             attestations.insert(attestor_id, attestation.clone());
@@ -484,11 +492,20 @@ where
     /// 3. Flush memory
     fn try_submit_attestation(
         &mut self,
-        chain_key: ChainKey,
-        header_number: u64,
+        round: Round,
+        attestation: Attestation<HashFor<B>, AccountId>,
         block_hash: HashFor<B>,
     ) -> Result<(), Error> {
-        let round = (chain_key, header_number);
+        let chain_key = round.0;
+        let header_number = round.1;
+
+        // Get the round config at the current epoch
+        let current_epoch = self
+            .runtime
+            .runtime_api()
+            .current_epoch(block_hash)?
+            .epoch_index;
+        let round_config = self.get_round_config_at_epoch(chain_key, current_epoch)?;
 
         let attestations = self
             .block_attestations
@@ -508,11 +525,6 @@ where
 
         let (major_digest, _) = find_major_digest::<B, AccountId>(&block_attestations);
 
-        // Majority is more than half of the committee set size
-        let runtime = self.runtime.runtime_api();
-        let committee_set_size = runtime.committee_set_size(block_hash, chain_key)?;
-        let threshold = calculate_threshold(committee_set_size);
-
         // Filter attestations by major digest
         // TODO: Can we do this in a more efficient way / place?
         let attestations = block_attestations
@@ -520,20 +532,12 @@ where
             .filter(|(_, attestation)| attestation.digest() == major_digest.into())
             .collect::<Vec<_>>();
 
-        // TODO: check the list of attestations again and filter out any attestors that are not active or anymore. Based on that list, check if the threshold is reached.
-        // If not, return an error and don't submit the attestation
-        let attestations = attestations
-            .into_iter()
-            .filter(|(attestor_id, _)| {
-                runtime
-                    .is_attestor(block_hash, chain_key, attestor_id)
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<_>>();
+        // Get calculated threshold for the round
+        let threshold = round_config.threshold;
 
         info!(
             target: LOG_TARGET,
-            "📝 Majority for round {:?}, digest: {:?}, count: {:?}, threshold: {:?}",
+            "📝 Trying to finalize round{:?}, digest: {:?}, Votes: {:?}/{:?}",
             round,
             major_digest,
             attestations.len(),
@@ -543,13 +547,8 @@ where
         // Also check if the target attestation to be submitted is the same as the last attestation + interval
         // Only then we can submit the attestation
         if attestations.len() < threshold.try_into().unwrap() {
-            info!(target: LOG_TARGET, "📝 Majority not reached for round {:?}", round);
-            return Ok(());
+            return Err(Error::MajorityNotReached(round));
         }
-
-        let an_attestation = attestations.iter().next().cloned().unwrap();
-        let chain_key = an_attestation.1.attestation_data.chain_key;
-        let header_number = an_attestation.1.attestation_data.header_number;
 
         // check if digest exists
         let runtime = self.runtime.runtime_api();
@@ -558,11 +557,11 @@ where
                 // remove from storage
                 let block_attestations = self.block_attestations.get_mut(&chain_key).unwrap();
                 block_attestations.remove(&header_number);
-                info!(target: LOG_TARGET, "📝 Attestation is already included in runtime, need to prune from local memory here. Round: {:?}", (chain_key, header_number));
+                warn!(target: LOG_TARGET, "📝 Attestation is already included in runtime, need to prune from local memory here. Round: {:?}", (chain_key, header_number));
                 return Ok(());
             }
             Ok(false) => {
-                info!(target: LOG_TARGET, "📝 Attestation is not included in runtime, need to submit");
+                debug!(target: LOG_TARGET, "📝 Attestation is not included in runtime, need to submit");
             }
             Err(e) => {
                 error!(target: LOG_TARGET, "📝 Error while checking digest: {:?}", e);
@@ -600,7 +599,7 @@ where
             .ok_or(Error::InvalidBlsSignature)?;
 
         let attestation = SignedAttestation {
-            attestation: an_attestation.clone().1.attestation_data,
+            attestation: attestation.attestation_data,
             signature: aggregated_signature,
             attestors,
         };
@@ -608,7 +607,7 @@ where
         let _ = match self.inherent_provider.0.lock() {
             Ok(mut provider) => match provider.create(attestation.clone()) {
                 Ok(()) => {
-                    info!(target: LOG_TARGET, "📝 Inherent created");
+                    debug!(target: LOG_TARGET, "📝 Inherent created");
                     Ok(())
                 }
                 Err(e) => {
@@ -628,6 +627,101 @@ where
 
         Ok(())
     }
+
+    fn get_round_config_at_epoch(
+        &self,
+        chain_key: ChainKey,
+        epoch_index: u64,
+    ) -> Result<RoundConfig, Error> {
+        let chain_round_config = self
+            .round_config
+            .get(&chain_key)
+            .ok_or(Error::ChainNotSupported)?;
+
+        let c = chain_round_config
+            .get(&epoch_index)
+            .ok_or(Error::RoundConfigNotSet)?;
+
+        Ok(c.clone())
+    }
+
+    /// Check if the attestor is included in the active attestor set for the given chain and epoch
+    fn check_chain_attestor_epoch_inclusion(
+        &self,
+        chain_key: ChainKey,
+        epoch_index: u64,
+        attestor: AccountId,
+    ) -> Result<bool, Error> {
+        let epoch_active_attestors = self
+            .active_attestor_set
+            .get(&chain_key)
+            .ok_or(Error::RoundConfigNotSet)?;
+
+        let attestors = epoch_active_attestors
+            .get(&epoch_index)
+            .ok_or(Error::RoundConfigNotSet)?;
+
+        Ok(attestors.contains(&attestor))
+    }
+
+    /// Handle finality notification
+    /// This function updates all the round configurations for each supported chain when a new epoch is finalized
+    fn handle_finality_notification(&mut self, notif: &FinalityNotification<B>) -> Result<(), Error>
+    where
+        B: BlockT,
+    {
+        info!(target: LOG_TARGET, "📝 Handling finality notification");
+        let runtime_api = self.runtime.runtime_api();
+
+        // get current epoch
+        let current_epoch = runtime_api.current_epoch(notif.hash)?;
+
+        if current_epoch.epoch_index == 0 {
+            info!(target: LOG_TARGET, "📝 Skipping round config for epoch 0");
+            return Ok(());
+        }
+
+        if self.current_epoch_index == current_epoch.epoch_index && current_epoch.epoch_index != 0 {
+            debug!(target: LOG_TARGET, "📝 No need to update round configuration for current epoch");
+            return Ok(());
+        }
+
+        info!(target: LOG_TARGET, "📝 Updating round configuration for epoch: {:?}", current_epoch.epoch_index);
+
+        // Get supported chain keys
+        let supported_chain_keys = runtime_api.supported_chains(notif.hash)?;
+
+        // Update round config for each supported chain
+        for chain_key in supported_chain_keys {
+            let ra = self.runtime.clone();
+
+            // Get active attestor set
+            let active_attestors = runtime_api.active_attestor_set(notif.hash, chain_key)?;
+            // Update active attestor set
+            let chain_active_attestors = self.active_attestor_set.entry(chain_key).or_default();
+            let num_attestors = active_attestors.len();
+            // Insert new active attestor set
+            chain_active_attestors.insert(current_epoch.epoch_index, active_attestors);
+
+            // Create round config
+            let round_config = crate::round::create_round_config(
+                ra,
+                chain_key,
+                notif.hash,
+                current_epoch.epoch_index,
+                num_attestors as u32,
+            )?;
+
+            // Insert new round config
+            let chain_round_config = self.round_config.entry(chain_key).or_default();
+            chain_round_config.insert(current_epoch.epoch_index, round_config);
+        }
+
+        // Update current epoch index
+        self.current_epoch_index = current_epoch.epoch_index;
+
+        Ok(())
+    }
 }
 
 /// Function to find the most frequently occurring digest
@@ -636,7 +730,7 @@ where
     B: BlockT,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
-    AccountId: Clone,
+    AccountId: Into<[u8; 32]> + Clone,
 {
     let mut digest_count: HashMap<HashFor<B>, usize> = HashMap::new();
     for attestation in attestations.values() {
@@ -648,43 +742,4 @@ where
         .into_iter()
         .max_by_key(|&(_, count)| count)
         .unwrap_or((HashFor::<B>::default(), 0))
-}
-
-/// Function to calculate the threshold for a committee set size to reach majority vote
-fn calculate_threshold(committee_set_size: u32) -> u32 {
-    (2 * committee_set_size + 3) / 3
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_calculate_threshold_3() {
-        let committee_set_size = 3;
-        let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 3);
-    }
-
-    #[test]
-    fn test_calculate_threshold_4() {
-        let committee_set_size = 4;
-        let threshold = calculate_threshold(committee_set_size);
-        // TODO: why 4?
-        assert_eq!(threshold, 3);
-    }
-
-    #[test]
-    fn test_calculate_threshold_5() {
-        let committee_set_size = 5;
-        let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 4);
-    }
-
-    #[test]
-    fn test_calculate_threshold_10() {
-        let committee_set_size = 10;
-        let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 7);
-    }
 }

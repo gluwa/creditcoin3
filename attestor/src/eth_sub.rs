@@ -22,39 +22,58 @@ pub enum Error {
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
 /// where we can send the new block to in order to start the attestation cycle
-pub async fn subscribe_to_new_heads(
+pub async fn attest_to_heads(
     eth_client: eth::Client,
     attestor: ActorRef<Attestor>,
     sender: Sender<Option<Attestation<H256>>>,
     eth_start_block: u64,
-    attestation_interval: u64,
+    eth_target_block: u64,
     chain_key: ChainKey,
+    attestation_interval: u64,
 ) -> Result<(), Error> {
     let config = SubscriptionConfig {
         start_block: eth_start_block,
-        interval: attestation_interval,
+        end_block: eth_target_block,
     };
 
-    let mut subscription = eth_client.open_subscription(Some(config)).map_err(|e| {
-        Error::FailedToSubscribe(format!("Failed to subscribe to new heads on chain: {e}"))
-    })?;
+    let mut subscription = eth_client
+        .open_subscription(Some(config), attestation_interval)
+        .map_err(|e| {
+            Error::FailedToSubscribe(format!("Failed to subscribe to new heads on chain: {e}"))
+        })?;
 
     loop {
-        if let Some(block) = subscription.next().await {
-            // Continuously await new blocks and notify the attestor
-            let attestation = attestor.send((chain_key, block)).await?;
+        match subscription.next().await {
+            Ok(next) => {
+                if let Some(block) = next {
+                    // Continuously await new blocks and notify the attestor
+                    let attestation = attestor.send((chain_key, block)).await?;
 
-            // Send an attestation back on the channel
-            sender
-                .send(attestation)
-                .await
-                .map_err(|e| Error::FailedToSubscribe(e.to_string()))?;
-        } else {
-            warn!("Subscription stream ended unexpectedly");
-            info!("Subscribing to latest blockheads now");
-            subscription = eth_client.open_subscription(None).map_err(|e| {
-                Error::FailedToSubscribe(format!("Failed to subscribe to new heads on chain: {e}",))
-            })?;
+                    // Send an attestation back on the channel
+                    sender
+                        .send(attestation)
+                        .await
+                        .map_err(|e| Error::FailedToSubscribe(e.to_string()))?;
+                } else {
+                    warn!("We shouldn't get here");
+                }
+            }
+            Err(e) => {
+                if matches!(e, eth::Error::EndOfSubscription) {
+                    return Ok(());
+                } else if matches!(e, eth::Error::FailedToGetBlock(_)) {
+                    info!("Block doesn't exist yet, opening a sub to new heads");
+                    subscription = eth_client
+                        .open_subscription(None, attestation_interval)
+                        .map_err(|e| {
+                            Error::FailedToSubscribe(format!(
+                                "Failed to subscribe to new heads on chain: {e}"
+                            ))
+                        })?;
+                } else {
+                    return Err(Error::EthClientError(e));
+                }
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
 use crate::block::{Block, BlockError, BlockSerializable};
 use crate::AttestationChainParams;
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utils::json_serializable::JsonSerializable;
@@ -30,6 +31,7 @@ impl AttestationFragment {
     pub fn tail(&self) -> Option<&Block> {
         self.blocks.first()
     }
+
     pub fn checkpoint(&self) -> Option<AttestationCheckpoint> {
         if self.is_full() {
             self.head().map(AttestationCheckpoint::from)
@@ -48,6 +50,7 @@ impl AttestationFragment {
     pub fn is_full(&self) -> bool {
         self.len() == self.fragment_length
     }
+
     // With variable interval length, calculating the start of an interval is more
     // involved and costly. We do this once in get_interval_bounds() of fragment.rs
     // Here we assume that the fragment was filled with the appropriate blocks rather
@@ -77,6 +80,7 @@ impl AttestationFragment {
             .head()
             .map(|head| Block::try_from_previous(head, block.clone()))
             .unwrap_or(Ok(block))?;
+
         let head_digest = self.head().map(|head| head.digest());
 
         if head_digest == Some(block.prev_digest()) || head_digest.is_none() {
@@ -186,10 +190,16 @@ impl TryFrom<(AttestationFragmentSerializable, AttestationChainParams)> for Atte
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttestationFragmentSerializable {
     //    params: AttestationChainParams,
     blocks: Vec<BlockSerializable>,
+}
+
+impl AttestationFragmentSerializable {
+    pub fn get_blocks_ref(&self) -> &Vec<BlockSerializable> {
+        &self.blocks
+    }
 }
 
 impl JsonSerializable for AttestationFragmentSerializable {}
@@ -203,5 +213,31 @@ impl From<&AttestationFragment> for AttestationFragmentSerializable {
                 .map(BlockSerializable::from)
                 .collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use utils::Felt;
+
+    use super::*;
+
+    #[test]
+    fn test_attestation_fragment() {
+        let mut fragment = AttestationFragment::new(10);
+
+        assert_eq!(fragment.blocks().len(), 0);
+        assert!(!fragment.is_full());
+
+        for i in 0..10 {
+            let block = Block::new(i, Felt::default());
+            let block = fragment.try_append_block(block).unwrap();
+            assert_eq!(block.n(), i);
+            assert_eq!(fragment.blocks().len(), (i + 1) as usize);
+            assert_eq!(fragment.head().unwrap().n(), i);
+            assert_eq!(fragment.tail().unwrap().n(), 0);
+        }
+
+        assert!(fragment.is_full());
     }
 }

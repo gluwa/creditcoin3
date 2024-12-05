@@ -1339,6 +1339,7 @@ dependencies = [
  "futures 0.3.30",
  "mmr",
  "num",
+ "parity-scale-codec",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -1369,6 +1370,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "attestation-chain",
  "attestor-primitives",
  "bls-signatures",
  "cc-client",
@@ -1381,6 +1383,7 @@ dependencies = [
  "kameo",
  "mmr",
  "serde",
+ "serde_json",
  "sp-core",
  "starknet-crypto",
  "thiserror",
@@ -2468,9 +2471,11 @@ version = "3.31.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "attestation-chain",
  "attestor-primitives",
  "bls-signatures",
  "futures 0.3.30",
+ "hex",
  "log",
  "parity-scale-codec",
  "parking_lot 0.12.3",
@@ -2497,6 +2502,7 @@ dependencies = [
 name = "creditcoin3-attestor-rpc"
 version = "0.1.0"
 dependencies = [
+ "attestation-chain",
  "creditcoin3-attestor-gossip",
  "jsonrpsee 0.16.3",
  "log",
