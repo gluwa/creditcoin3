@@ -81,4 +81,9 @@ If you wish you can run the prover in `light` mode (`--light-mode` or `-l`).
 
 In light mode it will not stone proof the query but instead it will compute the inputs files for the stone prover and send them over the network to the external prover.
 
-See [external-prover](./external_prover_example/README.md) for more details.
+The most recent prover network prototype makes use of an Azure Data Factory Pipeline. It maintains a queue of proving jobs in relational DB format, stores relevant proving inputs and outputs, and manages dynamic resource scaling to assign only as many provers as we have proving jobs.
+
+Repo Link: https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE?path=/README.md
+Azure resource group: https://portal.azure.com/#@gluwa.com/resource/subscriptions/3d91f14a-f591-496b-a3d1-f198b84caaa3/resourceGroups/minhplayground/overview 
+
+TODO: Finish documentation for running light prover with proving network
