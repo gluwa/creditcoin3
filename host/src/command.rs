@@ -10,6 +10,7 @@ use std::{
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, PersistError};
+use thiserror::Error;
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::ClaimValidationError;
@@ -21,7 +22,6 @@ use prover_primitives::stark_program_auth::{
     StarkProgramMetadataStorage,
 };
 use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
-use thiserror::Error;
 use utils::pedersen_hash::pedersen_array;
 use utils::{utils::felts_from_bytes, Felt};
 
@@ -141,12 +141,6 @@ pub fn validate_query_against_proof(
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
                 let local_offset_hash = hash_layout_segments(&query);
-
-                println!("local_offset_hash: {:?}", local_offset_hash);
-                println!(
-                    "cairo_verifier_output.query_hash: {:?}",
-                    cairo_verifier_output.query_hash
-                );
 
                 if local_offset_hash != cairo_verifier_output.query_hash {
                     Err(QueryOffsetsMismatch(

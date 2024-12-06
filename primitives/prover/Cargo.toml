@@ -35,9 +35,6 @@ mmr = { path = "../../common/mmr", default-features = false }
 utils = { path = "../../common/utils", default-features = false }
 
 [dev-dependencies]
-block-cache = { path = "../../block-cache" }
-eth-common = { path = "../../common/eth", package = "eth" }
-tokio = { workspace = true, features = ["fs", "process", "rt-multi-thread"] }
 
 [features]
 default = ["std"]

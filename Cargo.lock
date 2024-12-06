@@ -9036,8 +9036,6 @@ version = "3.31.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
- "block-cache",
- "eth",
  "ethereum-types",
  "frame-support",
  "hashbrown 0.14.5",
@@ -9056,7 +9054,6 @@ dependencies = [
  "sp-runtime-interface",
  "sp-std",
  "thiserror",
- "tokio",
  "utils",
 ]
 
