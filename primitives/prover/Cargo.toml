@@ -34,8 +34,6 @@ sp-std = { workspace = true, default-features = false }
 mmr = { path = "../../common/mmr", default-features = false }
 utils = { path = "../../common/utils", default-features = false }
 
-[dev-dependencies]
-
 [features]
 default = ["std"]
 std = [
