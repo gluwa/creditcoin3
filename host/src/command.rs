@@ -256,11 +256,14 @@ pub fn run_verifier(
 
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
-    use crate::command::VerifierError;
+    use crate::command::{hash_layout_segments, VerifierError};
     use pallet_prover_primitives::{
         LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
     };
-    use prover_primitives::stark_program_auth::StarkProgramAuthError;
+    use prover_primitives::{
+        stark_program_auth::StarkProgramAuthError,
+        types::{CairoVerifierOutput, StoneProof, StoneProofJson},
+    };
     use sp_core::H256;
 
     // note: the proof example has changed, the proof_example.json file is now
@@ -364,6 +367,62 @@ pub mod tests {
                 assert_eq!(
                     e,
                     StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
+                );
+            }
+            _ => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn verifying_stark_proof_with_incorrect_layout_segments_should_error() {
+        let proof_path = "../cairo/stone-verifier/proof_example.json";
+        let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
+        let proof: StoneProofJson =
+            serde_json::from_slice(&proof_example).expect("Unable to deserialize proof");
+
+        let mut stone_proof = StoneProof::from(proof.clone());
+
+        stone_proof
+            .strip_off_annotations()
+            .strip_off_prover_config()
+            .strip_off_private_input();
+
+        let cairo_verifier_output = CairoVerifierOutput::try_from(stone_proof.proof())
+            .map_err(|e| {
+                log::error!(
+                    "Failed to convert StoneProof to CairoVerifierOutput: {:?}",
+                    e
+                );
+                VerifierError::CairoVerifierOutputConversionError(e)
+            })
+            .expect("Unable to convert StoneProof to CairoVerifierOutput");
+
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418, // size not in accordance with the proof
+            }],
+        };
+
+        let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
+
+        let result = super::run_verifier(proof_example, query.clone(), metadata);
+
+        assert!(result.is_err());
+
+        let error = result.err().unwrap();
+
+        match error {
+            VerifierError::QueryValidationError(e) => {
+                assert_eq!(
+                    e,
+                    super::ClaimValidationError::QueryOffsetsMismatch(
+                        cairo_verifier_output.query_hash,
+                        hash_layout_segments(&query),
+                    )
                 );
             }
             _ => panic!("unexpected error"),
