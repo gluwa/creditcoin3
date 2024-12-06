@@ -59,7 +59,9 @@ mod query_field {
                 |
                 // if index not specified sample the entire array
                 SampleBy::Index(None) => payload_range.clone(),
+
                 SampleBy::Range(Some(range)) => range.start as usize..range.end as usize,
+
                 SampleBy::Index(Some(index)) => {
                     let mut accum_range = 0..0;
                     for i in 0..=index {
@@ -77,9 +79,7 @@ mod query_field {
             };
 
             if range_to_add.end > payload_len {
-                Err(InvalidPayloadOffset(
-                    range_to_add.start as u64..range_to_add.end as u64,
-                ))
+                Err(InvalidPayloadOffset(range_to_add.clone()))
             } else {
                 Ok((preceding_range.end + range_to_add.start)
                     ..(preceding_range.end + range_to_add.end))
@@ -125,7 +125,7 @@ pub enum ClaimQueryFieldError {
     InvalidFieldIndex(usize),
 
     #[error("Invalid payload offset: range {0:?}")]
-    InvalidPayloadOffset(Range<u64>),
+    InvalidPayloadOffset(Range<usize>),
 }
 
 #[derive(

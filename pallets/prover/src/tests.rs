@@ -103,7 +103,7 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 418,
+                size: 14, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
             }],
         };
 
