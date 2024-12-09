@@ -140,7 +140,16 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                let local_offset_hash = hash_layout_segments(&query);
+                let local_offset_hash = match hash_layout_segments(&query) {
+                    Ok(hash) => hash,
+                    Err(e) => {
+                        log::error!("Failed to hash layout segments: {:?}", e);
+                        return Err(ClaimIdNotValidated(
+                            query.index,
+                            cairo_verifier_output.claim_index,
+                        ));
+                    }
+                };
 
                 if local_offset_hash != cairo_verifier_output.query_hash {
                     Err(QueryOffsetsMismatch(
@@ -160,21 +169,29 @@ pub fn validate_query_against_proof(
     }
 }
 
-pub fn hash_layout_segments(query: &Query) -> Felt {
-    let felt_ranges = query
+pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
+    let felt_ranges: Result<Vec<Range<usize>>, &'static str> = query
         .layout_segments
         .iter()
-        .map(|layout| Range {
-            start: usize::try_from(layout.offset).expect("layout offset is too large"),
-            end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+        .map(|layout| {
+            let start = usize::try_from(layout.offset).map_err(|_| "layout offset is too large")?;
+            let end = usize::try_from(layout.offset + layout.size)
+                .map_err(|_| "layout end is too large")?;
+            Ok(Range { start, end })
         })
-        .collect::<Vec<_>>();
+        .collect();
+
+    let felt_ranges = match felt_ranges {
+        Ok(ranges) => ranges,
+        Err(e) => return Err(e),
+    };
 
     let felts_offsets = felt_ranges
         .iter()
         .flat_map(|r| r.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
         .collect::<Vec<Felt>>();
-    pedersen_array(&felts_offsets[..])
+
+    Ok(pedersen_array(&felts_offsets[..]))
 }
 
 pub fn run_verifier(
@@ -415,13 +432,15 @@ pub mod tests {
 
         let error = result.err().unwrap();
 
+        let local_offset_hash = hash_layout_segments(&query).unwrap();
+
         match error {
             VerifierError::QueryValidationError(e) => {
                 assert_eq!(
                     e,
                     super::ClaimValidationError::QueryOffsetsMismatch(
                         cairo_verifier_output.query_hash,
-                        hash_layout_segments(&query),
+                        local_offset_hash
                     )
                 );
             }
