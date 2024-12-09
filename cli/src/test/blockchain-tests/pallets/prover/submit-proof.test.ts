@@ -30,7 +30,7 @@ describe('SubmitProof', (): void => {
             layoutSegments: [
                 {
                     offset: 0,
-                    size: 0,
+                    size: 14, // see
                 },
             ],
         };
