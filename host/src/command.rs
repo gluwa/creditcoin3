@@ -140,16 +140,17 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                let local_offset_hash = match hash_layout_segments(&query) {
-                    Ok(hash) => hash,
-                    Err(e) => {
-                        log::error!("Failed to hash layout segments: {:?}", e);
-                        return Err(ClaimIdNotValidated(
-                            query.index,
-                            cairo_verifier_output.claim_index,
-                        ));
-                    }
-                };
+                let local_offset_hash =
+                    match hash_layout_segments(&query.transform_to_felt_offsets()) {
+                        Ok(hash) => hash,
+                        Err(e) => {
+                            log::error!("Failed to hash layout segments: {:?}", e);
+                            return Err(ClaimIdNotValidated(
+                                query.index,
+                                cairo_verifier_output.claim_index,
+                            ));
+                        }
+                    };
 
                 if local_offset_hash != cairo_verifier_output.query_hash {
                     Err(QueryOffsetsMismatch(
@@ -246,7 +247,7 @@ pub fn run_verifier(
             VerifierError::CairoVerifierOutputConversionError(e)
         })?;
 
-    match validate_query_against_proof(query.clone(), &cairo_verifier_output) {
+    match validate_query_against_proof(query, &cairo_verifier_output) {
         Ok(_) => log::debug!("Query validated successfully"),
         Err(e) => return Err(VerifierError::QueryValidationError(e)),
     }
@@ -298,7 +299,7 @@ pub mod tests {
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 14, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
+                size: 418,
             }],
         };
 
@@ -420,7 +421,7 @@ pub mod tests {
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 418, // size not in accordance with the proof
+                size: 500, // size not in accordance with the proof
             }],
         };
 
@@ -432,7 +433,7 @@ pub mod tests {
 
         let error = result.err().unwrap();
 
-        let local_offset_hash = hash_layout_segments(&query).unwrap();
+        let local_offset_hash = hash_layout_segments(&query.transform_to_felt_offsets()).unwrap();
 
         match error {
             VerifierError::QueryValidationError(e) => {

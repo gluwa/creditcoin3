@@ -24,6 +24,8 @@ pub const STARK_PROGRAM_V2_HASH: H256 = H256([
     115, 108, 71, 87, 26, 208, 49, 13, 0, 45, 173, 249,
 ]);
 
+pub const U248_BYTE_COUNT: u64 = 31;
+
 #[derive(
     Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec, Default, PassByCodec,
 )]
@@ -60,5 +62,23 @@ impl Query {
     pub fn id(&self) -> H256 {
         let query = self.clone();
         H256::from(keccak_256(&encode_arguments(query)))
+    }
+
+    pub fn transform_to_felt_offsets(&self) -> Self {
+        let layout_segments = self
+            .layout_segments
+            .iter()
+            .map(|l| LayoutSegment {
+                offset: l.offset / U248_BYTE_COUNT,
+                size: l.size / U248_BYTE_COUNT + (l.size % U248_BYTE_COUNT != 0) as u64,
+            })
+            .collect::<Vec<_>>();
+
+        Query {
+            chain_id: self.chain_id,
+            height: self.height,
+            index: self.index,
+            layout_segments,
+        }
     }
 }

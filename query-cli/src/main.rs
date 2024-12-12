@@ -6,7 +6,7 @@ use tracing::debug;
 
 use eth::{evm, Client};
 use pallet_prover_primitives::{LayoutSegment, Query};
-use utils::{block_item_traits::BlockItem, utils::U248_BYTE_COUNT};
+use utils::block_item_traits::BlockItem;
 
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
@@ -86,15 +86,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .iter()
             .map(|(offset, size)| LayoutSegment {
                 offset: *offset,
-                size: (*offset + *size) / U248_BYTE_COUNT as u64
-                    + ((*offset + *size) % U248_BYTE_COUNT as u64 != 0) as u64,
+                size: *offset + *size,
             })
             .collect()
     } else {
         vec![LayoutSegment {
             offset: 0,
-            size: (data.len() as u64) / U248_BYTE_COUNT as u64
-                + ((data.len() as u64) % U248_BYTE_COUNT as u64 != 0) as u64,
+            size: data.len() as u64,
         }]
     };
 

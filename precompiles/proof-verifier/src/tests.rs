@@ -97,7 +97,7 @@ fn verify_should_return_zero_when_all_good() {
         index: 0,
         layout_segments: vec![LayoutSegment {
             offset: 0,
-            size: 14, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
+            size: 418, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
         }],
     };
     let proof_json = std::fs::read("../../cairo/stone-verifier/proof_example.json")

@@ -30,7 +30,7 @@ describe('SubmitProof', (): void => {
             layoutSegments: [
                 {
                     offset: 0,
-                    size: 14, // see pallet/prover/src/tests.rs for explanation
+                    size: 418,
                 },
             ],
         };
