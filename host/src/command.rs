@@ -130,7 +130,7 @@ fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
 }
 
 pub fn validate_query_against_proof(
-    query: Query,
+    mut query: Query,
     cairo_verifier_output: &CairoVerifierOutput,
 ) -> Result<(), ClaimValidationError> {
     match query.index.cmp(&cairo_verifier_output.claim_index) {
@@ -140,17 +140,17 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                let local_offset_hash =
-                    match hash_layout_segments(&query.transform_to_felt_offsets()) {
-                        Ok(hash) => hash,
-                        Err(e) => {
-                            log::error!("Failed to hash layout segments: {:?}", e);
-                            return Err(ClaimIdNotValidated(
-                                query.index,
-                                cairo_verifier_output.claim_index,
-                            ));
-                        }
-                    };
+                query.transform_to_felt_offsets();
+                let local_offset_hash = match hash_layout_segments(&query) {
+                    Ok(hash) => hash,
+                    Err(e) => {
+                        log::error!("Failed to hash layout segments: {:?}", e);
+                        return Err(ClaimIdNotValidated(
+                            query.index,
+                            cairo_verifier_output.claim_index,
+                        ));
+                    }
+                };
 
                 if local_offset_hash != cairo_verifier_output.query_hash {
                     Err(QueryOffsetsMismatch(
@@ -415,7 +415,7 @@ pub mod tests {
             })
             .expect("Unable to convert StoneProof to CairoVerifierOutput");
 
-        let query = Query {
+        let mut query = Query {
             chain_id: 31337,
             height: 1,
             index: 0,
@@ -433,7 +433,8 @@ pub mod tests {
 
         let error = result.err().unwrap();
 
-        let local_offset_hash = hash_layout_segments(&query.transform_to_felt_offsets()).unwrap();
+        query.transform_to_felt_offsets();
+        let local_offset_hash = hash_layout_segments(&query).unwrap();
 
         match error {
             VerifierError::QueryValidationError(e) => {

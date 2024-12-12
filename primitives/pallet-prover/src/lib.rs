@@ -64,21 +64,11 @@ impl Query {
         H256::from(keccak_256(&encode_arguments(query)))
     }
 
-    pub fn transform_to_felt_offsets(&self) -> Self {
-        let layout_segments = self
-            .layout_segments
-            .iter()
-            .map(|l| LayoutSegment {
-                offset: l.offset / U248_BYTE_COUNT,
-                size: l.size / U248_BYTE_COUNT + (l.size % U248_BYTE_COUNT != 0) as u64,
-            })
-            .collect::<Vec<_>>();
-
-        Query {
-            chain_id: self.chain_id,
-            height: self.height,
-            index: self.index,
-            layout_segments,
+    pub fn transform_to_felt_offsets(&mut self) {
+        for segment in &mut self.layout_segments {
+            segment.offset /= U248_BYTE_COUNT;
+            segment.size =
+                segment.size / U248_BYTE_COUNT + (segment.size % U248_BYTE_COUNT != 0) as u64;
         }
     }
 }
