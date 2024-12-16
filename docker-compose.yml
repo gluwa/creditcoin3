@@ -2,27 +2,24 @@
 version: "3.7"
 
 volumes:
-  state:
+  validator_data:
 
 services:
-  creditcoin:
+  validator:
     container_name: creditcoin-validator
     volumes:
-      - state:/creditcoin-node/data
+      - validator_data:/creditcoin-node/data
     image: gluwa/creditcoin3-next
+    entrypoint: /bin/creditcoin3-node
     command:
-      - --name
-      - validator
+      - --dev
       - --validator
-      - --chain
-      - testnet
-      - --telemetry-url
-      - "wss://telemetry.creditcoin.network/submit 0"
-      - --bootnodes
-      - "/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K"
+      - --pruning
+      - archive
+      - --node-key
+      - d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463
       - --base-path
       - /creditcoin-node/data
+      - --unsafe-rpc-external
     expose:
-      - 30333
-    ports:
-      - 30333:30333
+      - 9944
