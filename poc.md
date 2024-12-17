@@ -96,8 +96,13 @@ mkdir artifacts
 
 Install and run cairo environment:
 
+First time on machine: 
 ```sh
 python3.10 -m venv ~/cairo_venv
+```
+Every prover run:
+```sh
+source ~/cairo_venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -106,7 +111,7 @@ Now start the prover:
 ```sh
 ./target/release/prover \
   --cc3-key "//Alice" \
-  --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+  --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" --light-mode
 ```
 
 You should see something like
@@ -148,7 +153,7 @@ cd query-cli
 cargo run -- \
   --cc3-rpc-url http://localhost:9944 \
   --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-  --contract-address 0x21cb3940e6ba5284e1750f1109131a8e8062b9f1 \
+  --contract-address 0x3ed62137c5db927cb137c26455969116bf0c23cb \
   --infura-api-key "somekey" \
   --eth-rpc-url http://localhost:8545
 ```

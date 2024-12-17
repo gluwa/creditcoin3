@@ -59,6 +59,7 @@ sp-core = { workspace = true, default-features = false }
 # Creditcoin deps
 attestation-chain = { workspace = true }
 attestor-primitives = { workspace = true }
+base64 = "0.22.1"
 cc-client = { workspace = true }
 eth = { workspace = true }
 mmr = { workspace = true }
@@ -67,4 +68,3 @@ proof = { workspace = true }
 prover-primitives = { workspace = true }
 serde_json.workspace = true
 utils = { workspace = true }
-base64 = "0.22.1"

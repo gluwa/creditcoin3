@@ -83,7 +83,7 @@ pub async fn process(
             }
             Err(e) => {
                 info!(
-                    "Failed to generate proof for query with id: {:?}, error: {:?}",
+                    "Failed to run cairo verifier for query with id: {:?}, error: {:?}",
                     query_id, e
                 );
                 return Err(Error::Proof);
