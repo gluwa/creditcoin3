@@ -6,7 +6,10 @@ use serde::Serialize;
 use sp_core::{H160, H256};
 use sp_runtime::traits::Block as BlockT;
 
-use creditcoin3_attestor_gossip::{Attestation, Message, MessageSink};
+use creditcoin3_attestor_gossip::{
+    communication::{gossip::Message, Attestation},
+    MessageSink,
+};
 
 #[rpc(client, server)]
 pub trait AttestorGossipApi<H, AccountId>

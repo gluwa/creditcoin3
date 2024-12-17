@@ -2,7 +2,7 @@ use anyhow::Result;
 use eth::Client;
 use sp_core::H256;
 use std::{thread, time::Duration};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 pub mod attestation;
 pub mod cc3;
@@ -10,11 +10,12 @@ pub mod engine;
 pub mod eth_sub;
 pub mod fragment;
 pub mod merkle;
+mod retry;
 
 use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId};
 use cc3::Error;
 use cc_client::attestation::CcEvent;
-use creditcoin3_attestor_gossip::Attestation;
+use creditcoin3_attestor_gossip::communication::Attestation;
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
@@ -48,16 +49,8 @@ impl Server {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let eth_client = Client::new(&self.config.eth_rpc_url, &String::new()).await?;
-        let chain_id = eth_client.get_chain_id().await?;
-        debug!("Opened connection to ethereum chain with id {}", chain_id);
-
-        let cc3_client =
-            cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key, chain_id).await?;
-        cc3_client.init().await?;
-
         // Construct the attestation engine
-        let mut engine = engine::Engine::new(eth_client, cc3_client);
+        let mut engine = engine::Engine::new(&self.config).await?;
 
         self.respond_to_new_events_and_attestations(&mut engine)
             .await?;
@@ -72,7 +65,7 @@ impl Server {
         let chain_key = engine.chain_key();
 
         // Start the attestation engine
-        engine.start().await?;
+        engine.start(None).await?;
 
         let mut event_sub = engine.event_sub()?;
 
@@ -88,7 +81,8 @@ impl Server {
                         // When randomness changes, re-evaluate the eligibility for the attestor
                         CcEvent::RandomnessChanged((epoch, randomness)) => {
                             info!("Randomness changed. Epoch: {:?}, Randomness: {:?}", epoch, randomness);
-                            engine.evaluate().await?;
+                            let start_block = self.last_sent_attestation.as_ref().map(|a| a.attestation_data.header_number);
+                            engine.evaluate(start_block).await?;
                         }
                         CcEvent::AttestationIntervalChanged(_, new_interval) => {
                             info!(
@@ -101,37 +95,39 @@ impl Server {
                             if chain_key != ck {
                                 return Ok(());
                             }
-                            engine.evaluate().await?;
+                            let start_block = self.last_sent_attestation.as_ref().map(|a| a.attestation_data.header_number);
+                            engine.evaluate(start_block).await?;
                         }
                         CcEvent::BlockAttested(_) => ()
                     }
                 },
                 // Poll the attestation engine for the next attestation
                 Some(attestation_to_submit) = engine.next() => {
+                    let round = attestation_to_submit.round();
                     match self.handle_attestation(chain_key, engine.eth_client(), engine.cc_client(), attestation_to_submit).await {
                         Ok(attestation) => {
                             let digest = attestation.digest();
-                            info!("Submitting attestation with digest: {:?}",digest);
+                            info!("Submitting attestation with digest: {:?}, round: {:?}",digest, round);
                             // Submit the attestation to the chain
                             engine.cc_client().submit_attestation::<H256>(attestation.clone()).await?;
                             self.last_sent_attestation = Some(attestation);
-                            info!("Attestation with digest: {:?} submitted", digest);
+                            info!("Attestation with digest: {:?} submitted, round: {:?}", digest, round);
+                            // Sleep for a while to avoid spamming the chain
+                            thread::sleep(Duration::from_secs(6));
                         },
                         Err(e) => {
                             if e.is_not_selected_error() {
                                 warn!("Failed to create proof of inclusion, attestor not selected. Nothing to do here, waiting for next attestation");
                             } else if e.is_duplicate_submission() {
-                                warn!("Attestation already submitted, skipping");
+                                warn!("Attestation for round: {:?} already submitted, skipping", round);
                             } else {
-                                error!("Non-retryable error submitting attestation: {:?}", e);
+                                error!("Non-retryable error submitting attestation: {:?}, round: {:?}", e, round);
                                 return Err(e.into());
                             }
 
                         }
                     };
 
-                    // Sleep for a while to avoid spamming the chain
-                    thread::sleep(Duration::from_secs(6));
                 },
             }
         }
@@ -146,7 +142,7 @@ impl Server {
         cc3_client: &cc3::Client,
         attestation: AttestationPrimitive<H256>,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
-        let mut signed_attestation = cc3_client.sign_attestation(attestation).await?;
+        let signed_attestation = cc3_client.sign_attestation(attestation).await?;
 
         // Exit early if the attestation has already been submitted
         if let Some(last_sent_attestation) = self.last_sent_attestation.clone() {
@@ -171,7 +167,16 @@ impl Server {
 
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
-        fragment::create(chain_key, start_block, &mut signed_attestation, eth_client).await?;
+        retry::ret(
+            || async {
+                let mut signed_attestation = signed_attestation.clone();
+                fragment::create(chain_key, start_block, &mut signed_attestation, eth_client).await
+            },
+            10,
+            10,
+            None,
+        )
+        .await?;
 
         Ok(signed_attestation)
     }

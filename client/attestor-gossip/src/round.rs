@@ -1,12 +1,9 @@
 use parity_scale_codec::{Codec, Decode, Encode};
 use sp_api::ProvideRuntimeApi;
 use sp_runtime::traits::Block as BlockT;
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::sync::Arc;
 
-use crate::{Error, HashFor};
+use crate::{state::State, Error, HashFor};
 
 use attestor_primitives::{api::AttestorApi, ChainKey};
 
@@ -15,41 +12,29 @@ pub struct RoundConfig {
     pub committee_set_size: u32,
     pub target_sample_size: u32,
     pub threshold: u32,
-    pub epoch: u64,
 }
 
-pub fn create_round_config<RA, B, AccountId>(
+pub fn get_round_config<RA, B, AccountId>(
     ra: Arc<RA>,
     chain_key: ChainKey,
     block_hash: HashFor<B>,
-    epoch: u64,
-    committee_set_size: u32,
+    state: &State<HashFor<B>, AccountId>,
 ) -> Result<RoundConfig, Error>
 where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     B: BlockT,
-    AccountId: Clone
-        + Display
-        + Codec
-        + Send
-        + 'static
-        + Sync
-        + Debug
-        + Into<[u8; 32]>
-        + PartialEq
-        + Eq
-        + std::hash::Hash,
+    AccountId: Codec,
 {
     let target_sample_size = ra.runtime_api().target_sample_size(block_hash, chain_key)?;
 
+    let committee_set_size = state.active_attestor_set.len() as u32;
     let threshold = calculate_threshold(committee_set_size);
 
     Ok(RoundConfig {
         committee_set_size,
         target_sample_size,
         threshold,
-        epoch,
     })
 }
 

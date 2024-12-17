@@ -11,7 +11,7 @@ use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey,
     SignedAttestation, CHAIN_ID_TO_CHAIN_NAME,
 };
-use creditcoin3_attestor_gossip::{Attestation, Topic};
+use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
 
 pub type Randomness = [u8; 32];
@@ -222,7 +222,6 @@ impl<'a> Client {
         Ok(Attestation {
             attestation_data: attestation,
             attestor: self.cc_client.get_attestor_id(),
-            topic: Topic::new(1),
             proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),

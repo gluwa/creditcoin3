@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::Error;
 
@@ -42,8 +42,13 @@ impl BlockSubscription for NewBlockSubscription {
 
     /// Get the next block from the channel
     async fn next(&mut self) -> Result<Option<OrderedBlock>, Error> {
-        // Receive the next proof from the channel
-        Ok(self.receiver.recv().await)
+        match self.receiver.recv().await {
+            Some(block) => Ok(Some(block)),
+            None => {
+                warn!("Channel closed; no more blocks will be received");
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -75,7 +80,10 @@ fn subscribe_latest_heads(
 
                 let block = client.get_block(block_number).await?;
 
-                sender.send(block).await.ok();
+                sender.send(block).await?;
+            } else {
+                info!("Subscription stream ended");
+                return Err(Error::EndOfSubscription);
             }
         }
     });
@@ -110,6 +118,10 @@ impl BlockSubscription for BlockFetcher {
             return Err(Error::EndOfSubscription);
         }
 
+        info!(
+            "Blockfetcher: Fetching block at height: {}",
+            self.config.start_block
+        );
         // Get the block at the current height
         let block = self.client.get_block(self.config.start_block).await?;
 
@@ -141,7 +153,7 @@ impl Client {
         &self,
         config: Option<SubscriptionConfig>,
         interval: u64,
-    ) -> Result<Box<dyn BlockSubscription>> {
+    ) -> Result<Box<dyn BlockSubscription>, Error> {
         let client = self.clone();
         if let Some(config) = config {
             Ok(Box::new(BlockFetcher::new(client, config, interval)))

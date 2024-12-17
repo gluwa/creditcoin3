@@ -7,7 +7,7 @@ use attestation_chain::{
     block::Block as FragmentBlock,
 };
 use attestor_primitives::{AttestorId, ChainId};
-use creditcoin3_attestor_gossip::Attestation;
+use creditcoin3_attestor_gossip::communication::Attestation;
 use eth::Client;
 use utils::Felt;
 

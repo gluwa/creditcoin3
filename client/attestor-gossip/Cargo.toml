@@ -22,6 +22,7 @@ anyhow = "1"
 async-trait = { workspace = true }
 attestation-chain = { workspace = true }
 futures = { workspace = true }
+futures-timer = { workspace = true }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 log = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, default-features = true }

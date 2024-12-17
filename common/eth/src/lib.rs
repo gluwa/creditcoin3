@@ -21,6 +21,7 @@ use alloy::{
 
 use anyhow::Result;
 use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
 use tracing::{error, info};
 use utils::{
     block_item_traits::{BlockItem, BlockItemIdentifier},
@@ -48,12 +49,16 @@ pub enum Error {
     FailedToGetChainId,
     #[error("Ethereum RPC error {0}")]
     EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
-    #[error("client error {0}")]
+    #[error("Client error {0}")]
     ClientError(#[from] anyhow::Error),
-    #[error("transaction conversion {0}")]
+    #[error("Transaction conversion {0}")]
     TransactionConversion(ConversionError),
-    #[error("end of subscription")]
+    #[error("End of subscription")]
     EndOfSubscription,
+    #[error("Failed to get sync info")]
+    FailedToGetSyncInfo,
+    #[error("Failed to send block on channel")]
+    SendError(#[from] SendError<OrderedBlock>),
 }
 
 #[derive(Debug)]
@@ -397,6 +402,16 @@ impl Client {
         })
     }
 
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
+    }
+
+    pub async fn renew_http(&mut self) -> Result<()> {
+        let http = ProviderBuilder::new().on_http(self.url.clone());
+        self.http = http;
+        Ok(())
+    }
+
     #[must_use]
     pub fn get_url(&self) -> Url {
         self.url.clone()
@@ -496,6 +511,10 @@ impl Client {
                 Error::FailedToGetBlock(number)
             })?
             .ok_or(Error::FailedToGetBlock(number))
+    }
+
+    pub async fn get_last_block(&self) -> Result<u64, Error> {
+        Ok(self.http.get_block_number().await?)
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, Error> {

@@ -29,7 +29,7 @@ use attestor_primitives::{
     Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainKey, Digest,
     SignedAttestation,
 };
-use creditcoin3_attestor_gossip::Attestation as RpcAttestation;
+use creditcoin3_attestor_gossip::communication::Attestation as RpcAttestation;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 
 #[subxt::subxt(

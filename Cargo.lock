@@ -1365,7 +1365,7 @@ dependencies = [
  "creditcoin3-attestor-gossip",
  "creditcoin3-attestor-rpc",
  "eth",
- "exponential-backoff",
+ "futures 0.3.30",
  "hex",
  "kameo",
  "mmr",
@@ -2461,6 +2461,7 @@ dependencies = [
  "attestor-primitives",
  "bls-signatures",
  "futures 0.3.30",
+ "futures-timer",
  "hex",
  "log",
  "parity-scale-codec",
@@ -3903,15 +3904,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.87",
-]
-
-[[package]]
-name = "exponential-backoff"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47f78d87d930eee4b5686a2ab032de499c72bd1e954b84262bb03492a0f932cd"
-dependencies = [
- "rand 0.8.5",
 ]
 
 [[package]]

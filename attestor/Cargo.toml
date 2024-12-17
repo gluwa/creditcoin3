@@ -24,7 +24,6 @@ release = false
 
 [dependencies]
 anyhow = "1.0"
-exponential-backoff = "1.2"
 kameo = { version = "0.8" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -44,6 +43,7 @@ vrf = { workspace = true }
 # Workspace deps
 async-trait = { workspace = true }
 clap = { workspace = true }
+futures = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

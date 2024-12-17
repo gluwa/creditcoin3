@@ -1,10 +1,9 @@
-use parity_scale_codec::{Codec, Decode, Encode};
+use parity_scale_codec::Codec;
 use sc_client_api::{client::BlockBackend, Backend};
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
 use sc_utils::mpsc::{TracingUnboundedReceiver, TracingUnboundedSender};
 
-use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
@@ -15,21 +14,20 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
 use thiserror::Error;
-use worker::{Worker, WorkerParams};
 
-use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
-use attestor_primitives::bls::{Bls, CryptoScheme};
-use attestor_primitives::{
-    api::AttestorApi, Attestation as AttestationPrimitive, AttestorId, Digest, Round,
-};
+use attestor_primitives::{api::AttestorApi, AttestorId};
 use randomness_primitives::api::RandomnessPalletApi;
 use supported_chains_primitives::api::SupportedChainsApi;
+use worker::{Worker, WorkerParams};
 
+pub mod communication;
 pub mod inherent;
-pub mod round;
-pub mod validator;
-pub mod worker;
+mod round;
+mod state;
+mod validator;
+mod worker;
 
+use communication::gossip::Message;
 use validator::AttestorGossipValidator;
 
 pub type HashFor<B> = <B as BlockT>::Hash;
@@ -104,8 +102,6 @@ pub enum Error {
     FailedToGetLastAttestation,
     #[error("Failed to get round configuration")]
     RoundConfigNotSet,
-    #[error("Majority for round({0:?}) not reached")]
-    MajorityNotReached(Round),
     #[error("Other error: {0}")]
     Other(String),
     #[error("Finality stream terminated")]
@@ -114,68 +110,8 @@ pub enum Error {
     InvalidEpoch,
     #[error("Attestation contains an invalid continuity proof")]
     InvalidAttestationContinuityProof,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Action<H> {
-    Keep(H),
-    Discard,
-}
-
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Topic(u64);
-
-impl Topic {
-    pub fn new(id: u64) -> Self {
-        Self(id)
-    }
-}
-
-#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Attestation<B, AccountId> {
-    pub attestation_data: AttestationPrimitive<B>,
-    pub attestor: AccountId,
-    pub topic: Topic,
-    pub proof_of_inclusion: vrf::ProofOfInclusion,
-    pub signature: sp_core::sr25519::Signature,
-    pub signature_bls: <Bls as CryptoScheme>::Signature,
-    pub continuity_proof: Vec<AttestationFragmentSerializable>,
-}
-
-impl<B, AccountId> Attestation<B, AccountId>
-where
-    B: AsRef<[u8]>,
-    AccountId: Into<[u8; 32]> + Clone,
-{
-    pub fn digest(&self) -> Digest {
-        self.attestation_data.digest()
-    }
-
-    pub fn round(&self) -> Round {
-        self.attestation_data.round()
-    }
-
-    pub fn attestor_id(&self) -> AttestorId {
-        AttestorId::from_public(self.attestor.clone().into())
-    }
-}
-
-#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Message<B: BlockT, AccountId> {
-    Attestation(Attestation<HashFor<B>, AccountId>),
-    // Could be more messages to drop / slash or ignore certain attestors
-    // ...
-}
-
-pub struct BestKnown<H> {
-    pub hash: H,
-    pub number: u64,
-}
-
-pub struct State<H> {
-    pub round: Round,
-    pub attestor: AttestorId,
-    pub best: Option<BestKnown<H>>,
+    #[error("Attestation contains an invalid epoch mismatch")]
+    EpochMismatch,
 }
 
 /// Attestor gadget network parameters.

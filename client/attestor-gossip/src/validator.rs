@@ -21,9 +21,13 @@ use attestor_primitives::{
     bls::{Bls, BlsSerialize, CryptoScheme, PublicKey},
 };
 
-use crate::{worker::votes_topic, HashFor, LOG_TARGET};
+use crate::{
+    communication::{gossip::Action, Attestation},
+    worker::votes_topic,
+    HashFor, LOG_TARGET,
+};
 
-use super::{Action, Attestation, Error, Message};
+use super::{Error, Message};
 
 pub struct AttestorGossipValidator<B, AccountId, RA: ProvideRuntimeApi<B>, BE>
 where
