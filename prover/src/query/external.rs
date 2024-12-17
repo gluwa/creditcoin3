@@ -33,8 +33,8 @@ fn get_request_field(file_name: &str) -> Result<String> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WorkOrderResponse {
-    requestId: String,
-    queryId: String,
+    request_id: String,
+    query_id: String,
     status: String,
 }
 
@@ -49,8 +49,12 @@ struct WorkOrderResult {
 enum Error {
     #[error("The following file has no request field mapping: {0}")]
     BadProofInputFile(String),
-    #[error("BadProofOrderRequest, error code 400")]
-    BadProofOrderRequest,
+    #[error("Sending request failed. Error: {0}")]
+    ReqwestSendError(String),
+    #[error("BadProofOrderRequest. Error: {0}")]
+    BadProofOrderRequest(String),
+    #[error("Couldn't parse work order response. Error: {0}")]
+    BadProofOrderResponse(String),
 }
 
 /// Handle proof order
@@ -97,7 +101,7 @@ pub async fn handle_proof_order(query_id: QueryId, files: Vec<PathBuf>) -> Resul
     let response = post_work_order(&client, form).await?;
 
     // Poll for the result
-    let proof_bytes = poll_for_result(&client, &response.requestId).await?;
+    let proof_bytes = poll_for_result(&client, &response.request_id).await?;
     info!("Work order proof len: {}", proof_bytes.len());
     Ok(proof_bytes)
 }
@@ -105,7 +109,7 @@ pub async fn handle_proof_order(query_id: QueryId, files: Vec<PathBuf>) -> Resul
 async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
-) -> Result<WorkOrderResponse> {
+) -> std::result::Result<WorkOrderResponse, Error> {
     let url = format!(
         "http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/QueueLightProverQueryRequest/prove"
     );
@@ -114,21 +118,16 @@ async fn post_work_order(
         .header(ACCEPT, "*/*")
         .multipart(form)
         .send()
-        .await?
-        .text()
         .await
-        .unwrap();
-    println!("{response}");
+        .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
 
-    //.json::<WorkOrderResponse>()
-    //.await?;
-
-    Ok(WorkOrderResponse {
-        requestId: "".to_string(),
-        queryId: "".to_string(),
-        status: "".to_string(),
-    })
-    //Ok(response)
+    match response.status() {
+        reqwest::StatusCode::OK => Ok(response
+            .json::<WorkOrderResponse>()
+            .await
+            .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?),
+        other_status => Err(Error::BadProofOrderRequest(other_status.to_string())),
+    }
 }
 
 async fn poll_for_result(client: &Client, query_id: &str) -> Result<Vec<u8>> {
