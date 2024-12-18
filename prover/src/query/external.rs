@@ -12,7 +12,7 @@ use tracing::{info, warn};
 
 use super::QueryId;
 
-const PROVER_BE_SOCKET_ADDR: &str = "0.0.0.0:58313";
+const PROVER_BE_SOCKET_ADDR: &str = "0.0.0.0:52221";
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
     ("trace.json", "TraceFile"),
@@ -39,6 +39,22 @@ struct WorkOrderResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+struct OrderStatusResponse {
+    request_status: String,
+    pipeline_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PipelineStatusResponse {
+    run_id: String,
+    status: String,
+    message: String,
+    start_time: String,
+    end_time: String,
+    duration_in_ms: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 struct WorkOrderResult {
     query_id: String,
     status: String,
@@ -55,6 +71,14 @@ enum Error {
     BadProofOrderRequest(String),
     #[error("Couldn't parse work order response. Error: {0}")]
     BadProofOrderResponse(String),
+    #[error("Timeout reached: Result not available within 60 minutes")]
+    ProvingPipelineTimeout,
+    #[error("Proof generation failed")]
+    ProofGenerationFailed,
+    #[error("Bad proof result request. StatusCode: {0}")]
+    BadProofResultRequest(String),
+    #[error("Bad proof result response. Error: {0}")]
+    BadProofResultResponse(String),
 }
 
 /// Handle proof order
@@ -130,57 +154,89 @@ async fn post_work_order(
     }
 }
 
-async fn poll_for_result(client: &Client, query_id: &str) -> Result<Vec<u8>> {
+async fn poll_for_result(client: &Client, query_id: &str) -> std::result::Result<Vec<u8>, Error> {
     let url = format!(
         "http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetProverOutput/prover-output/{query_id}",
     );
 
-    let timeout = Duration::from_secs(15 * 60); // 15 minutes
+    let timeout = Duration::from_secs(60 * 60); // 60 minutes
     let interval = Duration::from_secs(30); // Poll every 10 seconds
     let start = tokio::time::Instant::now();
 
     while start.elapsed() < timeout {
-        let response = client.get(&url).send().await?;
-
-        let proof_bytes = response.bytes().await?;
-
-        if !proof_bytes.is_empty() {
-            return Ok(proof_bytes.into());
+        // If response is Ok but no proof is supplied, then pipeline is still in progress.
+        if let Some(proof) = get_work_order_result(client, &url).await? {
+            return Ok(proof);
         }
 
-        info!("Result not yet available, waiting to retry...");
+        info!(
+            "Result not yet available, waiting to retry... Elapsed: {:?}, Timeout: {:?}",
+            start.elapsed(),
+            timeout
+        );
         sleep(interval).await;
     }
 
-    Err(anyhow::anyhow!(
-        "Timeout reached: Result not available within 15 minutes"
-    ))
+    Err(Error::ProvingPipelineTimeout)
 }
 
-async fn _get_work_order_status(client: &Client, request_id: &str) -> Result<WorkOrderResponse> {
+async fn _get_work_order_status(client: &Client, request_id: &str) -> Result<OrderStatusResponse> {
     let url = format!("http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetRequestStatusById/request-status/{request_id}");
 
     let response = client
         .get(&url)
         .send()
         .await?
-        .json::<WorkOrderResponse>()
+        .json::<OrderStatusResponse>()
         .await?;
 
     Ok(response)
 }
 
-async fn _get_work_order_result(client: &Client, query_id: &str) -> Result<WorkOrderResult> {
-    let url = format!(
-        "http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetProverOutput/prover-output/{query_id}"
-    );
+async fn _get_pipeline_status(
+    client: &Client,
+    pipeline_id: &str,
+) -> Result<PipelineStatusResponse> {
+    let url = format!("http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetPipelineRunStatus/pipeline-status/{pipeline_id}");
 
     let response = client
         .get(&url)
         .send()
         .await?
-        .json::<WorkOrderResult>()
+        .json::<PipelineStatusResponse>()
         .await?;
 
     Ok(response)
+}
+
+async fn get_work_order_result(
+    client: &Client,
+    url: &str,
+) -> std::result::Result<Option<Vec<u8>>, Error> {
+    let response = client
+        .get(url)
+        .header(ACCEPT, "*/*")
+        .send()
+        .await
+        .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
+
+    match response.status() {
+        reqwest::StatusCode::OK => {
+            return Ok(Some(
+                response
+                    .bytes()
+                    .await
+                    .map_err(|e| Error::BadProofResultResponse(e.to_string()))?
+                    .into(),
+            ));
+        }
+        // Result not available yet. Pipeline still in progress.
+        reqwest::StatusCode::BAD_REQUEST => Ok(None),
+        reqwest::StatusCode::NOT_FOUND => {
+            return Err(Error::ProofGenerationFailed);
+        }
+        other_status => {
+            return Err(Error::BadProofResultRequest(other_status.to_string()));
+        }
+    }
 }
