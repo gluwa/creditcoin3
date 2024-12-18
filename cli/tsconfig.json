@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "target": "es2021",
+        "target": "es5",
         "module": "commonjs",
         "declaration": true,
         "outDir": "./dist",
@@ -15,7 +15,8 @@
             "@polkadot/types/augment": ["src/lib/interfaces/augment-types.ts"],
             "@polkadot/types/lookup": ["src/lib/interfaces/types-lookup.ts"]
         },
-        "resolveJsonModule": true
+        "resolveJsonModule": true,
+        "sourceMap": true,
     },
     "exclude": ["node_modules", "**/__tests__/*", "dist"],
 
