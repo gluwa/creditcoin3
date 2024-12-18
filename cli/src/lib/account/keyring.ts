@@ -1,9 +1,9 @@
 import { mnemonicValidate } from '@polkadot/util-crypto';
 import { Keyring, KeyringPair } from '..';
-import prompts from 'prompts';
+// import prompts from 'prompts';
 import { getErrorMessage } from '../error';
 import { OptionValues } from 'commander';
-import { setInteractivity } from '../interactive';
+// import { setInteractivity } from '../interactive';
 
 // return the underlying address from a keyring, if this is a non proxied keyring it is just the address of the keypair
 // If it is a proxy then the proxied address is the one that we want to check for available funds and validator status etc
@@ -34,16 +34,16 @@ export async function initKeyringFromEnvOrPrompt(
     options: OptionValues,
 ): Promise<KeyringPair> {
     // General configs
-    const interactive = setInteractivity(options);
+    // const interactive = setInteractivity(options);
     const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
     const validateInput = options.useEcdsa ? () => true : mnemonicValidate;
     const generateKeyring = options.useEcdsa ? initECDSAKeyringPairFromPK : initKeyringPair;
 
-    if (!interactive && !process.env[envVar]) {
-        throw new Error(
-            `Error: Must specify a ${inputName} for the ${accountRole} account in the environment variable ${envVar} or use an interactive shell.`,
-        );
-    }
+    // if (!interactive && !process.env[envVar]) {
+    //     throw new Error(
+    //         `Error: Must specify a ${inputName} for the ${accountRole} account in the environment variable ${envVar} or use an interactive shell.`,
+    //     );
+    // }
 
     if (typeof process.env[envVar] === 'string') {
         const input = getStringFromEnvVar(process.env[envVar]);
@@ -52,20 +52,21 @@ export async function initKeyringFromEnvOrPrompt(
         } else {
             throw new Error(`Error: Seed phrase provided in environment variable ${envVar} is invalid.`);
         }
-    } else if (interactive) {
-        const promptResult = await prompts([
-            {
-                type: 'password',
-                name: 'seed',
-                message: `Specify a ${inputName} for the ${accountRole} account`,
-                validate: (input) => validateInput(input as string),
-            },
-        ]);
-        // If SIGTERM is issued while prompting, it will log a bogus address anyways and exit without error.
-        // To avoid this, we check if prompt was successful, before returning.
-        if (promptResult.seed) {
-            return generateKeyring(promptResult.seed as string);
-        }
+    } else if (false) {
+    // } else if (interactive) {
+        // const promptResult = await prompts([
+        //     {
+        //         type: 'password',
+        //         name: 'seed',
+        //         message: `Specify a ${inputName} for the ${accountRole} account`,
+        //         validate: (input) => validateInput(input as string),
+        //     },
+        // ]);
+        // // If SIGTERM is issued while prompting, it will log a bogus address anyways and exit without error.
+        // // To avoid this, we check if prompt was successful, before returning.
+        // if (promptResult.seed) {
+        //     return generateKeyring(promptResult.seed as string);
+        // }
     }
     throw new Error(`Error: Could not retrieve ${inputName}`);
 }
