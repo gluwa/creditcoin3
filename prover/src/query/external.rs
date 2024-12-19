@@ -12,7 +12,6 @@ use tracing::{info, warn};
 
 use super::QueryId;
 
-const PROVER_BE_SOCKET_ADDR: &str = "0.0.0.0:52221";
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
     ("trace.json", "TraceFile"),
@@ -54,13 +53,6 @@ struct PipelineStatusResponse {
     duration_in_ms: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct WorkOrderResult {
-    query_id: String,
-    status: String,
-    proof: Option<String>,
-}
-
 #[derive(Debug, Error)]
 enum Error {
     #[error("The following file has no request field mapping: {0}")]
@@ -82,7 +74,11 @@ enum Error {
 }
 
 /// Handle proof order
-pub async fn handle_proof_order(query_id: QueryId, files: Vec<PathBuf>) -> Result<Proof> {
+pub async fn handle_proof_order(
+    query_id: QueryId,
+    files: Vec<PathBuf>,
+    prover_be_socket_addr: &str,
+) -> Result<Proof> {
     info!("Handling external proof order");
     let client = Client::new();
 
@@ -117,15 +113,20 @@ pub async fn handle_proof_order(query_id: QueryId, files: Vec<PathBuf>) -> Resul
 
     // Convert query_id into UUID expected by StoneProverBE
     let uuid_string: String = sp_core::twox_128(query_id.as_bytes()).encode_hex();
+    info!("Posting work order with query_id: {}", uuid_string);
 
     // Add query id to the form
     form = form.text("queryId", uuid_string);
 
     // Post work order
-    let response = post_work_order(&client, form).await?;
+    let response = post_work_order(&client, form, prover_be_socket_addr).await?;
+    info!(
+        "Posted proving work order with request_id: {}",
+        response.request_id
+    );
 
     // Poll for the result
-    let proof_bytes = poll_for_result(&client, &response.request_id).await?;
+    let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
     info!("Work order proof len: {}", proof_bytes.len());
     Ok(proof_bytes)
 }
@@ -133,9 +134,10 @@ pub async fn handle_proof_order(query_id: QueryId, files: Vec<PathBuf>) -> Resul
 async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
+    prover_be_socket_addr: &str,
 ) -> std::result::Result<WorkOrderResponse, Error> {
     let url = format!(
-        "http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/QueueLightProverQueryRequest/prove"
+        "http://{prover_be_socket_addr}/AzureAppService/QueueLightProverQueryRequest/prove"
     );
     let response = client
         .post(url)
@@ -154,13 +156,17 @@ async fn post_work_order(
     }
 }
 
-async fn poll_for_result(client: &Client, query_id: &str) -> std::result::Result<Vec<u8>, Error> {
+async fn poll_for_result(
+    client: &Client,
+    query_id: &str,
+    prover_be_socket_addr: &str,
+) -> std::result::Result<Vec<u8>, Error> {
     let url = format!(
-        "http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetProverOutput/prover-output/{query_id}",
+        "http://{prover_be_socket_addr}/AzureAppService/GetProverOutput/prover-output/{query_id}",
     );
 
     let timeout = Duration::from_secs(60 * 60); // 60 minutes
-    let interval = Duration::from_secs(30); // Poll every 10 seconds
+    let interval = Duration::from_secs(30); // Poll every 30 seconds
     let start = tokio::time::Instant::now();
 
     while start.elapsed() < timeout {
@@ -170,9 +176,9 @@ async fn poll_for_result(client: &Client, query_id: &str) -> std::result::Result
         }
 
         info!(
-            "Result not yet available, waiting to retry... Elapsed: {:?}, Timeout: {:?}",
-            start.elapsed(),
-            timeout
+            "Result not yet available... Elapsed: {:?}, Timeout: {:?}",
+            start.elapsed().as_secs(),
+            timeout.as_secs()
         );
         sleep(interval).await;
     }
@@ -180,8 +186,12 @@ async fn poll_for_result(client: &Client, query_id: &str) -> std::result::Result
     Err(Error::ProvingPipelineTimeout)
 }
 
-async fn _get_work_order_status(client: &Client, request_id: &str) -> Result<OrderStatusResponse> {
-    let url = format!("http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetRequestStatusById/request-status/{request_id}");
+async fn _get_work_order_status(
+    client: &Client,
+    request_id: &str,
+    prover_be_socket_addr: &str,
+) -> Result<OrderStatusResponse> {
+    let url = format!("http://{prover_be_socket_addr}/AzureAppService/GetRequestStatusById/request-status/{request_id}");
 
     let response = client
         .get(&url)
@@ -196,8 +206,9 @@ async fn _get_work_order_status(client: &Client, request_id: &str) -> Result<Ord
 async fn _get_pipeline_status(
     client: &Client,
     pipeline_id: &str,
+    prover_be_socket_addr: &str,
 ) -> Result<PipelineStatusResponse> {
-    let url = format!("http://{PROVER_BE_SOCKET_ADDR}/AzureAppService/GetPipelineRunStatus/pipeline-status/{pipeline_id}");
+    let url = format!("http://{prover_be_socket_addr}/AzureAppService/GetPipelineRunStatus/pipeline-status/{pipeline_id}");
 
     let response = client
         .get(&url)

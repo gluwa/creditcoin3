@@ -189,9 +189,12 @@ impl Server {
             }
             Either::Right(stone_proof_public_input) => {
                 info!("Handling external proof for query: {:?}", query.id());
-                let proof =
-                    query::external::handle_proof_order(query.id(), stone_proof_public_input)
-                        .await?;
+                let proof = query::external::handle_proof_order(
+                    query.id(),
+                    stone_proof_public_input,
+                    &self.config.prover_be_socket_addr,
+                )
+                .await?;
                 info!("Submitting proof for query: {:?}", query);
                 contract::submit_proof(&self.cc3_client, query, proof).await?;
             }

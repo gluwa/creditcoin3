@@ -127,7 +127,7 @@ impl GluwaPublicProverContract {
         let result = builder.send().await?.get_receipt().await?;
 
         // Log receipt
-        info!("Query proof submission receipt: {:?}", result);
+        //info!("Query proof submission receipt: {:?}", result);
 
         Ok(result.transaction_hash.to_string())
     }

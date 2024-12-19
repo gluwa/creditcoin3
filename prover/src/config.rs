@@ -14,4 +14,5 @@ pub struct Config {
     pub claim_buffer: u8,
     pub postgres_uri: String,
     pub light_mode: bool,
+    pub prover_be_socket_addr: String,
 }

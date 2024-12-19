@@ -111,8 +111,17 @@ Now start the prover:
 ```sh
 ./target/release/prover \
   --cc3-key "//Alice" \
-  --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" --light-mode
+  --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 ```
+
+To start the prover in light mode, add the following flags:
+
+```sh
+--light-mode \
+--prover-be-socket-addr "0.0.0.0:55644"
+```
+
+In place of "0.0.0.0:55644", use the socket exposed by your target prover-be-api instance.
 
 You should see something like
 
