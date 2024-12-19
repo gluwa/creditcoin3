@@ -23,7 +23,8 @@
     "ts-node": {
         "require": ["tsconfig-paths/register"],
         "compilerOptions": {
-            "rootDir": "."
+            "rootDir": ".",
+            "skipLibCheck": true,
         }
     }
 }

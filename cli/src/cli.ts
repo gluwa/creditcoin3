@@ -4,6 +4,8 @@
 // import { makeNewSeedCommand } from './commands/newSeed';
 // import { makeShowAddressCommand } from './commands/showAddress';
 import { balanceAction } from './commands/balance_clean';
+import { internalSignSendAndWatch } from './lib/tx_fe';
+import { callTransferAdvanced } from './lib/tx_fe_final';
 // import { makeSendCommand } from './commands/send';
 // import { makeBondCommand } from './commands/staking/bond';
 // import { makeChillCommand } from './commands/staking/chill';
@@ -23,8 +25,10 @@ import { balanceAction } from './commands/balance_clean';
 
 // makeBalanceCommand();
 // export { balanceAction };
-console.log('balanceAction:', "lol");
+console.log('balanceAction:', "bind to window");
 (window as any).balanceAction = balanceAction;
+(window as any).internalSignSendAndWatch = internalSignSendAndWatch;
+(window as any).callTransferAdvanced = callTransferAdvanced;
 
 // balanceAction({json: false, url: 'wss://rpc.polkadot.io', substrateAddress: '5FQ2J9'});
 
