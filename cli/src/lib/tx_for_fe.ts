@@ -23,20 +23,31 @@ export async function internalSignSendAndWatch(
     // tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
     // api: ApiPromise,
     // signer: KeyringPair,
-    tx2: any, // Accepts any type for tx
+    txCall: any, // Accepts any type for tx
     // api2: any // Accepts any type for the API object
 ) {
-    const allInjected = await web3Enable('my cool dapp');
+    const allInjected = await web3Enable('attestor creditcoin web3 js app');
 
-    // const allAccounts = await web3Accounts();
+    const allAccounts = await web3Accounts();
 
-    const SENDER = '5DkZod7NZdZP21Xij14Qh21hyx2NnU95p6TcscGxByTwuyxi';
+    const account = allAccounts[0];
+    // account to string
+    const accountStr = account.address;
+
+    //iterates over all accounts and console logs the address
+    allAccounts.forEach(({ address, meta }) => {
+        console.log(`Address: ${address}, meta: ${meta.name}`);
+    });
+    
+
+    // const SENDER = '5DkZod7NZdZP21Xij14Qh21hyx2NnU95p6TcscGxByTwuyxi';
+    const SENDER = accountStr;
 
     // finds an injector for an address
     const injector = await web3FromAddress(SENDER); 
 
-    const wsProvider = new WsProvider('ws://127.0.0.1:9944');
-    const api = await ApiPromise.create({ provider: wsProvider });
+    // const wsProvider = new WsProvider('ws://127.0.0.1:9944');
+    // const api = await ApiPromise.create({ provider: wsProvider });
 
     // const api = newApi();
 
@@ -47,8 +58,8 @@ export async function internalSignSendAndWatch(
     // .transfer('5DkZod7NZdZP21Xij14Qh21hyx2NnU95p6TcscGxByTwuyxi', 1000000000000000)
     // .signAndSend(SENDER, { signer: injector.signer }, () => { console.log("send balance") });
 
-    tx2
-    .signAndSend(SENDER, { signer: injector.signer }, () => { console.log("send balance") });
+    txCall
+    .signAndSend(SENDER, { signer: injector.signer }, () => { console.log("sent tx") });
 
     
 }
