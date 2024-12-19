@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::time::Duration;
 use tokio::time;
-use tracing::info;
+use tracing::{error, info};
 
 pub async fn ret<T, E, Fut, F>(
     mut f: F,
@@ -12,6 +12,7 @@ pub async fn ret<T, E, Fut, F>(
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, E>>,
+    E: std::fmt::Debug,
 {
     let mut count = 0;
     let mut delay = base_delay; // Start with the base delay
@@ -22,6 +23,7 @@ where
                 break Ok(result);
             }
             Err(e) => {
+                error!("error: {:?}", e);
                 if count >= retries {
                     break Err(e);
                 }

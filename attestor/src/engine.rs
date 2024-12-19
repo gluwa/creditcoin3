@@ -4,7 +4,7 @@ use kameo::spawn;
 use sp_core::H256;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use attestor_primitives::{Attestation as AttestationPrimitive, ChainKey};
 use cc_client::attestation::Subscription;
@@ -42,6 +42,10 @@ impl Engine {
         })
     }
 
+    fn is_running(&self) -> bool {
+        self.task.is_some()
+    }
+
     #[must_use]
     pub fn cc_client(&self) -> &cc3::Client {
         &self.cc3_client
@@ -62,11 +66,11 @@ impl Engine {
         Ok(self.cc3_client.cc_client.subscribe_events(chain_key)?)
     }
 
-    pub async fn start(&mut self, start_block: Option<u64>) -> Result<()> {
+    async fn start(&mut self, start_block: Option<u64>) -> Result<()> {
         let can_attest = self.cc3_client.can_attest().await?;
 
         if !can_attest {
-            info!("Not allowed to attest, skipping attestation engine");
+            info!("Not allowed to attest in this epoch, waiting until next epoch rotation to reevaluate");
             return Ok(());
         }
 
@@ -78,17 +82,29 @@ impl Engine {
         let sender = self.sender.clone();
 
         let handle = tokio::task::spawn(async move {
-            match subscribe_to_new_heads_task(
-                cc3_client,
-                eth_client,
-                sender,
-                attestation_interval,
-                start_block,
+            match retry::ret(
+                || async {
+                    let cc3_client = cc3_client.clone();
+                    let eth_client = eth_client.clone();
+                    let sender = sender.clone();
+
+                    subscribe_to_new_heads_task(
+                        cc3_client,
+                        eth_client,
+                        sender,
+                        attestation_interval,
+                        start_block,
+                    )
+                    .await
+                },
+                10,
+                10,
+                None,
             )
             .await
             {
-                Ok(()) => info!("Attestation engine ended"),
-                Err(e) => error!("Attestation engine error: {:?}", e),
+                Ok(()) => info!("Attestation engine stopped"),
+                Err(e) => error!("Attestation engine stopped with error: {:?}", e),
             }
         });
 
@@ -99,7 +115,6 @@ impl Engine {
 
     pub async fn stop(&mut self) {
         if let Some(task) = self.task.take() {
-            info!("------------ Aborting task here ------------");
             task.abort();
             let _ = task.await; // Await the result to clean up resources properly
 
@@ -111,13 +126,24 @@ impl Engine {
     }
 
     /// Evaluate the attestation engine
-    /// This will stop the engine and start it again
+    /// This will stop the engine if needed and / or start it again
     pub async fn evaluate(&mut self, start_block: Option<u64>) -> Result<()> {
-        // Stop
-        self.stop().await;
+        let can_attest = self.cc3_client.can_attest().await?;
+        if !can_attest {
+            if self.is_running() {
+                warn!("Not allowed to attest, stopping attestation engine...");
+                self.stop().await;
+            } else {
+                info!("Not allowed to attest in this epoch, waiting until next epoch rotation to reevaluate");
+            }
+            return Ok(());
+        }
 
-        // Start
-        self.start(start_block).await?;
+        // Only start the engine if it is not running
+        if !self.is_running() {
+            // Start
+            self.start(start_block).await?;
+        }
 
         Ok(())
     }
@@ -166,34 +192,23 @@ async fn subscribe_to_new_heads_task(
     let checkpoint_interval = cc3_client.get_checkpoint_interval().await?;
     let target_header = start_header + (u64::from(checkpoint_interval) * attestation_interval);
 
-    // let eth_rpc_url = self.config.eth_rpc_url.clone();
-
     info!(
         "Subscribing to new heads from block: {} to block: {}",
         start_header, target_header
     );
-    retry::ret(
-        || async {
-            let eth_client_clone = eth_client.clone();
-            let sender = sender.clone();
-            let attestor = attestor.clone();
 
-            eth_sub::attest_to_heads(
-                eth_client_clone,
-                attestor,
-                sender,
-                start_header,
-                target_header,
-                chain_key,
-                attestation_interval,
-            )
-            .await
-        },
-        10,
-        10,
-        None,
+    let eth_client_clone = eth_client.clone();
+    let sender = sender.clone();
+    let attestor = attestor.clone();
+
+    Ok(eth_sub::attest_to_heads(
+        eth_client_clone,
+        attestor,
+        sender,
+        start_header,
+        target_header,
+        chain_key,
+        attestation_interval,
     )
-    .await?;
-
-    Ok(())
+    .await?)
 }

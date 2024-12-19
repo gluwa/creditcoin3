@@ -97,5 +97,7 @@ pub async fn create(
     // Add the fragment to the signed attestation
     signed_attestation.continuity_proof = vec![serializeable_frament];
 
+    debug!("Fragment created, ready for submission");
+
     Ok(())
 }

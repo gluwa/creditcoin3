@@ -65,7 +65,7 @@ impl Server {
         let chain_key = engine.chain_key();
 
         // Start the attestation engine
-        engine.start(None).await?;
+        engine.evaluate(None).await?;
 
         let mut event_sub = engine.event_sub()?;
 
@@ -80,18 +80,18 @@ impl Server {
                     match event {
                         // When randomness changes, re-evaluate the eligibility for the attestor
                         CcEvent::RandomnessChanged((epoch, randomness)) => {
-                            info!("Randomness changed. Epoch: {:?}, Randomness: {:?}", epoch, randomness);
+                            info!("Randomness changed. Epoch: {}, Randomness: {}", epoch, hex::encode(randomness));
                             let start_block = self.last_sent_attestation.as_ref().map(|a| a.attestation_data.header_number);
                             engine.evaluate(start_block).await?;
                         }
                         CcEvent::AttestationIntervalChanged(_, new_interval) => {
                             info!(
-                                "Attestation interval updated. New interval: {:?}", new_interval
+                                "Attestation interval updated. New interval: {}", new_interval
                             );
                             engine.change_interval(new_interval);
                         },
                         CcEvent::CheckpointReached(checkpoint, ck) => {
-                            info!("Checkpoint reached: {:?}", checkpoint);
+                            info!("✅ Checkpoint reached: {:?}", checkpoint);
                             if chain_key != ck {
                                 return Ok(());
                             }
@@ -117,17 +117,16 @@ impl Server {
                         },
                         Err(e) => {
                             if e.is_not_selected_error() {
-                                warn!("Failed to create proof of inclusion, attestor not selected. Nothing to do here, waiting for next attestation");
+                                warn!("Failed to create proof of inclusion, attestor not selected.");
                             } else if e.is_duplicate_submission() {
                                 warn!("Attestation for round: {:?} already submitted, skipping", round);
                             } else {
                                 error!("Non-retryable error submitting attestation: {:?}, round: {:?}", e, round);
                                 return Err(e.into());
                             }
-
                         }
                     };
-
+                    info!("Waiting for next attestation to come in...");
                 },
             }
         }
@@ -144,11 +143,12 @@ impl Server {
     ) -> Result<Attestation<H256, AttestorId>, Error> {
         let signed_attestation = cc3_client.sign_attestation(attestation).await?;
 
+        let header_number = signed_attestation.attestation_data.header_number;
+        info!("Attestor selected for block({})", header_number);
+
         // Exit early if the attestation has already been submitted
         if let Some(last_sent_attestation) = self.last_sent_attestation.clone() {
-            if last_sent_attestation.attestation_data.header_number
-                >= signed_attestation.attestation_data.header_number
-            {
+            if last_sent_attestation.attestation_data.header_number >= header_number {
                 warn!("Attestation already submitted, skipping");
                 return Err(Error::DuplicateSubmission);
             }
@@ -163,7 +163,6 @@ impl Server {
         } else {
             0
         };
-        info!("fragment start block: {start_block}");
 
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation

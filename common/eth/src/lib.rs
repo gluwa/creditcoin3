@@ -419,11 +419,20 @@ impl Client {
 
     pub async fn get_ws(&self) -> Result<RootProvider<PubSubFrontend>> {
         let mut url = self.url.clone();
-        url.set_scheme("ws").map_err(|_| {
-            Error::ClientError(anyhow::anyhow!(
-                "Cannot open websocket connection to ethereum node"
-            ))
-        })?;
+
+        if url.scheme() == "http" {
+            url.set_scheme("ws").map_err(|_| {
+                Error::ClientError(anyhow::anyhow!(
+                    "Cannot open websocket connection to ethereum node"
+                ))
+            })?;
+        } else {
+            url.set_scheme("wss").map_err(|_| {
+                Error::ClientError(anyhow::anyhow!(
+                    "Cannot open websocket connection to ethereum node"
+                ))
+            })?;
+        }
 
         let ws = WsConnect::new(url);
         let provider = ProviderBuilder::new().on_ws(ws).await?;

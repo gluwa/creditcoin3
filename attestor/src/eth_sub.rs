@@ -5,7 +5,7 @@ use kameo::actor::ActorRef;
 use sp_core::H256;
 use thiserror::Error;
 use tokio::sync::mpsc::{error::SendError, Sender};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::attestation::{self, Attestor};
 use eth::OrderedBlock;
@@ -38,21 +38,25 @@ pub async fn attest_to_heads(
         end_block: eth_target_block,
     };
 
-    info!(
-        "Starting block fetcher for chain: {} from block {} to block {}",
-        chain_key, config.start_block, config.end_block
-    );
     let last_block_height = eth_client.get_last_block().await?;
-    info!("Last block height: {}", last_block_height);
+    debug!("Last block height: {}", last_block_height);
 
-    if config.end_block > last_block_height {
-        warn!("End block is greater than current block, setting end block to current block");
-        config.end_block = last_block_height;
-    }
-
-    // Open a block fetcher subscription
-    // Providing the config will fetch historical blocks
-    let mut subscription = eth_client.open_subscription(Some(config), attestation_interval)?;
+    // If the start block is greater than the last block height, open a new subscription to latest heads
+    // It means we can just follow the source chain and we don't need to fetch historical blocks
+    let mut subscription = if config.start_block >= last_block_height {
+        info!("Opening subscription to new heads");
+        eth_client.open_subscription(None, attestation_interval)?
+    } else {
+        // If the end block of the configuration is larger than the actual block height we set it to the last block height
+        // This causes the historical block fetcher to stop at the last block instead of continuing to fetch blocks which don't exist
+        if config.end_block > last_block_height {
+            debug!("End block is greater than current block, setting end block to current block");
+            config.end_block = last_block_height;
+        }
+        info!("Crawling historical blocks");
+        // Providing the config will fetch historical blocks
+        eth_client.open_subscription(Some(config), attestation_interval)?
+    };
 
     loop {
         match subscription.next().await {
@@ -69,7 +73,7 @@ pub async fn attest_to_heads(
             }
             Err(e) => {
                 if matches!(e, eth::Error::EndOfSubscription) {
-                    info!("Nore more blocks to fetch, stopping blockfetcher");
+                    info!("Done crawling historical blocks, switching to new heads subscription");
                     subscription = eth_client.open_subscription(None, attestation_interval)?;
                 } else {
                     error!("Error fetching block: {:?}", e);

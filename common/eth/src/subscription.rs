@@ -71,15 +71,16 @@ fn subscribe_latest_heads(
             if let Some(block) = stream.next().await {
                 let block_number = block.header.number.unwrap_or_default();
 
+                debug!("Received block: {}", block_number);
                 // Skip blocks that are not at the interval
                 if block_number % interval != 0 {
+                    debug!("Skipping block: {}", block_number);
                     continue;
                 }
 
-                info!("Received block number: {}", block_number);
-
                 let block = client.get_block(block_number).await?;
 
+                debug!("Sending block({}) to channel", block_number);
                 sender.send(block).await?;
             } else {
                 info!("Subscription stream ended");
