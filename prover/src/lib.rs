@@ -123,13 +123,9 @@ impl Server {
         let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
         for query in unprocessed_queries {
             info!("Processing unprocessed query: {:?}", query);
-            // Just because one query fails, it doesn't mean the prover should crash.
             if let Err(e) = self.process_query(query).await {
-                error!(
-                    "Query processing failed. Continuing to listen for queries. Error: {:?}",
-                    e
-                );
-            };
+                panic!("Query processing failed, Error: {:?}", e);
+            }
         }
 
         // Create a channel for query submission
@@ -155,16 +151,9 @@ impl Server {
         // Wait for new queries and handle them
         while let Some(query) = queries.recv().await {
             info!("Processing query: {:?}", query);
-            // Just because one query fails, it doesn't mean the prover should crash.
-            // EX: In light-mode the prover may send a request while the connection to
-            // the prover BE is temporarily interrupted. Future requests can still be
-            // processed successfully.
             if let Err(e) = self.process_query(query).await {
-                error!(
-                    "Query processing failed. Continuing to listen for queries. Error: {:?}",
-                    e
-                );
-            };
+                panic!("Query processing failed, Error: {:?}", e);
+            }
         }
 
         Ok(())

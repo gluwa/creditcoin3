@@ -1,3 +1,4 @@
+use super::QueryId;
 use anyhow::Result;
 use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use hex::ToHex;
@@ -9,8 +10,6 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{info, warn};
-
-use super::QueryId;
 
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
