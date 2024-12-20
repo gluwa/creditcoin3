@@ -22,8 +22,7 @@ const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
 fn get_request_field(file_name: &str) -> Result<String> {
     Ok(FILE_NAME_TO_FIELD_MAP
         .iter()
-        .filter(|(file, _)| *file == file_name)
-        .next()
+        .find(|(file, _)| *file == file_name)
         .ok_or(Error::BadProofInputFile(file_name.to_string()))?
         .1
         .to_string())
@@ -81,7 +80,7 @@ pub async fn handle_proof_order(
     info!("Handling external proof order");
     let client = Client::new();
 
-    let timeout = Duration::from_secs(1 * 15); // 15 seconds
+    let timeout = Duration::from_secs(15); // 15 seconds
     let interval = Duration::from_secs(1); // Poll every 1 second
     let start = tokio::time::Instant::now();
 
@@ -105,14 +104,14 @@ pub async fn handle_proof_order(
             );
             response = incoming_response;
             break;
-        } else {
-            // No response yet. We'll try again in a moment
-            info!(
-                "Sending work order failed... trying again. Elapsed: {:?}",
-                start.elapsed().as_secs(),
-            );
-            sleep(interval).await;
         }
+
+        // No response yet. We'll try again in a moment
+        info!(
+            "Sending work order failed... trying again. Elapsed: {:?}",
+            start.elapsed().as_secs(),
+        );
+        sleep(interval).await;
     }
 
     // Poll for the result
@@ -139,15 +138,12 @@ async fn post_work_order(
 
     match response.status() {
         reqwest::StatusCode::OK => {
-            return Ok(Some(
-                response
-                    .json::<WorkOrderResponse>()
-                    .await
-                    .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?,
-            ));
+            Ok(Some(response.json::<WorkOrderResponse>().await.map_err(
+                |e| Error::BadProofOrderResponse(e.to_string()),
+            )?))
         }
         other_status if other_status.is_client_error() => {
-            return Err(Error::BadProofOrderRequest(other_status.to_string()));
+            Err(Error::BadProofOrderRequest(other_status.to_string()))
         }
         _ => {
             // The status isn't a client error, but isn't OK. We'll try again in a moment.
@@ -232,23 +228,17 @@ async fn get_work_order_result(
         .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
 
     match response.status() {
-        reqwest::StatusCode::OK => {
-            return Ok(Some(
-                response
-                    .bytes()
-                    .await
-                    .map_err(|e| Error::BadProofResultResponse(e.to_string()))?
-                    .into(),
-            ));
-        }
+        reqwest::StatusCode::OK => Ok(Some(
+            response
+                .bytes()
+                .await
+                .map_err(|e| Error::BadProofResultResponse(e.to_string()))?
+                .into(),
+        )),
         // Result not available yet. Pipeline still in progress.
         reqwest::StatusCode::BAD_REQUEST => Ok(None),
-        reqwest::StatusCode::NOT_FOUND => {
-            return Err(Error::ProofGenerationFailed);
-        }
-        other_status => {
-            return Err(Error::BadProofResultRequest(other_status.to_string()));
-        }
+        reqwest::StatusCode::NOT_FOUND => Err(Error::ProofGenerationFailed),
+        other_status => Err(Error::BadProofResultRequest(other_status.to_string())),
     }
 }
 
