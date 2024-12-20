@@ -1,5 +1,5 @@
 use super::QueryId;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use hex::ToHex;
 use reqwest::header::ACCEPT;
@@ -56,7 +56,7 @@ struct PipelineStatusResponse {
 enum Error {
     #[error("The following file has no request field mapping: {0}")]
     BadProofInputFile(String),
-    #[error("Sending request failed. Error: {0}")]
+    #[error("Sending request failed. Check that `prover-be-socket-addr` argument is provided and correct. Error: {0}")]
     ReqwestSendError(String),
     #[error("BadProofOrderRequest. Error: {0}")]
     BadProofOrderRequest(String),
@@ -81,48 +81,39 @@ pub async fn handle_proof_order(
     info!("Handling external proof order");
     let client = Client::new();
 
-    // Prepare each file for the multipart form
-    let mut form = reqwest::multipart::Form::new();
-    for file in files {
-        let file_content = tokio::fs::read(&file).await?;
-        let filename = file
-            .file_name()
-            .ok_or("Invalid file name")
-            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?;
+    let timeout = Duration::from_secs(1 * 15); // 15 seconds
+    let interval = Duration::from_secs(1); // Poll every 1 second
+    let start = tokio::time::Instant::now();
 
-        let filename_string = filename
-            .to_str()
-            .ok_or("Invalid file name")
-            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?
-            .to_string();
+    // Repeat proof order if there are connectivity issues.
+    let response: WorkOrderResponse;
+    loop {
+        if start.elapsed() > timeout {
+            return Err(anyhow!("Proof order request timeout."));
+        }
 
-        let request_field = match get_request_field(&filename_string) {
-            Ok(field_name) => field_name,
-            Err(e) => {
-                warn!("Unexpected file in proof inputs dir. Error: {:?}", e);
-                continue;
-            }
-        };
+        // Must do this in loop since reqwest::multipart::Form can't be cloned.
+        let form = prepare_proof_order_form(query_id, &files).await?;
 
-        form = form.part(
-            request_field,
-            reqwest::multipart::Part::bytes(file_content).file_name(filename_string),
-        );
+        // Attempt to post work order
+        if let Some(incoming_response) =
+            post_work_order(&client, form, prover_be_socket_addr).await?
+        {
+            info!(
+                "Posted proving work order with request_id: {}",
+                incoming_response.request_id
+            );
+            response = incoming_response;
+            break;
+        } else {
+            // No response yet. We'll try again in a moment
+            info!(
+                "Sending work order failed... trying again. Elapsed: {:?}",
+                start.elapsed().as_secs(),
+            );
+            sleep(interval).await;
+        }
     }
-
-    // Convert query_id into UUID expected by StoneProverBE
-    let uuid_string: String = sp_core::twox_128(query_id.as_bytes()).encode_hex();
-    info!("Posting work order with query_id: {}", uuid_string);
-
-    // Add query id to the form
-    form = form.text("queryId", uuid_string);
-
-    // Post work order
-    let response = post_work_order(&client, form, prover_be_socket_addr).await?;
-    info!(
-        "Posted proving work order with request_id: {}",
-        response.request_id
-    );
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
@@ -134,12 +125,12 @@ async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
     prover_be_socket_addr: &str,
-) -> std::result::Result<WorkOrderResponse, Error> {
+) -> std::result::Result<Option<WorkOrderResponse>, Error> {
     let url = format!(
         "http://{prover_be_socket_addr}/AzureAppService/QueueLightProverQueryRequest/prove"
     );
     let response = client
-        .post(url)
+        .post(&url)
         .header(ACCEPT, "*/*")
         .multipart(form)
         .send()
@@ -147,11 +138,21 @@ async fn post_work_order(
         .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
 
     match response.status() {
-        reqwest::StatusCode::OK => Ok(response
-            .json::<WorkOrderResponse>()
-            .await
-            .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?),
-        other_status => Err(Error::BadProofOrderRequest(other_status.to_string())),
+        reqwest::StatusCode::OK => {
+            return Ok(Some(
+                response
+                    .json::<WorkOrderResponse>()
+                    .await
+                    .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?,
+            ));
+        }
+        other_status if other_status.is_client_error() => {
+            return Err(Error::BadProofOrderRequest(other_status.to_string()));
+        }
+        _ => {
+            // The status isn't a client error, but isn't OK. We'll try again in a moment.
+            Ok(None)
+        }
     }
 }
 
@@ -249,4 +250,46 @@ async fn get_work_order_result(
             return Err(Error::BadProofResultRequest(other_status.to_string()));
         }
     }
+}
+
+async fn prepare_proof_order_form(
+    query_id: QueryId,
+    files: &Vec<PathBuf>,
+) -> Result<reqwest::multipart::Form> {
+    // Prepare each file for the multipart form
+    let mut form = reqwest::multipart::Form::new();
+    for file in files {
+        let file_content = tokio::fs::read(&file).await?;
+        let filename = file
+            .file_name()
+            .ok_or("Invalid file name")
+            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?;
+
+        let filename_string = filename
+            .to_str()
+            .ok_or("Invalid file name")
+            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?
+            .to_string();
+
+        let request_field = match get_request_field(&filename_string) {
+            Ok(field_name) => field_name,
+            Err(e) => {
+                warn!("Unexpected file in proof inputs dir. Error: {:?}", e);
+                continue;
+            }
+        };
+
+        form = form.part(
+            request_field,
+            reqwest::multipart::Part::bytes(file_content).file_name(filename_string),
+        );
+    }
+
+    // Convert query_id into UUID expected by StoneProverBE
+    let uuid_string: String = sp_core::twox_128(query_id.as_bytes()).encode_hex();
+    info!("Posting work order with query_id: {}", uuid_string);
+
+    // Add query id to the form
+    form = form.text("queryId", uuid_string);
+    Ok(form)
 }

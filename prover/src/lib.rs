@@ -119,7 +119,7 @@ impl Server {
         )
         .await?;
 
-        info!("Starting unprocessed claim processing...");
+        info!("Starting unprocessed query processing...");
         let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
         for query in unprocessed_queries {
             info!("Processing unprocessed query: {:?}", query);
