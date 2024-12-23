@@ -22,11 +22,17 @@ single_node: false
 - `single_node`: If set to true, it will connect to the default node port (9944) and all attestors will point to that one.
 
 ## Running
-
+Single node mode:
 ```bash
 cd ..
 cargo build --release
 ./target/release/attestor_zombienet --cc3-key "//Bob" --config-file attestor_zombienet/config.yaml
+```
+Multinode mode (specify port ranges for attestors depending on how you want to balance the load):
+```bash
+cd ..
+cargo build --release
+./target/release/attestor_zombienet --cc3-key "//Bob" --config-file attestor_zombienet/config.yaml --port-ranges 9944
 ```
 
 Make sure to have a creditcoin3-next zombienet running and an anvil node. See [attestor docs](../attestor/README.md)
