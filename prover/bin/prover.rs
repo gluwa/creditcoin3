@@ -32,11 +32,8 @@ pub struct Attestor {
     )]
     postgres_uri: String,
 
-    #[arg(short, long)]
-    light_mode: bool,
-
-    #[arg(long, default_value = "0.0.0.0:55644")]
-    prover_be_socket_addr: String,
+    #[arg(long, required = false)]
+    prover_be_socket_addr: Option<String>,
 }
 
 #[tokio::main]
@@ -48,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         debug!("debug mode enabled!");
         "debug"
     } else {
-        "info"
+        "prover=info"
     };
 
     let _ = tracing_subscriber::fmt()
@@ -65,7 +62,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eth_private_key: args.eth_private_key,
         claim_buffer: args.claim_buffer,
         postgres_uri: args.postgres_uri,
-        light_mode: args.light_mode,
         prover_be_socket_addr: args.prover_be_socket_addr,
     };
 

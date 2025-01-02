@@ -221,7 +221,6 @@ Note the exposed socket address of your prover-be-api server. In place of "0.0.0
 ./target/release/prover \
 --cc3-key "//Alice" \
 --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
---light-mode \
 --prover-be-socket-addr "0.0.0.0:55644"
 ```
 

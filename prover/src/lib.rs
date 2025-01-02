@@ -167,7 +167,7 @@ impl Server {
             eth_client.clone(),
             &query,
             &self.attestations_cache,
-            !self.config.light_mode,
+            self.config.prover_be_socket_addr.is_none(),
         )
         .await?;
 
@@ -181,7 +181,10 @@ impl Server {
                 let proof = query::external::handle_proof_order(
                     query.id(),
                     stone_proof_public_input,
-                    &self.config.prover_be_socket_addr,
+                    self.config
+                        .prover_be_socket_addr
+                        .as_ref()
+                        .expect("Socket addr is Some if we are in light mode"),
                 )
                 .await?;
                 info!("Submitting proof for query: {:?}", query);

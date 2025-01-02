@@ -36,12 +36,6 @@ struct WorkOrderResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct OrderStatusResponse {
-    request_status: String,
-    pipeline_id: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 struct PipelineStatusResponse {
     run_id: String,
     status: String,

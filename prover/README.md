@@ -77,7 +77,7 @@ Claims that are proven are stored as JSON in `claims` folder.
 
 ## External prover example
 
-If you wish you can run the prover in `light` mode (`--light-mode` or `-l`).
+If you wish you can run the prover in `light` mode then provide a back end socket address to send proving requests to (`--prover-be-socket-addr`).
 
 In light mode it will not stone proof the query but instead it will compute the inputs files for the stone prover and send them over the network to the external prover.
 
@@ -85,5 +85,3 @@ The most recent prover network prototype makes use of an Azure Data Factory Pipe
 
 Repo Link: https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE?path=/README.md
 Azure resource group: https://portal.azure.com/#@gluwa.com/resource/subscriptions/3d91f14a-f591-496b-a3d1-f198b84caaa3/resourceGroups/minhplayground/overview 
-
-TODO: Finish documentation for running light prover with proving network
