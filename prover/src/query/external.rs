@@ -182,40 +182,6 @@ async fn poll_for_result(
     Err(Error::ProvingPipelineTimeout)
 }
 
-async fn _get_work_order_status(
-    client: &Client,
-    request_id: &str,
-    prover_be_socket_addr: &str,
-) -> Result<OrderStatusResponse> {
-    let url = format!("http://{prover_be_socket_addr}/AzureAppService/GetRequestStatusById/request-status/{request_id}");
-
-    let response = client
-        .get(&url)
-        .send()
-        .await?
-        .json::<OrderStatusResponse>()
-        .await?;
-
-    Ok(response)
-}
-
-async fn _get_pipeline_status(
-    client: &Client,
-    pipeline_id: &str,
-    prover_be_socket_addr: &str,
-) -> Result<PipelineStatusResponse> {
-    let url = format!("http://{prover_be_socket_addr}/AzureAppService/GetPipelineRunStatus/pipeline-status/{pipeline_id}");
-
-    let response = client
-        .get(&url)
-        .send()
-        .await?
-        .json::<PipelineStatusResponse>()
-        .await?;
-
-    Ok(response)
-}
-
 async fn get_work_order_result(
     client: &Client,
     url: &str,

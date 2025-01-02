@@ -6,6 +6,7 @@
 /// - `eth_private_key`: Private key for the ethereum account
 /// - `claim_buffer`: The amount of claims we can handle in a certain period
 /// - `light_mode`: If true, the prover will not generate the proofs on the host, rather it will designate proof creation to some third party provider
+/// - `prover_be_socket_addr`: The prover runs in light mode when this flag is provided. It identifies the web socket address to which proving requests are directed.
 pub struct Config {
     pub cc3_rpc_url: String,
     pub cc3_key: String,

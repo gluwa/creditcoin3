@@ -153,7 +153,7 @@ cd query-cli
 cargo run -- \
   --cc3-rpc-url http://localhost:9944 \
   --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-  --contract-address 0x3ed62137c5db927cb137c26455969116bf0c23cb \
+  --contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
   --infura-api-key "somekey" \
   --eth-rpc-url http://localhost:8545
 ```
