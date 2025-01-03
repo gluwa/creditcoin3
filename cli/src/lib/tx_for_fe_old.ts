@@ -20,14 +20,18 @@ export async function internalSignSendAndWatch2(){
 
 // WARNING: this function should not be used directly, use signSendAndWatchCcKeyring() instead!
 export async function internalSignSendAndWatch(
+    // tx: SubmittableExtrinsic<'promise', ISubmittableResult>,
+    // api: ApiPromise,
+    // signer: KeyringPair,
     txCall: any, // Accepts any type for tx
+    // api2: any // Accepts any type for the API object
 ) {
     const allInjected = await web3Enable('attestor creditcoin web3 js app');
 
     const allAccounts = await web3Accounts();
 
     const account = allAccounts[0];
-    
+    // account to string
     const accountStr = account.address;
 
     //iterates over all accounts and console logs the address
