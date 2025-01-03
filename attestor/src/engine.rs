@@ -192,11 +192,6 @@ async fn subscribe_to_new_heads_task(
     let checkpoint_interval = cc3_client.get_checkpoint_interval().await?;
     let target_header = start_header + (u64::from(checkpoint_interval) * attestation_interval);
 
-    info!(
-        "Subscribing to new heads from block: {} to block: {}",
-        start_header, target_header
-    );
-
     let eth_client_clone = eth_client.clone();
     let sender = sender.clone();
     let attestor = attestor.clone();

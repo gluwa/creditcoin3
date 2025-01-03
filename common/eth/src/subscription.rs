@@ -114,7 +114,7 @@ impl BlockSubscription for BlockFetcher {
     fn cancel(&self) {}
 
     async fn next(&mut self) -> Result<Option<OrderedBlock>, Error> {
-        // If we reached the end block, return None
+        // If we reached the end block, return EndOfSubscription error
         if self.config.start_block >= self.config.end_block {
             return Err(Error::EndOfSubscription);
         }

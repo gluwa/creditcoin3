@@ -53,7 +53,17 @@ pub async fn attest_to_heads(
             debug!("End block is greater than current block, setting end block to current block");
             config.end_block = last_block_height;
         }
-        info!("Crawling historical blocks");
+
+        // If the last block height is greater than the end block, adjust it
+        if last_block_height > config.end_block {
+            debug!("Last block height is greater than end block, setting end block to last block height");
+            config.end_block = last_block_height;
+        }
+
+        info!(
+            "Crawling historical blocks, from: {} to: {}",
+            config.start_block, config.end_block
+        );
         // Providing the config will fetch historical blocks
         eth_client.open_subscription(Some(config), attestation_interval)?
     };
