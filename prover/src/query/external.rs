@@ -1,5 +1,5 @@
 use super::QueryId;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use hex::ToHex;
 use reqwest::header::ACCEPT;
@@ -74,39 +74,10 @@ pub async fn handle_proof_order(
     info!("Handling external proof order");
     let client = Client::new();
 
-    let timeout = Duration::from_secs(15); // 15 seconds
-    let interval = Duration::from_secs(1); // Poll every 1 second
-    let start = tokio::time::Instant::now();
+    let form = prepare_proof_order_form(query_id, &files).await?;
 
-    // Repeat proof order if there are connectivity issues.
-    let response: WorkOrderResponse;
-    loop {
-        if start.elapsed() > timeout {
-            return Err(anyhow!("Proof order request timeout."));
-        }
-
-        // Must do this in loop since reqwest::multipart::Form can't be cloned.
-        let form = prepare_proof_order_form(query_id, &files).await?;
-
-        // Attempt to post work order
-        if let Some(incoming_response) =
-            post_work_order(&client, form, prover_be_socket_addr).await?
-        {
-            info!(
-                "Posted proving work order with request_id: {}",
-                incoming_response.request_id
-            );
-            response = incoming_response;
-            break;
-        }
-
-        // No response yet. We'll try again in a moment
-        info!(
-            "Sending work order failed... trying again. Elapsed: {:?}",
-            start.elapsed().as_secs(),
-        );
-        sleep(interval).await;
-    }
+    // Post work order
+    let response = post_work_order(&client, form, prover_be_socket_addr).await?;
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
@@ -118,10 +89,8 @@ async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
     prover_be_socket_addr: &str,
-) -> std::result::Result<Option<WorkOrderResponse>, Error> {
-    let url = format!(
-        "http://{prover_be_socket_addr}/AzureAppService/QueueLightProverQueryRequest/prove"
-    );
+) -> std::result::Result<WorkOrderResponse, Error> {
+    let url = format!("{prover_be_socket_addr}/AzureAppService/QueueLightProverQueryRequest/prove");
     let response = client
         .post(&url)
         .header(ACCEPT, "*/*")
@@ -131,18 +100,11 @@ async fn post_work_order(
         .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
 
     match response.status() {
-        reqwest::StatusCode::OK => {
-            Ok(Some(response.json::<WorkOrderResponse>().await.map_err(
-                |e| Error::BadProofOrderResponse(e.to_string()),
-            )?))
-        }
-        other_status if other_status.is_client_error() => {
-            Err(Error::BadProofOrderRequest(other_status.to_string()))
-        }
-        _ => {
-            // The status isn't a client error, but isn't OK. We'll try again in a moment.
-            Ok(None)
-        }
+        reqwest::StatusCode::OK => Ok(response
+            .json::<WorkOrderResponse>()
+            .await
+            .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?),
+        other_status => Err(Error::BadProofOrderRequest(other_status.to_string())),
     }
 }
 
@@ -152,7 +114,7 @@ async fn poll_for_result(
     prover_be_socket_addr: &str,
 ) -> std::result::Result<Vec<u8>, Error> {
     let url = format!(
-        "http://{prover_be_socket_addr}/AzureAppService/GetProverOutput/prover-output/{query_id}",
+        "{prover_be_socket_addr}/AzureAppService/GetProverOutput/prover-output/{query_id}",
     );
 
     let timeout = Duration::from_secs(60 * 60); // 60 minutes
