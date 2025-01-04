@@ -4,7 +4,7 @@ import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../
 import { initKeyring, delegateAddress } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 
-export function makeWithdrawUnbondedCommand() {
+export function makeAttestorWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded-attestor');
     cmd.description('Withdraw unbonded funds from attestor account that become available after calling unregisterAttestor');
     cmd.addOption(proxyForOption);

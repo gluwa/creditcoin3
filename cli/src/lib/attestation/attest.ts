@@ -3,7 +3,7 @@ import { internalSignSendAndWatch } from '../../lib/tx_for_fe';
 
 export type OptionValues = Record<string, any>;
 
-export async function callRegisterAttestor(options: OptionValues) {
+export async function callAttest(options: OptionValues) {
 
     const chainKey = options.chainKey as string;
     const blsPublicKey = options.blsPublicKey as string;

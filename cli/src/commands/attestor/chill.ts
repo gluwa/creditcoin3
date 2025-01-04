@@ -4,7 +4,7 @@ import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../
 import { initKeyring, delegateAddress } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 
-export function makeChillCommand() {
+export function makeChillAttestorCommand() {
     const cmd = new Command('chill-attestor');
     cmd.description('Chill attestor');
     cmd.addOption(proxyForOption);

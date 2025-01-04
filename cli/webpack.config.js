@@ -2,7 +2,7 @@ const path = require('path');
 const webpack = require('webpack');
 
 module.exports = {
-  entry: './src/cli.ts',
+  entry: './src/attest-ui.ts',
   devtool: 'source-map',
   module: {
     rules: [
