@@ -7,15 +7,15 @@
 
 // import { DispatchError, DispatchResult, EventRecord } from '@polkadot/types/interfaces';
 
-import { newApi } from '../lib';
+import { newApi } from '../lib/api';
 
 import { web3Accounts, web3Enable, web3FromAddress } from '@polkadot/extension-dapp';
 import { InjectedExtension } from '@polkadot/extension-inject/types';
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 
-export async function internalSignSendAndWatch2(){
-    let api = await newApi();
-}
+// export async function internalSignSendAndWatch2(){
+//     let api = await newApi();
+// }
 
 // import { ApiPromise, WsProvider } from '@polkadot/api';
 
@@ -107,6 +107,23 @@ export async function internalSignSendAndWatchBySender(
 
     txCall
     .signAndSend(SENDER, { signer: injector.signer }, () => { console.log("tx sent") });
+}
+
+export async function callTransferAdvanced() {
+    const { api } = await newApi();
+
+    // const allInjected = await web3Enable('attestor creditcoin web3 js app');
+
+    // const allAccounts = await web3Accounts();
+    // //take the first account that we have access to
+    // const account = allAccounts[0];
+    // // account to string
+    // const accountStr = account.address;
+
+    const txCall = api.tx.balances
+    .transfer("5DkZod7NZdZP21Xij14Qh21hyx2NnU95p6TcscGxByTwuyxi", 1000000000000000);
+
+    await internalSignSendAndWatch(txCall);
 }
 
 

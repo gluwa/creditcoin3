@@ -4,7 +4,7 @@ import { ApiPromise } from '@polkadot/api';
 import { BN } from '..';
 import { readAmount, toCTCString } from '../balance';
 import { getChainStatus } from '../chain/status';
-// import Table from 'cli-table3';
+import Table from 'cli-table3';
 
 import type { DeriveSessionProgress, DeriveStakingAccount } from '@polkadot/api-derive/types';
 import { BN_ONE, BN_ZERO } from '@polkadot/util';
@@ -126,48 +126,47 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
 }
 
 export async function validatorStatusTable(status: Status | undefined, api: ApiPromise, humanReadable = true) {
-    // if (!status) {
-    //     throw new Error('Status was undefined');
-    // }
+    if (!status) {
+        throw new Error('Status was undefined');
+    }
 
-    // const chainStatus = await getChainStatus(api);
+    const chainStatus = await getChainStatus(api);
 
-    // const table = new Table({
-    //     head: [
-    //         `Active: ${chainStatus.eraInfo.activeEra}; Current: ${chainStatus.eraInfo.currentEra}; Session: ${chainStatus.eraInfo.currentSession}`,
-    //         `Block: ${chainStatus.bestNumber}; Finalized: ${chainStatus.bestFinalizedNumber}`,
-    //     ],
-    // });
-    // table.push(['Bonded', status.bonded ? 'Yes' : 'No']);
-    // table.push(['Validating', status.validating ? 'Yes' : 'No']);
-    // table.push(['Waiting', status.waiting ? 'Yes' : 'No']);
-    // table.push(['Active', status.active ? 'Yes' : 'No']);
-    // table.push(['Can withdraw', status.canWithdraw ? 'Yes' : 'No']);
-    // if (status.canWithdraw) {
-    //     table.push(['Unlocked funds', toCTCString(status.readyForWithdraw)]);
-    // }
+    const table = new Table({
+        head: [
+            `Active: ${chainStatus.eraInfo.activeEra}; Current: ${chainStatus.eraInfo.currentEra}; Session: ${chainStatus.eraInfo.currentSession}`,
+            `Block: ${chainStatus.bestNumber}; Finalized: ${chainStatus.bestFinalizedNumber}`,
+        ],
+    });
+    table.push(['Bonded', status.bonded ? 'Yes' : 'No']);
+    table.push(['Validating', status.validating ? 'Yes' : 'No']);
+    table.push(['Waiting', status.waiting ? 'Yes' : 'No']);
+    table.push(['Active', status.active ? 'Yes' : 'No']);
+    table.push(['Can withdraw', status.canWithdraw ? 'Yes' : 'No']);
+    if (status.canWithdraw) {
+        table.push(['Unlocked funds', toCTCString(status.readyForWithdraw)]);
+    }
 
-    // if (!status.nextUnlocking.length) {
-    //     table.push(['Next unlocking', 'None']);
-    // } else {
-    //     status.nextUnlocking.forEach((chunk) => {
-    //         const hrAmount = toCTCString(chunk.amount);
-    //         let hrTime = chunk.millis;
-    //         if (humanReadable) {
-    //             hrTime = formatDaysHoursMinutes(hrTime);
-    //         }
+    if (!status.nextUnlocking.length) {
+        table.push(['Next unlocking', 'None']);
+    } else {
+        status.nextUnlocking.forEach((chunk) => {
+            const hrAmount = toCTCString(chunk.amount);
+            let hrTime = chunk.millis;
+            if (humanReadable) {
+                hrTime = formatDaysHoursMinutes(hrTime);
+            }
 
-    //         table.push(['Next unlocking', `${hrAmount} in ${hrTime}; ${chunk.blocks.toString()} blocks`]);
-    //     });
-    // }
+            table.push(['Next unlocking', `${hrAmount} in ${hrTime}; ${chunk.blocks.toString()} blocks`]);
+        });
+    }
 
-    // return table;
-    return null;
+    return table;
 }
 
 export async function printValidatorStatus(status: Status | undefined, api: ApiPromise) {
-    // const table = await validatorStatusTable(status, api);
-    // console.log(table.toString());
+    const table = await validatorStatusTable(status, api);
+    console.log(table.toString());
 }
 
 export function requireStatus(status: Status | undefined, condition: keyof Status, message?: string) {

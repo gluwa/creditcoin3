@@ -1,6 +1,6 @@
 import { ApiPromise, parseUnits, MICROUNITS_PER_CTC } from '..';
 import { BN } from '@polkadot/util';
-// import Table from 'cli-table3';
+import Table from 'cli-table3';
 
 import type { DeriveStakingAccount } from '@polkadot/api-derive/types';
 
@@ -84,19 +84,19 @@ export function logBalance(balance: AccountBalance, human = true) {
 }
 
 export function printBalance(balance: AccountBalance) {
-    // const table = new Table({});
+    const table = new Table({});
 
-    // table.push(
-    //     ['Transferable', toCTCString(balance.transferable, 4)],
-    //     ['Locked', toCTCString(balance.locked, 4)],
-    //     ['Bonded', toCTCString(balance.bonded, 4)],
-    //     ['EVM', toCTCString(balance.evm, 4)],
-    //     ['Unbonding', toCTCString(balance.unbonding, 4)],
-    //     ['Total', toCTCString(balance.total, 4)],
-    // );
+    table.push(
+        ['Transferable', toCTCString(balance.transferable, 4)],
+        ['Locked', toCTCString(balance.locked, 4)],
+        ['Bonded', toCTCString(balance.bonded, 4)],
+        ['EVM', toCTCString(balance.evm, 4)],
+        ['Unbonding', toCTCString(balance.unbonding, 4)],
+        ['Total', toCTCString(balance.total, 4)],
+    );
 
-    // console.log(`Address: ${balance.address}`);
-    // console.log(table.toString());
+    console.log(`Address: ${balance.address}`);
+    console.log(table.toString());
 }
 
 export function printJsonBalance(balance: AccountBalance) {

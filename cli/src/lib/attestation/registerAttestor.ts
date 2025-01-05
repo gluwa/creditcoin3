@@ -1,4 +1,4 @@
-import { BN, newApi } from '../../lib';
+import { newApi } from '../../lib/api';
 import { internalSignSendAndWatch, internalSignSendAndWatchBySender } from '../../lib/tx_for_fe';
 
 export type OptionValues = Record<string, any>;

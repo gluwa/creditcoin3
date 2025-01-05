@@ -1,5 +1,5 @@
 // import { Command, OptionValues } from 'commander';
-import { BN, newApi } from '../lib';
+import { newApi } from '../lib/api';
 import { internalSignSendAndWatch } from '../lib/tx_for_fe';
 // import { bond, parseRewardDestination } from '../../lib/staking';
 // import { promptContinue, setInteractivity } from '../../lib/interactive';

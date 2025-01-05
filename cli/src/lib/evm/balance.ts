@@ -1,6 +1,6 @@
 import { JsonRpcProvider } from 'ethers';
 import { toCTCString } from '../balance';
-// import Table from 'cli-table3';
+import Table from 'cli-table3';
 import { BN } from '..';
 
 interface EVMBalance {
@@ -26,12 +26,12 @@ export function logEVMBalance(balance: EVMBalance, human = true) {
 }
 
 export function printEVMBalance(balance: EVMBalance) {
-    // const table = new Table({});
+    const table = new Table({});
 
-    // table.push(['CTC Balance', toCTCString(new BN(balance.ctc.toString()), 4)]);
+    table.push(['CTC Balance', toCTCString(new BN(balance.ctc.toString()), 4)]);
 
-    // console.log(`Address: ${balance.address}`);
-    // console.log(table.toString());
+    console.log(`Address: ${balance.address}`);
+    console.log(table.toString());
 }
 
 export function printEVMJsonBalance(balance: EVMBalance) {

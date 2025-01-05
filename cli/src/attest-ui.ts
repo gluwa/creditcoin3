@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-import { balanceAction } from './commands/balance_clean';
 import { internalSignSendAndWatch } from './lib/tx_fe_for_testing';
-import { enableWeb3AndGetListOfAccounts } from './lib/tx_for_fe';
-import { callTransferAdvanced } from './lib/tx_fe_final';
+import { enableWeb3AndGetListOfAccounts, callTransferAdvanced } from './lib/tx_for_fe';
 import { callAttest } from './lib/attestation/attest';
 import { callChillAttestor } from './lib/attestation/chill';
 import { callAttestorClaimRewards } from './lib/attestation/claimRewards';
@@ -12,15 +10,12 @@ import { callAttestorUnregisterAttestor } from './lib/attestation/unregisterAtte
 import { callAttestorWithdrawUnbonded } from './lib/attestation/withdrawUnbonded';
 
 
-console.log('balanceAction:', "bind to window");
-(window as any).balanceAction = balanceAction;
-
-//for testing purposes
+// //for testing purposes
 (window as any).callTransferAdvanced = callTransferAdvanced;
 (window as any).internalSignSendAndWatch = internalSignSendAndWatch;
 
 
-//for FE integration
+// //for FE integration
 (window as any).callAttest = callAttest;
 (window as any).callChillAttestor = callChillAttestor;
 (window as any).callAttestorClaimRewards = callAttestorClaimRewards;
@@ -29,7 +24,7 @@ console.log('balanceAction:', "bind to window");
 (window as any).callAttestorUnregisterAttestor = callAttestorUnregisterAttestor;
 (window as any).callAttestorWithdrawUnbonded = callAttestorWithdrawUnbonded;
 
-//use this fn to enable web3 and get list of accounts that are available in the browser with a injected web3 provider
+// //use this fn to enable web3 and get list of accounts that are available in the browser with a injected web3 provider
 (window as any).enableWeb3AndGetListOfAccounts = enableWeb3AndGetListOfAccounts;
 
 
