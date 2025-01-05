@@ -1,5 +1,5 @@
 import { BN, newApi } from '../../lib';
-import { internalSignSendAndWatch } from '../../lib/tx_for_fe';
+import { internalSignSendAndWatch, internalSignSendAndWatchBySender } from '../../lib/tx_for_fe';
 
 export type OptionValues = Record<string, any>;
 export async function callAttestorUnregisterAttestor(options: OptionValues) {
@@ -7,9 +7,10 @@ export async function callAttestorUnregisterAttestor(options: OptionValues) {
 
     const chainKey = options.chainKey as string;
     const attestorId = options.attestorId as string;
+    const signer = options.signer as string;
 
     const txCall = api.tx.attestation
     .unregisterAttestor(chainKey, attestorId);
 
-    await internalSignSendAndWatch(txCall);
+    await internalSignSendAndWatchBySender(txCall, signer);
 }

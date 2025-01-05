@@ -1,11 +1,15 @@
 import { BN, newApi } from '../../lib';
-import { internalSignSendAndWatch } from '../../lib/tx_for_fe';
+import { internalSignSendAndWatch, internalSignSendAndWatchBySender } from '../../lib/tx_for_fe';
 
-export async function callAttestorWithdrawUnbonded() {
+export type OptionValues = Record<string, any>;
+
+export async function callAttestorWithdrawUnbonded(options: OptionValues) {
     const { api } = await newApi();
+
+    const signer = options.signer as string;
 
     const txCall = api.tx.attestation
     .withdrawUnbonded();
 
-    await internalSignSendAndWatch(txCall);
+    await internalSignSendAndWatchBySender(txCall, signer);
 }

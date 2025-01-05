@@ -1,10 +1,14 @@
 import { BN, newApi } from '../../lib';
-import { internalSignSendAndWatch } from '../../lib/tx_for_fe';
+import { internalSignSendAndWatch, internalSignSendAndWatchBySender } from '../../lib/tx_for_fe';
 
-export async function callAttestorClaimRewards() {
+export type OptionValues = Record<string, any>;
+
+export async function callAttestorClaimRewards(options: OptionValues) {
     const { api } = await newApi();
     const txCall = api.tx.attestation
     .claimRewards();
 
-    await internalSignSendAndWatch(txCall);
+    const signer  = options.signer as string;
+
+    await internalSignSendAndWatchBySender(txCall, signer);
 }
