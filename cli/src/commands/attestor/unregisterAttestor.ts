@@ -16,10 +16,9 @@ async function unregisterAttestorAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const chainKey = options.chainKey as string;
+    const validatorAddr = options.validatorAddr as string;
 
     const keyring = await initKeyring(options);
-
-    const validatorAddr = delegateAddress(keyring);
 
     const unregisterAttestorTx = api.tx.attestation.unregisterAttestor(chainKey, validatorAddr);
 

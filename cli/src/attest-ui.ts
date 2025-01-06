@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { internalSignSendAndWatch } from './lib/tx_fe_for_testing';
-import { enableWeb3AndGetListOfAccounts, callTransferAdvanced } from './lib/tx_for_fe';
+import { enableWeb3AndGetListOfAccounts } from './lib/tx_for_fe';
 import { callAttest } from './lib/attestation/attest';
 import { callChillAttestor } from './lib/attestation/chill';
 import { callAttestorClaimRewards } from './lib/attestation/claimRewards';
@@ -10,8 +10,6 @@ import { callAttestorUnregisterAttestor } from './lib/attestation/unregisterAtte
 import { callAttestorWithdrawUnbonded } from './lib/attestation/withdrawUnbonded';
 
 
-// //for testing purposes
-(window as any).callTransferAdvanced = callTransferAdvanced;
 (window as any).internalSignSendAndWatch = internalSignSendAndWatch;
 
 
