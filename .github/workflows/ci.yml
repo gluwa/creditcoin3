@@ -849,7 +849,6 @@ jobs:
             metadata-cmp-with-testnet.txt
 
   unit-test-cli:
-    if: github.base_ref == 'dev'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -1482,7 +1481,6 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   integration-test-cli:
-    if: github.base_ref == 'dev'
     strategy:
       fail-fast: false
       matrix:
