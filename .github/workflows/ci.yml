@@ -309,30 +309,42 @@ jobs:
         run: |
           ../stone-verifier/cpu_air_verifier --in_file=fibonacci_proof.json
 
-#  sanity-test-cli:
-#    runs-on: ubuntu-24.04
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - name: Install Node.js
-#        uses: actions/setup-node@v4
-#        with:
-#          node-version: 20
-#      - run: npm install -g yarn
-#
-#      - name: Install creditcoin-cli
-#        working-directory: ./cli
-#        run: |
-#          yarn install
-#          yarn build
-#          npm install -g .
-#
-#      - name: Execute creditcoin cli command
-#        run: |
-#          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
-#          which creditcoin
-#          creditcoin help
-#          creditcoin wizard --help
+  sanity-test-cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install colordiff solc
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Execute creditcoin cli command
+        run: |
+          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
+          which creditcoin
+          creditcoin help
+          creditcoin wizard --help
 
   sanity-test-precompiles:
     runs-on: ubuntu-24.04
