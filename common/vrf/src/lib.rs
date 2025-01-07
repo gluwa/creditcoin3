@@ -16,7 +16,7 @@ use thiserror::Error;
 use attestor_primitives::AttestorId;
 use randomness_primitives::Randomness;
 
-#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 /// Represents a proof of inclusion for an attestor.
 /// This structure includes the VRF output, VRF proof, and the epoch in which the proof was created.
 pub struct ProofOfInclusion {

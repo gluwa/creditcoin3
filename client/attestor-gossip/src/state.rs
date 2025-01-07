@@ -7,6 +7,7 @@ use attestor_primitives::{ChainKey, Round};
 
 use crate::{communication::Attestation, round::RoundConfig, Error, LOG_TARGET};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VoteImportResult {
     Ok,
     RoundConcluded,
@@ -64,7 +65,7 @@ where
         &mut self,
         attestation: Attestation<H, A>,
         epoch_index: u64,
-    ) -> Result<Option<Attestation<H, A>>, Error> {
+    ) -> Option<Attestation<H, A>> {
         let header_number = attestation.attestation_data.header_number;
         let attestor_id = attestation.attestor.clone();
 
@@ -80,11 +81,10 @@ where
                 votes.clear();
                 // Update the epoch
                 self.epoch = epoch_index;
-                return Err(Error::EpochMismatch);
             }
 
             // Insert the vote
-            return Ok(votes.insert(attestor_id, attestation));
+            return votes.insert(attestor_id, attestation);
         } else {
             let mut votes = HashMap::new();
             votes.insert(attestor_id, attestation);
@@ -92,7 +92,7 @@ where
             self.epoch = epoch_index;
         }
 
-        Ok(None)
+        None
     }
 
     pub fn clear_votes(&mut self, header_number: BlockNumber) {
@@ -177,22 +177,22 @@ where
 
         // Check if the chain_key exists in the block_attestations
         if let Some(vote_round) = self.chain_head_votes.get_mut(&chain_key) {
-            let old_vote = vote_round.add_vote(attestation, epoch_index)?;
+            let old_vote = vote_round.add_vote(attestation, epoch_index);
             if old_vote.is_some() {
                 warn!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_key, header_number));
-                Ok(VoteImportResult::DoubleVote)
-            } else {
-                if self.check_round_state(round, round_config)? {
-                    return Ok(VoteImportResult::RoundConcluded);
-                }
-                Ok(VoteImportResult::Ok)
+                return Ok(VoteImportResult::DoubleVote);
             }
         } else {
             // Insert new attestation if it doesn't exist
             debug!(target: LOG_TARGET, "📝 First time a vote comes in for new chain: {}, round: {:?}", chain_key, round);
             self.new_chain(attestation, epoch_index);
-            Ok(VoteImportResult::Ok)
         }
+
+        if self.check_round_state(round, round_config)? {
+            return Ok(VoteImportResult::RoundConcluded);
+        }
+
+        Ok(VoteImportResult::Ok)
     }
 
     pub fn check_round_state(
@@ -289,4 +289,315 @@ where
         .into_iter()
         .max_by_key(|&(_, count)| count)
         .unwrap_or((H::default(), 0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use attestor_primitives::{Attestation as AttestationPrimitive, BlsPublicKey};
+    use bls_signatures::Signature;
+    use bls_signatures::{key::Serialize, PrivateKey};
+    use sp_core::{H256, H512};
+    use sp_runtime::AccountId32;
+
+    struct Attestor {
+        account_id: AccountId32,
+        private_key: PrivateKey,
+        _public_key: BlsPublicKey,
+    }
+
+    impl Attestor {
+        pub fn new(account_id: AccountId32) -> Self {
+            let rng = sp_core::H256::random().0;
+            let private_key = PrivateKey::new(rng);
+            let _public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
+
+            Self {
+                account_id,
+                private_key,
+                _public_key,
+            }
+        }
+
+        pub fn sign_bls_attestation(&self, attestation: &AttestationPrimitive<H256>) -> Signature {
+            self.private_key.sign(attestation.serialize())
+        }
+    }
+
+    fn simulate_attestation_data(chain_key: u64, header_number: u64) -> AttestationPrimitive<H256> {
+        AttestationPrimitive {
+            chain_key,
+            header_hash: H256::random(),
+            header_number,
+            prev_digest: None,
+            root: H256::random().0,
+        }
+    }
+
+    fn create_signed_attestation(
+        attestor: &Attestor,
+        attestation_data: AttestationPrimitive<H256>,
+    ) -> Attestation<H256, AccountId32> {
+        let signature = attestor.sign_bls_attestation(&attestation_data);
+
+        Attestation {
+            attestation_data,
+            attestor: attestor.account_id.clone(),
+            continuity_proof: vec![],
+            proof_of_inclusion: Default::default(),
+            signature: sp_core::sr25519::Signature(H512::random().0),
+            signature_bls: attestor_primitives::bls::WrapEncode(signature),
+        }
+    }
+
+    #[test]
+    fn test_single_vote() {
+        let mut state = State::default();
+
+        let account_id = AccountId32::new(H256::random().0);
+        let attestor = Attestor::new(account_id);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+
+        // With this config, we immediately conclude the round
+        let round_config = RoundConfig {
+            committee_set_size: 1,
+            target_sample_size: 1,
+            threshold: 1,
+        };
+
+        let result = state
+            .note_vote(attestation.clone(), &round_config, 1)
+            .unwrap();
+        assert_eq!(result, VoteImportResult::RoundConcluded);
+
+        let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes.get(&attestor.account_id), Some(&attestation));
+    }
+
+    #[test]
+    fn test_single_vote_not_concluding_round() {
+        let mut state = State::default();
+
+        let account_id = AccountId32::new(H256::random().0);
+        let attestor = Attestor::new(account_id);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+
+        // With this config, we can't conclude the round if we only have one vote
+        let round_config = RoundConfig {
+            committee_set_size: 3,
+            target_sample_size: 3,
+            threshold: 2,
+        };
+
+        let result = state
+            .note_vote(attestation.clone(), &round_config, 1)
+            .unwrap();
+        assert_eq!(result, VoteImportResult::Ok);
+
+        let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes.get(&attestor.account_id), Some(&attestation));
+    }
+
+    #[test]
+    fn test_double_vote() {
+        let mut state = State::default();
+
+        let account_id = AccountId32::new(H256::random().0);
+        let attestor = Attestor::new(account_id);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 1,
+            target_sample_size: 1,
+            threshold: 1,
+        };
+
+        state
+            .note_vote(attestation.clone(), &round_config, 1)
+            .unwrap();
+        let result = state
+            .note_vote(attestation.clone(), &round_config, 1)
+            .unwrap();
+
+        assert_eq!(result, VoteImportResult::DoubleVote);
+    }
+
+    #[test]
+    fn test_round_conclusion() {
+        let mut state = State::default();
+
+        let account_id_1 = AccountId32::new(H256::random().0);
+        let account_id_2 = AccountId32::new(H256::random().0);
+        let attestor_1 = Attestor::new(account_id_1);
+        let attestor_2 = Attestor::new(account_id_2);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
+        let attestation_2 = create_signed_attestation(&attestor_2, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 2,
+            target_sample_size: 2,
+            threshold: 2,
+        };
+
+        state
+            .note_vote(attestation_1.clone(), &round_config, 1)
+            .unwrap();
+        let result = state
+            .note_vote(attestation_2.clone(), &round_config, 1)
+            .unwrap();
+
+        assert_eq!(result, VoteImportResult::RoundConcluded);
+    }
+
+    #[test]
+    fn test_multiple_votes_different_headers() {
+        let mut state = State::default();
+
+        let account_id_1 = AccountId32::new(H256::random().0);
+        let account_id_2 = AccountId32::new(H256::random().0);
+        let attestor_1 = Attestor::new(account_id_1);
+        let attestor_2 = Attestor::new(account_id_2);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
+
+        let attestation_data = simulate_attestation_data(1, 2);
+        let attestation_2 = create_signed_attestation(&attestor_2, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 2,
+            target_sample_size: 2,
+            threshold: 1,
+        };
+
+        state
+            .note_vote(attestation_1.clone(), &round_config, 1)
+            .unwrap();
+        state
+            .note_vote(attestation_2.clone(), &round_config, 1)
+            .unwrap();
+
+        let votes_header_1 = state.get_attestations_by_chain_and_header(1, 1).unwrap();
+        let votes_header_2 = state.get_attestations_by_chain_and_header(1, 2).unwrap();
+
+        assert_eq!(votes_header_1.len(), 1);
+        assert_eq!(votes_header_2.len(), 1);
+    }
+
+    #[test]
+    fn test_major_digest() {
+        let mut state = State::default();
+
+        let account_id_1 = AccountId32::new(H256::random().0);
+        let account_id_2 = AccountId32::new(H256::random().0);
+        let attestor_1 = Attestor::new(account_id_1);
+        let attestor_2 = Attestor::new(account_id_2);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
+
+        let attestation_data_2 = simulate_attestation_data(1, 1);
+        let attestation_2 = create_signed_attestation(&attestor_2, attestation_data_2);
+
+        let round_config = RoundConfig {
+            committee_set_size: 2,
+            target_sample_size: 2,
+            threshold: 2,
+        };
+
+        state
+            .note_vote(attestation_1.clone(), &round_config, 1)
+            .unwrap();
+        state
+            .note_vote(attestation_2.clone(), &round_config, 1)
+            .unwrap();
+
+        let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
+        let (_major_digest, count) = find_major_digest(votes);
+
+        assert!(
+            count < round_config.threshold as usize,
+            "Round should not conclude with differing votes"
+        );
+    }
+
+    #[test]
+    fn test_epoch_changes_clear_votes() {
+        let mut state = State::default();
+
+        let account_id = AccountId32::new(H256::random().0);
+        let attestor = Attestor::new(account_id);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 1,
+            target_sample_size: 1,
+            threshold: 1,
+        };
+
+        state
+            .note_vote(attestation.clone(), &round_config, 1)
+            .unwrap();
+
+        assert!(
+            !state.chain_head_votes.is_empty(),
+            "Votes should exist before epoch change"
+        );
+
+        state
+            .note_vote(attestation.clone(), &round_config, 2)
+            .unwrap();
+
+        let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
+        assert!(
+            !votes.is_empty(),
+            "Votes should be reset after epoch change"
+        );
+        assert_eq!(votes.len(), 1);
+    }
+
+    #[test]
+    fn test_clear_votes() {
+        let mut state = State::default();
+
+        let account_id = AccountId32::new(H256::random().0);
+        let attestor = Attestor::new(account_id);
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 1,
+            target_sample_size: 1,
+            threshold: 1,
+        };
+
+        state
+            .note_vote(attestation.clone(), &round_config, 1)
+            .unwrap();
+
+        assert!(
+            !state.chain_head_votes.is_empty(),
+            "Votes should exist before clearing"
+        );
+
+        state.clear_votes(1, 1);
+
+        let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
+        assert!(votes.is_empty(), "Votes should be cleared");
+    }
 }
