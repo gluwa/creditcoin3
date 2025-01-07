@@ -174,6 +174,7 @@ impl<'a> Client {
                         ));
                     }
                     error!("Failed to register: {:?}", e);
+                    return Err(e);
                 }
             }
         }
