@@ -226,4 +226,4 @@ Note the exposed socket address of your prover-be-api server. In place of "http:
 
 When set up correctly, the light prover will send proving requests to the prover-be-api server. Then in a few minutes the server will respond with an output proof file.
 
-When sending queries to BE instances not hosted locally, use an address prepended with "https://". EX: --prover-be-socket-addr "https://122.0.38.55:55644"
+When sending queries to BE instances not hosted locally, use an address prepended with "https://". EX: --prover-be-socket-addr "https:// 122.0.38.55:55644"
