@@ -77,7 +77,7 @@ Claims that are proven are stored as JSON in `claims` folder.
 
 ## External prover example
 
-If you wish you can run the prover in `light` mode then provide a back end socket address to send proving requests to (`--prover-be-socket-addr`). EX: "https://65.34.55.0:55644" or "http://localhost:55644"
+If you wish you can run the prover in `light` mode then provide a back end socket address to send proving requests to (`--prover-be-socket-addr`). EX: `https:// 65.34.55.0:55644` or `http:// localhost:55644`
 
 In light mode it will not stone proof the query but instead it will compute the inputs files for the stone prover and send them over the network to the external prover.
 
