@@ -274,7 +274,9 @@ pub fn run_verifier(
 
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
-    use crate::command::{hash_layout_segments, VerifierError};
+    use crate::command::{
+        felts_from_bytes, hash_layout_segments, validate_query_against_proof, VerifierError,
+    };
     use pallet_prover_primitives::{
         LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
     };
@@ -448,5 +450,104 @@ pub mod tests {
             }
             _ => panic!("unexpected error"),
         }
+    }
+
+    fn cairo_verifier_output_from_proof_json() -> CairoVerifierOutput {
+        let proof_path = "../cairo/stone-verifier/proof_example.json";
+        let proof = std::fs::read(proof_path).expect("Proof example to be there");
+        let proof: StoneProofJson = serde_json::from_slice(&proof).unwrap();
+        let mut stone_proof = StoneProof::from(proof.clone());
+
+        stone_proof
+            .strip_off_annotations()
+            .strip_off_prover_config()
+            .strip_off_private_input();
+
+        CairoVerifierOutput::try_from(stone_proof.proof())
+            .map_err(|e| {
+                log::error!(
+                    "Failed to convert StoneProof to CairoVerifierOutput: {:?}",
+                    e
+                );
+                VerifierError::CairoVerifierOutputConversionError(e)
+            })
+            .unwrap()
+    }
+
+    // note: the proof example has changed, the proof_example.json file is now
+    // in correspondence with the provided query and metadata (block 1, index 0, full data layout),
+    // thus the proof is valid and should be verified successfully
+    #[test]
+    fn validate_query_against_proof_with_valid_proof_should_return_ok() {
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
+        };
+        let cairo_verifier_output = cairo_verifier_output_from_proof_json();
+
+        let result = validate_query_against_proof(query, &cairo_verifier_output);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "ClaimOutOfBounds")]
+    fn validate_query_against_proof_with_greater_query_index_should_error() {
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 1, // proof has index of 0
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
+        };
+        let cairo_verifier_output = cairo_verifier_output_from_proof_json();
+
+        validate_query_against_proof(query, &cairo_verifier_output).unwrap();
+    }
+
+    // TODO: proof has index of 0 so we can't exercise the branch with query passing a lower value
+
+    #[test]
+    #[should_panic(expected = "ClaimOutOfBounds")]
+    fn validate_query_against_proof_with_claim_fields_mismatch_should_error() {
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
+        };
+        let mut cairo_verifier_output = cairo_verifier_output_from_proof_json();
+        // inject faulty state
+        cairo_verifier_output.claim_fields = felts_from_bytes(&rlp::NULL_RLP[..]);
+
+        validate_query_against_proof(query, &cairo_verifier_output).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "ClaimIdNotValidated")]
+    fn validate_query_against_proof_should_error_when_layout_segments_cannot_be_hashed() {
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                // values too large, will cause hash_layout_segments() to error internally
+                offset: u64::MAX,
+                size: u64::MAX,
+            }],
+        };
+        let cairo_verifier_output = cairo_verifier_output_from_proof_json();
+
+        validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }
 }
