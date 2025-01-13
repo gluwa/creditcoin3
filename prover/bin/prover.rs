@@ -1,4 +1,5 @@
 use clap::Parser;
+use dotenv::dotenv;
 use std::error::Error;
 use tokio::signal;
 use tracing::{debug, info};
@@ -6,8 +7,8 @@ use tracing::{debug, info};
 use prover::{config::Config, Server};
 
 #[derive(Parser, Debug)]
-#[command(name = "attestor")]
-pub struct Attestor {
+#[command(name = "prover")]
+pub struct Prover {
     #[arg(long, default_value = "ws://localhost:9944")]
     cc3_rpc_url: String,
 
@@ -17,7 +18,7 @@ pub struct Attestor {
     #[arg(long, default_value = "http://localhost:8545")]
     eth_rpc_url: String,
 
-    #[arg(long, required = true)]
+    #[arg(long, required = true, env)]
     eth_private_key: String,
 
     #[arg(short, long)]
@@ -26,10 +27,7 @@ pub struct Attestor {
     #[arg(long, default_value_t = 100)]
     claim_buffer: u8,
 
-    #[arg(
-        long,
-        default_value = "postgres://prover:prover@127.0.0.1:5432/attestations"
-    )]
+    #[arg(long, required = false, env)]
     postgres_uri: String,
 
     #[arg(long, required = false)]
@@ -38,7 +36,11 @@ pub struct Attestor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args = Attestor::parse();
+    // Initialize environment file
+    dotenv().ok();
+
+    // Parse args
+    let args = Prover::parse();
 
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {

@@ -35,6 +35,7 @@ cairo/lang/cpu_air_params.json
 # Prover
 prover/claims/*.json
 prover/artifacts/*.json
+prover/.env
 
 # Added by cargo
 /target

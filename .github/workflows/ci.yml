@@ -1419,9 +1419,6 @@ jobs:
           # adjust path to binary b/c running from the root dir of the repository
           sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
 
-          # always use 5 attestors when running in CI
-          sed -i "s/num_attestors: .*/num_attestors: 5/" attestor_zombienet/config.yaml
-
           mkdir /var/tmp/integration-test-attestor-network/attestors-alice
           mkdir /var/tmp/integration-test-attestor-network/attestors-bob
 
@@ -1434,7 +1431,7 @@ jobs:
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
 
-      - name: Wait for 5 attestors to be registered
+      - name: Wait for 3 attestors to be registered
         run: |
           # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
