@@ -23,7 +23,7 @@ For all available options, run:
 ../target/release/query-cli --help
 ```
 
-## Example
+## Example using the EVM development account Baltathar
 
 ```sh
 ../target/release/query-cli \
@@ -32,7 +32,7 @@ For all available options, run:
   --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3
 ```
 
-## Default example
+## Default example using the EVM development account Baltathar
 
 There is a flag that will enable you to submit a "default" query, it's a query made on sepolia about this transaction:
 <https://sepolia.etherscan.io/tx/0xa519add3d602460c2b30c7ff4b1215fd705f049bb87260c2a2fc8fe2c3ccce9a>.
