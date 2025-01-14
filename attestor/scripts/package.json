@@ -1,6 +1,7 @@
 {
   "name": "attestor-scripts",
   "dependencies": {
+    "@ethersproject/experimental": "^5.7.0",
     "ethers": "^6.11.1"
   }
 }
