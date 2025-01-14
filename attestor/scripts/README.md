@@ -8,8 +8,8 @@ npm install
 
 ## Run Transfer
 
-Will transfer some amount from `Alith` to some other random account.
+Will transfer some amount from `Anvil's Account #0` to some other random account.
 
 ```bash
-node transfer.js
+node Transfer.js
 ```
