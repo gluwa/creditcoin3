@@ -29,7 +29,7 @@ For all available options, run:
 ../target/release/query-cli \
   --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --infura-api-key "somevalue" \
-  --contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3
+  --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3
 ```
 
 ## Default example
@@ -42,6 +42,6 @@ If you pass the default flag you wont get the prompt and you can test the query 
 ```sh
 ../target/release/query-cli \
   --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-  --contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
+  --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
   --default
 ```
