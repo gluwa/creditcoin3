@@ -27,7 +27,7 @@ For all available options, run:
 
 ```sh
 ../target/release/query-cli \
-  --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+  --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --infura-api-key "somevalue" \
   --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3
 ```
@@ -41,7 +41,7 @@ If you pass the default flag you wont get the prompt and you can test the query 
 
 ```sh
 ../target/release/query-cli \
-  --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+  --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
   --default
 ```

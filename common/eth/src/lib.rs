@@ -441,7 +441,7 @@ impl Client {
     }
 
     pub fn get_signer(&self) -> Result<PrivateKeySigner> {
-        let decoded = hex::decode(self.private_key.clone())?;
+        let decoded = hex::decode(self.private_key.clone().replace("0x", ""))?;
         let signing_key = SigningKey::from_slice(&decoded)?;
 
         Ok(PrivateKeySigner::from_signing_key(signing_key))
