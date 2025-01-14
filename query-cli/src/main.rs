@@ -18,7 +18,7 @@ pub struct QueryCli {
     cc3_rpc_url: String,
 
     #[arg(long, required = true)]
-    eth_private_key: String,
+    cc3_evm_private_key: String,
 
     #[arg(long)]
     infura_api_key: Option<String>,
@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Going to submit following Query: {:?}\n", query);
 
     // Initialize the Ethereum client for ccnext and the contract
-    let eth_client = Client::new(&args.cc3_rpc_url, &args.eth_private_key).await?;
+    let eth_client = Client::new(&args.cc3_rpc_url, &args.cc3_evm_private_key).await?;
     let contract = evm::prover::new(args.prover_contract_address)?;
 
     println!("Computing query cost...");
@@ -157,7 +157,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
     });
 
     // Initialize the Ethereum client for ccnext and the contract
-    let eth_client = Client::new(&eth_rpc_url, &args.eth_private_key).await?;
+    let eth_client = Client::new(&eth_rpc_url, &args.cc3_evm_private_key).await?;
     let contract = evm::prover::new(args.prover_contract_address)?;
 
     println!("Computing query cost...");

@@ -49,7 +49,7 @@ Replace `<repo-root>` with the path to this repository, usually something like `
 Create a `.env` file with the content from `.env.template` and adjust the values as needed.
 
 ```sh
-cargo run -- -v --cc3-key "//Alice" --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+cargo run -- -v --cc3-key "//Alice" --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 ```
 
 Check prover attestation cache:
@@ -64,7 +64,7 @@ select * from signedattestation;
 If you want to run the prover in dev mode, you can use the following command:
 
 ```sh
-cargo run -- -v --cc3-key "//Alice" --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" --dev
+cargo run -- -v --cc3-key "//Alice" --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" --dev
 ```
 
 This disables the Cairo prover and uses a dummy proof output instead.

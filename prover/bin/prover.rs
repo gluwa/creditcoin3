@@ -19,7 +19,7 @@ pub struct Prover {
     eth_rpc_url: String,
 
     #[arg(long, required = true, env)]
-    eth_private_key: String,
+    cc3_evm_private_key: String,
 
     #[arg(short, long)]
     verbose: bool,
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
         eth_rpc_url: args.eth_rpc_url,
-        eth_private_key: args.eth_private_key,
+        cc3_evm_private_key: args.cc3_evm_private_key,
         claim_buffer: args.claim_buffer,
         postgres_uri: args.postgres_uri,
         prover_be_socket_addr: args.prover_be_socket_addr,
