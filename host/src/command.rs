@@ -452,8 +452,7 @@ pub mod tests {
         }
     }
 
-    fn cairo_verifier_output_from_proof_json() -> CairoVerifierOutput {
-        let proof_path = "../cairo/stone-verifier/proof_example.json";
+    fn cairo_verifier_output_from_proof_json(proof_path: &str) -> CairoVerifierOutput {
         let proof = std::fs::read(proof_path).expect("Proof example to be there");
         let proof: StoneProofJson = serde_json::from_slice(&proof).unwrap();
         let mut stone_proof = StoneProof::from(proof.clone());
@@ -488,7 +487,8 @@ pub mod tests {
                 size: 418,
             }],
         };
-        let cairo_verifier_output = cairo_verifier_output_from_proof_json();
+        let cairo_verifier_output =
+            cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
 
         let result = validate_query_against_proof(query, &cairo_verifier_output);
 
@@ -497,7 +497,7 @@ pub mod tests {
 
     #[test]
     #[should_panic(expected = "ClaimOutOfBounds")]
-    fn validate_query_against_proof_with_greater_query_index_should_error() {
+    fn validate_query_against_proof_when_query_index_is_larger_than_proof_index_should_error() {
         let query = Query {
             chain_id: 31337,
             height: 1,
@@ -507,12 +507,30 @@ pub mod tests {
                 size: 418,
             }],
         };
-        let cairo_verifier_output = cairo_verifier_output_from_proof_json();
+        let cairo_verifier_output =
+            cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }
 
-    // TODO: proof has index of 0 so we can't exercise the branch with query passing a lower value
+    #[test]
+    #[should_panic(expected = "ClaimIdNotValidated")]
+    fn validate_query_against_proof_when_query_index_is_smaller_than_proof_index_should_error() {
+        let query = Query {
+            chain_id: 31337,
+            height: 24, // different proof, block height is 24
+            index: 0,   // proof has index of 1
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
+        };
+        let cairo_verifier_output = cairo_verifier_output_from_proof_json(
+            "../cairo/stone-verifier/proof_example_2nd_txn.json",
+        );
+
+        validate_query_against_proof(query, &cairo_verifier_output).unwrap();
+    }
 
     #[test]
     #[should_panic(expected = "ClaimOutOfBounds")]
@@ -526,7 +544,8 @@ pub mod tests {
                 size: 418,
             }],
         };
-        let mut cairo_verifier_output = cairo_verifier_output_from_proof_json();
+        let mut cairo_verifier_output =
+            cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
         // inject faulty state
         cairo_verifier_output.claim_fields = felts_from_bytes(&rlp::NULL_RLP[..]);
 
