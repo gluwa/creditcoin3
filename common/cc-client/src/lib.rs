@@ -4,21 +4,24 @@ use sp_core::{
     sr25519::{self},
     Pair, H256, U256,
 };
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 pub use subxt::utils::AccountId32;
-pub use subxt::Error::Rpc as SubxtRpcError;
 use subxt::{
-    backend::rpc::{RpcClient, RpcParams},
+    backend::rpc::{
+        reconnecting_rpc_client::{Client as UnstableReconnectionRpcClient, ExponentialBackoff},
+        RpcParams,
+    },
+    config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
     ext::futures::StreamExt,
+    OnlineClient, SubstrateConfig,
 };
-use subxt::{config::DefaultExtrinsicParamsBuilder, OnlineClient, SubstrateConfig};
 use subxt_signer::{
     sr25519::{Keypair, Signature},
     SecretUri,
 };
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use cc3::runtime_types::attestor_primitives::{
     Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
@@ -72,10 +75,9 @@ pub enum Error {
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 pub struct Client {
-    url: String,
     pair: sr25519::Pair,
     signing_keypair: Keypair,
-    api: OnlineClient<SubstrateConfig>,
+    rpc: UnstableReconnectionRpcClient,
 }
 
 impl<'a> Client {
@@ -88,19 +90,29 @@ impl<'a> Client {
 
         let pair = sr25519::Pair::from_string(key, None)?;
 
-        let url = url.into();
-        let api = if url.contains("ws") || url.contains("http") {
-            OnlineClient::<SubstrateConfig>::from_insecure_url(&url).await?
-        } else {
-            OnlineClient::<SubstrateConfig>::from_url(&url).await?
-        };
+        // Create a new client with with a reconnecting RPC client.
+        let rpc = UnstableReconnectionRpcClient::builder()
+            // Reconnect with exponential backoff
+            //
+            // This API is "iterator-like" and we use `take` to limit the number of retries.
+            .retry_policy(
+                ExponentialBackoff::from_millis(100)
+                    .max_delay(Duration::from_secs(10))
+                    .take(3),
+            )
+            // There are other configurations as well that can be found at [`reconnecting_rpc_client::ClientBuilder`].
+            .build(url.into())
+            .await?;
 
         Ok(Self {
-            url,
             pair,
             signing_keypair,
-            api,
+            rpc,
         })
+    }
+
+    pub async fn api(&self) -> Result<OnlineClient<SubstrateConfig>, Error> {
+        Ok(OnlineClient::<SubstrateConfig>::from_rpc_client(self.rpc.clone()).await?)
     }
 
     #[must_use]
@@ -110,7 +122,8 @@ impl<'a> Client {
 
     pub async fn get_chain_key(&self, chain_id: u64, name: String) -> Result<Option<ChainKey>> {
         let chain_key = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -128,7 +141,8 @@ impl<'a> Client {
     /// Returns the random a time + the current block number (where it was calculated from)
     pub async fn fetch_babe_randomness_two_epoch_ego(&self) -> Result<(Randomness, u64), Error> {
         let epoch_index = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -148,7 +162,8 @@ impl<'a> Client {
         info!("Fetching randomness for epoch index: {}", two_epoch_ago);
 
         let randomness = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -167,7 +182,8 @@ impl<'a> Client {
         let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -182,7 +198,8 @@ impl<'a> Client {
         let storage_query = cc3::storage().attestation().last_digest(chain_key);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -197,7 +214,8 @@ impl<'a> Client {
         let storage_query = cc3::storage().attestation().active_attestors(chain_key);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -230,7 +248,8 @@ impl<'a> Client {
         };
 
         let ext = self
-            .api
+            .api()
+            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -254,7 +273,8 @@ impl<'a> Client {
             .attest(chain_key, bls_public_key, proof_of_possession);
 
         let ext = self
-            .api
+            .api()
+            .await?
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.signing_keypair)
             .await?
@@ -311,7 +331,8 @@ impl<'a> Client {
             .chain_attestation_interval(chain_key);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -330,7 +351,8 @@ impl<'a> Client {
             .attestation_checkpoint_interval(chain_key);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -348,7 +370,8 @@ impl<'a> Client {
         let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -366,7 +389,8 @@ impl<'a> Client {
         let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -384,7 +408,8 @@ impl<'a> Client {
         let storage_query = cc3::storage().attestation().checkpoints(chain_key, digest);
 
         let result = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?
@@ -405,7 +430,14 @@ impl<'a> Client {
         // a ChainKey
         let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
-        let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
+        let mut iter = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .iter(address)
+            .await?;
 
         while let Some(Ok(kv)) = iter.next().await {
             attestations.push(kv.value.into());
@@ -434,7 +466,14 @@ impl<'a> Client {
         // a ChainKey.
         let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
-        let mut iter = self.api.storage().at_latest().await?.iter(address).await?;
+        let mut iter = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .iter(address)
+            .await?;
 
         while let Some(Ok(kv)) = iter.next().await {
             checkpoints.push(kv.value.into());
@@ -456,30 +495,14 @@ impl<'a> Client {
         H: Serialize,
         A: Serialize,
     {
-        let rpc_client = if self.url.contains("http://") || self.url.contains("ws://") {
-            warn!("Creating insecure rpc client to submit attestation");
-            RpcClient::from_insecure_url(self.url.clone())
-                .await
-                .map_err(|e| {
-                    error!("Error creating insecure rpc client: {:?}", e);
-                    Error::InvalidUrl
-                })?
-        } else {
-            RpcClient::from_url(self.url.clone()).await.map_err(|e| {
-                error!("Error creating rpc client: {:?}", e);
-                Error::InvalidUrl
-            })?
-        };
-
         let mut params = RpcParams::new();
         params
             .push(attestation)
             .map_err(|_| Error::FailedToSubmit)?;
 
-        match rpc_client
-            .request::<()>("attestor_submitAttestation", params)
-            .await
-        {
+        let r = subxt::backend::rpc::RpcClient::from(self.rpc.clone());
+
+        match r.request::<()>("attestor_submitAttestation", params).await {
             Ok(()) => {
                 info!("Attestation submitted");
                 Ok(())
@@ -515,7 +538,8 @@ impl<'a> Client {
         };
 
         let ext = self
-            .api
+            .api()
+            .await?
             .tx()
             .create_signed(&tx, &self.signing_keypair, params)
             .await?
@@ -530,7 +554,8 @@ impl<'a> Client {
 
     pub async fn get_account_nonce(&self) -> Result<u64> {
         let nonce = self
-            .api
+            .api()
+            .await?
             .tx()
             .account_nonce(&AccountId32(self.signing_keypair.public_key().0))
             .await?;
@@ -542,7 +567,8 @@ impl<'a> Client {
         let address = cc3::storage().attestation().attestors_iter1(chain_key);
 
         let count = self
-            .api
+            .api()
+            .await?
             .storage()
             .at_latest()
             .await?

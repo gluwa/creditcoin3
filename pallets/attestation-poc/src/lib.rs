@@ -856,7 +856,7 @@ pub mod pallet {
                         aggregated_public_key,
                     )?;
 
-                    log::info!("Attestation signature is valid");
+                    log::debug!("Attestation signature is valid");
                     Ok(())
                 }
                 _ => Err(InherentError::NotValid),

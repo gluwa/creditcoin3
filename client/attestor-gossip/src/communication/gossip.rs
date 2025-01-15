@@ -14,3 +14,16 @@ pub enum Action<H> {
 pub enum Message<B: BlockT, AccountId> {
     Attestation(Attestation<HashFor<B>, AccountId>),
 }
+
+/// An outcome of examining a message.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Consider {
+    /// Accept the message.
+    Accept,
+    /// Message is too early. Reject.
+    RejectPast,
+    /// Message is from the future. Reject.
+    RejectFuture,
+    /// Message cannot be evaluated. Reject.
+    CannotEvaluate,
+}

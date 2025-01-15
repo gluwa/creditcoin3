@@ -2,14 +2,21 @@ use anyhow::Result;
 use eth::Client;
 use kameo::spawn;
 use sp_core::H256;
+use thiserror::Error;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-use attestor_primitives::{Attestation as AttestationPrimitive, ChainKey};
+use attestor_primitives::{
+    Attestation as AttestationPrimitive, AttestorId, ChainKey, SignedAttestation,
+};
 use cc_client::attestation::Subscription;
+use creditcoin3_attestor_gossip::communication::Attestation;
 
 use crate::{attestation, cc3, eth_sub, retry, Config};
+
+/// Defines how much checkpoints attestations are valid for
+pub const ATTESTATION_CHECKPOINT_WINDOW: u64 = 2;
 
 pub struct Engine {
     eth_client: Client,
@@ -17,6 +24,16 @@ pub struct Engine {
     task: Option<JoinHandle<()>>,
     sender: Sender<Option<AttestationPrimitive<H256>>>,
     receiver: Receiver<Option<AttestationPrimitive<H256>>>,
+}
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Failed to submit attestation")]
+    FailedToSubmit,
+    #[error("Cc3 error: {0}")]
+    Cc3Error(#[from] cc3::Error),
+    #[error("Other error: {0}")]
+    Other(#[from] anyhow::Error),
 }
 
 impl Engine {
@@ -61,12 +78,16 @@ impl Engine {
         self.cc3_client.get_chain_key()
     }
 
-    pub fn event_sub(&self) -> Result<Subscription> {
+    pub async fn event_sub(&self) -> Result<Subscription> {
         let chain_key = self.chain_key();
-        Ok(self.cc3_client.cc_client.subscribe_events(chain_key)?)
+        Ok(self
+            .cc3_client
+            .cc_client
+            .subscribe_events(chain_key)
+            .await?)
     }
 
-    async fn start(&mut self, start_block: Option<u64>) -> Result<()> {
+    async fn start(&mut self, start_block: Option<u64>) -> Result<(), Error> {
         let can_attest = self.cc3_client.can_attest().await?;
 
         if !can_attest {
@@ -127,7 +148,7 @@ impl Engine {
 
     /// Evaluate the attestation engine
     /// This will stop the engine if needed and / or start it again
-    pub async fn evaluate(&mut self, start_block: Option<u64>) -> Result<()> {
+    pub async fn evaluate(&mut self, start_block: Option<u64>) -> Result<(), Error> {
         let can_attest = self.cc3_client.can_attest().await?;
         if !can_attest {
             if self.is_running() {
@@ -155,6 +176,53 @@ impl Engine {
     pub async fn next(&mut self) -> Option<AttestationPrimitive<H256>> {
         self.receiver.recv().await.unwrap()
     }
+
+    /// Calculate the number of attestations between checkpoints
+    async fn checkpoint_blocks(&self) -> Result<u64> {
+        let attestation_interval = self.cc3_client.get_attestation_interval();
+        let checkpoint_interval = u64::from(self.cc3_client.get_checkpoint_interval().await?);
+
+        Ok(attestation_interval * checkpoint_interval)
+    }
+
+    async fn last_finalized_attestation(
+        &self,
+    ) -> Result<Option<SignedAttestation<H256, cc_client::AccountId32>>> {
+        Ok(self
+            .cc3_client
+            .get_last_attestation(self.chain_key())
+            .await?)
+    }
+
+    /// Submit an attestation to the creditcoin chain
+    /// This will check if the attestation is within bounds and submit it
+    /// If the attestation is too far ahead, the engine will be stopped and restarted
+    pub async fn submit_attestation(
+        &mut self,
+        attestation: Attestation<H256, AttestorId>,
+    ) -> Result<(), Error> {
+        if let Some(last_attestation) = self.last_finalized_attestation().await?.as_ref() {
+            // Calculate 2 checkpoint blocks
+            let checkpoint_blocks = self.checkpoint_blocks().await? * ATTESTATION_CHECKPOINT_WINDOW;
+            let last_header = last_attestation.header_number();
+
+            if attestation.header_number() >= last_header + checkpoint_blocks {
+                warn!("Attestation is too far ahead, restarting engine to be more in line with what the nodes expect");
+                // Stop and restart the engine
+                self.stop().await;
+                self.evaluate(Some(last_header)).await?;
+
+                return Err(Error::FailedToSubmit);
+            }
+        };
+
+        info!("Attestation is within bounds, submitting");
+        self.cc_client()
+            .submit_attestation::<H256>(attestation.clone())
+            .await?;
+
+        Ok(())
+    }
 }
 
 /// Subscribes to new Ethereum heads and starts the attestation process.
@@ -175,7 +243,7 @@ async fn subscribe_to_new_heads_task(
         );
         start_block + attestation_interval
     } else if let Some(last_attestation) = cc3_client.get_last_attestation(chain_key).await? {
-        info!(
+        debug!(
             "Last finalized attestation digest: {}",
             last_attestation.digest()
         );

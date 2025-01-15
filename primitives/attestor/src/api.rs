@@ -25,10 +25,12 @@ sp_api::decl_runtime_apis! {
 
         fn attestor_bls_pubkey(chain_key: ChainKey, attestor: &AccountId) -> Option<BlsPublicKey>;
 
-        fn chain_attestation_interval(chain_key: ChainKey) -> Option<u64>;
+        fn chain_attestation_interval(chain_key: ChainKey) -> u64;
 
         fn attestor_status(chain_key: ChainKey, attestor: &AccountId) -> Option<AttestorStatus>;
 
         fn active_attestor_set(chain_key: ChainKey) -> Vec<AccountId>;
+
+        fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32;
     }
 }

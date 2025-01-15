@@ -3,7 +3,7 @@ use frame_support::{
     traits::{Currency, DefensiveSaturating, OnUnbalanced},
     transactional,
 };
-use log::info;
+use log::debug;
 use sp_runtime::{
     traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
     ArithmeticError,
@@ -525,7 +525,7 @@ impl<T: Config> Pallet<T> {
                 .collect::<Vec<_>>();
 
             if attestors.is_empty() {
-                info!("No active attestors for chain {}", chain_key);
+                debug!("No active attestors for chain {}", chain_key);
                 continue;
             }
 
@@ -711,7 +711,7 @@ impl<T: Config> Pallet<T> {
 
         Self::verify_agg_signature(&agg_signature, message, aggregated_public_key)?;
 
-        log::info!("Attestation signature is valid");
+        log::debug!("Attestation signature is valid");
 
         Ok(())
     }
@@ -844,7 +844,7 @@ impl<T: Config> Pallet<T> {
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
     fn on_new_epoch_randomness(epoch: u64, randomness: Randomness) {
         // Start new election
-        info!(
+        debug!(
             "on_new_epoch_randomness: epoch: {}, randomness: {:?}",
             epoch, randomness
         );

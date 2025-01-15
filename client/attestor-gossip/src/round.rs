@@ -3,7 +3,8 @@ use sp_api::ProvideRuntimeApi;
 use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
-use crate::{state::State, Error, HashFor};
+use crate::communication::Error;
+use crate::HashFor;
 
 use attestor_primitives::{api::AttestorApi, ChainKey};
 
@@ -18,7 +19,6 @@ pub fn get_round_config<RA, B, AccountId>(
     ra: Arc<RA>,
     chain_key: ChainKey,
     block_hash: HashFor<B>,
-    state: &State<HashFor<B>, AccountId>,
 ) -> Result<RoundConfig, Error>
 where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
@@ -27,8 +27,8 @@ where
     AccountId: Codec,
 {
     let target_sample_size = ra.runtime_api().target_sample_size(block_hash, chain_key)?;
+    let committee_set_size = ra.runtime_api().working_set_size(block_hash, chain_key)?;
 
-    let committee_set_size = state.active_attestor_set.len() as u32;
     let threshold = calculate_threshold(committee_set_size);
 
     Ok(RoundConfig {

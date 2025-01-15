@@ -1410,8 +1410,8 @@ impl_runtime_apis! {
             Attestation::attestor_bls_pubkey(chain_key, attestor)
         }
 
-        fn chain_attestation_interval(chain_key: ChainKey) -> Option<u64> {
-            Some(Attestation::chain_attestation_interval(chain_key))
+        fn chain_attestation_interval(chain_key: ChainKey) -> u64 {
+            Attestation::chain_attestation_interval(chain_key)
         }
 
         fn attestor_status(chain_key: ChainKey, attestor: &AccountId) -> Option<AttestorStatus> {
@@ -1420,6 +1420,10 @@ impl_runtime_apis! {
 
         fn active_attestor_set(chain_key: ChainKey) -> Vec<AccountId> {
             Attestation::active_attestor_set(chain_key)
+        }
+
+        fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32 {
+            Attestation::attestation_checkpoint_interval(chain_key)
         }
     }
 

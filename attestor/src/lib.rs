@@ -1,7 +1,7 @@
 use anyhow::Result;
 use eth::Client;
 use sp_core::H256;
-use std::{thread, time::Duration};
+use std::{collections::BTreeSet, thread, time::Duration};
 use tracing::{error, info, warn};
 
 pub mod attestation;
@@ -21,8 +21,8 @@ use creditcoin3_attestor_gossip::communication::Attestation;
 /// Attestor server is configured using `Config`
 pub struct Server {
     config: Config,
-    // Last sent attestation by the attestor
-    last_sent_attestation: Option<Attestation<H256, AttestorId>>,
+    // Keeps track of which attestations have been voted for
+    voted_for: BTreeSet<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ impl Server {
     pub fn new(config: Config) -> Self {
         Server {
             config,
-            last_sent_attestation: None,
+            voted_for: BTreeSet::new(),
         }
     }
 
@@ -67,7 +67,7 @@ impl Server {
         // Start the attestation engine
         engine.evaluate(None).await?;
 
-        let mut event_sub = engine.event_sub()?;
+        let mut event_sub = engine.event_sub().await?;
 
         // Biased tokio select, we will prioritze listening to randomness changed events
         // because this will re-evaluate the eligibility for attestors
@@ -81,7 +81,7 @@ impl Server {
                         // When randomness changes, re-evaluate the eligibility for the attestor
                         CcEvent::RandomnessChanged((epoch, randomness)) => {
                             info!("Randomness changed. Epoch: {}, Randomness: {}", epoch, hex::encode(randomness));
-                            let start_block = self.last_sent_attestation.as_ref().map(|a| a.attestation_data.header_number);
+                            let start_block = self.voted_for.last().copied();
                             engine.evaluate(start_block).await?;
                         }
                         CcEvent::AttestationIntervalChanged(_, new_interval) => {
@@ -91,11 +91,11 @@ impl Server {
                             engine.change_interval(new_interval);
                         },
                         CcEvent::CheckpointReached(checkpoint, ck) => {
-                            info!("✅ Checkpoint reached: {:?}", checkpoint);
+                            info!("✅ Checkpoint reached, block: {:}, digest: {:}", checkpoint.block_number, checkpoint.digest);
                             if chain_key != ck {
                                 return Ok(());
                             }
-                            let start_block = self.last_sent_attestation.as_ref().map(|a| a.attestation_data.header_number);
+                            let start_block = self.voted_for.last().copied();
                             engine.evaluate(start_block).await?;
                         }
                         CcEvent::BlockAttested(_) => ()
@@ -107,13 +107,20 @@ impl Server {
                     match self.handle_attestation(chain_key, engine.eth_client(), engine.cc_client(), attestation_to_submit).await {
                         Ok(attestation) => {
                             let digest = attestation.digest();
-                            info!("Submitting attestation with digest: {:?}, round: {:?}",digest, round);
+                            info!("Going to submit attestation with digest: {:?} for round: {:?} ...",digest, round);
+
                             // Submit the attestation to the chain
-                            engine.cc_client().submit_attestation::<H256>(attestation.clone()).await?;
-                            self.last_sent_attestation = Some(attestation);
-                            info!("Attestation with digest: {:?} submitted, round: {:?}", digest, round);
-                            // Sleep for a while to avoid spamming the chain
-                            thread::sleep(Duration::from_secs(6));
+                            if engine.submit_attestation(attestation.clone()).await.is_err() {
+                                error!("Failed to submit attestation with digest: {:?}, round: {:?}", digest, round);
+                                // We can clear voted for here because the engine will restart at the last finalized attestation
+                                // Possible equivocation scenario here
+                                self.voted_for.clear();
+                            } else {
+                                self.voted_for.insert(round.1);
+                                info!("📝 Attestation with digest: {:?} for round: {:?} submitted!", digest, round);
+                                // Sleep for a while to avoid spamming the chain
+                                thread::sleep(Duration::from_secs(6));
+                            }
                         },
                         Err(e) => {
                             if e.is_not_selected_error() {
@@ -147,17 +154,17 @@ impl Server {
         info!("Attestor selected for block({})", header_number);
 
         // Exit early if the attestation has already been submitted
-        if let Some(last_sent_attestation) = self.last_sent_attestation.clone() {
-            if last_sent_attestation.attestation_data.header_number >= header_number {
-                warn!("Attestation already submitted, skipping");
-                return Err(Error::DuplicateSubmission);
-            }
+        if self.voted_for.contains(&header_number) {
+            return Err(Error::DuplicateSubmission);
         }
 
         let last_attestation = cc3_client.get_last_attestation(chain_key).await?;
 
-        let start_block = if let Some(attestation) = self.last_sent_attestation.clone() {
-            attestation.attestation_data.header_number
+        // The start block is the last block we voted for
+        // or the last block that was attested on chain
+        // or genesis if we have never voted
+        let start_block = if let Some(header_number) = self.voted_for.last().copied() {
+            header_number
         } else if let Some(attestation) = last_attestation {
             attestation.attestation.header_number
         } else {

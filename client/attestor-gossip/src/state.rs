@@ -5,7 +5,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use attestor_primitives::{ChainKey, Round};
 
-use crate::{communication::Attestation, round::RoundConfig, Error, LOG_TARGET};
+use crate::{
+    communication::{Attestation, Error},
+    round::RoundConfig,
+    LOG_TARGET,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VoteImportResult {
@@ -102,15 +106,10 @@ where
     }
 }
 
-/// Active attestor set per chain / epoch
-pub type ActiveAttestorSet<AccountId> = BTreeMap<ChainKey, BTreeMap<EpochIndex, Vec<AccountId>>>;
-
 #[derive(Debug, Clone)]
 pub struct State<H, AccountId> {
     /// Maps chain key to a map of block number to votes
     pub chain_head_votes: ChainVoteRound<H, AccountId>,
-    /// Active attestor set
-    pub active_attestor_set: ActiveAttestorSet<AccountId>,
 }
 
 impl<H, AccountId> State<H, AccountId>
@@ -231,44 +230,12 @@ where
         // Only then we can submit the attestation
         Ok(attestations.len() >= threshold.try_into().unwrap())
     }
-
-    pub fn update_active_attestors(
-        &mut self,
-        chain_key: ChainKey,
-        epoch_index: u64,
-        active_attestors: Vec<AccountId>,
-    ) {
-        // Update active attestor set
-        let chain_active_attestors = self.active_attestor_set.entry(chain_key).or_default();
-
-        // Insert new active attestor set
-        chain_active_attestors.insert(epoch_index, active_attestors);
-    }
-
-    pub fn check_chain_attestor_epoch_inclusion(
-        &self,
-        chain_key: ChainKey,
-        epoch_index: u64,
-        attestor: AccountId,
-    ) -> Result<bool, Error> {
-        let epoch_active_attestors = self
-            .active_attestor_set
-            .get(&chain_key)
-            .ok_or(Error::RoundConfigNotSet)?;
-
-        let attestors = epoch_active_attestors
-            .get(&epoch_index)
-            .ok_or(Error::RoundConfigNotSet)?;
-
-        Ok(attestors.contains(&attestor))
-    }
 }
 
 impl<H, AccountId> Default for State<H, AccountId> {
     fn default() -> Self {
         State {
             chain_head_votes: BTreeMap::new(),
-            active_attestor_set: BTreeMap::new(),
         }
     }
 }
@@ -294,68 +261,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use attestor_primitives::{Attestation as AttestationPrimitive, BlsPublicKey};
-    use bls_signatures::Signature;
-    use bls_signatures::{key::Serialize, PrivateKey};
-    use sp_core::{H256, H512};
-    use sp_runtime::AccountId32;
-
-    struct Attestor {
-        account_id: AccountId32,
-        private_key: PrivateKey,
-        _public_key: BlsPublicKey,
-    }
-
-    impl Attestor {
-        pub fn new(account_id: AccountId32) -> Self {
-            let rng = sp_core::H256::random().0;
-            let private_key = PrivateKey::new(rng);
-            let _public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
-
-            Self {
-                account_id,
-                private_key,
-                _public_key,
-            }
-        }
-
-        pub fn sign_bls_attestation(&self, attestation: &AttestationPrimitive<H256>) -> Signature {
-            self.private_key.sign(attestation.serialize())
-        }
-    }
-
-    fn simulate_attestation_data(chain_key: u64, header_number: u64) -> AttestationPrimitive<H256> {
-        AttestationPrimitive {
-            chain_key,
-            header_hash: H256::random(),
-            header_number,
-            prev_digest: None,
-            root: H256::random().0,
-        }
-    }
-
-    fn create_signed_attestation(
-        attestor: &Attestor,
-        attestation_data: AttestationPrimitive<H256>,
-    ) -> Attestation<H256, AccountId32> {
-        let signature = attestor.sign_bls_attestation(&attestation_data);
-
-        Attestation {
-            attestation_data,
-            attestor: attestor.account_id.clone(),
-            continuity_proof: vec![],
-            proof_of_inclusion: Default::default(),
-            signature: sp_core::sr25519::Signature(H512::random().0),
-            signature_bls: attestor_primitives::bls::WrapEncode(signature),
-        }
-    }
+    use crate::test_utils::{create_signed_attestation, simulate_attestation_data, Attestor};
 
     #[test]
     fn test_single_vote() {
         let mut state = State::default();
 
-        let account_id = AccountId32::new(H256::random().0);
-        let attestor = Attestor::new(account_id);
+        let attestor = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data);
@@ -382,8 +294,7 @@ mod tests {
     fn test_single_vote_not_concluding_round() {
         let mut state = State::default();
 
-        let account_id = AccountId32::new(H256::random().0);
-        let attestor = Attestor::new(account_id);
+        let attestor = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data);
@@ -410,8 +321,7 @@ mod tests {
     fn test_double_vote() {
         let mut state = State::default();
 
-        let account_id = AccountId32::new(H256::random().0);
-        let attestor = Attestor::new(account_id);
+        let attestor = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data);
@@ -436,10 +346,8 @@ mod tests {
     fn test_round_conclusion() {
         let mut state = State::default();
 
-        let account_id_1 = AccountId32::new(H256::random().0);
-        let account_id_2 = AccountId32::new(H256::random().0);
-        let attestor_1 = Attestor::new(account_id_1);
-        let attestor_2 = Attestor::new(account_id_2);
+        let attestor_1 = Attestor::new();
+        let attestor_2 = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
@@ -465,10 +373,8 @@ mod tests {
     fn test_multiple_votes_different_headers() {
         let mut state = State::default();
 
-        let account_id_1 = AccountId32::new(H256::random().0);
-        let account_id_2 = AccountId32::new(H256::random().0);
-        let attestor_1 = Attestor::new(account_id_1);
-        let attestor_2 = Attestor::new(account_id_2);
+        let attestor_1 = Attestor::new();
+        let attestor_2 = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
@@ -500,10 +406,8 @@ mod tests {
     fn test_major_digest() {
         let mut state = State::default();
 
-        let account_id_1 = AccountId32::new(H256::random().0);
-        let account_id_2 = AccountId32::new(H256::random().0);
-        let attestor_1 = Attestor::new(account_id_1);
-        let attestor_2 = Attestor::new(account_id_2);
+        let attestor_1 = Attestor::new();
+        let attestor_2 = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
@@ -537,8 +441,7 @@ mod tests {
     fn test_epoch_changes_clear_votes() {
         let mut state = State::default();
 
-        let account_id = AccountId32::new(H256::random().0);
-        let attestor = Attestor::new(account_id);
+        let attestor = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data);
@@ -574,8 +477,7 @@ mod tests {
     fn test_clear_votes() {
         let mut state = State::default();
 
-        let account_id = AccountId32::new(H256::random().0);
-        let attestor = Attestor::new(account_id);
+        let attestor = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data);

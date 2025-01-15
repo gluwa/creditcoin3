@@ -1,21 +1,24 @@
+use futures::{stream::Fuse, FutureExt, StreamExt};
+use log::{debug, error, info};
 use parity_scale_codec::Codec;
-use sc_client_api::{client::BlockBackend, Backend};
+use sc_client_api::{client::BlockBackend, Backend, FinalityNotification};
 use sc_network::ProtocolName;
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
-use sc_utils::mpsc::{TracingUnboundedReceiver, TracingUnboundedSender};
-
+use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_api::ProvideRuntimeApi;
+use sp_consensus::SyncOracle;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
-use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
-use std::fmt::{Debug, Display};
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{
+    fmt::{Debug, Display},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 use substrate_prometheus_endpoint::Registry;
-use thiserror::Error;
 
-use attestor_primitives::{api::AttestorApi, AttestorId};
+use attestor_primitives::api::AttestorApi;
 use randomness_primitives::api::RandomnessPalletApi;
 use supported_chains_primitives::api::SupportedChainsApi;
 use worker::{Worker, WorkerParams};
@@ -24,11 +27,13 @@ pub mod communication;
 pub mod inherent;
 mod round;
 mod state;
-mod validator;
+mod validate;
 mod worker;
 
-use communication::gossip::Message;
-use validator::AttestorGossipValidator;
+#[cfg(test)]
+mod test_utils;
+
+use communication::{gossip::Message, validator::AttestorGossipValidator, Error};
 
 pub type HashFor<B> = <B as BlockT>::Hash;
 
@@ -36,11 +41,11 @@ pub type MessageSink<B, A> = TracingUnboundedSender<Message<B, A>>;
 
 const LOG_TARGET: &str = "attestor-gossip";
 
-pub(crate) struct AttestorComms<B: BlockT, AccountId, RA: ProvideRuntimeApi<B>, BE>
+type FinalityNotifications<Block> =
+    sc_utils::mpsc::TracingUnboundedReceiver<UnpinnedFinalityNotification<Block>>;
+
+pub(crate) struct AttestorComms<B: BlockT, AccountId>
 where
-    RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
-    BE: Backend<B> + 'static,
     AccountId: Clone
         + Display
         + Codec
@@ -55,63 +60,9 @@ where
 {
     pub gossip_engine: GossipEngine<B>,
     #[allow(dead_code)]
-    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId, RA, BE>>,
+    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId>>,
     pub gossip_report_stream: TracingUnboundedReceiver<Message<B, AccountId>>,
     // pub on_demand_justifications: OnDemandJustificationsEngine<B>,
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Gossip engine exited")]
-    GossipEngineExited,
-    #[error("Invalid attestation signature")]
-    InvalidAttestationDataSignature,
-    #[error("Invalid attestation vrf output")]
-    InvalidAttestationVrfOuput,
-    #[error("Attestation to old")]
-    AttestationTooOld,
-    #[error("Attestation to early")]
-    AttestationTooEarly,
-    #[error("Attestation header number invalid")]
-    AttestationHeaderNumberInvalid,
-    #[error("Error creating inherent data")]
-    ErrorCreatingInherent,
-    #[error("Sender {0:?} is not an attestor")]
-    NotAnAttestor(AttestorId),
-    #[error("Digest missmatch")]
-    DigestMissMatch,
-    #[error("Failed to fetch last digest")]
-    FetchLastDigestError,
-    #[error("Invalid bls signature")]
-    InvalidBlsSignature,
-    #[error("Invalid sr signature")]
-    InvalidSrSignature,
-    #[error("Chain not supported")]
-    ChainNotSupported,
-    #[error("Sp api error")]
-    SpApiError(#[from] sp_api::ApiError),
-    #[error("Vrf error")]
-    VrfError(#[from] vrf::Error),
-    #[error("Attestor {0:?} not eligible")]
-    AttestorNotEligible(AttestorId),
-    #[error("Attestor {0:?} not active")]
-    AttestorNotActive(AttestorId),
-    #[error("Failed to get attestation interval")]
-    FailedToGetAttestationInterval,
-    #[error("Failed to get last attestation after existance confirmed")]
-    FailedToGetLastAttestation,
-    #[error("Failed to get round configuration")]
-    RoundConfigNotSet,
-    #[error("Other error: {0}")]
-    Other(String),
-    #[error("Finality stream terminated")]
-    FinalityStreamTerminated,
-    #[error("Attestation data contains invalid epoch")]
-    InvalidEpoch,
-    #[error("Attestation contains an invalid continuity proof")]
-    InvalidAttestationContinuityProof,
-    #[error("Attestation contains an invalid epoch mismatch")]
-    EpochMismatch,
 }
 
 /// Attestor gadget network parameters.
@@ -127,10 +78,9 @@ pub struct AttestorNetworkParams<B: BlockT, N, S, AccountId> {
     pub gossip_protocol_name: ProtocolName,
     /// External rpc message stream
     pub msg_stream: TracingUnboundedReceiver<Message<B, AccountId>>,
-    pub phantom: PhantomData<B>,
 }
 
-pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP, AccountId> {
+pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, AccountId> {
     /// Attestor client
     pub client: Arc<C>,
     /// Client Backend
@@ -139,18 +89,65 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, CIDP, AccountId> {
     pub runtime: Arc<R>,
     /// Attestor voter network params
     pub network_params: AttestorNetworkParams<B, N, S, AccountId>,
-    /// Minimal delta between blocks, BEEFY should vote for
-    pub min_block_delta: u32,
     /// Prometheus metric registry
     pub prometheus_registry: Option<Registry>,
-    /// Inherent data providers
-    pub create_inherent_data_providers: CIDP,
+    /// Handler to provide inherent data to the consensus engine.
     pub inherent_provider: inherent::AsyncProvider<AccountId, B, R, BE>,
-    pub _phantom: PhantomData<AccountId>,
+    /// Is the node is an authority
+    pub is_authority: bool,
 }
 
-pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
-    attestor_params: AttestorGossipParams<B, BE, C, N, R, S, CIDP, AccountId>,
+/// Finality notification for consumption by BEEFY worker.
+/// This is a stripped down version of `sc_client_api::FinalityNotification` which does not keep
+/// blocks pinned.
+struct UnpinnedFinalityNotification<B: BlockT> {
+    /// Finalized block header hash.
+    pub hash: B::Hash,
+    /// Finalized block header.
+    pub header: B::Header,
+    /// Path from the old finalized to new finalized parent (implicitly finalized blocks).
+    ///
+    /// This maps to the range `(old_finalized, new_finalized)`.
+    pub tree_route: Arc<[B::Hash]>,
+}
+
+impl<B: BlockT> From<FinalityNotification<B>> for UnpinnedFinalityNotification<B> {
+    fn from(value: FinalityNotification<B>) -> Self {
+        UnpinnedFinalityNotification {
+            hash: value.hash,
+            header: value.header,
+            tree_route: value.tree_route,
+        }
+    }
+}
+
+/// Produce a future that transformes finality notifications into a struct that does not keep blocks
+/// pinned.
+fn finality_notification_transformer_future<B>(
+    mut finality_notifications: sc_client_api::FinalityNotifications<B>,
+) -> (
+    Pin<Box<futures::future::Fuse<impl Future<Output = ()> + Sized>>>,
+    Fuse<TracingUnboundedReceiver<UnpinnedFinalityNotification<B>>>,
+)
+where
+    B: BlockT,
+{
+    let (tx, rx) = tracing_unbounded("attestor-notification-transformer-channel", 10000);
+    debug!(target: LOG_TARGET, "📝 Starting finality notification transformer.");
+    let transformer_fut = async move {
+        while let Some(notification) = finality_notifications.next().await {
+            info!(target: LOG_TARGET, "📝 Transforming grandpa notification. #{}({:?})", notification.header.number(), notification.hash);
+            if let Err(err) = tx.unbounded_send(UnpinnedFinalityNotification::from(notification)) {
+                error!(target: LOG_TARGET, "📝 Unable to send transformed notification. Shutting down. err = {}", err);
+                return;
+            };
+        }
+    };
+    (Box::pin(transformer_fut.fuse()), rx.fuse())
+}
+
+pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
+    attestor_params: AttestorGossipParams<B, BE, C, N, R, S, AccountId>,
 ) where
     B: BlockT,
     BE: Backend<B> + 'static,
@@ -161,10 +158,9 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     R::Api: SupportedChainsApi<B>,
     R::Api: RandomnessPalletApi<B>,
     N: GossipNetwork<B> + Send + Sync + 'static,
-    S: GossipSyncing<B> + 'static,
+    S: GossipSyncing<B> + SyncOracle + 'static,
     H256: From<<B as BlockT>::Hash>,
     <B as BlockT>::Hash: From<H256>,
-    CIDP: CreateInherentDataProviders<B, ()> + 'static,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
     AccountId: Clone
         + Display
@@ -182,9 +178,9 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
         client,
         runtime,
         network_params,
-        create_inherent_data_providers,
         backend,
         inherent_provider,
+        is_authority,
         ..
     } = attestor_params;
 
@@ -201,10 +197,11 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
     // Subscribe to finality notifications and justifications before waiting for runtime pallet and
     // reuse the streams, so we don't miss notifications while waiting for pallet to be available.
     let finality_notifications = client.finality_notification_stream();
+    let (mut transformer, mut finality_notifications) =
+        finality_notification_transformer_future(finality_notifications);
 
-    let gossip_validator =
-        AttestorGossipValidator::<B, AccountId, R, BE>::new(runtime.clone(), backend.clone());
-    let validator: Arc<AttestorGossipValidator<B, AccountId, R, BE>> = Arc::new(gossip_validator);
+    let gossip_validator = AttestorGossipValidator::<B, AccountId>::default();
+    let validator: Arc<AttestorGossipValidator<B, AccountId>> = Arc::new(gossip_validator);
     let gossip_engine = GossipEngine::new(
         network.clone(),
         sync.clone(),
@@ -212,7 +209,6 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
         validator.clone(),
         None,
     );
-
     let attestor_comms = AttestorComms {
         gossip_engine,
         gossip_validator: validator,
@@ -223,15 +219,29 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, CIDP, AccountId>(
         comms: attestor_comms,
         runtime: runtime.clone(),
         client: client.clone(),
-        create_inherent_data_providers,
         backend: backend.clone(),
-        inherent_provider,
-        _phantom: PhantomData,
+        inherent_provider: inherent_provider.clone(),
+        is_authority,
+        sync: sync.clone(),
     };
+    let worker: Worker<B, R, BE, C, AccountId, S> = Worker::new(worker_params);
 
-    let worker: Worker<B, R, BE, C, CIDP, AccountId> = Worker::new(worker_params);
+    futures::select! {
+        result = worker.start(&mut finality_notifications).fuse() => {
+            match result {
+                Error::GossipEngineExited => {
+                    error!(target: LOG_TARGET, "📝 Gossip engine has exited.");
+                },
+                _ => {
+                    error!(target: LOG_TARGET, "📝 Attestor worker has exited.");
+                }
+            }
 
-    worker.start(finality_notifications).await;
+        },
+        _ = &mut transformer => {
+            error!(target: LOG_TARGET, "📝 Finality notification transformer has exited.");
+        },
+    }
 }
 
 pub fn peers_set_config(protocol_name: ProtocolName) -> sc_network::config::NonDefaultSetConfig {

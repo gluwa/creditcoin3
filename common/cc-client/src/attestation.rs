@@ -66,16 +66,18 @@ pub enum Error {
     SubxtError(#[from] SubxtError),
     #[error("client error {0}")]
     ClientError(#[from] anyhow::Error),
+    #[error("error {0}")]
+    Error(#[from] crate::Error),
 }
 
 impl Client {
     #[allow(clippy::too_many_lines)]
-    pub fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
+    pub async fn subscribe_events(&self, filter: ChainKey) -> Result<Subscription, Error> {
         // Create the channel with buffer size
         let (sender, receiver) = mpsc::channel(BUFFER_SIZE);
 
         // Clone the api and send it on the tokio task
-        let api = self.api.clone();
+        let api = self.api().await?.clone();
 
         let handle = tokio::spawn(async move {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;

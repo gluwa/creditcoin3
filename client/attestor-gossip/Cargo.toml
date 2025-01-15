@@ -34,6 +34,7 @@ sc-network-gossip = { workspace = true }
 sc-utils = { workspace = true, features = ["default"] }
 serde = { workspace = true, features = ["derive"] }
 sp-api = { workspace = true, features = ["default"] }
+sp-consensus = { workspace = true }
 sp-consensus-babe = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std", "serde", "full_crypto"] }
 sp-inherents = { workspace = true, features = ["std"] }
@@ -42,9 +43,14 @@ starknet-crypto = { workspace = true }
 substrate-prometheus-endpoint = { workspace = true }
 thiserror = { workspace = true }
 vrf = { workspace = true }
+wasm-timer = { workspace = true }
 
 # Workspace
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true, features = ["std", "default"] }
 randomness-primitives = { workspace = true, features = ["std"] }
 supported-chains-primitives = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+env_logger = { workspace = true }
+sc-network-test = { version = "0.8.0", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch" }

@@ -124,7 +124,7 @@ impl Client {
         checkpoint_chan: mpsc::UnboundedSender<(AttestationCheckpoint, ChainKey)>,
         filter: ChainKey,
     ) -> Result<()> {
-        let mut subscription = self.cc_client.subscribe_events(filter)?;
+        let mut subscription = self.cc_client.subscribe_events(filter).await?;
 
         // Process attestations in a loop
         loop {
