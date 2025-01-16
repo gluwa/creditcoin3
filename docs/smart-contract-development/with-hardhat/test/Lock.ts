@@ -67,6 +67,8 @@ describe('Lock', function () {
                 await time.increaseTo(unlockTime);
 
                 // We use lock.connect() to send a transaction from another account
+                // eslint-disable-next-line
+                // @ts-ignore: TS2339: Property 'withdraw' does not exist on type 'BaseContract'
                 await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith("You aren't the owner");
             });
 
