@@ -1,8 +1,8 @@
 {
     "name": "hardhat-project",
     "scripts": {
-        "format": "prettier --config ../../../cli/.prettierrc --write .",
-        "check-format": "prettier --config ../../../cli/.prettierrc --check .",
+        "format": "prettier --write .",
+        "check-format": "prettier --check .",
         "lint": "eslint -c ../../../cli/.eslintrc.js --max-warnings 0 --ext .ts ./",
         "typecheck": "tsc --noEmit"
     },
