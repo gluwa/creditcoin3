@@ -1986,7 +1986,7 @@ jobs:
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              npx hardhat ignition deploy --reset "$module" --network hardhat_local
+              npx hardhat ignition deploy --reset "$module" --network hardhatLocal
           done
 
       - name: Start Creditcoin Node 1 - Alice
@@ -2005,7 +2005,7 @@ jobs:
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              npx hardhat ignition deploy --reset "$module" --network creditcoin_local
+              npx hardhat ignition deploy --reset "$module" --network creditcoinLocal
           done
         env:
           HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
@@ -2016,7 +2016,7 @@ jobs:
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_devnet
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinDevnet
           done
         env:
           # WARNING: EVM Balthathar != Substrate Bob
@@ -2030,7 +2030,7 @@ jobs:
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_testnet
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinTestnet
           done
         env:
           # WARNING: EVM Balthathar != Substrate Bob
@@ -2044,7 +2044,7 @@ jobs:
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           for module in ignition/modules/*.ts; do
-              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoin_mainnet
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinMainnet
           done
         env:
           # WARNING: EVM Balthathar != Substrate Bob
