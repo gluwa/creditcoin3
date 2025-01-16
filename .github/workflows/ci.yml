@@ -1933,7 +1933,11 @@ jobs:
       - name: Run tools
         working-directory: ${{ matrix.directory }}
         run: |
-          yarn install
+          if [ -f yarn.lock ]; then
+              yarn install
+          else
+              npm clean-install
+          fi
           yarn ${{ matrix.command }}
 
   docs-smart-contract-development-with-hardhat:
