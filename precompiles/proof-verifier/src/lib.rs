@@ -51,14 +51,28 @@ where
         {
             let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
 
-            RuntimeHelper::<Runtime>::try_dispatch(
+            let _ = match RuntimeHelper::<Runtime>::try_dispatch(
                 handle,
                 Some(origin).into(),
                 pallet_prover::Call::<Runtime>::submit_proof {
                     proof: proof.clone().into(),
                     query,
                 },
-            )?;
+            ) {
+                Ok(x) => x,
+                Err(_) => {
+                    log3(
+                        handle.context().address,
+                        SELECTOR_LOG_PROOF_SUBMITTED,
+                        handle.context().caller,
+                        query_id,
+                        solidity::encode_event_data(proof),
+                    )
+                    .record(handle)?;
+
+                    return Ok(2);
+                }
+            };
         }
 
         // TODO: probably get the status for the query back from the pallet after executing the call
