@@ -7,13 +7,12 @@ describe('Counter contract', function () {
 
     beforeEach(async function () {
         // Deploy the Counter contract before the tests
-        const CounterFactory = await ethers.getContractFactory("Counter");
+        const CounterFactory = await ethers.getContractFactory('Counter');
         counter = await CounterFactory.deploy();
         await counter.waitForDeployment();
     });
 
-    it("Should be deployed with the initial value 0", async function ()
-    {
+    it('Should be deployed with the initial value 0', async function () {
         const count = await counter.getCount();
         expect(count).to.equal(0);
     });
