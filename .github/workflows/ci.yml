@@ -1906,7 +1906,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        directory: [cli]
+        directory: [cli, docs/smart-contract-development/with-hardhat]
         command: [lint, typecheck, check-format]
 
     steps:
