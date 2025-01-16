@@ -1,8 +1,9 @@
 use super::QueryId;
+use anyhow::anyhow;
 use anyhow::Result;
 use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use hex::ToHex;
-use reqwest::header::ACCEPT;
+use reqwest::header::{HeaderName, ACCEPT};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -10,6 +11,8 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{info, warn};
+
+const API_KEY: HeaderName = HeaderName::from_static("API_KEY");
 
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
@@ -70,14 +73,18 @@ pub async fn handle_proof_order(
     query_id: QueryId,
     files: Vec<PathBuf>,
     prover_be_socket_addr: &str,
+    be_api_key: &str,
 ) -> Result<Proof> {
     info!("Handling external proof order");
+    if be_api_key == "" {
+        return Err(anyhow!("No back end api key provided. Add argument `--be-api-key` with a valid UUID to prover call."));
+    }
     let client = Client::new();
 
     let form = prepare_proof_order_form(query_id, &files).await?;
 
     // Post work order
-    let response = post_work_order(&client, form, prover_be_socket_addr).await?;
+    let response = post_work_order(&client, form, prover_be_socket_addr, be_api_key).await?;
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
@@ -89,11 +96,13 @@ async fn post_work_order(
     client: &Client,
     form: reqwest::multipart::Form,
     prover_be_socket_addr: &str,
+    be_api_key: &str,
 ) -> std::result::Result<WorkOrderResponse, Error> {
     let url = format!("{prover_be_socket_addr}/AzureAppService/QueueLightProverQueryRequest/prove");
     let response = client
         .post(&url)
         .header(ACCEPT, "*/*")
+        .header(API_KEY, be_api_key)
         .multipart(form)
         .send()
         .await

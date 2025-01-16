@@ -81,6 +81,16 @@ Claims that are proven are stored as JSON in `claims` folder.
 
 If you wish you can run the prover in `light` mode then provide a back end socket address to send proving requests to (`--prover-be-socket-addr`). EX: `https:// 65.34.55.0:55644` or `http:// localhost:55644`
 
+In light mode you must also provide a BE server api key to use:
+EX: `--be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"`
+Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
+
+You can also set a default api key by modifying this attribute in prover/bin/prover.rs:
+```rs
+#[arg(long, default_value = "")]
+be_api_key: String,
+```
+
 In light mode it will not stone proof the query but instead it will compute the inputs files for the stone prover and send them over the network to the external prover.
 
 The most recent prover network prototype makes use of an Azure Data Factory Pipeline. It maintains a queue of proving jobs in relational DB format, stores relevant proving inputs and outputs, and manages dynamic resource scaling to assign only as many provers as we have proving jobs.

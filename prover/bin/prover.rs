@@ -32,6 +32,9 @@ pub struct Prover {
 
     #[arg(long, required = false)]
     prover_be_socket_addr: Option<String>,
+
+    #[arg(long, default_value = "")]
+    be_api_key: String,
 }
 
 #[tokio::main]
@@ -65,6 +68,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         claim_buffer: args.claim_buffer,
         postgres_uri: args.postgres_uri,
         prover_be_socket_addr: args.prover_be_socket_addr,
+        be_api_key: args.be_api_key,
     };
 
     let mut server = Server::new(config).await?;

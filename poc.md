@@ -215,13 +215,16 @@ now you need to build and launch your own with docker.
 
 To set up the prover-be-api server, clone the code base found [here](https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE). Then follow the steps in its readme.
 
-Note the exposed socket address of your prover-be-api server. In place of "http:// localhost:55644" below, use the socket exposed by your target prover-be-api instance.
+Note the exposed socket address of your prover-be-api server. In place of "http:// localhost:55644" below, use the socket exposed by your target prover-be-api instance. 
+
+In light mode you must also provied a UUID api key for requests sent to the prover backend server with the argument `--be-api-key`. Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
 
 ```sh
 ./target/release/prover \
 --cc3-key "//Alice" \
 --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
---prover-be-socket-addr "http:// localhost:55644"
+--prover-be-socket-addr "http:// localhost:55644" \
+--be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"
 ```
 
 When set up correctly, the light prover will send proving requests to the prover-be-api server. Then in a few minutes the server will respond with an output proof file.
