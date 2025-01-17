@@ -152,8 +152,8 @@ to create a query, run the query cli:
 cd query-cli
 cargo run -- \
   --cc3-rpc-url http://localhost:9944 \
-  --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-  --contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
+  --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+  --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
   --infura-api-key "somekey" \
   --eth-rpc-url http://localhost:8545
 ```
@@ -224,7 +224,7 @@ In light mode you must also provied a UUID api key for requests sent to the prov
 --cc3-key "//Alice" \
 --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --prover-be-socket-addr "http:// localhost:55644" \
---be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"
+--be-api-key "f40677cb-8aa5-4a8e-bb99-2933b12b473c" \
 --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```
 

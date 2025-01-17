@@ -85,6 +85,7 @@ pub async fn handle_proof_order(
 
     // Post work order
     let response = post_work_order(&client, form, prover_be_socket_addr, be_api_key).await?;
+    info!("Work order posted. Response: {:?}", response);
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
