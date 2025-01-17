@@ -68,7 +68,18 @@ describe('BlockAttested events', (): void => {
                     }
                 })
                 .catch((error) => reject(error));
-        }).then(() => {
+        }).then(async () => {
+            // b/c we always start from scratch in CI expect that there is
+            // a checkpoint for the genesis block of the ingested chain
+            let checkpointsForGenesis = 0;
+            const checkpoints = await api.query.attestation.checkpoints.entries(DEV_CHAIN);
+            checkpoints.forEach(([_key, attestation]) => {
+                if (attestation.unwrap().blockNumber.toNumber() === 0) {
+                    checkpointsForGenesis++;
+                }
+            });
+            expect(checkpointsForGenesis).toBe(1);
+
             expect(electionEvents['2']).toBeGreaterThanOrEqual(10);
             expect(electionEvents['4']).toBeGreaterThanOrEqual(10);
 
