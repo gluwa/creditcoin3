@@ -225,6 +225,7 @@ In light mode you must also provied a UUID api key for requests sent to the prov
 --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --prover-be-socket-addr "http:// localhost:55644" \
 --be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"
+--postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```
 
 When set up correctly, the light prover will send proving requests to the prover-be-api server. Then in a few minutes the server will respond with an output proof file.
