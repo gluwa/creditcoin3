@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-const API_KEY: HeaderName = HeaderName::from_static("API_KEY");
+const API_KEY: HeaderName = HeaderName::from_static("api-key");
 
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
