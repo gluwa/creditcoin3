@@ -83,7 +83,7 @@ If you wish you can run the prover in `light` mode then provide a back end socke
 
 In light mode you must also provide a BE server api key to use:
 EX: `--be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"`
-Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
+Api keys are managed by the prover BE server administrator. So you need to ask them for a key.
 
 You can also set a default api key by modifying this attribute in prover/bin/prover.rs:
 ```rs

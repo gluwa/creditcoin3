@@ -111,7 +111,8 @@ Now start the prover:
 ```sh
 ./target/release/prover \
   --cc3-key "//Alice" \
-  --eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+  --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+  --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```
 
 You should see something like
@@ -217,7 +218,7 @@ To set up the prover-be-api server, clone the code base found [here](https://dev
 
 Note the exposed socket address of your prover-be-api server. In place of "http:// localhost:55644" below, use the socket exposed by your target prover-be-api instance. 
 
-In light mode you must also provied a UUID api key for requests sent to the prover backend server with the argument `--be-api-key`. Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
+In light mode you must also provide a UUID api key for requests sent to the prover backend server with the argument `--be-api-key`. Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
 
 ```sh
 ./target/release/prover \
