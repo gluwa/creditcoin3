@@ -222,7 +222,7 @@ In light mode you must also provied a UUID api key for requests sent to the prov
 ```sh
 ./target/release/prover \
 --cc3-key "//Alice" \
---eth-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
+--cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --prover-be-socket-addr "http:// localhost:55644" \
 --be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"
 ```
