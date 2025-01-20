@@ -61,6 +61,7 @@ where
             ) {
                 Ok(x) => x,
                 Err(_) => {
+                    log::info!("Failed to dispatch submit_proof");
                     log3(
                         handle.context().address,
                         SELECTOR_LOG_PROOF_SUBMITTED,

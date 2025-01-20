@@ -124,9 +124,20 @@ impl GluwaPublicProverContract {
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let builder = contract.submitQueryProof(query_id, proof.into());
-        let result = builder.send().await?.get_receipt().await?;
 
-        Ok(result.transaction_hash.to_string())
+        let pending_tx = builder.send().await?;
+
+        match pending_tx.get_receipt().await {
+            Ok(tx) => {
+                let tx_hash = tx.transaction_hash.to_string();
+                info!("Query proof submitted tx_hash: {}", tx_hash);
+                Ok(tx_hash)
+            }
+            Err(e) => {
+                info!("Query proof submission failed: {:?}", e);
+                Err(anyhow::anyhow!("Query proof submission failed"))
+            }
+        }
     }
 
     pub async fn subscribe_query_submissions(
