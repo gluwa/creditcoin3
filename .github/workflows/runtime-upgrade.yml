@@ -281,6 +281,10 @@ jobs:
           unzip creditcoin-*-unknown-linux-gnu.zip
           chmod a+x ./creditcoin3-node
 
+          pwd
+          ls -l
+          ls -l ./chainspecs/
+
           ./creditcoin3-node --version
           ./creditcoin3-node \
             --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
