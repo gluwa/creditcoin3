@@ -209,38 +209,45 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
         validator.clone(),
         None,
     );
-    let attestor_comms = AttestorComms {
+    let mut attestor_comms = AttestorComms {
         gossip_engine,
         gossip_validator: validator,
         gossip_report_stream: msg_stream,
     };
 
-    let worker_params = WorkerParams {
-        comms: attestor_comms,
-        runtime: runtime.clone(),
-        client: client.clone(),
-        backend: backend.clone(),
-        inherent_provider: inherent_provider.clone(),
-        is_authority,
-        sync: sync.clone(),
-    };
-    let worker: Worker<B, R, BE, C, AccountId, S> = Worker::new(worker_params);
+    // We re-create and re-run the worker in this loop in order to quickly reinit and resume after
+    // select recoverable errors.
+    loop {
+        let worker_params = WorkerParams {
+            comms: attestor_comms,
+            runtime: runtime.clone(),
+            client: client.clone(),
+            backend: backend.clone(),
+            inherent_provider: inherent_provider.clone(),
+            is_authority,
+            sync: sync.clone(),
+        };
+        let worker: Worker<B, R, BE, C, AccountId, S> = Worker::new(worker_params);
 
-    futures::select! {
-        result = worker.start(&mut finality_notifications).fuse() => {
-            match result {
-                Error::GossipEngineExited => {
-                    error!(target: LOG_TARGET, "📝 Gossip engine has exited.");
-                },
-                _ => {
-                    error!(target: LOG_TARGET, "📝 Attestor worker has exited.");
+        futures::select! {
+            result = worker.start(&mut finality_notifications).fuse() => {
+                match result {
+                    (Error::GossipEngineExited, reuse_comms) => {
+                        error!(target: LOG_TARGET, "📝 Gossip engine has exited.");
+                        attestor_comms = reuse_comms;
+                        continue;
+                    },
+                    _ => {
+                        error!(target: LOG_TARGET, "📝 Attestor worker has exited.");
+                    }
                 }
-            }
 
-        },
-        _ = &mut transformer => {
-            error!(target: LOG_TARGET, "📝 Finality notification transformer has exited.");
-        },
+            },
+            _ = &mut transformer => {
+                error!(target: LOG_TARGET, "📝 Finality notification transformer has exited.");
+            },
+        }
+        return;
     }
 }
 

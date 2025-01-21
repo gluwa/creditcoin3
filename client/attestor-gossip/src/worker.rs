@@ -177,7 +177,7 @@ where
     pub async fn start(
         mut self,
         finality_notifications: &mut Fuse<crate::FinalityNotifications<B>>,
-    ) -> Error {
+    ) -> (Error, AttestorComms<B, AccountId>) {
         let mut votes = Box::pin(
             self.comms
                 .gossip_engine
@@ -189,7 +189,7 @@ where
         );
 
         // Main process loop
-        loop {
+        let error = loop {
             // Mutable reference used to drive the gossip engine.
             let mut gossip_engine = &mut self.comms.gossip_engine;
             let message_stream = &mut self.comms.gossip_report_stream;
@@ -264,7 +264,9 @@ where
                     }
                 }
             }
-        }
+        };
+
+        (error, self.comms)
     }
 
     /// Triage incoming messages
