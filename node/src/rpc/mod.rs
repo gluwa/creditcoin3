@@ -89,10 +89,10 @@ pub struct SpawnTasksParams<'a, B: BlockT, C, BE> {
     pub client: Arc<C>,
     pub substrate_backend: Arc<BE>,
     pub frontier_backend: Arc<fc_db::Backend<B, C>>,
-    pub filter_pool: Option<FilterPool>,
+    pub _filter_pool: Option<FilterPool>,
     pub overrides: Arc<dyn StorageOverride<B>>,
-    pub fee_history_limit: u64,
-    pub fee_history_cache: FeeHistoryCache,
+    pub _fee_history_limit: u64,
+    pub _fee_history_cache: FeeHistoryCache,
 }
 
 pub struct TracingConfig {
