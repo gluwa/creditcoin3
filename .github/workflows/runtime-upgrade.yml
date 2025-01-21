@@ -53,7 +53,7 @@ jobs:
         if: github.base_ref == 'main'
         run: |
           # shellcheck disable=SC2129
-          echo "target_chain=main" >> "$GITHUB_OUTPUT"
+          echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
           echo "boot_node=/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.cc3-mainnet.creditcoin.network:443/ws" >> "$GITHUB_OUTPUT"
           echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network/rpc" >> "$GITHUB_OUTPUT"
