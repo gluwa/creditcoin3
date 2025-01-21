@@ -499,10 +499,10 @@ where
                     client: client.clone(),
                     substrate_backend: backend.clone(),
                     frontier_backend: frontier_backend.clone(),
-                    filter_pool: filter_pool.clone(),
+                    _filter_pool: filter_pool.clone(),
                     overrides: overrides.clone(),
-                    fee_history_limit,
-                    fee_history_cache: fee_history_cache.clone(),
+                    _fee_history_limit: fee_history_limit,
+                    _fee_history_cache: fee_history_cache.clone(),
                 },
             )
         } else {
