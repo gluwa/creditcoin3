@@ -2,6 +2,7 @@ self-hosted-runner:
   labels:
     - proxy-attestator-network
     - proxy-benchmark
+    - proxy-blockchain
     - proxy-clippy
     - proxy-check
     - proxy-docker-build

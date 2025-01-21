@@ -905,6 +905,7 @@ jobs:
           # runners for other jobs (repurpose existing labels)
           - proxy: attestator-network
           - proxy: benchmark
+          - proxy: blockchain
           - proxy: build-creditcoin-node-for-devnet
           - proxy: build-creditcoin-node-for-testnet
           - proxy: build-creditcoin-node-for-testing-benchmarks
@@ -1082,6 +1083,42 @@ jobs:
       matrix:
         include:
           - proxy: attestator-network
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-blockchain:
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-test-blockchain
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: blockchain
 
     steps:
       - uses: actions/checkout@v4
@@ -1704,7 +1741,12 @@ jobs:
   integration-test-blockchain:
     needs:
       - build-creditcoin-node-for-testing
-    runs-on: ubuntu-24.04
+      - deploy-github-runner
+    runs-on:
+      [
+        self-hosted,
+        "proxy-blockchain",
+      ]
     steps:
       - uses: actions/checkout@v4
 
