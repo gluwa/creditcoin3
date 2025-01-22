@@ -396,6 +396,9 @@ jobs:
         working-directory: cli
         run: |
           node dist/scripts/runtimeUpgrade.js ws://127.0.0.1:9944  ../creditcoin3_runtime.compact.compressed.wasm //Alice 0
+        env:
+          # WARNING: always quote otherwise we get "2E+24" which can't parse
+          NEW_SUDO_BALANCE: "2000000000000000000000000"
 
       - name: Execute blockchain integration tests
         working-directory: ./cli
