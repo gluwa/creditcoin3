@@ -1,3 +1,5 @@
+ignore me
+
 # Creditcoin CLI
 
 ## Development
