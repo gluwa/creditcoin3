@@ -30,6 +30,7 @@ type WasmRuntimeInfo = {
 // these normally use callbacks, but promises are more convenient
 const readFile = promisify(fs.readFile);
 const exec = promisify(child_process.exec);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Performs an upgrade to the runtime at the provided path.
@@ -52,6 +53,14 @@ async function doRuntimeUpgrade(
         // make the keyring for the sudo account, see
         // test/integration-tests/helpers.ts::initAlithKeyring() for the devel mnemonic
         const keyring = initKeyringPair(sudoKeyUri);
+
+        if (process.env.NEW_SUDO_BALANCE !== undefined) {
+            await api.tx.sudo
+                .sudo(api.tx.balances.forceSetBalance(keyring.address, new BN(process.env.NEW_SUDO_BALANCE)))
+                .signAndSend(keyring, { nonce: -1 });
+            // wait for 60 sec for blocks to finalize
+            await sleep(60_000);
+        }
 
         const { specVersion } = api.runtimeVersion;
 
