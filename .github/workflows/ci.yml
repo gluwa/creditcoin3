@@ -32,7 +32,40 @@ jobs:
         run: |
           docker build -t gluwa/creditcoin3 .
 
-      - name: Start a container from image
+      - name: Start a Devnet container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain devnet                                   \
+              --name "test-node-devnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --prometheus-external \
+              --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
+              --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+              --bootnodes "/dns4/cc3-dev-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWFCBMV5VosXByvDGKAr9bcg6iW6p6KjgGZHjJSuszVYq8" \
+              --port 30333 --unsafe-rpc-external
+
+      - name: Healtcheck
+        run: |
+          sleep 60
+          .github/check-health.sh
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator-devnet.log 2>&1
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start a Testnet container from image
         run: |
           # see https://opensource.com/article/18/5/how-find-ip-address-linux
           IP_ADDRESS=$(curl https://ifconfig.me)
@@ -40,7 +73,7 @@ jobs:
 
           docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
               --validator --chain testnet                                   \
-              --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --name "test-node-testnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
               --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
               --prometheus-external \
               --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
@@ -52,6 +85,47 @@ jobs:
         run: |
           sleep 60
           .github/check-health.sh
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator-testnet.log 2>&1
+
+      - name: Kill the container
+        if: github.base_ref == 'main'
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start a Mainnet container from image
+        if: github.base_ref == 'main'
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain mainnet                                   \
+              --name "test-node-mainnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --prometheus-external \
+              --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
+              --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+              --bootnodes "/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" \
+              --port 30333 --unsafe-rpc-external
+
+      - name: Healtcheck
+        if: github.base_ref == 'main'
+        run: |
+          sleep 60
+          .github/check-health.sh
+
+      - name: Collect docker logs
+        if: github.base_ref == 'main'
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator-mainnet.log 2>&1
 
       - name: Sanity test creditcoin-cli inside the container
         run: |
@@ -65,11 +139,6 @@ jobs:
               docker exec creditcoin-validator  ls -l "/$spec"
           done
 
-      - name: Collect docker logs
-        if: always()
-        run: |
-          docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
-
       - name: Kill the container
         run: |
           sudo killall -9 creditcoin3-node
@@ -77,7 +146,7 @@ jobs:
           docker rm -f creditcoin-validator
           sleep 10
 
-      - name: Start container via compose
+      - name: Start Testnet container via compose
         run: |
           docker compose up -d
 
@@ -90,7 +159,7 @@ jobs:
       - name: Collect compose logs
         if: always()
         run: |
-          docker compose logs --no-color > docker-compose.log
+          docker compose logs --no-color > docker-compose-testnet.log
 
       - name: Upload logs
         if: always()
