@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Directory containing JSON files
 chainspecs_dir="chainspecs"
 
@@ -15,6 +17,8 @@ bootnodes_found=0
 # Iterate over JSON files in the directory
 for file in "$chainspecs_dir"/*.json; do
     echo "Checking $file"
+    jq -r < "$file" > /dev/null
+
     # Read the JSON file
     json=$(cat "$file")
 
