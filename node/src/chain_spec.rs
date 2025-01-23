@@ -111,10 +111,6 @@ pub fn testnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/testnetSpecRaw.json")[..])
 }
 
-pub fn dry_run_config() -> Result<ChainSpec, String> {
-    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/dryRunSpecRaw.json")[..])
-}
-
 pub fn mainnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
 }
