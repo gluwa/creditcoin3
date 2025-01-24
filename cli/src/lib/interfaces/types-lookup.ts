@@ -3357,6 +3357,9 @@ declare module '@polkadot/types/lookup' {
         readonly isStarkProgramAuthenticationError: boolean;
         readonly isVerifierExecutionError: boolean;
         readonly isVerifierProcessError: boolean;
+        readonly isQueryIdNotValidated: boolean;
+        readonly isQueryOutOfBounds: boolean;
+        readonly isQueryOffsetMismatch: boolean;
         readonly type:
             | 'InvalidProofSubmitted'
             | 'StarkProgramMetadataNotSet'
@@ -3366,7 +3369,10 @@ declare module '@polkadot/types/lookup' {
             | 'ProofParseError'
             | 'StarkProgramAuthenticationError'
             | 'VerifierExecutionError'
-            | 'VerifierProcessError';
+            | 'VerifierProcessError'
+            | 'QueryIdNotValidated'
+            | 'QueryOutOfBounds'
+            | 'QueryOffsetMismatch';
     }
 
     /** @name PalletRandomnessError (405) */

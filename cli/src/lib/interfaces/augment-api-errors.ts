@@ -512,6 +512,9 @@ declare module '@polkadot/api-base/types/errors' {
             FileError: AugmentedError<ApiType>;
             InvalidProofSubmitted: AugmentedError<ApiType>;
             ProofParseError: AugmentedError<ApiType>;
+            QueryIdNotValidated: AugmentedError<ApiType>;
+            QueryOffsetMismatch: AugmentedError<ApiType>;
+            QueryOutOfBounds: AugmentedError<ApiType>;
             StarkProgramAuthenticationError: AugmentedError<ApiType>;
             StarkProgramMetadataAlreadySet: AugmentedError<ApiType>;
             StarkProgramMetadataNotFound: AugmentedError<ApiType>;

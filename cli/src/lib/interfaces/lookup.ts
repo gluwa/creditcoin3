@@ -3026,6 +3026,9 @@ export default {
             'StarkProgramAuthenticationError',
             'VerifierExecutionError',
             'VerifierProcessError',
+            'QueryIdNotValidated',
+            'QueryOutOfBounds',
+            'QueryOffsetMismatch',
         ],
     },
     /**
