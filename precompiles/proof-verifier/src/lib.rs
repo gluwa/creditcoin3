@@ -7,10 +7,10 @@ use frame_support::{
     sp_runtime::traits::Dispatchable,
 };
 use pallet_evm::AddressMapping;
+use pallet_prover_primitives::{Query, VerifierExitStatus};
 use precompile_utils::prelude::*;
 use sp_core::H256;
-
-use pallet_prover_primitives::{Query, VerifierExitStatus};
+use sp_runtime::DispatchError;
 
 #[cfg(test)]
 mod mock;
@@ -51,17 +51,19 @@ where
         {
             let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
 
-            let _ = match RuntimeHelper::<Runtime>::try_dispatch(
+            let result = RuntimeHelper::<Runtime>::try_dispatch(
                 handle,
                 Some(origin).into(),
                 pallet_prover::Call::<Runtime>::submit_proof {
                     proof: proof.clone().into(),
                     query,
                 },
-            ) {
-                Ok(x) => x,
-                Err(_) => {
-                    log::info!("Failed to dispatch submit_proof");
+            );
+
+            match result {
+                Ok(_) => {
+                    let _status = VerifierExitStatus::Success;
+
                     log3(
                         handle.context().address,
                         SELECTOR_LOG_PROOF_SUBMITTED,
@@ -71,23 +73,38 @@ where
                     )
                     .record(handle)?;
 
-                    return Ok(2);
+                    Ok(0)
                 }
-            };
+                Err(e) => match e {
+                    TryDispatchError::Evm(_) => Ok(5),
+                    TryDispatchError::Substrate(dispatch_error) => match dispatch_error {
+                        DispatchError::Module(module_error) => {
+                            let error = module_error.error;
+                            match error {
+                                [0, 0, 0, 0] => {
+                                    let _status = VerifierExitStatus::ProofInvalid;
+                                    log::info!("Invalid proof submitted: {:?}", e);
+                                    Ok(2)
+                                }
+                                [0, 0, 0, 10] => {
+                                    let _status = VerifierExitStatus::QueryOutOfBounds;
+                                    log::info!("Query out of bounds: {:?}", e);
+                                    Ok(3)
+                                }
+                                _ => {
+                                    let _status = VerifierExitStatus::LayoutMismatch;
+                                    log::info!("Query layout mismatch: {:?}", e);
+                                    Ok(1)
+                                }
+                            }
+                        }
+                        _ => {
+                            log::info!("Failed to dispatch submit_proof: {:?}", e);
+                            Ok(4)
+                        }
+                    },
+                },
+            }
         }
-
-        // TODO: probably get the status for the query back from the pallet after executing the call
-        let _status = VerifierExitStatus::Success;
-
-        log3(
-            handle.context().address,
-            SELECTOR_LOG_PROOF_SUBMITTED,
-            handle.context().caller,
-            query_id,
-            solidity::encode_event_data(proof),
-        )
-        .record(handle)?;
-
-        Ok(0)
     }
 }

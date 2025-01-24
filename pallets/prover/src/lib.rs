@@ -89,6 +89,9 @@ pub mod pallet {
         StarkProgramAuthenticationError,
         VerifierExecutionError,
         VerifierProcessError,
+        QueryIdNotValidated,
+        QueryOutOfBounds,
+        QueryOffsetMismatch,
     }
 
     #[pallet::call]
@@ -116,6 +119,9 @@ pub mod pallet {
                 8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
                 9 => return Err(Error::<T>::VerifierExecutionError.into()),
                 10 => return Err(Error::<T>::VerifierProcessError.into()),
+                11 => return Err(Error::<T>::QueryIdNotValidated.into()),
+                12 => return Err(Error::<T>::QueryOutOfBounds.into()),
+                13 => return Err(Error::<T>::QueryOffsetMismatch.into()),
                 _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
             }
 

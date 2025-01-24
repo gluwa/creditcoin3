@@ -134,21 +134,22 @@ contract CreditcoinPublicProver is Ownable {
         // After the fee is processed, the state of the query should be updated
         if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
+            _removeQueryId(queryId);
         } else if (result == 1) {
             queries[queryId].state = QueryState.InvalidQuery;
+            _removeQueryId(queryId);
             revert("LayoutMismatch");
         } else if (result == 2) {
             queries[queryId].state = QueryState.TimedOut;
+            _removeQueryId(queryId);
             revert("ProofInvalid");
         } else if (result == 3) {
             queries[queryId].state = QueryState.InvalidQuery;
+            _removeQueryId(queryId);
             revert("QueryOutOfBounds");
         }
 
         emit QueryProofVerified(queryId, proof);
-
-        // Clean up the processed queryId from the array
-        _removeQueryId(queryId);
 
         return result;
     }

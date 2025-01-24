@@ -14,9 +14,10 @@ use thiserror::Error;
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::ClaimValidationError;
-use prover_primitives::claim::ClaimValidationError::{
-    ClaimIdNotValidated, ClaimOutOfBounds, QueryOffsetsMismatch,
-};
+use prover_primitives::claim::ClaimValidationError::*;
+// {
+//     ClaimIdNotValidated, ClaimOutOfBounds, QueryOffsetsMismatch,
+// };
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
     StarkProgramMetadataStorage,
@@ -107,10 +108,32 @@ impl VerifierError {
                 log::error!("verifier was not able to verify the proof: {:?}", e);
                 10
             }
-            VerifierError::QueryValidationError(e) => {
-                log::error!("query validation error: {:?}", e);
-                11
-            }
+            VerifierError::QueryValidationError(e) => match e {
+                QueryIdNotValidated(_, _) => {
+                    log::error!("query id not validated");
+                    11
+                }
+                QueryOutOfBounds(index) => {
+                    log::error!("claim out of bounds at index: {}", index);
+                    12
+                }
+                QueryOffsetsMismatch(_, _) => {
+                    log::error!("query offsets mismatch");
+                    13
+                }
+                FieldNotValidated(_, _, _) => {
+                    log::error!("field not validated");
+                    14
+                }
+                FieldInner(_) => {
+                    log::error!("field inner");
+                    15
+                }
+                ProofOutputTruncated => {
+                    log::error!("proof output truncated");
+                    16
+                }
+            },
         }
     }
 }
@@ -134,18 +157,18 @@ pub fn validate_query_against_proof(
     cairo_verifier_output: &CairoVerifierOutput,
 ) -> Result<(), ClaimValidationError> {
     match query.index.cmp(&cairo_verifier_output.claim_index) {
-        Greater => Err(ClaimOutOfBounds(cairo_verifier_output.claim_index)),
+        Greater => Err(QueryOutOfBounds(cairo_verifier_output.claim_index)),
 
         Equal => {
             if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
-                Err(ClaimOutOfBounds(cairo_verifier_output.claim_index))
+                Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
                 query.transform_to_felt_offsets();
                 let local_offset_hash = match hash_layout_segments(&query) {
                     Ok(hash) => hash,
                     Err(e) => {
                         log::error!("Failed to hash layout segments: {:?}", e);
-                        return Err(ClaimIdNotValidated(
+                        return Err(QueryIdNotValidated(
                             query.index,
                             cairo_verifier_output.claim_index,
                         ));
@@ -163,7 +186,7 @@ pub fn validate_query_against_proof(
             }
         }
 
-        Less => Err(ClaimIdNotValidated(
+        Less => Err(QueryIdNotValidated(
             query.index,
             cairo_verifier_output.claim_index,
         )),
@@ -499,7 +522,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ClaimOutOfBounds")]
+    #[should_panic(expected = "QueryOutOfBounds")]
     fn validate_query_against_proof_when_query_index_is_larger_than_proof_index_should_error() {
         let query = Query {
             chain_id: 31337,
@@ -517,7 +540,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ClaimIdNotValidated")]
+    #[should_panic(expected = "QueryIdNotValidated")]
     fn validate_query_against_proof_when_query_index_is_smaller_than_proof_index_should_error() {
         let query = Query {
             chain_id: 31337,
@@ -536,7 +559,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ClaimOutOfBounds")]
+    #[should_panic(expected = "QueryOutOfBounds")]
     fn validate_query_against_proof_with_claim_fields_mismatch_should_error() {
         let query = Query {
             chain_id: 31337,

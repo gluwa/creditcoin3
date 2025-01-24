@@ -17,7 +17,7 @@ use utils::{
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ClaimValidationError {
     #[error("Query ID mismatch: expected {0}, found {1}")]
-    ClaimIdNotValidated(u64, u64),
+    QueryIdNotValidated(u64, u64),
 
     #[error("Field at range {0:?} not validated: value {1:?} doesn't match expected value {2:?}")]
     FieldNotValidated(Range<usize>, Vec<u8>, Vec<u8>),
@@ -32,7 +32,7 @@ pub enum ClaimValidationError {
     ProofOutputTruncated,
 
     #[error("Prover provided an out-of-bounds witness for query index {0}")]
-    ClaimOutOfBounds(u64),
+    QueryOutOfBounds(u64),
 }
 
 pub type ClaimIdentifier = BlockItemIdentifier;
@@ -82,12 +82,12 @@ impl<Q: ClaimQuery> Claim<Q> {
         // validate claim id returned by prover
         match self.id.index().cmp(&proof_public_input.claim_index) {
             // check out-of-bounds case
-            Greater => Err(ClaimOutOfBounds(proof_public_input.claim_index)),
+            Greater => Err(QueryOutOfBounds(proof_public_input.claim_index)),
 
             Equal => {
                 // check if the claim falls on the first NULL leaf (out of bounds edge case)
                 if felts_from_bytes(&rlp::NULL_RLP[..]) == proof_public_input.claim_fields {
-                    Err(ClaimOutOfBounds(proof_public_input.claim_index))
+                    Err(QueryOutOfBounds(proof_public_input.claim_index))
                 } else {
                     // validate query hash returned by prover
                     let local_offsets_hash = self.query_hash();
@@ -119,7 +119,7 @@ impl<Q: ClaimQuery> Claim<Q> {
                 }
             }
             // claim id not validated, not out-of-bounds case
-            Less => Err(ClaimIdNotValidated(
+            Less => Err(QueryIdNotValidated(
                 self.id.index(),
                 proof_public_input.claim_index,
             )),

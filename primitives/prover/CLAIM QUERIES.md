@@ -70,7 +70,7 @@ As a Merkle path can only verify statements regarding information inclusion, we 
 
 ### First approach for exclusion proving - compatible with Merlkle Mountian Range as underlyinng commitment data structure (laid off for now)
 
-Involves inclusion of a hash of an rlp-encoded entity count as a last leaf in the merkle tree (`ClaimOutOfBoundsWitness` instance).
+Involves inclusion of a hash of an rlp-encoded entity count as a last leaf in the merkle tree (`QueryOutOfBoundsWitness` instance).
 
 As it's an rlp-encoded single integer value, there is no risk of clashing with existing transaction/receipt which are rlp-encoded as lists rather than single value and rlp encoding is deterministic.
 

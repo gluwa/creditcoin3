@@ -2,9 +2,9 @@ use sp_std::{vec, vec::Vec};
 use utils::block_item_traits::{BlockItem, BlockItemIdentifier};
 
 #[derive(PartialEq, Clone, Default, Debug)]
-pub struct ClaimOutOfBoundsWitness(BlockItemIdentifier);
+pub struct QueryOutOfBoundsWitness(BlockItemIdentifier);
 
-impl BlockItem for ClaimOutOfBoundsWitness {
+impl BlockItem for QueryOutOfBoundsWitness {
     fn id(&self) -> &BlockItemIdentifier {
         &self.0
     }

@@ -3,7 +3,7 @@ use attestation_chain::attestation_fragment::FragmentBlocksSerializable;
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimSerializable;
-use prover_primitives::claim_out_of_bounds_witness::ClaimOutOfBoundsWitness;
+use prover_primitives::query_out_of_bounds_witness::QueryOutOfBoundsWitness;
 use prover_primitives::types::{
     CairoVerifierOutput, ClaimDigestRoot, ClaimProverError, MerkleProofSerializable, ScriptError,
     StoneProof, StoneProofJson,
@@ -213,7 +213,7 @@ pub async fn build_prover(
 
     let subject_index = core::cmp::min(claim.id().index() as usize, out_of_bound_witness_index);
     let out_of_bounds_flag = subject_index == out_of_bound_witness_index;
-    let out_of_bound_witness = ClaimOutOfBoundsWitness::default();
+    let out_of_bound_witness = QueryOutOfBoundsWitness::default();
 
     let (subject_bytes, merkle_path) = (
         block

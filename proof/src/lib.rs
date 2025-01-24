@@ -557,7 +557,7 @@ mod tests {
 
         assert_eq!(
             Err(
-                prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(
+                prover_primitives::claim::ClaimValidationError::QueryOutOfBounds(
                     num_of_leaves as u64
                 )
             ),
@@ -629,7 +629,7 @@ mod tests {
 
         assert_eq!(
             Err(
-                prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(
+                prover_primitives::claim::ClaimValidationError::QueryOutOfBounds(
                     num_of_leaves as u64
                 )
             ),
@@ -762,7 +762,7 @@ mod tests {
         let output = rt.block_on(run_prover(cairo_claim, block));
         let expected_out_of_bound_witness = 0u64;
         assert_eq!(
-            Err(prover_primitives::claim::ClaimValidationError::ClaimOutOfBounds(0u64)),
+            Err(prover_primitives::claim::ClaimValidationError::QueryOutOfBounds(0u64)),
             validate_proof_data(
                 ETH_ATTESTATION_CHAIN_PARAMS_DEV,
                 block_number,
