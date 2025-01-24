@@ -15,9 +15,6 @@ use thiserror::Error;
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::ClaimValidationError;
 use prover_primitives::claim::ClaimValidationError::*;
-// {
-//     ClaimIdNotValidated, ClaimOutOfBounds, QueryOffsetsMismatch,
-// };
 use prover_primitives::stark_program_auth::{
     StarkProgramAuth, StarkProgramAuthError, StarkProgramAuthHash, StarkProgramMetadata,
     StarkProgramMetadataStorage,
