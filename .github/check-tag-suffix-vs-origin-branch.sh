@@ -11,7 +11,7 @@ echo "----- DEBUG -----"
 git branch -a --contains | grep remotes/origin
 echo "----- END -----"
 
-NEAREST_GIT_BRANCH=$(git branch -a --contains | grep remotes/origin | cut -f3 -d/)
+NEAREST_GIT_BRANCH=$(git branch -a --contains | grep -v remotes/origin/HEAD | grep remotes/origin | cut -f3 -d/)
 
 echo "INFO: git tag: '$GIT_TAG'"
 echo "INFO: suffix from git tag: '$SUFFIX_FROM_GIT_TAG'"
