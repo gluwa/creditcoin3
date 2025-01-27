@@ -85,11 +85,7 @@ In light mode you must also provide a BE server api key to use:
 EX: `--be-api-key "d5a54216-cc29-4808-8b51-c3ff139c2234"`
 Api keys are managed by the prover BE server administrator. So you need to ask them for a key.
 
-You can also set a default api key by modifying this attribute in prover/bin/prover.rs:
-```rs
-#[arg(long, default_value = "")]
-be_api_key: String,
-```
+You can also set a default api key in an environment file to avoid repetitive entry.
 
 In light mode it will not stone proof the query but instead it will compute the inputs files for the stone prover and send them over the network to the external prover.
 

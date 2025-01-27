@@ -33,8 +33,8 @@ pub struct Prover {
     #[arg(long, required = false)]
     prover_be_socket_addr: Option<String>,
 
-    #[arg(long, default_value = "")]
-    be_api_key: String,
+    #[arg(long, required = false, env)]
+    be_api_key: Option<String>,
 }
 
 #[tokio::main]
@@ -59,6 +59,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_target(true)
         .with_env_filter(env_filter)
         .try_init();
+
+    if (args.prover_be_socket_addr.is_some() && args.be_api_key.is_none())
+        || (args.prover_be_socket_addr.is_none() && args.be_api_key.is_some())
+    {
+        panic!("Bad arguments! prover-be-socket-addr and be-api-key must be specified together.");
+    }
 
     let config = Config {
         cc3_rpc_url: args.cc3_rpc_url,

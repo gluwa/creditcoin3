@@ -185,7 +185,7 @@ impl Server {
                         .prover_be_socket_addr
                         .as_ref()
                         .expect("Socket addr is Some if we are in light mode"),
-                    &self.config.be_api_key,
+                    &self.config.be_api_key.expect("We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"),
                 )
                 .await?;
                 info!("Submitting proof for query: {:?}", query);
