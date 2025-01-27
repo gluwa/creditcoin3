@@ -15,5 +15,5 @@ pub struct Config {
     pub claim_buffer: u8,
     pub postgres_uri: String,
     pub prover_be_socket_addr: Option<String>,
-    pub be_api_key: String,
+    pub be_api_key: Option<String>,
 }

@@ -1,5 +1,4 @@
 use super::QueryId;
-use anyhow::anyhow;
 use anyhow::Result;
 use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use hex::ToHex;
@@ -12,7 +11,7 @@ use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-const API_KEY: HeaderName = HeaderName::from_static("api-key");
+const API_KEY: &str = "api-key";
 
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
@@ -76,9 +75,6 @@ pub async fn handle_proof_order(
     be_api_key: &str,
 ) -> Result<Proof> {
     info!("Handling external proof order");
-    if be_api_key == "" {
-        return Err(anyhow!("No back end api key provided. Add argument `--be-api-key` with a valid UUID to prover call."));
-    }
     let client = Client::new();
 
     let form = prepare_proof_order_form(query_id, &files).await?;
@@ -103,7 +99,7 @@ async fn post_work_order(
     let response = client
         .post(&url)
         .header(ACCEPT, "*/*")
-        .header(API_KEY, be_api_key)
+        .header(HeaderName::from_static(API_KEY), be_api_key)
         .multipart(form)
         .send()
         .await
