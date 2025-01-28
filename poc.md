@@ -107,6 +107,7 @@ pip install -r requirements.txt
 ```
 
 Now start the prover:
+// secretlint-disable
 
 ```sh
 ./target/release/prover \
@@ -114,6 +115,8 @@ Now start the prover:
   --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
   --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```
+
+// secretlint-enable
 
 You should see something like
 
@@ -220,6 +223,8 @@ Note the exposed socket address of your prover-be-api server. In place of "http:
 
 In light mode you must also provide a UUID api key for requests sent to the prover backend server with the argument `--be-api-key`. Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
 
+// secretlint-disable
+
 ```sh
 ./target/release/prover \
 --cc3-key "//Alice" \
@@ -228,6 +233,8 @@ In light mode you must also provide a UUID api key for requests sent to the prov
 --be-api-key "f40677cb-8aa5-4a8e-bb99-2933b12b473c" \
 --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```
+
+// secretlint-enable
 
 When set up correctly, the light prover will send proving requests to the prover-be-api server. Then in a few minutes the server will respond with an output proof file.
 
