@@ -124,7 +124,7 @@ impl Server {
         for query in unprocessed_queries {
             info!("Processing unprocessed query: {:?}", query);
             if let Err(e) = self.process_query(query).await {
-                panic!("Query processing failed, Error: {e:?}");
+                error!("Query processing failed, Error: {e:?}");
             }
         }
 
@@ -152,7 +152,7 @@ impl Server {
         while let Some(query) = queries.recv().await {
             info!("Processing query: {:?}", query);
             if let Err(e) = self.process_query(query).await {
-                panic!("Query processing failed, Error: {e:?}");
+                error!("Query processing failed, Error: {e:?}");
             }
         }
 

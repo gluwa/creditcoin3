@@ -1,7 +1,7 @@
 use anyhow::Result;
 use either::Either;
 use sp_core::H256;
-use std::{ops::Range, path::PathBuf};
+use std::{ops::Range, path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::{error, info, warn};
 
@@ -18,6 +18,9 @@ pub type Proof = Vec<u8>;
 
 /// Query id
 pub type QueryId = H256;
+
+const MAX_RETRIES: u32 = 10;
+const RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -49,9 +52,25 @@ pub async fn process(
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
-    // Get the attestation fragment
-    let attestation_fragment: AttestationFragment =
-        fragment::get_for_claim(&eth_client, query, attestation_cache).await?;
+    let mut retry_count = 0;
+
+    // Get the attestation fragment with retries on QueryTooRecent
+    let attestation_fragment: AttestationFragment = loop {
+        match fragment::get_for_claim(&eth_client, query, attestation_cache).await {
+            Ok(fragment) => break fragment,
+            Err(fragment::Error::QueryTooRecent(last_height, query_height))
+                if retry_count < MAX_RETRIES =>
+            {
+                retry_count += 1;
+                error!(
+                    "QueryTooRecent error for query {:?}: last_attestation_height={}, query_height={}. Retry {}/{} in {:?}.",
+                    query_id, last_height, query_height, retry_count, MAX_RETRIES, RETRY_DELAY
+                );
+                tokio::time::sleep(RETRY_DELAY).await;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
