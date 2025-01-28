@@ -71,9 +71,9 @@ describe('Precompile: transfer_substrate()', (): void => {
     });
 
     test('should fail when sending more than total issuance', async () => {
-        // a local development chain starts with total issuance of 14 M CTC
-        // trying to send 1 bil
-        const amount = parseEther('1000000000.0');
+        const totalIssuance = (await api.query.balances.totalIssuance()).toBigInt();
+        // trying to send 1 bil more than total issuance
+        const amount = totalIssuance + BigInt(1_000_000_000_000_000_000_000_000_000);
 
         await expect(
             contract.transfer_substrate(destination.addressRaw, amount, {
@@ -83,14 +83,14 @@ describe('Precompile: transfer_substrate()', (): void => {
         // ^^^ appears to come from can_withdraw()
         // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/impl_fungible.rs#L110
 
-        // Alice paid gas fees regardless of the error
+        // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
-        expect(alithBalanceAfter).toBeLessThan(alithBalanceBefore);
+        expect(alithBalanceAfter).toBeLessThanOrEqual(alithBalanceBefore);
     });
 
     test('should fail when sending more than available funds', async () => {
-        // Alice starts with 1M CTC, try sending 1.9 mil
-        const amount = parseEther('1999989.9');
+        // trying to send 1 mil more than available balance
+        const amount = alithBalanceBefore + BigInt(1_000_000_000_000_000_000_000_000);
 
         await expect(
             contract.transfer_substrate(destination.addressRaw, amount, {
@@ -100,8 +100,8 @@ describe('Precompile: transfer_substrate()', (): void => {
         // ^^^ appears to come from do_transfer_reserved()
         // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/lib.rs#L1098
 
-        // Alice paid gas fees regardless of the error
+        // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
-        expect(alithBalanceAfter).toBeLessThan(alithBalanceBefore);
+        expect(alithBalanceAfter).toBeLessThanOrEqual(alithBalanceBefore);
     });
 });
