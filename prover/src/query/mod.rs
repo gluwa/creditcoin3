@@ -5,7 +5,6 @@ use std::{ops::Range, path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::{error, info, warn};
 
-use attestation_chain::attestation_fragment::AttestationFragment;
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
@@ -19,7 +18,7 @@ pub type Proof = Vec<u8>;
 /// Query id
 pub type QueryId = H256;
 
-const MAX_RETRIES: u32 = 10;
+const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Error)]
@@ -55,7 +54,7 @@ pub async fn process(
     let mut retry_count = 0;
 
     // Get the attestation fragment with retries on QueryTooRecent
-    let attestation_fragment: AttestationFragment = loop {
+    let attestation_fragment = loop {
         match fragment::get_for_claim(&eth_client, query, attestation_cache).await {
             Ok(fragment) => break fragment,
             Err(fragment::Error::QueryTooRecent(last_height, query_height))

@@ -134,18 +134,18 @@ contract CreditcoinPublicProver is Ownable {
         // After the fee is processed, the state of the query should be updated
         if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
-            _removeQueryId(queryId);
+            removeQueryId(queryId);
         } else if (result == 1) {
             queries[queryId].state = QueryState.InvalidQuery;
-            _removeQueryId(queryId);
+            removeQueryId(queryId);
             revert("LayoutMismatch");
         } else if (result == 2) {
             queries[queryId].state = QueryState.TimedOut;
-            _removeQueryId(queryId);
+            removeQueryId(queryId);
             revert("ProofInvalid");
         } else if (result == 3) {
             queries[queryId].state = QueryState.InvalidQuery;
-            _removeQueryId(queryId);
+            removeQueryId(queryId);
             revert("QueryOutOfBounds");
         }
 
@@ -194,7 +194,7 @@ contract CreditcoinPublicProver is Ownable {
         return unprocessedQueries;
     }
 
-    function _removeQueryId(QueryId queryId) private {
+    function removeQueryId(QueryId queryId) public onlyOwner {
         uint256 length = queryIds.length;
         for (uint256 i = 0; i < length; i++) {
             // Cast both to bytes for comparison

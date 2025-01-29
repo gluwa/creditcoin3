@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use pallet_prover_primitives::{LayoutSegment, Query};
+use sp_core::H256;
 
 use alloy::{
     network::EthereumWallet,
@@ -284,5 +285,23 @@ impl GluwaPublicProverContract {
                     .collect(),
             })
             .collect())
+    }
+
+    pub async fn remove_query_id(&self, client: &Client, query_id: H256) -> Result<()> {
+        info!("Removing query id: {:?}", query_id);
+        let signer = client.get_signer()?;
+
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .wallet(EthereumWallet::from(signer))
+            .on_http(client.get_url());
+
+        let contract = CreditcoinPublicProver::new(self.address, provider);
+
+        let builder = contract.removeQueryId(query_id.0.into());
+
+        builder.send().await?.watch().await?;
+
+        Ok(())
     }
 }

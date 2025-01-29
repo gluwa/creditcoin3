@@ -22,6 +22,7 @@ mod contract;
 mod postgres;
 mod query;
 
+use crate::contract::remove_query_id;
 use config::Config;
 
 /// `AttestationCacheType` cache type
@@ -123,8 +124,9 @@ impl Server {
         let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
         for query in unprocessed_queries {
             info!("Processing unprocessed query: {:?}", query);
-            if let Err(e) = self.process_query(query).await {
+            if let Err(e) = self.process_query(query.clone()).await {
                 error!("Query processing failed, Error: {e:?}");
+                remove_query_id(&self.cc3_client, query.id()).await?;
             }
         }
 
@@ -151,8 +153,9 @@ impl Server {
         // Wait for new queries and handle them
         while let Some(query) = queries.recv().await {
             info!("Processing query: {:?}", query);
-            if let Err(e) = self.process_query(query).await {
+            if let Err(e) = self.process_query(query.clone()).await {
                 error!("Query processing failed, Error: {e:?}");
+                remove_query_id(&self.cc3_client, query.id()).await?;
             }
         }
 

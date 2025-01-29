@@ -86,7 +86,7 @@ where
                                     log::info!("Invalid proof submitted: {:?}", e);
                                     Ok(2)
                                 }
-                                [0, 0, 0, 10] => {
+                                [10, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::QueryOutOfBounds;
                                     log::info!("Query out of bounds: {:?}", e);
                                     Ok(3)

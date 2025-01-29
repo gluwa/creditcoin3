@@ -3737,6 +3737,7 @@ dependencies = [
  "mmr",
  "pallet-prover-primitives",
  "serde",
+ "sp-core",
  "thiserror",
  "tokio",
  "tracing",
