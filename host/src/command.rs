@@ -114,8 +114,8 @@ impl VerifierError {
                     log::error!("claim out of bounds at index: {}", index);
                     12
                 }
-                QueryOffsetsMismatch(_, _) => {
-                    log::error!("query offsets mismatch");
+                QueryOffsetsMismatch(a, b) => {
+                    log::error!("query offsets mismatch, {a}, {b}");
                     13
                 }
                 FieldNotValidated(_, _, _) => {

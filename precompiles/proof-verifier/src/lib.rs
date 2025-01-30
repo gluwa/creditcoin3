@@ -6,6 +6,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
+use log::info;
 use pallet_evm::AddressMapping;
 use pallet_prover_primitives::{Query, VerifierExitStatus};
 use precompile_utils::prelude::*;
@@ -83,23 +84,27 @@ where
                             match error {
                                 [0, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::ProofInvalid;
-                                    log::info!("Invalid proof submitted: {:?}", e);
+                                    info!("Invalid proof submitted: {:?}", e);
                                     Ok(2)
                                 }
                                 [10, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::QueryOutOfBounds;
-                                    log::info!("Query out of bounds: {:?}", e);
+                                    info!("Query out of bounds: {:?}", e);
                                     Ok(3)
                                 }
-                                _ => {
+                                [11, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::LayoutMismatch;
-                                    log::info!("Query layout mismatch: {:?}", e);
+                                    info!("Query layout mismatch: {:?}", e);
                                     Ok(1)
+                                }
+                                _ => {
+                                    info!("Failed to dispatch submit_proof: {:?}", e);
+                                    Ok(4)
                                 }
                             }
                         }
                         _ => {
-                            log::info!("Failed to dispatch submit_proof: {:?}", e);
+                            info!("Failed to dispatch submit_proof: {:?}", e);
                             Ok(4)
                         }
                     },
