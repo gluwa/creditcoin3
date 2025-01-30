@@ -38,8 +38,8 @@ pub fn create_block_with_prev_digest(
     })
 }
 
-impl From<crate::postgres::attestation::Attestation> for Block {
-    fn from(attestation: crate::postgres::attestation::Attestation) -> Self {
+impl From<postgres::attestation::Attestation> for Block {
+    fn from(attestation: postgres::attestation::Attestation) -> Self {
         debug!("Converting attestation to block: {:?}", attestation);
         debug!("merkle_root : {:?}", attestation.merkle_root);
         debug!("tx_root str: {:?}", attestation.merkle_root.as_str());
