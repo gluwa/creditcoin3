@@ -57,28 +57,30 @@ contract CreditcoinPublicProver is Ownable {
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
-        // Store query details
-        // .state
-        queries[queryId].state = QueryState.Submitted;
-        // .query
-        queries[queryId].query.chainId = query.chainId;
-        queries[queryId].query.height = query.height;
-        queries[queryId].query.index = query.index;
-        for (uint i = 0; i < query.layoutSegments.length; i++) {
-            queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
-        }
-        // .result doesn't need to be set here
-        // .escrowedAmount
-        queries[queryId].escrowedAmount = Balance.wrap(msg.value);
-        // .principal
-        queries[queryId].principal = principal;
-        // .estimatedCost
-        queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
-        // .timestamp
-        queries[queryId].timestamp = block.number;
+        if (queries[queryId].state != QueryState.ResultAvailable) {
+            // Store query details
+            // .state
+            queries[queryId].state = QueryState.Submitted;
+            // .query
+            queries[queryId].query.chainId = query.chainId;
+            queries[queryId].query.height = query.height;
+            queries[queryId].query.index = query.index;
+            for (uint i = 0; i < query.layoutSegments.length; i++) {
+                queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
+            }
+            // .result doesn't need to be set here
+            // .escrowedAmount
+            queries[queryId].escrowedAmount = Balance.wrap(msg.value);
+            // .principal
+            queries[queryId].principal = principal;
+            // .estimatedCost
+            queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
+            // .timestamp
+            queries[queryId].timestamp = block.number;
 
-        // Add to unprocessed queries
-        queryIds.push(queryId);
+            // Add to unprocessed queries
+            queryIds.push(queryId);
+        }
 
         // Emit event
         emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
@@ -134,7 +136,6 @@ contract CreditcoinPublicProver is Ownable {
         // After the fee is processed, the state of the query should be updated
         if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
-            removeQueryId(queryId);
         } else if (result == 1) {
             queries[queryId].state = QueryState.InvalidQuery;
             removeQueryId(queryId);
@@ -147,6 +148,10 @@ contract CreditcoinPublicProver is Ownable {
             queries[queryId].state = QueryState.InvalidQuery;
             removeQueryId(queryId);
             revert("QueryOutOfBounds");
+        } else {
+            queries[queryId].state = QueryState.InvalidQuery;
+            removeQueryId(queryId);
+            revert("Unknown error");
         }
 
         emit QueryProofVerified(queryId, proof);
