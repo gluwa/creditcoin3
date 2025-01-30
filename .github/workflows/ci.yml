@@ -1571,11 +1571,25 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
+      - name: DEBUG
+        continue-on-error: true
+        run: |
+          ls -l  ./target/
+          ls -lR ./target/release/
+          md5sum ./target/release/creditcoin3-node
+
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
           name: creditcoin-node-for-testing-ci
           path: target/release
+
+      - name: DEBUG
+        continue-on-error: true
+        run: |
+          ls -l  ./target/
+          ls -lR ./target/release/
+          md5sum ./target/release/creditcoin3-node
 
       - name: Configure rustc version
         run: |
@@ -1589,9 +1603,23 @@ jobs:
           profile: minimal
           override: true
 
+      - name: DEBUG
+        continue-on-error: true
+        run: |
+          ls -l  ./target/
+          ls -lR ./target/release/
+          md5sum ./target/release/creditcoin3-node
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: subxt-cli
+
+      - name: DEBUG
+        continue-on-error: true
+        run: |
+          ls -l  ./target/
+          ls -lR ./target/release/
+          md5sum ./target/release/creditcoin3-node
 
       - name: Install subxt-cli
         run: |
@@ -1605,6 +1633,10 @@ jobs:
 
       - name: Start creditcoin3-node in order to update typedefs
         run: |
+          ls -l  ./target/
+          ls -lR ./target/release/
+          md5sum ./target/release/creditcoin3-node
+
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
             --chain dev \
