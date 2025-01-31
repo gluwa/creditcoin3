@@ -1157,7 +1157,8 @@ declare module '@polkadot/types/lookup' {
         readonly isProofInvalid: boolean;
         readonly isLayoutMismatch: boolean;
         readonly isQueryOutOfBounds: boolean;
-        readonly type: 'Success' | 'ProofInvalid' | 'LayoutMismatch' | 'QueryOutOfBounds';
+        readonly isUnknownError: boolean;
+        readonly type: 'Success' | 'ProofInvalid' | 'LayoutMismatch' | 'QueryOutOfBounds' | 'UnknownError';
     }
 
     /** @name PalletRandomnessEvent (101) */

@@ -917,7 +917,7 @@ export default {
      * Lookup100: pallet_prover_primitives::VerifierExitStatus
      **/
     PalletProverPrimitivesVerifierExitStatus: {
-        _enum: ['Success', 'ProofInvalid', 'LayoutMismatch', 'QueryOutOfBounds'],
+        _enum: ['Success', 'ProofInvalid', 'LayoutMismatch', 'QueryOutOfBounds', 'UnknownError'],
     },
     /**
      * Lookup101: pallet_randomness::pallet::Event<T>
