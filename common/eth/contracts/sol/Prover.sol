@@ -57,7 +57,7 @@ contract CreditcoinPublicProver is Ownable {
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
-        if (queries[queryId].state != QueryState.Submitted) {
+        if (queries[queryId].state == QueryState.Uninitialized) {
             // Store query details
             // .state
             queries[queryId].state = QueryState.Submitted;

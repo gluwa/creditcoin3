@@ -38,6 +38,8 @@ struct QueryDetails {
 }
 
 enum QueryState {
+    // Query is uninitialized, the default state
+    Uninitialized,
     // Query is submitted but not yet verified
     Submitted,
     // Query is verified and the result is available

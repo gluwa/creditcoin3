@@ -18,8 +18,10 @@ pub type Proof = Vec<u8>;
 /// Query id
 pub type QueryId = H256;
 
-const MAX_RETRIES: u32 = 3;
-const RETRY_DELAY: Duration = Duration::from_secs(5);
+const MAX_RETRIES: u32 = 10;
+
+// todo: calculate this by averaging the last X block times on a source chain
+const BLOCK_TIME: Duration = Duration::from_secs(6);
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -47,11 +49,17 @@ pub async fn process(
     query: &Query,
     attestation_cache: &AttestationCacheType,
     stone_proof: bool,
+    chain_attestation_interval: u64,
 ) -> Result<Either<Proof, Vec<PathBuf>>, Error> {
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
     let mut retry_count = 0;
+
+    // calculate how long we want to wait in the worst case scenario.
+    // we want to wait for 2 chain attestation intervals
+    let total_retry_delay =
+        Duration::from_secs(chain_attestation_interval * BLOCK_TIME.as_secs() * 2);
 
     // Get the attestation fragment with retries on QueryTooRecent
     let attestation_fragment = loop {
@@ -63,9 +71,9 @@ pub async fn process(
                 retry_count += 1;
                 error!(
                     "QueryTooRecent error for query {:?}: last_attestation_height={}, query_height={}. Retry {}/{} in {:?}.",
-                    query_id, last_height, query_height, retry_count, MAX_RETRIES, RETRY_DELAY
+                    query_id, last_height, query_height, retry_count, MAX_RETRIES, total_retry_delay/MAX_RETRIES
                 );
-                tokio::time::sleep(RETRY_DELAY).await;
+                tokio::time::sleep(total_retry_delay / MAX_RETRIES).await;
             }
             Err(e) => return Err(e.into()),
         }

@@ -90,6 +90,11 @@ impl Server {
             .await?
             .expect("Prover could not find chain key on startup.");
 
+        let chain_attestation_interval = cc3_client
+            .get_attestation_chain_interval(chain_key)
+            .await?
+            .expect("Prover could not find chain attestation interval on startup.");
+
         // Create a channel to synchronize prover DB updates across `sync_cache`
         // and `build_historical_cache_for_chain`
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -124,7 +129,10 @@ impl Server {
         let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
         for query in unprocessed_queries {
             info!("Processing unprocessed query: {:?}", query);
-            if let Err(e) = self.process_query(query.clone()).await {
+            if let Err(e) = self
+                .process_query(query.clone(), chain_attestation_interval)
+                .await
+            {
                 error!("Query processing failed, Error: {e:?}");
                 remove_query_id(&self.cc3_client, query.id()).await?;
             }
@@ -153,7 +161,10 @@ impl Server {
         // Wait for new queries and handle them
         while let Some(query) = queries.recv().await {
             info!("Processing query: {:?}", query);
-            if let Err(e) = self.process_query(query.clone()).await {
+            if let Err(e) = self
+                .process_query(query.clone(), chain_attestation_interval)
+                .await
+            {
                 error!("Query processing failed, Error: {e:?}");
                 remove_query_id(&self.cc3_client, query.id()).await?;
             }
@@ -162,7 +173,7 @@ impl Server {
         Ok(())
     }
 
-    async fn process_query(&self, query: Query) -> Result<()> {
+    async fn process_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {
         // Create an eth client
         let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, &String::new()).await?);
 
@@ -171,6 +182,7 @@ impl Server {
             &query,
             &self.attestations_cache,
             self.config.prover_be_socket_addr.is_none(),
+            chain_attestation_interval,
         )
         .await?;
 
