@@ -126,19 +126,9 @@ impl GluwaPublicProverContract {
 
         let builder = contract.submitQueryProof(query_id, proof.into());
 
-        let pending_tx = builder.send().await?;
+        let result = builder.send().await?.get_receipt().await?;
 
-        match pending_tx.get_receipt().await {
-            Ok(tx) => {
-                let tx_hash = tx.transaction_hash.to_string();
-                info!("Query proof submitted tx_hash: {}", tx_hash);
-                Ok(tx_hash)
-            }
-            Err(e) => {
-                info!("Query proof submission failed: {:?}", e);
-                Err(anyhow::anyhow!("Query proof submission failed"))
-            }
-        }
+        Ok(result.transaction_hash.to_string())
     }
 
     pub async fn subscribe_query_submissions(
@@ -287,7 +277,7 @@ impl GluwaPublicProverContract {
             .collect())
     }
 
-    pub async fn remove_query_id(&self, client: &Client, query_id: H256) -> Result<()> {
+    pub async fn remove_query_id(&self, client: &Client, query_id: H256) -> Result<String> {
         info!("Removing query id: {:?}", query_id);
         let signer = client.get_signer()?;
 
@@ -300,8 +290,8 @@ impl GluwaPublicProverContract {
 
         let builder = contract.removeQueryId(query_id.0.into());
 
-        builder.send().await?.watch().await?;
+        let result = builder.send().await?.watch().await?;
 
-        Ok(())
+        Ok(result.to_string())
     }
 }

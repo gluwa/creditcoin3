@@ -6,7 +6,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::info;
+use log::error;
 use pallet_evm::AddressMapping;
 use pallet_prover_primitives::{Query, VerifierExitStatus};
 use precompile_utils::prelude::*;
@@ -84,27 +84,27 @@ where
                             match error {
                                 [0, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::ProofInvalid;
-                                    info!("Invalid proof submitted: {:?}", e);
+                                    error!("Invalid proof submitted: {:?}", e);
                                     Ok(2)
                                 }
                                 [10, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::QueryOutOfBounds;
-                                    info!("Query out of bounds: {:?}", e);
+                                    error!("Query out of bounds: {:?}", e);
                                     Ok(3)
                                 }
                                 [11, 0, 0, 0] => {
                                     let _status = VerifierExitStatus::LayoutMismatch;
-                                    info!("Query layout mismatch: {:?}", e);
+                                    error!("Query layout mismatch: {:?}", e);
                                     Ok(1)
                                 }
                                 _ => {
-                                    info!("Failed to dispatch submit_proof: {:?}", e);
+                                    error!("Failed to dispatch submit_proof: {:?}", e);
                                     Ok(4)
                                 }
                             }
                         }
                         _ => {
-                            info!("Failed to dispatch submit_proof: {:?}", e);
+                            error!("Failed to dispatch submit_proof: {:?}", e);
                             Ok(4)
                         }
                     },

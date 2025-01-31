@@ -106,24 +106,33 @@ impl VerifierError {
                 10
             }
             VerifierError::QueryValidationError(e) => match e {
-                QueryIdNotValidated(_, _) => {
-                    log::error!("query id not validated");
+                QueryIdNotValidated(expected, found) => {
+                    log::error!(
+                        "query id not validated, expected {:?}, found {:?}",
+                        expected,
+                        found
+                    );
                     11
                 }
                 QueryOutOfBounds(index) => {
                     log::error!("claim out of bounds at index: {}", index);
                     12
                 }
-                QueryOffsetsMismatch(a, b) => {
-                    log::error!("query offsets mismatch, {a}, {b}");
+                QueryOffsetsMismatch(expected, found) => {
+                    log::error!("query offsets mismatch, {:?}, {:?}", expected, found);
                     13
                 }
-                FieldNotValidated(_, _, _) => {
-                    log::error!("field not validated");
+                FieldNotValidated(range, found, expected) => {
+                    log::error!(
+                        "field at range {:?} not validated, expected {:?}, found {:?}",
+                        range,
+                        expected,
+                        found
+                    );
                     14
                 }
-                FieldInner(_) => {
-                    log::error!("field inner");
+                FieldInner(e) => {
+                    log::error!("field inner error: {:?}", e);
                     15
                 }
                 ProofOutputTruncated => {

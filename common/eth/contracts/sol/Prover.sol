@@ -57,7 +57,7 @@ contract CreditcoinPublicProver is Ownable {
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
-        if (queries[queryId].state != QueryState.ResultAvailable) {
+        if (queries[queryId].state != QueryState.Submitted) {
             // Store query details
             // .state
             queries[queryId].state = QueryState.Submitted;
@@ -80,10 +80,14 @@ contract CreditcoinPublicProver is Ownable {
 
             // Add to unprocessed queries
             queryIds.push(queryId);
+
+            // Emit event
+            emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
+
+        } else {
+            revert("Query already submitted, processing in progress");
         }
 
-        // Emit event
-        emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
     }
 
     function reclaimEscrowedPayment(QueryId queryId) public {

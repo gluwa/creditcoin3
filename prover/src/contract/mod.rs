@@ -88,13 +88,17 @@ pub async fn subscribe_query_submission(
         .await
 }
 
-pub async fn remove_query_id(eth_client: &Client, query_id: QueryId) -> Result<()> {
+pub async fn remove_query_id(eth_client: &Client, query_id: QueryId) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
     let artifact = artifacts::get_deployment_artifact(chain_id).await?;
 
-    artifact
+    let tx_hash = artifact
         .contract
         .remove_query_id(eth_client, query_id)
-        .await
+        .await?;
+
+    info!("Query with id {} removed, tx_hash: {}", query_id, tx_hash);
+
+    Ok(tx_hash)
 }

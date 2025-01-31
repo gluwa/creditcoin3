@@ -56,6 +56,7 @@ pub enum VerifierExitStatus {
     // doesn't exist or the query's layout includes segments o
     // targeted transaction. (dApp's fault)
     QueryOutOfBounds,
+    UnknownError,
 }
 
 impl Query {
