@@ -39,6 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt install -y jq
 
+      # TODO: these values need to be updated once we have deployed Testnet
       - name: Testnet ENV
         id: testnet-env
         if: github.base_ref == 'testnet'
@@ -53,6 +54,7 @@ jobs:
           echo "snapshot_container=cc3-testnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
 
+      # TODO: these values need to be updated once we have deployed Mainnet
       - name: Mainnet ENV
         id: mainnet-env
         if: github.base_ref == 'main'
