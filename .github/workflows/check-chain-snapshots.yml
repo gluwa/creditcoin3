@@ -1,0 +1,271 @@
+---
+name: Check Chain Snapshots
+
+on:
+  schedule:
+    # every morning at 6am, UTC time I belive
+    - cron: "0 6 * * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+env:
+  RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+  LINODE_REGION: "us-ord"
+  # Shared CPU, Linode 32 GB, 8 vCPU, disk: 640 GB, 0.288 $/hr
+  LINODE_VM_SIZE: "g6-standard-8"
+
+jobs:
+  deploy-github-runner:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy_type: devnet
+          - proxy_type: testnet
+          - proxy_type: mainnet
+
+    name: deploy-runner for ${{ matrix.proxy_type }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
+          # doesn't evaluate the $GITHUB_RUN_ID reference
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Provision VM
+        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
+        run: |
+          .github/provision-linode-vm.sh
+        env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
+          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_EPHEMERAL: false
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+          LC_PROXY_TYPE: ${{ matrix.proxy_type }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+
+  remove-github-runner:
+    runs-on: ubuntu-24.04
+    needs:
+      - deploy-github-runner
+      - check-chain-snapshot
+    if: ${{ always() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy_type: devnet
+          - proxy_type: testnet
+          - proxy_type: mainnet
+
+    name: remove-runner for ${{ matrix.proxy_type }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  check-chain-snapshot:
+    needs:
+      - deploy-github-runner
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy_type: devnet
+          - proxy_type: testnet
+          - proxy_type: mainnet
+
+    name: check chain snapshot for ${{ matrix.proxy_type }}
+
+    runs-on:
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}",
+        "type-${{ matrix.proxy_type }}",
+      ]
+
+    steps:
+      - name: Grant everyone permissions on /mnt
+        run: |
+          sudo chmod a+rwx /mnt
+
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Devnet ENV
+        if: matrix.proxy_type == 'devnet'
+        run: |
+          # shellcheck disable=SC2129
+          echo "target_chain=devnet" >> "$GITHUB_ENV"
+          echo "boot_node=/dns4/cc3-dev-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWFCBMV5VosXByvDGKAr9bcg6iW6p6KjgGZHjJSuszVYq8" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-devnet.creditcoin.network/rpc" >> "$GITHUB_ENV"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "snapshot_container=cc3-devnet" >> "$GITHUB_ENV"
+          echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
+
+      - name: Testnet ENV
+        if: matrix.proxy_type == 'testnet'
+        run: |
+          # shellcheck disable=SC2129
+          echo "target_chain=testnet" >> "$GITHUB_ENV"
+          echo "boot_node=/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network/rpc" >> "$GITHUB_ENV"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "snapshot_container=cc3-testnet" >> "$GITHUB_ENV"
+          echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
+
+      - name: Mainnet ENV
+        if: matrix.proxy_type == 'mainnet'
+        run: |
+          # shellcheck disable=SC2129
+          echo "target_chain=mainnet" >> "$GITHUB_ENV"
+          echo "boot_node=/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network/rpc" >> "$GITHUB_ENV"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "snapshot_container=cc3-mainnet" >> "$GITHUB_ENV"
+          echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
+
+      - name: Fetch last block info
+        run: |
+          # store info about the last finalized block before the fork
+          # WARNING: using getBlockHash() instead of getFinalizedHead() b/c PoW doesn't have finalization
+          LAST_BLOCK=$(curl --silent -H "Content-Type: application/json" \
+               -d '{"id": 1, "jsonrpc": "2.0", "method": "chain_getBlockHash", "params": [] }' \
+               ${{ env.https_rpc_url }} | jq -r .result)
+          echo "$LAST_BLOCK" > last-block.hash
+          echo "last_block_hash=$LAST_BLOCK" >> "$GITHUB_ENV"
+
+          while true; do
+              curl --silent -H "Content-Type: application/json" \
+                   -d "{\"id\": 1, \"jsonrpc\": \"2.0\", \"method\": \"chain_getBlock\", \"params\": [\"$LAST_BLOCK\"] }" \
+                   ${{ env.https_rpc_url }} | jq -r .result > last-block.json
+              LAST_BLOCK_NUMBER=$(jq -r .block.header.number last-block.json)
+
+              if [ "$LAST_BLOCK_NUMBER" != "null" ]; then
+                break
+              else
+                echo "INFO: retry fetching block infor for $LAST_BLOCK"
+                sleep 60
+              fi
+          done
+          echo "last_block_number=$LAST_BLOCK_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Install azure-cli
+        run: |
+          sudo apt remove azure-cli -y && sudo apt autoremove -y
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          sudo apt install -y jq unzip
+          az version
+
+      - name: Download latest chain snapshot for ${{ env.snapshot_container }}
+        working-directory: /mnt
+        run: |
+          df -h
+
+          az login --service-principal --username "${{ secrets.AZURE_APP_ID }}" --password "${{ secrets.AZURE_APP_PASSWORD }}" --tenant "${{ secrets.AZURE_TENANT_ID }}"
+          az account set --subscription "Prod Subscription"
+
+          LATEST_SNAPSHOT=$(az storage blob list --auth-mode=login --account-name=snapshotexportaccount --container-name=${{ env.snapshot_container }} | jq -r ".[].name" | tail -n1)
+          echo "INFO: latest snapshot=$LATEST_SNAPSHOT"
+
+          az storage blob download --auth-mode=login --account-name=snapshotexportaccount --container-name=${{ env.snapshot_container }} --name "$LATEST_SNAPSHOT" --file ./snapshot.zip
+
+          ls -lh ./snapshot.zip
+          unzip ./snapshot.zip && rm ./snapshot.zip
+
+          df -h
+
+      - name: Download creditcoin3-node for release ${{ env.release_tag }}
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: gluwa
+          repo: creditcoin3
+          tag: ${{ env.release_tag }}
+          file: ${{ env.artifact_name }}
+
+      - name: Sync with ${{ env.target_chain }} past block number ${{ env.last_block_number }}
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          unzip creditcoin-*-unknown-linux-gnu.zip
+          chmod a+x ./creditcoin3-node
+
+          ./creditcoin3-node --version
+          ./creditcoin3-node \
+            --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+            --chain ${{ env.target_chain }} \
+            --bootnodes "${{ env.boot_node }}" \
+            --prometheus-external --pruning archive \
+            --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+            --public-addr "/dns4/$IP_ADDRESS/tcp/50555" \
+            --base-path /mnt/data \
+            --port 50555 >creditcoin3-node-${{ env.target_chain }}.log 2>&1 &
+
+      - name: Wait for creditcoin3-node to sync past block number ${{ env.last_block_number }}
+        # note: if we can't sync 1 day's worth of blocks in 15 minutes there is probably something wrong
+        timeout-minutes: 15
+        run: |
+          .github/wait-for-sync.sh ${{ env.last_block_number }}
+
+      - name: TERM creditcoin3-node
+        continue-on-error: true
+        run: |
+          killall -TERM creditcoin3-node
+          sleep 120
+
+      - name: KILL creditcoin3-node
+        continue-on-error: true
+        run: |
+          killall -KILL creditcoin3-node
+          sleep 120
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: creditcoin3-${{ env.target_chain }}.log
+          path: "*.log"
