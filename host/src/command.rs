@@ -6,7 +6,6 @@ use std::{
     collections::HashMap,
     env, fs,
     io::Write,
-    ops::Range,
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, PersistError};
@@ -171,28 +170,33 @@ pub fn validate_query_against_proof(
 }
 
 pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
-    let felt_ranges: Result<Vec<Range<usize>>, &'static str> = query
-        .layout_segments
-        .iter()
-        .map(|layout| {
-            let start = usize::try_from(layout.offset).map_err(|_| "layout offset is too large")?;
-            let end = usize::try_from(layout.offset + layout.size)
-                .map_err(|_| "layout end is too large")?;
-            Ok(Range { start, end })
-        })
-        .collect();
+    let mut felts_offsets: Vec<Felt> = Vec::new();
 
-    let felt_ranges = match felt_ranges {
-        Ok(ranges) => ranges,
-        Err(e) => return Err(e),
-    };
+    for layout in &query.layout_segments {
+        let start_u64 = layout.offset;
+        let size_u64 = layout.size;
+        let end_u64 = start_u64
+            .checked_add(size_u64)
+            .ok_or("layout end is too large")?;
 
-    let felts_offsets = felt_ranges
-        .iter()
-        .flat_map(|r| r.clone().map(Into::<Felt>::into).collect::<Vec<_>>())
-        .collect::<Vec<Felt>>();
+        let start = usize::try_from(start_u64).map_err(|_| "layout offset is too large")?;
+        let end = usize::try_from(end_u64).map_err(|_| "layout end is too large")?;
 
-    Ok(pedersen_array(&felts_offsets[..]))
+        // Calculate the length of the range just in case
+        let range_len = end.checked_sub(start).ok_or("invalid layout range")?;
+
+        // Try reserving enough space without overflow
+        felts_offsets
+            .try_reserve(range_len)
+            .map_err(|_| "layout range is too large, capacity overflow")?;
+
+        // Collect
+        for offset in start..end {
+            felts_offsets.push(offset.into());
+        }
+    }
+
+    Ok(pedersen_array(&felts_offsets))
 }
 
 pub fn run_verifier(
@@ -552,25 +556,22 @@ pub mod tests {
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }
 
-    /*
-        // Disabled until CSUB-1404 is fixed
+    #[test]
+    #[should_panic(expected = "ClaimIdNotValidated")]
+    fn validate_query_against_proof_should_error_when_layout_segments_cannot_be_hashed() {
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                // values too large, will cause hash_layout_segments() to error internally
+                offset: u64::MAX,
+                size: u64::MAX,
+            }],
+        };
+        let cairo_verifier_output =
+            cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
 
-        #[test]
-        #[should_panic(expected = "ClaimIdNotValidated")]
-        fn validate_query_against_proof_should_error_when_layout_segments_cannot_be_hashed() {
-            let query = Query {
-                chain_id: 31337,
-                height: 1,
-                index: 0,
-                layout_segments: vec![LayoutSegment {
-                    // values too large, will cause hash_layout_segments() to error internally
-                    offset: u64::MAX,
-                    size: u64::MAX,
-                }],
-            };
-            let cairo_verifier_output = cairo_verifier_output_from_proof_json();
-
-            validate_query_against_proof(query, &cairo_verifier_output).unwrap();
-        }
-    */
+        validate_query_against_proof(query, &cairo_verifier_output).unwrap();
+    }
 }
