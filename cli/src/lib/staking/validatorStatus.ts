@@ -95,6 +95,7 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
     // Get lists of all validators, active validators, and waiting validators
     const validatorEntries = await api.query.staking.validators
         .entries()
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         .then((r) => r.map((v) => v[0].toHuman()?.toString()));
     const activeValidatorsRes = await api.derive.staking.validators();
     const activeValidators: string[] = activeValidatorsRes.validators.map((v) => v.toString());
