@@ -6,6 +6,7 @@ use std::{
     collections::HashMap,
     env, fs,
     io::Write,
+    ops::Range,
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, PersistError};
@@ -170,30 +171,28 @@ pub fn validate_query_against_proof(
 }
 
 pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
-    let mut felts_offsets: Vec<Felt> = Vec::new();
+    let felt_ranges: Vec<Range<u64>> = query
+        .layout_segments
+        .iter()
+        .map(|layout| {
+            layout
+                .offset
+                .checked_add(layout.size)
+                .map(|end| Range {
+                    start: layout.offset,
+                    end,
+                })
+                .ok_or("Overflow detected in layout segment")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    for layout in &query.layout_segments {
-        let start_u64 = layout.offset;
-        let size_u64 = layout.size;
-        let end_u64 = start_u64
-            .checked_add(size_u64)
-            .ok_or("layout end is too large")?;
-
-        let start = usize::try_from(start_u64).map_err(|_| "layout offset is too large")?;
-        let end = usize::try_from(end_u64).map_err(|_| "layout end is too large")?;
-
-        // Calculate the length of the range just in case
-        let range_len = end.checked_sub(start).ok_or("invalid layout range")?;
-
-        // Try reserving enough space without overflow
+    let mut felts_offsets = Vec::new();
+    for r in felt_ranges {
+        let range_len = (r.end - r.start) as usize;
         felts_offsets
             .try_reserve(range_len)
-            .map_err(|_| "layout range is too large, capacity overflow")?;
-
-        // Collect
-        for offset in start..end {
-            felts_offsets.push(offset.into());
-        }
+            .map_err(|_| "layout range is too large")?;
+        felts_offsets.extend((r.start..r.end).map(Into::<Felt>::into));
     }
 
     Ok(pedersen_array(&felts_offsets))
