@@ -46,7 +46,7 @@ enum QueryState {
     ResultAvailable,
     // Prover failed to submit proof in time
     TimedOut,
-    // Query targeted a transaction outside of the containin
+    // Query targeted a transaction outside of the containing
     // range or the query's layout is impossible given the t
     InvalidQuery
 }

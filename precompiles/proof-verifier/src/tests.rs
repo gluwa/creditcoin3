@@ -51,7 +51,9 @@ fn verify_should_revert_when_proof_larger_than_50_mb() {
         });
 }
 
-// exercises the scenario where the underlying extrinsic returns an error
+// exercises the scenario where the underlying extrinsic returns an error.
+// had to change to return instead of a revert because it messes with the prover
+// contract by consuming all the available gas
 #[test]
 fn verify_should_revert_when_proof_is_empty() {
     let alice: H160 = Alice.into();
@@ -77,14 +79,7 @@ fn verify_should_revert_when_proof_is_empty() {
                         query,
                     },
                 )
-                .execute_reverts(|output| {
-                    println!("{:?}", from_utf8(output).unwrap());
-                    // from_utf8(output)
-                    //     .unwrap()
-                    //     .contains("Dispatched call failed with error: ")
-                    //&&
-                    from_utf8(output).unwrap().contains("InvalidProofSubmitted")
-                });
+                .execute_returns(2u8);
         });
 }
 

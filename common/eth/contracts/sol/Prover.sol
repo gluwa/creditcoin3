@@ -84,6 +84,10 @@ contract CreditcoinPublicProver is Ownable {
             // Emit event
             emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
 
+        } else if (queries[queryId].state == QueryState.TimedOut) {
+            revert("Query already timed out");
+        } else if (queries[queryId].state == QueryState.InvalidQuery) {
+            revert("Query already invalidated");
         } else {
             revert("Query already submitted, processing in progress");
         }
