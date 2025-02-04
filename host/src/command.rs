@@ -585,7 +585,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ClaimIdNotValidated")]
+    #[should_panic(expected = "QueryIdNotValidated")]
     fn validate_query_against_proof_should_error_when_layout_segments_cannot_be_hashed() {
         let query = Query {
             chain_id: 31337,
