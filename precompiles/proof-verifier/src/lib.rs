@@ -8,7 +8,7 @@ use frame_support::{
 };
 use log::error;
 use pallet_evm::AddressMapping;
-use pallet_prover_primitives::{Query, VerifierExitStatus};
+use pallet_prover_primitives::Query;
 use precompile_utils::prelude::*;
 use sp_core::H256;
 use sp_runtime::DispatchError;
@@ -61,10 +61,10 @@ where
                 },
             );
 
+            // Instead of erroring out, we propagate status codes to the prover smart contract
+            // and let it deal with them. 1 indicating `LayoutMismatch`, 2 - `ProofInvalid`, etc.
             match result {
                 Ok(_) => {
-                    let _status = VerifierExitStatus::Success;
-
                     log3(
                         handle.context().address,
                         SELECTOR_LOG_PROOF_SUBMITTED,
@@ -83,17 +83,14 @@ where
                             let error = module_error.error;
                             match error {
                                 [0, 0, 0, 0] => {
-                                    let _status = VerifierExitStatus::ProofInvalid;
                                     error!("Invalid proof submitted: {:?}", e);
                                     Ok(2)
                                 }
                                 [10, 0, 0, 0] => {
-                                    let _status = VerifierExitStatus::QueryOutOfBounds;
                                     error!("Query out of bounds: {:?}", e);
                                     Ok(3)
                                 }
                                 [11, 0, 0, 0] => {
-                                    let _status = VerifierExitStatus::LayoutMismatch;
                                     error!("Query layout mismatch: {:?}", e);
                                     Ok(1)
                                 }
