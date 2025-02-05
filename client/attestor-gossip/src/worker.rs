@@ -23,6 +23,7 @@ use supported_chains_primitives::api::SupportedChainsApi;
 
 use super::{inherent, AttestorComms, Client, HashFor, Message, LOG_TARGET};
 use crate::communication::{Attestation, Error};
+use crate::metrics::VoterMetrics;
 use crate::state::{State, VoteImportResult};
 use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
@@ -71,6 +72,8 @@ where
     pub current_epoch_index: u64,
 
     pub inherent_provider: inherent::AsyncProvider<AccountId, B, RuntimeApi, BE>,
+
+    pub metrics: Option<VoterMetrics>,
 
     /// If the worker is an authority
     is_authority: bool,
@@ -157,6 +160,7 @@ where
             .current_epoch(block_hash)
             .expect("Failed to get current epoch index");
 
+        let metrics = None;
         Worker {
             comms: params.comms,
             runtime: params.runtime.clone(),
@@ -165,6 +169,7 @@ where
             current_epoch_index: current_epoch_index.epoch_index,
             backend: params.backend.clone(),
             inherent_provider: params.inherent_provider,
+            metrics,
             is_authority: params.is_authority,
             sync: params.sync,
             attestation_validator: AttestationValidator::new(params.runtime.clone()),

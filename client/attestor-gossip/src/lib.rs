@@ -16,6 +16,7 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
+mod metrics;
 use substrate_prometheus_endpoint::Registry;
 
 use attestor_primitives::api::AttestorApi;
