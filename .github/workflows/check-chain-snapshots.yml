@@ -269,3 +269,12 @@ jobs:
         with:
           name: creditcoin3-${{ env.target_chain }}.log
           path: "*.log"
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          matrix: ${{ toJson(matrix) }}
+          channel: '#ccdev-internal'
