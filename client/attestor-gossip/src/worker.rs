@@ -26,6 +26,7 @@ use supported_chains_primitives::api::SupportedChainsApi;
 
 use super::{inherent, AttestorComms, Client, HashFor, Message, LOG_TARGET};
 use crate::communication::{Attestation, Error};
+use crate::metrics::VoterMetrics;
 use crate::state::{State, VoteImportResult};
 use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
