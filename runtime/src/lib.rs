@@ -152,8 +152,6 @@ pub const MILLISECS_PER_BLOCK: u64 = prod_or_fast!(15_000, 5_000);
 
 pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
 
-pub const CENTS: u128 = CTC / 100;
-
 // WARNING: the next should be defined on a single line b/c of
 // the assertions made in .github/check-for-changes-in-epoch-duration.sh
 #[rustfmt::skip]
