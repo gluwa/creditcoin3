@@ -9,7 +9,6 @@ use creditcoin3_cli_opt::EthApi;
 use futures::{future, prelude::*};
 // Substrate
 use sc_client_api::BlockchainEvents;
-use sc_executor::NativeExecutionDispatch;
 use sc_network_sync::SyncingService;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sp_api::ConstructRuntimeApi;
