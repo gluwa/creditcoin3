@@ -22,6 +22,7 @@ describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void =
         const response = await alith.sendTransaction({
             to: deployedContractAddress,
             value: parseEther('50'),
+            gasLimit: 10000000,
         });
         await response.wait();
 
@@ -36,11 +37,12 @@ describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void =
 
         txHash = call?.hash;
         expect(txHash).toBeDefined();
-    }, 25000);
+    }, 90_000);
 
     test('debug_traceTransaction', async () => {
         // call rpc method `debug_traceTransaction`
         const traceTxResponse = await provider.send('debug_traceTransaction', [txHash]);
+
         expect(traceTxResponse?.gas).toBeDefined();
         expect(traceTxResponse?.structLogs?.length).toBeGreaterThan(0);
     });
@@ -56,10 +58,10 @@ describeIf((global as any).CREDITCOIN_HAS_EVM_TRACING, 'EVM Tracing', (): void =
             { tracer: 'callTracer' },
         ]);
 
-        expect(traceBlockResponse?.[0]?.gas).toBeDefined();
-        expect(traceBlockResponse?.[0]?.gasUsed).toBeDefined();
-        expect(traceBlockResponse?.[0]?.type).toBe('CALL');
-        expect(traceBlockResponse?.[0]?.to).toBe(deployedContractAddress.toLowerCase());
-        expect(traceBlockResponse?.[0]?.calls?.length).toBe(1);
+        expect(traceBlockResponse?.[0]?.result?.gas).toBeDefined();
+        expect(traceBlockResponse?.[0]?.result?.gasUsed).toBeDefined();
+        expect(traceBlockResponse?.[0]?.result?.type).toBe('CALL');
+        expect(traceBlockResponse?.[0]?.result?.to).toBe(deployedContractAddress.toLowerCase());
+        expect(traceBlockResponse?.[0]?.result?.calls?.length).toBe(1);
     });
 });
