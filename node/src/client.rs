@@ -1,6 +1,6 @@
 // Substrate
 #[allow(deprecated)]
-use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion};
+use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion, WasmExecutor};
 // Local
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Nonce};
 
@@ -10,20 +10,20 @@ use crate::eth::EthCompatRuntimeApiCollection;
 pub type FullBackend = sc_service::TFullBackend<Block>;
 /// Full client.
 #[allow(deprecated)]
-pub type FullClient<RuntimeApi, Executor> =
-    sc_service::TFullClient<Block, RuntimeApi, NativeElseWasmExecutor<Executor>>;
+pub type FullClient<RuntimeApi> =
+    sc_service::TFullClient<Block, RuntimeApi, WasmExecutor<HostFunctions>>;
 
-pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>;
+pub type Client = FullClient<creditcoin3_runtime::RuntimeApi>;
 
 /// Only enable the benchmarking host functions when we actually want to benchmark.
 #[cfg(feature = "runtime-benchmarks")]
 pub type HostFunctions = (
     frame_benchmarking::benchmarking::HostFunctions,
-    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
 );
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
-pub type HostFunctions = (creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,);
+pub type HostFunctions = (moonbeam_primitives_ext::moonbeam_ext::HostFunctions,);
 
 pub struct TemplateRuntimeExecutor;
 impl NativeExecutionDispatch for TemplateRuntimeExecutor {
