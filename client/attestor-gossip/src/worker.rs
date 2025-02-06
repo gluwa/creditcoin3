@@ -13,6 +13,7 @@ use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use substrate_prometheus_endpoint::Registry;
+use crate::{metric_inc, metric_set, metrics::VoterMetrics};
 
 use attestor_primitives::{
     api::AttestorApi,
@@ -26,7 +27,6 @@ use supported_chains_primitives::api::SupportedChainsApi;
 
 use super::{inherent, AttestorComms, Client, HashFor, Message, LOG_TARGET};
 use crate::communication::{Attestation, Error};
-use crate::metrics::VoterMetrics;
 use crate::state::{State, VoteImportResult};
 use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
@@ -302,7 +302,12 @@ where
             return Err(Error::WorkerInSync);
         }
 
+
         let block_hash = self.backend.blockchain().info().best_hash;
+        let block_number = self.backend.blockchain().info().best_number;
+
+        let block_number : u64 = block_number.into();
+        metric_set!(self.metrics, attestor_best_voted, block_number);
 
         // Get the round for the attestation
         // This is the chain key and header number
@@ -341,14 +346,12 @@ where
                 metric_inc!(self.metrics, attestor_equivocation_votes);
             }
             VoteImportResult::Ok => {
-                let block_number = self.backend.blockchain().info().best_number;
-                let block_number: u64 = block_number.into();
-                metric_set!(self.metrics, attestor_best_voted, block_number);
+                metric_inc!(self.metrics, attestor_imported_votes);
                 info!(target: LOG_TARGET, "📝 Attestation added to round");
             }
             VoteImportResult::RoundConcluded => {
                 info!(target: LOG_TARGET, "📝 Round concluded");
-                self.try_submit_attestation(round, attestation)?;
+                
             }
         }
         Ok(())
