@@ -163,7 +163,7 @@ declare module '@polkadot/api-base/types/events' {
       BatchChecked: AugmentedEvent<ApiType, [eras: Vec<u32>], { eras: Vec<u32> }>;
       /**
        * A batch of a given size was terminated.
-       * 
+       *
        * This is always follows by a number of `Unstaked` or `Slashed` events, marking the end
        * of the batch. A new batch will be created upon next block.
        **/
@@ -312,7 +312,7 @@ declare module '@polkadot/api-base/types/events' {
       Destroyed: AugmentedEvent<ApiType, [poolId: u32], { poolId: u32 }>;
       /**
        * A member has been removed from a pool.
-       * 
+       *
        * The removal can be voluntary (withdrawn all unbonded funds) or involuntary (kicked).
        * Any funds that are still delegated (i.e. dangling delegation) are released and are
        * represented by `released_balance`.
@@ -365,7 +365,7 @@ declare module '@polkadot/api-base/types/events' {
       StateChanged: AugmentedEvent<ApiType, [poolId: u32, newState: PalletNominationPoolsPoolState], { poolId: u32, newState: PalletNominationPoolsPoolState }>;
       /**
        * A member has unbonded from their pool.
-       * 
+       *
        * - `balance` is the corresponding balance of the number of points that has been
        * requested to be unbonded (the argument of the `unbond` transaction) from the bonded
        * pool.
@@ -383,9 +383,9 @@ declare module '@polkadot/api-base/types/events' {
       UnbondingPoolSlashed: AugmentedEvent<ApiType, [poolId: u32, era: u32, balance: u128], { poolId: u32, era: u32, balance: u128 }>;
       /**
        * A member has withdrawn from their pool.
-       * 
+       *
        * The given number of `points` have been dissolved in return of `balance`.
-       * 
+       *
        * Similar to `Unbonded` event, in the absence of slashing, the ratio of point to balance
        * will be 1.
        **/
@@ -448,7 +448,7 @@ declare module '@polkadot/api-base/types/events' {
     staking: {
       /**
        * An account has bonded this amount. \[stash, amount\]
-       * 
+       *
        * NOTE: This event is only emitted when funds are bonded via a dispatchable. Notably,
        * it will not be emitted for staking rewards when they are added to stake.
        **/
