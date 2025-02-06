@@ -10,6 +10,7 @@ use sp_core::H256;
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
+use crate::{metric_inc, metric_set, metrics::VoterMetrics};
 
 use attestor_primitives::{
     api::AttestorApi,
@@ -23,7 +24,6 @@ use supported_chains_primitives::api::SupportedChainsApi;
 
 use super::{inherent, AttestorComms, Client, HashFor, Message, LOG_TARGET};
 use crate::communication::{Attestation, Error};
-use crate::metrics::VoterMetrics;
 use crate::state::{State, VoteImportResult};
 use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
@@ -218,6 +218,7 @@ where
                         debug!(target: LOG_TARGET, "📝 Got a vote from the network");
                         match self.triage_message(vote.clone()).await {
                             Ok(()) => {
+                                metric_inc!(self.metrics, attestor_good_votes_processed);
                                 debug!(target: LOG_TARGET, "📝 Got a valid gossiped message");
                             },
                             Err(e) => {
@@ -226,6 +227,7 @@ where
                         }
                     } else {
                         warn!(target: LOG_TARGET, "📝 Got a vote, but it was invalid");
+                        metric_inc!(self.metrics, attestor_invalid_votes);
                         break Error::GossipEngineExited;
                     }
                 },
@@ -250,6 +252,7 @@ where
                                     Ok(()) => {
                                         debug!(target: LOG_TARGET, "📝 Got a valid incoming message from rpc, round: {:?}", round);
                                         // Gossip now
+                                        metric_inc!(self.metrics, attestor_votes_sent);
                                         self.comms.gossip_engine.gossip_message(
                                             topic,
                                             message.encode(),
@@ -292,7 +295,12 @@ where
             return Err(Error::WorkerInSync);
         }
 
+
         let block_hash = self.backend.blockchain().info().best_hash;
+        let block_number = self.backend.blockchain().info().best_number;
+
+        let block_number : u64 = block_number.into();
+        metric_set!(self.metrics, attestor_best_voted, block_number);
 
         // Get the round for the attestation
         // This is the chain key and header number
@@ -307,6 +315,7 @@ where
 
         // Short circuit if we are not an authority
         if !self.is_authority {
+            metric_inc!(self.metrics, attestor_no_authority_found_in_store);
             debug!(target: LOG_TARGET, "📝 Not an authority, skipping counting votes");
             return Ok(());
         }
@@ -329,14 +338,14 @@ where
                 warn!(target: LOG_TARGET, "📝 Double vote detected");
             }
             VoteImportResult::Ok => {
+                metric_inc!(self.metrics, attestor_imported_votes);
                 info!(target: LOG_TARGET, "📝 Attestation added to round");
             }
             VoteImportResult::RoundConcluded => {
                 info!(target: LOG_TARGET, "📝 Round concluded");
-                self.try_submit_attestation(round, attestation)?;
+                
             }
         }
-
         Ok(())
     }
 
@@ -560,7 +569,7 @@ where
                 .ok_or(Error::Overflow)?,
             active_attestors,
         );
-
+        metric_set!(self.metrics, attestor_best_block, current_block);
         Ok(())
     }
 }
