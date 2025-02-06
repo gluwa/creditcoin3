@@ -1,7 +1,9 @@
 use super::*;
 
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
-use pallet_evm::{EnsureAddressNever, EnsureAddressRoot, IdentityAddressMapping};
+use pallet_evm::{
+    EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider, IdentityAddressMapping,
+};
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
@@ -167,11 +169,7 @@ impl pallet_balances::Config for Runtime {
     type RuntimeHoldReason = ();
     type FreezeIdentifier = ();
     type MaxFreezes = ();
-    // type MaxHolds = ();
-
     type RuntimeFreezeReason = RuntimeFreezeReason;
-    // type FreezeIdentifier = RuntimeFreezeReason;
-    // type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
@@ -197,7 +195,6 @@ parameter_types! {
         let block_gas_limit = BlockGasLimit::get().min(u64::MAX.into()).low_u64();
         block_gas_limit.saturating_div(BLOCK_STORAGE_LIMIT)
     };
-
     pub SuicideQuickClearLimit: u32 = 0;
 }
 
@@ -222,7 +219,8 @@ impl pallet_evm::Config for Runtime {
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
     type Timestamp = Timestamp;
     type WeightInfo = pallet_evm::weights::SubstrateWeight<Runtime>;
-    type SuicideQuickClearLimit = SuicideQuickClearLimit;
+    type AccountProvider = FrameSystemAccountProvider<Runtime>;
+    type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
 }
 
 // Configure a mock runtime to test the pallet.

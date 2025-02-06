@@ -1,6 +1,6 @@
 // Substrate
 #[allow(deprecated)]
-use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion, WasmExecutor};
+use sc_executor::WasmExecutor;
 // Local
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Nonce};
 
@@ -24,19 +24,6 @@ pub type HostFunctions = (
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = (moonbeam_primitives_ext::moonbeam_ext::HostFunctions,);
-
-pub struct TemplateRuntimeExecutor;
-impl NativeExecutionDispatch for TemplateRuntimeExecutor {
-    type ExtendHostFunctions = HostFunctions;
-
-    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        creditcoin3_runtime::api::dispatch(method, data)
-    }
-
-    fn native_version() -> NativeVersion {
-        creditcoin3_runtime::native_version()
-    }
-}
 
 /// A set of APIs that every runtimes must implement.
 pub trait BaseRuntimeApiCollection:

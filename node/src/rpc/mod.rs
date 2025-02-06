@@ -17,7 +17,6 @@ use sc_consensus_babe::BabeWorkerHandle;
 use sc_consensus_grandpa::FinalityProofProvider;
 use sc_consensus_manual_seal::rpc::EngineCommand;
 use sc_rpc::SubscriptionTaskExecutor;
-use sc_rpc_api::DenyUnsafe;
 use sc_service::TaskManager;
 use sc_service::TransactionPool;
 use sc_transaction_pool::ChainApi;

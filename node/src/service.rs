@@ -8,7 +8,6 @@ use futures::{channel::mpsc, prelude::*};
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
-use sc_executor::NativeExecutionDispatch;
 use sc_network_sync::{strategy::warp::WarpSyncProvider, WarpSyncConfig};
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
@@ -24,10 +23,7 @@ use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
 use crate::rpc;
 use crate::{
     cli::Sealing,
-    client::{
-        BaseRuntimeApiCollection, Client, FullBackend, FullClient, RuntimeApiCollection,
-        TemplateRuntimeExecutor,
-    },
+    client::{BaseRuntimeApiCollection, Client, FullBackend, FullClient, RuntimeApiCollection},
     eth::{
         db_config_dir, new_frontier_partial, spawn_frontier_tasks, BackendType,
         EthCompatRuntimeApiCollection, EthConfiguration, FrontierBackend, FrontierBlockImport,
@@ -404,7 +400,6 @@ where
             Arc::clone(&peer_store_handle),
         );
 
-    use sc_network_sync::strategy::warp::WarpSyncProvider;
     let warp_sync_config = if sealing.is_some() {
         None
     } else {
@@ -454,7 +449,7 @@ where
         );
     }
 
-    let role = config.role.clone();
+    let role = config.role;
     let force_authoring = config.force_authoring;
     let name = config.network.node_name.clone();
     let enable_grandpa = !config.disable_grandpa && sealing.is_none();
