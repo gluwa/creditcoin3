@@ -49,8 +49,6 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     pub client: Arc<C>,
     /// Transaction pool instance.
     pub pool: Arc<P>,
-    /// Whether to deny unsafe calls
-    pub deny_unsafe: DenyUnsafe,
     /// Manual seal command sink
     pub command_sink: Option<mpsc::Sender<EngineCommand<Hash>>>,
     /// Ethereum-compatibility specific dependencies.
@@ -140,8 +138,8 @@ where
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
-    use creditcoin3_rpc_debug::{Debug, DebugServer};
-    use creditcoin3_rpc_trace::{Trace, TraceServer};
+    use moonbeam_rpc_debug::{Debug, DebugServer};
+    use moonbeam_rpc_trace::{Trace, TraceServer};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
@@ -152,7 +150,6 @@ where
     let FullDeps {
         client,
         pool,
-        deny_unsafe,
         command_sink,
         eth,
         babe: BabeDeps {
@@ -163,7 +160,7 @@ where
         grandpa,
     } = deps;
 
-    io.merge(System::new(Arc::clone(&client), Arc::clone(&pool), deny_unsafe).into_rpc())?;
+    io.merge(System::new(Arc::clone(&client), Arc::clone(&pool)).into_rpc())?;
     io.merge(TransactionPayment::new(Arc::clone(&client)).into_rpc())?;
 
     if let Some(command_sink) = command_sink {
@@ -175,16 +172,7 @@ where
     }
 
     if let Some(babe_worker) = babe_worker {
-        io.merge(
-            Babe::new(
-                client.clone(),
-                babe_worker,
-                keystore,
-                select_chain,
-                deny_unsafe,
-            )
-            .into_rpc(),
-        )?;
+        io.merge(Babe::new(client.clone(), babe_worker, keystore, select_chain).into_rpc())?;
     }
 
     if let Some(GrandpaDeps {

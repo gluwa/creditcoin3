@@ -9,7 +9,7 @@ use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
 use sc_executor::NativeExecutionDispatch;
-use sc_network_sync::WarpSyncParams;
+use sc_network_sync::{strategy::warp::WarpSyncProvider, WarpSyncConfig};
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
@@ -44,18 +44,17 @@ type GrandpaBlockImport<Client> =
 type GrandpaLinkHalf<Client> = sc_consensus_grandpa::LinkHalf<Block, Client, FullSelectChain>;
 type BoxBlockImport = sc_consensus::BoxBlockImport<Block>;
 
-pub struct Basics<'a, RuntimeApi, Executor: NativeExecutionDispatch + 'static>
+pub struct Basics<'a, RuntimeApi>
 where
-    RuntimeApi:
-        ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>> + Send + Sync + 'static,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>> + Send + Sync + 'static,
     RuntimeApi::RuntimeApi: BaseRuntimeApiCollection + EthCompatRuntimeApiCollection,
 {
     telemetry: Option<TelemetryHandle>,
     task_manager: &'a TaskManager,
-    client: Arc<FullClient<RuntimeApi, Executor>>,
+    client: Arc<FullClient<RuntimeApi>>,
     select_chain: FullSelectChain,
     config: &'a Configuration,
-    transaction_pool: Arc<FullPool<FullClient<RuntimeApi, Executor>>>,
+    transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
 }
 
 /// The minimum period of blocks on which justifications will be
@@ -63,25 +62,25 @@ where
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
 #[allow(deprecated)]
-pub fn new_partial<RuntimeApi, Executor, BIQ>(
+pub fn new_partial<RuntimeApi, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
     build_import_queue: BIQ,
 ) -> Result<
     PartialComponents<
-        FullClient<RuntimeApi, Executor>,
+        FullClient<RuntimeApi>,
         FullBackend,
         FullSelectChain,
         BasicImportQueue,
-        FullPool<FullClient<RuntimeApi, Executor>>,
+        FullPool<FullClient<RuntimeApi>>,
         (
             Option<Telemetry>,
             BoxBlockImport,
-            GrandpaLinkHalf<FullClient<RuntimeApi, Executor>>,
+            GrandpaLinkHalf<FullClient<RuntimeApi>>,
             BabeLink<Block>,
             //important to use Arc and have only one instance of frontier_backend
             //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
-            Arc<FrontierBackend<FullClient<RuntimeApi, Executor>>>,
+            Arc<FrontierBackend<FullClient<RuntimeApi>>>,
             Arc<dyn StorageOverride<Block>>,
             Option<BabeWorkerHandle<Block>>,
         ),
@@ -89,20 +88,19 @@ pub fn new_partial<RuntimeApi, Executor, BIQ>(
     ServiceError,
 >
 where
-    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>>,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: BaseRuntimeApiCollection + EthCompatRuntimeApiCollection,
     RuntimeApi::RuntimeApi: BabeApi<Block>,
-    Executor: NativeExecutionDispatch + 'static,
     BIQ: FnOnce(
         &EthConfiguration,
-        Basics<RuntimeApi, Executor>,
-        GrandpaBlockImport<FullClient<RuntimeApi, Executor>>,
+        Basics<RuntimeApi>,
+        GrandpaBlockImport<FullClient<RuntimeApi>>,
         (
             BabeBlockImport<
                 Block,
-                FullClient<RuntimeApi, Executor>,
-                GrandpaBlockImport<FullClient<RuntimeApi, Executor>>,
+                FullClient<RuntimeApi>,
+                GrandpaBlockImport<FullClient<RuntimeApi>>,
             >,
             BabeLink<Block>,
         ),
@@ -126,7 +124,7 @@ where
         })
         .transpose()?;
 
-    let executor = sc_service::new_native_or_wasm_executor(config);
+    let executor = sc_service::new_wasm_executor(&config.executor);
 
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<Block, RuntimeApi, _>(
@@ -231,16 +229,12 @@ where
 }
 
 /// Build the import queue for the runtime (babe + grandpa).
-pub fn build_babe_grandpa_import_queue<RuntimeApi, Executor>(
+pub fn build_babe_grandpa_import_queue<RuntimeApi>(
     eth_config: &EthConfiguration,
-    basics: Basics<RuntimeApi, Executor>,
-    grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi, Executor>>,
+    basics: Basics<RuntimeApi>,
+    grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
     babe_import: (
-        BabeBlockImport<
-            Block,
-            FullClient<RuntimeApi, Executor>,
-            GrandpaBlockImport<FullClient<RuntimeApi, Executor>>,
-        >,
+        BabeBlockImport<Block, FullClient<RuntimeApi>, GrandpaBlockImport<FullClient<RuntimeApi>>>,
         BabeLink<Block>,
     ),
 ) -> Result<
@@ -252,10 +246,9 @@ pub fn build_babe_grandpa_import_queue<RuntimeApi, Executor>(
     ServiceError,
 >
 where
-    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>>,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
-    Executor: NativeExecutionDispatch + 'static,
 {
     let Basics {
         telemetry,
@@ -306,16 +299,12 @@ where
 }
 
 /// Build the import queue for the template runtime (manual seal).
-pub fn build_manual_seal_import_queue<RuntimeApi, Executor>(
+pub fn build_manual_seal_import_queue<RuntimeApi>(
     _eth_config: &EthConfiguration,
-    basics: Basics<RuntimeApi, Executor>,
-    _grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi, Executor>>,
+    basics: Basics<RuntimeApi>,
+    _grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
     _babe_import: (
-        BabeBlockImport<
-            Block,
-            FullClient<RuntimeApi, Executor>,
-            GrandpaBlockImport<FullClient<RuntimeApi, Executor>>,
-        >,
+        BabeBlockImport<Block, FullClient<RuntimeApi>, GrandpaBlockImport<FullClient<RuntimeApi>>>,
         BabeLink<Block>,
     ),
 ) -> Result<
@@ -327,10 +316,9 @@ pub fn build_manual_seal_import_queue<RuntimeApi, Executor>(
     ServiceError,
 >
 where
-    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>>,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
-    Executor: NativeExecutionDispatch + 'static,
 {
     let Basics {
         task_manager,
@@ -351,22 +339,21 @@ where
 }
 
 /// Builds a new service for a full client.
-pub async fn new_full<RuntimeApi, Executor, Net>(
+pub async fn new_full<RuntimeApi, Net>(
     mut config: Configuration,
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError>
 where
-    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>>,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
-    Executor: NativeExecutionDispatch + 'static,
     Net: sc_network::service::traits::NetworkBackend<Block, Hash>,
 {
     let build_import_queue = if sealing.is_some() {
-        build_manual_seal_import_queue::<RuntimeApi, Executor>
+        build_manual_seal_import_queue::<RuntimeApi>
     } else {
-        build_babe_grandpa_import_queue::<RuntimeApi, Executor>
+        build_babe_grandpa_import_queue::<RuntimeApi>
     };
 
     let PartialComponents {
@@ -395,8 +382,11 @@ where
         fee_history_cache_limit,
     } = new_frontier_partial(&eth_config)?;
 
-    let mut net_config =
-        sc_network::config::FullNetworkConfiguration::<_, _, Net>::new(&config.network);
+    let mut net_config = sc_network::config::FullNetworkConfiguration::<
+        Block,
+        <Block as sp_runtime::traits::Block>::Hash,
+        Net,
+    >::new(&config.network, config.prometheus_registry().cloned());
     let peer_store_handle = net_config.peer_store_handle();
     let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
         &client.block_hash(0)?.expect("Genesis block exists; qed"),
@@ -415,7 +405,7 @@ where
         );
 
     use sc_network_sync::strategy::warp::WarpSyncProvider;
-    let warp_sync_params = if sealing.is_some() {
+    let warp_sync_config = if sealing.is_some() {
         None
     } else {
         net_config.add_notification_protocol(grandpa_protocol_config);
@@ -425,7 +415,7 @@ where
                 grandpa_link.shared_authority_set().clone(),
                 Vec::default(),
             ));
-        Some(WarpSyncParams::WithProvider(warp_sync))
+        Some(WarpSyncConfig::WithProvider(warp_sync))
     };
 
     let metrics = Net::register_notification_metrics(config.prometheus_registry());
@@ -438,7 +428,7 @@ where
             spawn_handle: task_manager.spawn_handle(),
             import_queue,
             block_announce_validator_builder: None,
-            warp_sync_params,
+            warp_sync_config,
             block_relay: None,
             metrics,
         })?;
@@ -483,7 +473,7 @@ where
     let pubsub_notification_sinks = Arc::new(pubsub_notification_sinks);
 
     // for ethereum-compatibility rpc.
-    config.rpc_id_provider = Some(Box::new(fc_rpc::EthereumSubIdProvider));
+    config.rpc.id_provider = Some(Box::new(fc_rpc::EthereumSubIdProvider));
 
     let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
     let ethapi_cmd = eth_config.ethapi.clone();
@@ -542,9 +532,9 @@ where
             let next_slot = current.timestamp().as_millis() + slot_duration.as_millis();
             let timestamp = sp_timestamp::InherentDataProvider::new(next_slot.into());
             let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-				*timestamp,
-				slot_duration,
-			);
+                *timestamp,
+                slot_duration,
+            );
             let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
             Ok((slot, timestamp, dynamic_fee))
         };
@@ -558,8 +548,9 @@ where
         );
         let justification_stream = grandpa_link.justification_stream();
         let shared_voter_state = shared_voter_state.clone();
+
         Box::new(
-            move |deny_unsafe, subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
+            move |subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
                 let eth_deps = rpc::EthDeps {
                     client: client.clone(),
                     pool: pool.clone(),
@@ -587,7 +578,6 @@ where
                 let deps = rpc::FullDeps {
                     client: client.clone(),
                     pool: pool.clone(),
-                    deny_unsafe,
                     command_sink: if sealing.is_some() {
                         Some(command_sink.clone())
                     } else {
@@ -770,11 +760,11 @@ where
     Ok(task_manager)
 }
 
-fn run_manual_seal_authorship<RuntimeApi, Executor>(
+fn run_manual_seal_authorship<RuntimeApi>(
     eth_config: &EthConfiguration,
     sealing: Sealing,
-    client: Arc<FullClient<RuntimeApi, Executor>>,
-    transaction_pool: Arc<FullPool<FullClient<RuntimeApi, Executor>>>,
+    client: Arc<FullClient<RuntimeApi>>,
+    transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
     select_chain: FullSelectChain,
     block_import: BoxBlockImport,
     task_manager: &TaskManager,
@@ -783,10 +773,9 @@ fn run_manual_seal_authorship<RuntimeApi, Executor>(
     commands_stream: mpsc::Receiver<sc_consensus_manual_seal::rpc::EngineCommand<Hash>>,
 ) -> Result<(), ServiceError>
 where
-    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>>,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
-    Executor: NativeExecutionDispatch + 'static,
 {
     let proposer_factory = sc_basic_authorship::ProposerFactory::new(
         task_manager.spawn_handle(),
@@ -869,11 +858,9 @@ pub async fn build_full(
     eth_config: EthConfiguration,
     sealing: Option<Sealing>,
 ) -> Result<TaskManager, ServiceError> {
-    new_full::<
-        creditcoin3_runtime::RuntimeApi,
-        TemplateRuntimeExecutor,
-        sc_network::NetworkWorker<_, _>,
-    >(config, eth_config, sealing)
+    new_full::<creditcoin3_runtime::RuntimeApi, sc_network::NetworkWorker<_, _>>(
+        config, eth_config, sealing,
+    )
     .await
 }
 
@@ -899,7 +886,7 @@ pub fn new_chain_ops(
         task_manager,
         other,
         ..
-    } = new_partial::<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor, _>(
+    } = new_partial::<creditcoin3_runtime::RuntimeApi, _>(
         config,
         eth_config,
         build_babe_grandpa_import_queue,
