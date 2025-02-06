@@ -136,7 +136,7 @@ pub trait EthCompatRuntimeApiCollection:
     sp_api::ApiExt<Block>
     + fp_rpc::ConvertTransactionRuntimeApi<Block>
     + fp_rpc::EthereumRuntimeRPCApi<Block>
-    + creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block>
+    + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
 {
 }
 
@@ -144,15 +144,15 @@ impl<Api> EthCompatRuntimeApiCollection for Api where
     Api: sp_api::ApiExt<Block>
         + fp_rpc::ConvertTransactionRuntimeApi<Block>
         + fp_rpc::EthereumRuntimeRPCApi<Block>
-        + creditcoin3_rpc_primitives_debug::DebugRuntimeApi<Block>
+        + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
 {
 }
 
-pub async fn spawn_frontier_tasks<RuntimeApi, Executor>(
+pub async fn spawn_frontier_tasks<RuntimeApi>(
     task_manager: &TaskManager,
-    client: Arc<FullClient<RuntimeApi, Executor>>,
+    client: Arc<FullClient<RuntimeApi>>,
     backend: Arc<FullBackend>,
-    frontier_backend: Arc<fc_db::Backend<Block, FullClient<RuntimeApi, Executor>>>,
+    frontier_backend: Arc<fc_db::Backend<Block, FullClient<RuntimeApi>>>,
     filter_pool: Option<FilterPool>,
     overrides: Arc<dyn StorageOverride<Block>>,
     fee_history_cache: FeeHistoryCache,
@@ -164,10 +164,9 @@ pub async fn spawn_frontier_tasks<RuntimeApi, Executor>(
         >,
     >,
 ) where
-    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>>,
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: EthCompatRuntimeApiCollection,
-    Executor: NativeExecutionDispatch + 'static,
 {
     // Spawn main mapping sync worker background task.
     match &*frontier_backend {
