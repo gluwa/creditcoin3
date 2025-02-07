@@ -157,9 +157,9 @@ macro_rules! metric_get {
 pub(crate) mod tests {
     use super::*;
 
-    #[test]
-    fn should_register_metrics() {
-        let registry = Some(Registry::new());
-        assert!(register_metrics::<VoterMetrics>(registry.clone()).is_some());
-    }
+	#[test]
+	fn should_register_metrics() {
+		let registry = Some(Registry::new());
+		assert!(register_metrics::<VoterMetrics>(registry.clone()).is_some());
+	}
 }
