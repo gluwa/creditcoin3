@@ -8,8 +8,10 @@ use sp_consensus::SyncOracle;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
+use substrate_prometheus_endpoint::Registry;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
+use crate::metrics::register_metrics;
 use crate::{metric_inc, metric_set, metrics::VoterMetrics};
 
 use attestor_primitives::{
@@ -123,6 +125,8 @@ where
 
     /// If the worker is an authority
     pub is_authority: bool,
+
+    pub prometheus_registry: Option<Registry>,
 }
 
 impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, AccountId, S> Worker<B, RA, BE, C, AccountId, S>
@@ -160,7 +164,7 @@ where
             .current_epoch(block_hash)
             .expect("Failed to get current epoch index");
 
-        let metrics = None;
+        let metrics = register_metrics(params.prometheus_registry);
         Worker {
             comms: params.comms,
             runtime: params.runtime.clone(),
@@ -216,6 +220,7 @@ where
                 vote = votes.next() => {
                     if let Some(vote) = vote {
                         debug!(target: LOG_TARGET, "📝 Got a vote from the network");
+                        metric_inc!(self.metrics, attestor_imported_votes);
                         match self.triage_message(vote.clone()).await {
                             Ok(()) => {
                                 metric_inc!(self.metrics, attestor_good_votes_processed);
@@ -297,10 +302,6 @@ where
 
 
         let block_hash = self.backend.blockchain().info().best_hash;
-        let block_number = self.backend.blockchain().info().best_number;
-
-        let block_number : u64 = block_number.into();
-        metric_set!(self.metrics, attestor_best_voted, block_number);
 
         // Get the round for the attestation
         // This is the chain key and header number
@@ -338,12 +339,14 @@ where
                 warn!(target: LOG_TARGET, "📝 Double vote detected");
             }
             VoteImportResult::Ok => {
-                metric_inc!(self.metrics, attestor_imported_votes);
+                let block_number = self.backend.blockchain().info().best_number;
+                let block_number : u64 = block_number.into();
+                metric_set!(self.metrics, attestor_best_voted, block_number);
                 info!(target: LOG_TARGET, "📝 Attestation added to round");
             }
             VoteImportResult::RoundConcluded => {
                 info!(target: LOG_TARGET, "📝 Round concluded");
-                
+                self.try_submit_attestation(round, attestation)?;
             }
         }
         Ok(())

@@ -182,6 +182,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
         backend,
         inherent_provider,
         is_authority,
+        prometheus_registry,
         ..
     } = attestor_params;
 
@@ -228,6 +229,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
             inherent_provider: inherent_provider.clone(),
             is_authority,
             sync: sync.clone(),
+            prometheus_registry: prometheus_registry.clone(),
         };
         let worker: Worker<B, R, BE, C, AccountId, S> = Worker::new(worker_params);
 
