@@ -1,12 +1,10 @@
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('./artifacts/SubstrateTransfer.json');
+import contractABI = require('./artifacts/SubstrateTransfer.json');
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../lib';
 import { fundFromSudo } from '../integration-tests/helpers';
-
-const contractABI = contractABIJSON.contracts['sol/substrate_transfer.sol:SubstrateTransfer'].abi;
 
 describe('Precompile: transfer_substrate()', (): void => {
     let contract: any;
@@ -84,10 +82,9 @@ describe('Precompile: transfer_substrate()', (): void => {
             contract.transfer_substrate(destination.addressRaw, amount, {
                 gasPrice,
             }),
-        ).rejects.toThrow(/Dispatched call failed with error: Arithmetic\(Underflow\)/);
+        ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
         // ^^^ appears to come from can_withdraw()
-        // ^^^ appears to come from do_transfer_reserved()
-        // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/impl_fungible.rs#L113
+        // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/impl_fungible.rs#L110
 
         // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
@@ -103,9 +100,8 @@ describe('Precompile: transfer_substrate()', (): void => {
                 gasPrice,
             }),
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Token\(FundsUnavailable\)/);
-        // ^^^ appears to come from can_withdraw()
         // ^^^ appears to come from do_transfer_reserved()
-        // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/impl_fungible.rs#L113
+        // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/lib.rs#L1098
 
         // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);

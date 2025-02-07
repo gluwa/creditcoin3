@@ -1,79 +1,45 @@
-{
-  "contracts": {
-    "sol/substrate_transfer.sol:SubstrateTransfer": {
-      "abi": [
-        {
-          "anonymous": false,
-          "inputs": [
-            {
-              "indexed": true,
-              "internalType": "address",
-              "name": "from",
-              "type": "address"
-            },
-            {
-              "indexed": true,
-              "internalType": "bytes32",
-              "name": "destination",
-              "type": "bytes32"
-            },
-            {
-              "indexed": false,
-              "internalType": "uint256",
-              "name": "amount",
-              "type": "uint256"
-            }
-          ],
-          "name": "Transfer",
-          "type": "event"
-        },
-        {
-          "inputs": [
-            {
-              "internalType": "bytes32",
-              "name": "destination",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint256",
-              "name": "amount",
-              "type": "uint256"
-            }
-          ],
-          "name": "transfer_substrate",
-          "outputs": [],
-          "stateMutability": "nonpayable",
-          "type": "function"
-        }
-      ],
-      "devdoc": {
-        "events": {
-          "Transfer(address,bytes32,uint256)": {
-            "details": "Event emitted when a transfer has been performed.",
-            "params": {
-              "amount": "The amount of tokens transferred.",
-              "destination": "The Substrate address receiving the tokens.",
-              "from": "Address which tokens are sent from."
-            }
-          }
-        },
-        "kind": "dev",
-        "methods": {
-          "transfer_substrate(bytes32,uint256)": {
-            "details": "Function to transfer tokens to a Substrate address.",
-            "params": {
-              "amount": "The amount of tokens to transfer.",
-              "destination": "The Substrate address receiving the tokens."
-            }
-          }
-        },
-        "title": "SubstrateTransfer interface",
-        "version": 1
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
       },
-      "hashes": {
-        "transfer_substrate(bytes32,uint256)": "ddde0930"
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "destination",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       }
-    }
+    ],
+    "name": "Transfer",
+    "type": "event"
   },
-  "version": "0.8.28+commit.7893614a.Linux.g++"
-}
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "destination",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "transfer_substrate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
