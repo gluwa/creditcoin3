@@ -246,8 +246,8 @@ jobs:
             --port 50555 >creditcoin3-node-${{ env.target_chain }}.log 2>&1 &
 
       - name: Wait for creditcoin3-node to sync past block number ${{ env.last_block_number }}
-        # note: if we can't sync 1 day's worth of blocks in 15 minutes there is probably something wrong
-        timeout-minutes: 15
+        # note: if we can't sync 1 day's worth of blocks in 25 minutes there is probably something wrong
+        timeout-minutes: 25
         run: |
           .github/wait-for-sync.sh ${{ env.last_block_number }}
 
