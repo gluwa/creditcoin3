@@ -26,7 +26,7 @@ async function evmFundAction(options: OptionValues) {
 
     const caller = await initKeyring(options);
 
-    const tx = api.tx.balances.transfer(asociatedSubstrateAddress, amount.toString());
+    const tx = api.tx.balances.transferKeepAlive(asociatedSubstrateAddress, amount.toString());
     await requireKeyringHasSufficientFunds(tx, caller, api, amount);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
