@@ -39,7 +39,7 @@ async function sendAction(options: OptionValues) {
         }
     }
 
-    const tx = api.tx.balances.transfer(recipient, amount.toString());
+    const tx = api.tx.balances.transferKeepAlive(recipient, amount.toString());
     await requireKeyringHasSufficientFunds(tx, caller, api, amount);
     const result = await signSendAndWatchCcKeyring(tx, api, caller);
     console.log(result.info);
