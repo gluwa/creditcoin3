@@ -42,7 +42,7 @@ frame-election-provider-support = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-offences = { workspace = true }
 pallet-staking = { workspace = true }
-pallet-staking-reward-curve = { version = "4.0.0-dev", git = "https://github.com/gluwa/polkadot-sdk", branch = "release-polkadot-v1.1.0-patch", default-features = false }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-timestamp = { workspace = true }
 sp-core = { workspace = true, default-features = false, features = ["serde"] }
 sp-io = { workspace = true }

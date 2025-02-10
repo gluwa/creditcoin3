@@ -28,10 +28,7 @@ use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
 
 /// Gossip engine votes messages topic
-pub(crate) fn votes_topic<B: BlockT>() -> B::Hash
-where
-    B: BlockT,
-{
+pub(crate) fn votes_topic<B: BlockT>() -> B::Hash {
     <<B::Header as HeaderT>::Hashing as HashT>::hash(b"attestor-votes")
 }
 
@@ -219,7 +216,7 @@ where
                                 debug!(target: LOG_TARGET, "📝 Got a valid gossiped message");
                             },
                             Err(e) => {
-                                error!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
+                                debug!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
                             }
                         }
                     } else {
@@ -255,7 +252,7 @@ where
                                         );
                                     },
                                     Err(e) => {
-                                        error!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
+                                        debug!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
                                     }
                                 }
 

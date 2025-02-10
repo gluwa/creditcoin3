@@ -61,11 +61,10 @@ pub async fn run_cairo_verifier(
 
     let mut cairo_verifier = build_prover(claim.clone(), fragment_subset, block)
         .await
-        .map(|claim_cairo_verifier| {
+        .inspect(|claim_cairo_verifier| {
             debug!("done");
             debug!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
             debug!("running script {}", format!("{:?}", ClaimProver::verify_merkle_command()).bright_cyan());
-            claim_cairo_verifier
         })
         .map_err(|err| {
             anyhow!("{}",
@@ -152,13 +151,13 @@ mod tests {
     use sp_core::H256;
     use utils::block_item_traits::BlockItem;
 
-    /// tests this circuit:
-    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
-    /// prior to running this test:
-    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
-    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
-    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
-    /// to create attestation db on prover's side
+    // tests this circuit:
+    // claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    // prior to running this test:
+    // - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    // - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    // - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    // to create attestation db on prover's side
     #[ignore]
     #[test]
     fn claim_validation_test_tx_type_0() {
@@ -184,7 +183,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -238,13 +237,13 @@ mod tests {
         );
     }
 
-    /// tests this circuit:
-    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
-    /// prior to running this test:
-    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
-    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
-    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
-    /// to create attestation db on prover's side
+    // tests this circuit:
+    // claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    // prior to running this test:
+    // - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    // - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    // - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    // to create attestation db on prover's side
     #[ignore]
     #[test]
     fn claim_validation_test_tx_type_1() {
@@ -270,7 +269,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -323,13 +322,13 @@ mod tests {
         );
     }
 
-    /// tests this circuit:
-    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
-    /// prior to running this test:
-    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
-    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
-    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
-    /// to create attestation db on prover's side
+    // tests this circuit:
+    // claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    // prior to running this test:
+    // - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    // - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    // - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    // to create attestation db on prover's side
     #[ignore]
     #[test]
     fn claim_validation_test_tx_type_2() {
@@ -350,7 +349,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -404,13 +403,13 @@ mod tests {
         );
     }
 
-    /// tests this circuit:
-    /// claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
-    /// prior to running this test:
-    /// - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
-    /// - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
-    /// - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
-    /// to create attestation db on prover's side
+    // tests this circuit:
+    // claim submission to prover -> running cairo program on prover (and proof gen) -> proof verification on claimer
+    // prior to running this test:
+    // - config.json with API provider urls must be present in the project's workspace root (see config_template.json)
+    // - run 'cargo run -- --from-block 19543670' in 'attestor-online-sim' directory to generate a short range of checkpoints
+    // - run 'cargo run' (with --reset-db flag for the first time) in 'prover-attestation-db-online-builder' directory
+    // to create attestation db on prover's side
     #[ignore]
     #[test]
     fn claim_validation_test_tx_type_3() {
@@ -436,7 +435,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -516,7 +515,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -601,7 +600,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -719,7 +718,7 @@ mod tests {
         let fake_block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )
@@ -733,7 +732,7 @@ mod tests {
         let block = OrderedBlock::try_create(
             block_json.chain_id.unwrap(),
             block_json.number,
-            block_json.hash,
+            block_json.hash.unwrap(),
             block_json.items.iter().map(|(tx, _)| tx).cloned().collect(),
             block_json.items.iter().map(|(_, rx)| rx).cloned().collect(),
         )

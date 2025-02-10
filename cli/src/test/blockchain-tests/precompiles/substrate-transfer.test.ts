@@ -16,6 +16,7 @@ describe('Precompile: transfer_substrate()', (): void => {
     let alithBalanceBefore: bigint;
     let api: ApiPromise;
     let gasPrice: bigint;
+    let gasLimit: number;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -40,6 +41,7 @@ describe('Precompile: transfer_substrate()', (): void => {
 
         destinationBalanceBefore = (await api.derive.balances.all(destination.address)).availableBalance.toBigInt();
 
+        gasLimit = 10000000;
         // note: larger timeout b/c this also executes against Testnet forks where block time is 15s
     }, 90_000);
 
@@ -55,6 +57,7 @@ describe('Precompile: transfer_substrate()', (): void => {
         const amount = parseEther('10.0');
         const result = await contract.transfer_substrate(destination.addressRaw, amount, {
             gasPrice,
+            gasLimit,
         });
         const receipt = await result.wait();
         expect(receipt).toBeDefined();
@@ -80,9 +83,10 @@ describe('Precompile: transfer_substrate()', (): void => {
             contract.transfer_substrate(destination.addressRaw, amount, {
                 gasPrice,
             }),
-        ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Arithmetic\(Underflow\)/);
+        ).rejects.toThrow(/Dispatched call failed with error: Arithmetic\(Underflow\)/);
         // ^^^ appears to come from can_withdraw()
-        // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/impl_fungible.rs#L110
+        // ^^^ appears to come from do_transfer_reserved()
+        // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/impl_fungible.rs#L113
 
         // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
@@ -98,8 +102,9 @@ describe('Precompile: transfer_substrate()', (): void => {
                 gasPrice,
             }),
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Token\(FundsUnavailable\)/);
+        // ^^^ appears to come from can_withdraw()
         // ^^^ appears to come from do_transfer_reserved()
-        // https://github.com/gluwa/polkadot-sdk/blob/master/substrate/frame/balances/src/lib.rs#L1098
+        // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/impl_fungible.rs#L113
 
         // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);

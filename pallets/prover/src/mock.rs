@@ -28,6 +28,12 @@ parameter_types! {
 }
 
 impl frame_system::Config for Test {
+    type PreInherents = ();
+    type PostInherents = ();
+    type PostTransactions = ();
+    type RuntimeTask = RuntimeTask;
+    type MultiBlockMigrator = ();
+    type SingleBlockMigrations = ();
     type BaseCallFilter = frame_support::traits::Everything;
     type Block = Block;
     type BlockWeights = ();
@@ -72,8 +78,8 @@ impl pallet_balances::Config for Test {
     type FreezeIdentifier = ();
     type MaxLocks = MaxLocks;
     type MaxReserves = ();
-    type MaxHolds = ();
     type MaxFreezes = ();
+    type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
 impl prover_pallet::Config for Test {

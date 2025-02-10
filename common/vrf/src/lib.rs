@@ -3,7 +3,7 @@ use log::{debug, error};
 use parity_scale_codec::{Decode, Encode};
 use schnorrkel::SignatureError;
 use serde::{Deserialize, Serialize};
-use sp_consensus_babe::VrfOutput;
+use sp_consensus_babe::VrfPreOutput;
 use sp_core::{
     crypto::{VrfPublic, VrfSecret},
     sr25519::{
@@ -114,7 +114,7 @@ pub fn make_proof_of_inclusion(
 
     // Return the proof of inclusion
     Ok(ProofOfInclusion {
-        output: sig.output.encode(),
+        output: sig.pre_output.encode(),
         proof: sig.proof.encode(),
         epoch,
     })
@@ -144,8 +144,8 @@ pub fn verify_proof_of_inclusion(
     let vrf_input = VrfSignData::new(make_transcript(header_number, randomness, attestor_id));
 
     let vrf_signature = VrfSignature {
-        output: VrfOutput(
-            schnorrkel::vrf::VRFOutput::from_bytes(&proof_of_inclusion.output)
+        pre_output: VrfPreOutput(
+            schnorrkel::vrf::VRFPreOut::from_bytes(&proof_of_inclusion.output)
                 .map_err(Error::InvalidVrfOutput)?,
         ),
         proof: VrfProof(
@@ -154,7 +154,7 @@ pub fn verify_proof_of_inclusion(
         ),
     };
 
-    let attestor_public_key = sr25519::Public(attestor_id.public_key());
+    let attestor_public_key = sr25519::Public::from_h256(attestor_id.public_key().into());
 
     if !attestor_public_key.vrf_verify(&vrf_input, &vrf_signature) {
         error!("failed to verify vrf signature");
@@ -162,11 +162,11 @@ pub fn verify_proof_of_inclusion(
     }
 
     let random_pub = vrf_signature
-        .output
+        .pre_output
         .make_bytes(
             VRF_CONTEXT,
             vrf_input.as_ref(),
-            &sr25519::Public(attestor_id.public_key()),
+            &sr25519::Public::from_h256(attestor_id.public_key().into()),
         )
         .map_err(|_| Error::InvalidVrf)?;
 
@@ -237,8 +237,6 @@ fn calculate_threshold(target_sample_size: u128, working_size: u128) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use std::u64;
-
     use super::*;
     use sp_core::sr25519::Pair;
     use sp_core::{Pair as _, H256};

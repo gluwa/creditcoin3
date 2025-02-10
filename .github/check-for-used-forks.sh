@@ -11,14 +11,16 @@ USED_FORKS=$(find ./ -name Cargo.toml -print0 | xargs --null grep git |
 # whitelist begin
     grep -v "repository =" |
     # frontier doesn't publish to crates.io and depends on polkadot-sdk
-    grep -v github.com/gluwa/frontier |
-    grep -v github.com/gluwa/polkadot-sdk |
+    grep -v github.com/paritytech/frontier |
+    grep -v github.com/paritytech/polkadot-sdk |
     # frontier depends on this specific version
     grep -v github.com/rust-blockchain/evm |
     # no_std fork + TS bindings
     grep -v github.com/gluwa/bls-signatures |
     # same version available on crates.io but causes compilation errors
-    grep -v github.com/dataphract/acid_io
+    grep -v github.com/dataphract/acid_io |
+    # moombeam fork
+    grep -v https://github.com/gluwa/moonbeam
 # whitelist end
 )
 echo "INFO: Used forks in Cargo.toml files"

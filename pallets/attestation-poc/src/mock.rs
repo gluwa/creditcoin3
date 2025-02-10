@@ -52,6 +52,12 @@ frame_support::construct_runtime!(
 );
 
 impl frame_system::Config for Test {
+    type PreInherents = ();
+    type PostInherents = ();
+    type PostTransactions = ();
+    type RuntimeTask = RuntimeTask;
+    type MultiBlockMigrator = ();
+    type SingleBlockMigrations = ();
     type BaseCallFilter = frame_support::traits::Everything;
     type BlockWeights = ();
     type BlockLength = ();
@@ -133,7 +139,7 @@ impl pallet_balances::Config for Test {
     type FreezeIdentifier = ();
     type MaxFreezes = ();
     type RuntimeHoldReason = ();
-    type MaxHolds = ();
+    type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
 pallet_staking_reward_curve::build! {
@@ -166,6 +172,8 @@ impl onchain::Config for OnChainSeqPhragmen {
     type Bounds = ElectionsBounds;
 }
 
+pub const SLASHING_DISABLING_FACTOR: usize = 3;
+
 impl pallet_staking::Config for Test {
     type RewardRemainder = ();
     type CurrencyToVote = ();
@@ -181,9 +189,8 @@ impl pallet_staking::Config for Test {
     type SessionInterface = Self;
     type UnixTime = pallet_timestamp::Pallet<Test>;
     type EraPayout = pallet_staking::ConvertCurve<RewardCurve>;
-    type MaxNominatorRewardedPerValidator = ConstU32<64>;
-    type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
     type NextNewSession = Session;
+    type MaxExposurePageSize = ConstU32<256>;
     type ElectionProvider = onchain::OnChainExecution<OnChainSeqPhragmen>;
     type GenesisElectionProvider = Self::ElectionProvider;
     type VoterList = pallet_staking::UseNominatorsAndValidatorsMap<Self>;
@@ -194,6 +201,8 @@ impl pallet_staking::Config for Test {
     type EventListeners = ();
     type BenchmarkingConfig = pallet_staking::TestBenchmarkingConfig;
     type WeightInfo = ();
+    type MaxControllersInDeprecationBatch = ConstU32<100>;
+    type DisablingStrategy = pallet_staking::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
 }
 
 impl pallet_offences::Config for Test {
@@ -217,8 +226,7 @@ impl pallet_babe::Config for Test {
     type MaxAuthorities = ConstU32<10>;
     type MaxNominators = ConstU32<100>;
     type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, AuthorityId)>>::Proof;
-    type EquivocationReportSystem =
-        pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
+    type EquivocationReportSystem = ();
 }
 
 use attestor_primitives::BlsPublicKeyWrapper;
@@ -347,9 +355,12 @@ impl ExtBuilder {
 
         // NOTE: this will initialize the babe authorities
         // through OneSessionHandler::on_genesis_session
-        pallet_session::GenesisConfig::<Test> { keys: session_keys }
-            .assimilate_storage(&mut t)
-            .unwrap();
+        pallet_session::GenesisConfig::<Test> {
+            keys: session_keys,
+            non_authority_keys: vec![],
+        }
+        .assimilate_storage(&mut t)
+        .unwrap();
 
         // controllers are same as stash
         let stakers: Vec<_> = (0..public.len())

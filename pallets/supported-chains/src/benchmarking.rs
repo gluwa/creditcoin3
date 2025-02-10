@@ -1,7 +1,4 @@
 //! Pallet Supported Chains Benchmarks
-
-#![cfg(feature = "runtime-benchmarks")]
-
 use super::Pallet as SupportedChains;
 use super::*;
 use attestor_primitives::ChainId;
@@ -9,7 +6,6 @@ use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
 use scale_info::prelude::string::String;
-use sp_std::vec;
 
 #[benchmarks]
 mod benchmarks {

@@ -68,8 +68,8 @@ fn subscribe_latest_heads(
         let mut stream = subscription.into_stream();
 
         loop {
-            if let Some(block) = stream.next().await {
-                let block_number = block.header.number.unwrap_or_default();
+            if let Some(header) = stream.next().await {
+                let block_number = header.number;
 
                 debug!("Received block: {}", block_number);
                 // Skip blocks that are not at the interval
@@ -133,23 +133,23 @@ impl BlockSubscription for BlockFetcher {
     }
 }
 
-/// Subscription configuration
-/// - `start_block`: The block number to start the subscription from
-/// - `end_block`: The block number to end the subscription
-/// This is only relevant when fetching blocks from a specific height
-/// An interval is provided to speed up the fetching process
+///   Subscription configuration
+///   - `start_block`: The block number to start the subscription from
+///   - `end_block`: The block number to end the subscription
+///     This is only relevant when fetching blocks from a specific height
+///     An interval is provided to speed up the fetching process
 pub struct SubscriptionConfig {
     pub start_block: u64,
     pub end_block: u64,
 }
 
 impl Client {
-    /// Open a subscription to the chain
-    /// This function returns a `BlockSubscription` trait object
-    /// - `config`: Subscription configuration
-    /// - `interval`: The interval to fetch blocks
-    /// If no configuration is provided, it will subscribe to the latest heads
-    /// If a configuration is provided, it will fetch blocks from a specific height with a given interval & switch to latest heads if it's all caught up
+    // Open a subscription to the chain
+    // This function returns a `BlockSubscription` trait object
+    // - `config`: Subscription configuration
+    // - `interval`: The interval to fetch blocks
+    // If no configuration is provided, it will subscribe to the latest heads
+    // If a configuration is provided, it will fetch blocks from a specific height with a given interval & switch to latest heads if it's all caught up
     pub fn open_subscription(
         &self,
         config: Option<SubscriptionConfig>,

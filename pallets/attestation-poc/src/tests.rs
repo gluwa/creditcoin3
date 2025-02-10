@@ -607,7 +607,7 @@ fn stash_ledger_schould_increase_when_registering_multiple_attestors() {
         assert_eq!(ledger.stash, STASH_1);
         assert_eq!(ledger.total_staked, min_bond_requirement * 2);
 
-        let locks = Balances::locks(STASH_1);
+        let locks = Balances::locks(&STASH_1);
         assert_eq!(locks.len(), 1);
         assert_eq!(locks[0].amount, min_bond_requirement * 2);
     })
@@ -2035,7 +2035,7 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
         assert_eq!(ledger.total_staked, min_bond_requirement);
 
         // Get balance locks
-        let locks = Balances::locks(STASH_1);
+        let locks = Balances::locks(&STASH_1);
         assert_eq!(locks.len(), 1);
 
         let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
@@ -2053,7 +2053,7 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
         assert!(ledger.is_none());
 
         // Get balance locks
-        let locks = Balances::locks(STASH_1);
+        let locks = Balances::locks(&STASH_1);
         assert_eq!(locks.len(), 0);
 
         let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
@@ -2090,7 +2090,7 @@ fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
         assert_eq!(ledger.total_staked, min_bond_requirement);
 
         // Get balance locks
-        let locks = Balances::locks(STASH_1);
+        let locks = Balances::locks(&STASH_1);
         assert_eq!(locks.len(), 1);
 
         // Progress to block 50
@@ -2101,7 +2101,7 @@ fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
         assert_ok!(Attestation::withdraw_unbonded(attestor.stash));
 
         // Get balance locks
-        let locks = Balances::locks(STASH_1);
+        let locks = Balances::locks(&STASH_1);
         assert_eq!(locks.len(), 1);
 
         let ledger = Ledger::<Test>::get(STASH_1);
@@ -2152,7 +2152,7 @@ fn removing_attestor_and_withdrawing_fails_if_not_waited_long_enough() {
         assert_eq!(ledger.total_staked, min_bond_requirement);
 
         // Get balance locks
-        let locks = Balances::locks(STASH_1);
+        let locks = Balances::locks(&STASH_1);
         assert_eq!(locks.len(), 1);
 
         // Progress to block 5

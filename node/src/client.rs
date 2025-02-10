@@ -1,44 +1,34 @@
 // Substrate
-use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion};
+use sc_executor::WasmExecutor;
 // Local
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};
 
 use crate::eth::EthCompatRuntimeApiCollection;
 
+/// Only enable the benchmarking host functions when we actually want to benchmark.
+#[cfg(feature = "runtime-benchmarks")]
+pub type HostFunctions = (
+    sp_io::SubstrateHostFunctions,
+    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
+    proof_verifier::host_benchmark_api::HostFunctions,
+    proof_verifier::host_api::HostFunctions,
+    frame_benchmarking::benchmarking::HostFunctions,
+);
+/// Otherwise we only use the default Substrate host functions.
+#[cfg(not(feature = "runtime-benchmarks"))]
+pub type HostFunctions = (
+    sp_io::SubstrateHostFunctions,
+    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
+    proof_verifier::host_api::HostFunctions,
+);
+
 /// Full backend.
 pub type FullBackend = sc_service::TFullBackend<Block>;
 /// Full client.
-pub type FullClient<RuntimeApi, Executor> =
-    sc_service::TFullClient<Block, RuntimeApi, NativeElseWasmExecutor<Executor>>;
+pub type FullClient<RuntimeApi> =
+    sc_service::TFullClient<Block, RuntimeApi, WasmExecutor<HostFunctions>>;
 
-pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, CreditcoinRuntimeExecutor>;
-
-pub struct CreditcoinRuntimeExecutor;
-impl NativeExecutionDispatch for CreditcoinRuntimeExecutor {
-    /// Only enable the benchmarking host functions when we actually want to benchmark.
-    #[cfg(feature = "runtime-benchmarks")]
-    type ExtendHostFunctions = (
-        creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-        proof_verifier::host_benchmark_api::HostFunctions,
-        proof_verifier::host_api::HostFunctions,
-        frame_benchmarking::benchmarking::HostFunctions,
-    );
-    /// Otherwise we only use the default Substrate host functions.
-    #[cfg(not(feature = "runtime-benchmarks"))]
-    type ExtendHostFunctions = (
-        creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-        proof_verifier::host_benchmark_api::HostFunctions,
-        proof_verifier::host_api::HostFunctions,
-    );
-
-    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        creditcoin3_runtime::api::dispatch(method, data)
-    }
-
-    fn native_version() -> NativeVersion {
-        creditcoin3_runtime::native_version()
-    }
-}
+pub type Client = FullClient<creditcoin3_runtime::RuntimeApi>;
 
 /// A set of APIs that every runtimes must implement.
 pub trait BaseRuntimeApiCollection:

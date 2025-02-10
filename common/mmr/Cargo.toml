@@ -1,7 +1,11 @@
 [package]
-edition = "2021"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 name = "mmr"
-version = "0.1.0"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
 
 [dependencies.rayon]
 optional = true
@@ -9,7 +13,7 @@ version = "1.10.0"
 
 [dependencies.twox-hash]
 default-features = false
-version = "1.6"
+version = "2.1"
 
 [features]
 default = ["std"]

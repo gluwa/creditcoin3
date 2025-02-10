@@ -554,10 +554,10 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.42.37
-        with:
-          tool: cargo-llvm-cov
+      # - name: Install cargo-llvm-cov
+      #   uses: taiki-e/install-action@v2.42.37
+      #   with:
+      #     tool: cargo-llvm-cov
 
       - name: Run tests
         run: |
@@ -567,15 +567,17 @@ jobs:
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
           export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
-          cargo llvm-cov \
-              --workspace --html --show-missing-lines --hide-instantiations \
-              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests.rs|weights.rs)"
+          cargo test
 
-      - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: target/llvm-cov/html/
+          # cargo llvm-cov \
+          #     --workspace --html --show-missing-lines --hide-instantiations \
+          #     --ignore-filename-regex "(benchmarking.rs|mock.rs|tests.rs|weights.rs)"
+
+      # - name: Upload coverage report as artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: coverage-report
+      #     path: target/llvm-cov/html/
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown

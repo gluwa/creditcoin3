@@ -15,6 +15,7 @@ import type {
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     Creditcoin3RuntimeRuntime,
+    Creditcoin3RuntimeRuntimeFreezeReason,
     EthbloomBloom,
     EthereumBlock,
     EthereumHeader,
@@ -48,8 +49,10 @@ import type {
     FrameSupportDispatchRawOrigin,
     FrameSupportPalletId,
     FrameSupportTokensMiscBalanceStatus,
+    FrameSupportTokensMiscIdAmount,
     FrameSystemAccountInfo,
     FrameSystemCall,
+    FrameSystemCodeUpgradeAuthorization,
     FrameSystemError,
     FrameSystemEvent,
     FrameSystemEventRecord,
@@ -79,11 +82,11 @@ import type {
     PalletBagsListListListError,
     PalletBagsListListNode,
     PalletBalancesAccountData,
+    PalletBalancesAdjustmentDirection,
     PalletBalancesBalanceLock,
     PalletBalancesCall,
     PalletBalancesError,
     PalletBalancesEvent,
-    PalletBalancesIdAmount,
     PalletBalancesReasons,
     PalletBalancesReserveData,
     PalletBaseFeeCall,
@@ -108,13 +111,12 @@ import type {
     PalletGrandpaStoredState,
     PalletHotfixSufficientsCall,
     PalletHotfixSufficientsError,
-    PalletIdentityBitFlags,
+    PalletIdentityAuthorityProperties,
     PalletIdentityCall,
     PalletIdentityError,
     PalletIdentityEvent,
-    PalletIdentityIdentityField,
-    PalletIdentityIdentityInfo,
     PalletIdentityJudgement,
+    PalletIdentityLegacyIdentityInfo,
     PalletIdentityRegistrarInfo,
     PalletIdentityRegistration,
     PalletImOnlineCall,
@@ -129,6 +131,7 @@ import type {
     PalletNominationPoolsClaimPermission,
     PalletNominationPoolsCommission,
     PalletNominationPoolsCommissionChangeRate,
+    PalletNominationPoolsCommissionClaimPermission,
     PalletNominationPoolsConfigOpAccountId32,
     PalletNominationPoolsConfigOpPerbill,
     PalletNominationPoolsConfigOpU128,
@@ -136,6 +139,7 @@ import type {
     PalletNominationPoolsDefensiveError,
     PalletNominationPoolsError,
     PalletNominationPoolsEvent,
+    PalletNominationPoolsFreezeReason,
     PalletNominationPoolsPoolMember,
     PalletNominationPoolsPoolRoles,
     PalletNominationPoolsPoolState,
@@ -162,9 +166,7 @@ import type {
     PalletSessionEvent,
     PalletStakingActiveEraInfo,
     PalletStakingEraRewardPoints,
-    PalletStakingExposure,
     PalletStakingForcing,
-    PalletStakingIndividualExposure,
     PalletStakingNominations,
     PalletStakingPalletCall,
     PalletStakingPalletConfigOpPerbill,
@@ -208,11 +210,6 @@ import type {
     SpConsensusGrandpaEquivocationProof,
     SpConsensusSlotsEquivocationProof,
     SpCoreCryptoKeyTypeId,
-    SpCoreEcdsaSignature,
-    SpCoreEd25519Public,
-    SpCoreEd25519Signature,
-    SpCoreSr25519Public,
-    SpCoreSr25519Signature,
     SpCoreSr25519VrfVrfSignature,
     SpCoreVoid,
     SpRuntimeDigest,
@@ -224,7 +221,11 @@ import type {
     SpRuntimeTokenError,
     SpRuntimeTransactionalError,
     SpSessionMembershipProof,
+    SpStakingExposure,
+    SpStakingExposurePage,
+    SpStakingIndividualExposure,
     SpStakingOffenceOffenceDetails,
+    SpStakingPagedExposureMetadata,
     SpVersionRuntimeVersion,
     SpWeightsRuntimeDbWeight,
     SpWeightsWeightV2Weight,
@@ -242,6 +243,7 @@ declare module '@polkadot/types/types/registry' {
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;
         Creditcoin3RuntimeProxyFilter: Creditcoin3RuntimeProxyFilter;
         Creditcoin3RuntimeRuntime: Creditcoin3RuntimeRuntime;
+        Creditcoin3RuntimeRuntimeFreezeReason: Creditcoin3RuntimeRuntimeFreezeReason;
         EthbloomBloom: EthbloomBloom;
         EthereumBlock: EthereumBlock;
         EthereumHeader: EthereumHeader;
@@ -275,8 +277,10 @@ declare module '@polkadot/types/types/registry' {
         FrameSupportDispatchRawOrigin: FrameSupportDispatchRawOrigin;
         FrameSupportPalletId: FrameSupportPalletId;
         FrameSupportTokensMiscBalanceStatus: FrameSupportTokensMiscBalanceStatus;
+        FrameSupportTokensMiscIdAmount: FrameSupportTokensMiscIdAmount;
         FrameSystemAccountInfo: FrameSystemAccountInfo;
         FrameSystemCall: FrameSystemCall;
+        FrameSystemCodeUpgradeAuthorization: FrameSystemCodeUpgradeAuthorization;
         FrameSystemError: FrameSystemError;
         FrameSystemEvent: FrameSystemEvent;
         FrameSystemEventRecord: FrameSystemEventRecord;
@@ -306,11 +310,11 @@ declare module '@polkadot/types/types/registry' {
         PalletBagsListListListError: PalletBagsListListListError;
         PalletBagsListListNode: PalletBagsListListNode;
         PalletBalancesAccountData: PalletBalancesAccountData;
+        PalletBalancesAdjustmentDirection: PalletBalancesAdjustmentDirection;
         PalletBalancesBalanceLock: PalletBalancesBalanceLock;
         PalletBalancesCall: PalletBalancesCall;
         PalletBalancesError: PalletBalancesError;
         PalletBalancesEvent: PalletBalancesEvent;
-        PalletBalancesIdAmount: PalletBalancesIdAmount;
         PalletBalancesReasons: PalletBalancesReasons;
         PalletBalancesReserveData: PalletBalancesReserveData;
         PalletBaseFeeCall: PalletBaseFeeCall;
@@ -335,13 +339,12 @@ declare module '@polkadot/types/types/registry' {
         PalletGrandpaStoredState: PalletGrandpaStoredState;
         PalletHotfixSufficientsCall: PalletHotfixSufficientsCall;
         PalletHotfixSufficientsError: PalletHotfixSufficientsError;
-        PalletIdentityBitFlags: PalletIdentityBitFlags;
+        PalletIdentityAuthorityProperties: PalletIdentityAuthorityProperties;
         PalletIdentityCall: PalletIdentityCall;
         PalletIdentityError: PalletIdentityError;
         PalletIdentityEvent: PalletIdentityEvent;
-        PalletIdentityIdentityField: PalletIdentityIdentityField;
-        PalletIdentityIdentityInfo: PalletIdentityIdentityInfo;
         PalletIdentityJudgement: PalletIdentityJudgement;
+        PalletIdentityLegacyIdentityInfo: PalletIdentityLegacyIdentityInfo;
         PalletIdentityRegistrarInfo: PalletIdentityRegistrarInfo;
         PalletIdentityRegistration: PalletIdentityRegistration;
         PalletImOnlineCall: PalletImOnlineCall;
@@ -356,6 +359,7 @@ declare module '@polkadot/types/types/registry' {
         PalletNominationPoolsClaimPermission: PalletNominationPoolsClaimPermission;
         PalletNominationPoolsCommission: PalletNominationPoolsCommission;
         PalletNominationPoolsCommissionChangeRate: PalletNominationPoolsCommissionChangeRate;
+        PalletNominationPoolsCommissionClaimPermission: PalletNominationPoolsCommissionClaimPermission;
         PalletNominationPoolsConfigOpAccountId32: PalletNominationPoolsConfigOpAccountId32;
         PalletNominationPoolsConfigOpPerbill: PalletNominationPoolsConfigOpPerbill;
         PalletNominationPoolsConfigOpU128: PalletNominationPoolsConfigOpU128;
@@ -363,6 +367,7 @@ declare module '@polkadot/types/types/registry' {
         PalletNominationPoolsDefensiveError: PalletNominationPoolsDefensiveError;
         PalletNominationPoolsError: PalletNominationPoolsError;
         PalletNominationPoolsEvent: PalletNominationPoolsEvent;
+        PalletNominationPoolsFreezeReason: PalletNominationPoolsFreezeReason;
         PalletNominationPoolsPoolMember: PalletNominationPoolsPoolMember;
         PalletNominationPoolsPoolRoles: PalletNominationPoolsPoolRoles;
         PalletNominationPoolsPoolState: PalletNominationPoolsPoolState;
@@ -389,9 +394,7 @@ declare module '@polkadot/types/types/registry' {
         PalletSessionEvent: PalletSessionEvent;
         PalletStakingActiveEraInfo: PalletStakingActiveEraInfo;
         PalletStakingEraRewardPoints: PalletStakingEraRewardPoints;
-        PalletStakingExposure: PalletStakingExposure;
         PalletStakingForcing: PalletStakingForcing;
-        PalletStakingIndividualExposure: PalletStakingIndividualExposure;
         PalletStakingNominations: PalletStakingNominations;
         PalletStakingPalletCall: PalletStakingPalletCall;
         PalletStakingPalletConfigOpPerbill: PalletStakingPalletConfigOpPerbill;
@@ -435,11 +438,6 @@ declare module '@polkadot/types/types/registry' {
         SpConsensusGrandpaEquivocationProof: SpConsensusGrandpaEquivocationProof;
         SpConsensusSlotsEquivocationProof: SpConsensusSlotsEquivocationProof;
         SpCoreCryptoKeyTypeId: SpCoreCryptoKeyTypeId;
-        SpCoreEcdsaSignature: SpCoreEcdsaSignature;
-        SpCoreEd25519Public: SpCoreEd25519Public;
-        SpCoreEd25519Signature: SpCoreEd25519Signature;
-        SpCoreSr25519Public: SpCoreSr25519Public;
-        SpCoreSr25519Signature: SpCoreSr25519Signature;
         SpCoreSr25519VrfVrfSignature: SpCoreSr25519VrfVrfSignature;
         SpCoreVoid: SpCoreVoid;
         SpRuntimeDigest: SpRuntimeDigest;
@@ -451,7 +449,11 @@ declare module '@polkadot/types/types/registry' {
         SpRuntimeTokenError: SpRuntimeTokenError;
         SpRuntimeTransactionalError: SpRuntimeTransactionalError;
         SpSessionMembershipProof: SpSessionMembershipProof;
+        SpStakingExposure: SpStakingExposure;
+        SpStakingExposurePage: SpStakingExposurePage;
+        SpStakingIndividualExposure: SpStakingIndividualExposure;
         SpStakingOffenceOffenceDetails: SpStakingOffenceOffenceDetails;
+        SpStakingPagedExposureMetadata: SpStakingPagedExposureMetadata;
         SpVersionRuntimeVersion: SpVersionRuntimeVersion;
         SpWeightsRuntimeDbWeight: SpWeightsRuntimeDbWeight;
         SpWeightsWeightV2Weight: SpWeightsWeightV2Weight;

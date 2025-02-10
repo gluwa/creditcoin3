@@ -8,22 +8,23 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-anyhow = { version = "1", default-features = false }
-attestor-primitives = { workspace = true, default-features = false }
-ethereum-types = { version = "0.14.1", default-features = false }
 hashbrown = { version = "0.14.5", default-features = false }
 rlp = { version = "0.5.2", default-features = false }
-thiserror = { version = "1.0.64", default-features = false, optional = true }
 
-# Workspace dependencies
-frame-support = { workspace = true, default-features = false }
+# Workspace
+anyhow = { workspace = true, default-features = false }
+attestor-primitives = { workspace = true, default-features = false }
+ethereum-types = { workspace = true, default-features = false }
 hex = { workspace = true, default-features = false }
-pallet-prover-primitives = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false }
+serde_json = { workspace = true, default-features = false }
+thiserror = { workspace = true, default-features = false, optional = true }
+
+# Substrate dependencies
+frame-support = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
 precompile-utils = { workspace = true }
 scale-info = { workspace = true, default-features = false }
-serde = { workspace = true, default-features = false }
-serde_json = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime = { workspace = true, default-features = false }
@@ -31,8 +32,9 @@ sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
 
 # Common dependencies
-mmr = { path = "../../common/mmr", default-features = false }
-utils = { path = "../../common/utils", default-features = false }
+mmr = { workspace = true, default-features = false }
+pallet-prover-primitives = { workspace = true, default-features = false }
+utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -43,7 +45,6 @@ std = [
     "frame-support/std",
     "sp-runtime/std",
     "sp-io/std",
-    "serde/std",
     "scale-info/std",
     "attestor-primitives/std",
     "sp-runtime-interface/std",

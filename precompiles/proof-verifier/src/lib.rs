@@ -37,6 +37,7 @@ where
     Runtime::RuntimeCall: From<pallet_prover::Call<Runtime>>,
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     Runtime::AccountId: From<[u8; 32]>,
+    <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
     #[precompile::public("verify(bytes,(uint64,uint64,uint64,(uint64,uint64)[]))")]
     fn verify(
@@ -59,6 +60,7 @@ where
                     proof: proof.clone().into(),
                     query,
                 },
+                0,
             );
 
             // Instead of erroring out, we propagate status codes to the prover smart contract

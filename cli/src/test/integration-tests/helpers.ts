@@ -143,5 +143,5 @@ export function tearDownProxy(cli: any, proxy: any) {
 
 export async function setMinBondConfig(api: ApiPromise, value: number) {
     const sudoKeyring: CallerKeyring = { type: 'caller', pair: initAliceKeyring() };
-    await setStakingConfig(sudoKeyring, api, null, value, null, null, null, null);
+    await setStakingConfig(sudoKeyring, api, null, value, null, null, null, null, null);
 }

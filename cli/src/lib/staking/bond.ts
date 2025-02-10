@@ -65,6 +65,7 @@ export async function setStakingConfig(
     maxValidatorCount: any,
     chillThreshold: any,
     minCommission: any,
+    maxStakedRewards: any,
 ) {
     const configTx = api.tx.staking.setStakingConfigs(
         setStakingConfigOp(minNomitatorBond),
@@ -73,6 +74,7 @@ export async function setStakingConfig(
         setStakingConfigOp(maxValidatorCount),
         setStakingConfigOp(chillThreshold),
         setStakingConfigOp(minCommission),
+        setStakingConfigOp(maxStakedRewards),
     );
 
     const sudoTx = api.tx.sudo.sudo(configTx);

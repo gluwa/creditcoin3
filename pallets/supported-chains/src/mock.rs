@@ -19,6 +19,12 @@ frame_support::construct_runtime!(
 );
 
 impl frame_system::Config for Test {
+    type PreInherents = ();
+    type PostInherents = ();
+    type PostTransactions = ();
+    type RuntimeTask = RuntimeTask;
+    type MultiBlockMigrator = ();
+    type SingleBlockMigrations = ();
     type BaseCallFilter = frame_support::traits::Everything;
     type BlockWeights = ();
     type BlockLength = ();

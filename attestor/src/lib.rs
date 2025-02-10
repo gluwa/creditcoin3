@@ -1,7 +1,7 @@
 use anyhow::Result;
 use eth::Client;
 use sp_core::H256;
-use std::{collections::BTreeSet, thread, time::Duration};
+use std::collections::BTreeSet;
 use tracing::{error, info, warn};
 
 pub mod attestation;
@@ -118,8 +118,6 @@ impl Server {
                             } else {
                                 self.voted_for.insert(round.1);
                                 info!("📝 Attestation with digest: {:?} for round: {:?} submitted!", digest, round);
-                                // Sleep for a while to avoid spamming the chain
-                                thread::sleep(Duration::from_secs(6));
                             }
                         },
                         Err(e) => {

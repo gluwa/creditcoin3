@@ -1,7 +1,5 @@
-use anyhow::Result;
 use core::cmp::Ordering::*;
 use sp_core::H256;
-use sp_runtime_interface::sp_wasm_interface::anyhow;
 use std::{
     collections::HashMap,
     env, fs,
@@ -22,6 +20,9 @@ use prover_primitives::stark_program_auth::{
 use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
 use utils::pedersen_hash::pedersen_array;
 use utils::{utils::felts_from_bytes, Felt};
+
+/// The RLP encoded empty data (used to mean "null value").
+pub const NULL_RLP: [u8; 1] = [0x80; 1];
 
 #[derive(Error, Debug)]
 pub enum VerifierError {
@@ -166,7 +167,7 @@ pub fn validate_query_against_proof(
         Greater => Err(QueryOutOfBounds(cairo_verifier_output.claim_index)),
 
         Equal => {
-            if felts_from_bytes(&rlp::NULL_RLP[..]) == cairo_verifier_output.claim_fields {
+            if felts_from_bytes(&NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
                 query.transform_to_felt_offsets();
@@ -308,6 +309,7 @@ pub fn run_verifier(
 pub mod tests {
     use crate::command::{
         felts_from_bytes, hash_layout_segments, validate_query_against_proof, VerifierError,
+        NULL_RLP,
     };
     use pallet_prover_primitives::{
         LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
@@ -579,7 +581,7 @@ pub mod tests {
         let mut cairo_verifier_output =
             cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
         // inject faulty state
-        cairo_verifier_output.claim_fields = felts_from_bytes(&rlp::NULL_RLP[..]);
+        cairo_verifier_output.claim_fields = felts_from_bytes(&NULL_RLP[..]);
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }

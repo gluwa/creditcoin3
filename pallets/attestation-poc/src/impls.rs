@@ -644,11 +644,9 @@ impl<T: Config> Pallet<T> {
         chain_key: ChainKey,
         address: &T::AccountId,
     ) -> Option<BlsPublicKey> {
-        let pk = Attestors::<T>::get(chain_key, address).map(|attestor| attestor.bls_public_key);
-        match pk {
-            Some(pk) => pk,
-            None => None,
-        }
+        Attestors::<T>::get(chain_key, address)
+            .map(|attestor| attestor.bls_public_key)
+            .unwrap_or_default()
     }
 
     pub fn attestor_list_has_space(chain_key: ChainKey) -> bool {

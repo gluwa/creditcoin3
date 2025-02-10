@@ -7,9 +7,6 @@ version = "0.1.0"
 
 [dependencies]
 log = { workspace = true }
-num_enum = { workspace = true }
-paste = { workspace = true }
-slices = { workspace = true }
 
 # Moonbeam
 precompile-utils = { workspace = true }
@@ -19,7 +16,9 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
-parity-scale-codec = { workspace = true, features = ["max-encoded-len"] }
+parity-scale-codec = { workspace = true, features = [
+    "max-encoded-len",
+], default-features = false }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
@@ -34,19 +33,17 @@ pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 derive_more = { workspace = true }
 hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
+pallet-timestamp = { workspace = true, features = ["std"] }
+precompile-utils = { workspace = true, features = ["std", "testing"] }
+scale-info = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
 sha3 = { workspace = true }
-
-# Moonbeam
-precompile-utils = { workspace = true, features = ["std", "testing"] }
-
-pallet-timestamp = { workspace = true, features = ["std"] }
-scale-info = { workspace = true, features = ["derive"] }
 sp-runtime = { workspace = true, features = ["std"] }
 
 [features]
 default = ["std"]
 std = [
+    "log/std",
     "fp-evm/std",
     "frame-support/std",
     "frame-system/std",
@@ -58,6 +55,6 @@ std = [
     "sp-io/std",
     "sp-std/std",
     "fp-account/std",
-    "log/std",
-    "num_enum/std",
+    "sp-runtime/std",
+    "pallet-timestamp/std",
 ]

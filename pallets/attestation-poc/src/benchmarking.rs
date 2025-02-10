@@ -1,7 +1,4 @@
 //! Pallet Attestation POC Benchmarks
-
-#![cfg(feature = "runtime-benchmarks")]
-
 use super::Pallet as Attestation;
 use super::*;
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
@@ -23,7 +20,6 @@ const SEED: u32 = 0;
 
 #[derive(Debug, Clone)]
 pub struct Attestor<T: frame_system::Config> {
-    pub stash_id: T::AccountId,
     pub stash_origin: T::RuntimeOrigin,
     pub attestor_id: T::AccountId,
     pub attestor_origin: T::RuntimeOrigin,
@@ -52,14 +48,12 @@ impl<T: frame_system::Config> Attestor<T> {
             .try_into()
             .unwrap();
 
-        let stash_id = stash.clone();
         let stash_origin = T::RuntimeOrigin::signed(stash);
 
         let attestor_id = attestor.clone();
         let attestor_origin = T::RuntimeOrigin::signed(attestor);
 
         Self {
-            stash_id,
             stash_origin,
             attestor_id,
             attestor_origin,

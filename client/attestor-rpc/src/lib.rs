@@ -30,11 +30,13 @@ impl<B: BlockT, AccountId> AttestorGossip<B, AccountId> {
     }
 }
 
+#[allow(dead_code)]
 trait FromBytes: Sized {
     type Error: std::error::Error;
     fn from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>;
 }
 
+#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Incorrect length: expected {0} bytes, got {1}")]

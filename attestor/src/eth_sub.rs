@@ -3,12 +3,15 @@ use attestor_primitives::{Attestation, ChainKey};
 use eth::{self, subscription::SubscriptionConfig};
 use kameo::actor::ActorRef;
 use sp_core::H256;
+use std::{thread, time::Duration};
 use thiserror::Error;
 use tokio::sync::mpsc::{error::SendError, Sender};
 use tracing::{debug, error, info};
 
 use crate::attestation::{self, Attestor};
 use eth::OrderedBlock;
+
+pub const CCNEXT_BLOCK_TIME: u64 = 6;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -77,6 +80,10 @@ pub async fn attest_to_heads(
 
                     // Send an attestation back on the channel
                     sender.send(attestation).await?;
+
+                    // Sleep at least for the duration of a ccnext block
+                    // TODO: make this parameter configurable
+                    thread::sleep(Duration::from_secs(CCNEXT_BLOCK_TIME));
                 } else {
                     return Err(Error::FailedToSubscribe("No block received".to_string()));
                 }

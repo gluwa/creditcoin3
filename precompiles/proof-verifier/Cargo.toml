@@ -20,7 +20,7 @@ precompile-utils = { workspace = true }
 
 # Primitives
 attestor-primitives = { workspace = true }
-pallet-prover-primitives = { workspace = true }
+pallet-prover-primitives = { workspace = true, default-features = false }
 
 # Prover
 pallet-prover = { workspace = true, default-features = false }
@@ -30,7 +30,9 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
-parity-scale-codec = { workspace = true, features = ["max-encoded-len"] }
+parity-scale-codec = { workspace = true, features = [
+    "max-encoded-len",
+], default-features = false }
 scale-info = { workspace = true, features = ["derive"] }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
@@ -44,16 +46,13 @@ pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
 [dev-dependencies]
 derive_more = { workspace = true }
+env_logger = { workspace = true }
 hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
-pallet-prover-primitives = { workspace = true, default-features = false }
+pallet-supported-chains = { workspace = true }
+precompile-utils = { workspace = true, features = ["std", "testing"] }
 serde = { workspace = true }
 sha3 = { workspace = true }
-# Moonbeam
-precompile-utils = { workspace = true, features = ["std", "testing"] }
-
-env_logger = { workspace = true }
-pallet-supported-chains = { workspace = true }
 
 [features]
 default = ["std"]

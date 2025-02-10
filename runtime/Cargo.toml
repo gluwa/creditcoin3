@@ -13,8 +13,8 @@ version = { workspace = true }
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-parity-scale-codec = { workspace = true }
-scale-info = { workspace = true }
+parity-scale-codec = { workspace = true, default-features = false }
+scale-info = { workspace = true, default-features = false }
 smallvec = "1.13.2"
 
 # Substrate
@@ -22,6 +22,7 @@ sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-babe = { workspace = true }
 sp-core = { workspace = true }
+sp-genesis-builder = { workspace = true }
 sp-inherents = { workspace = true }
 sp-offchain = { workspace = true }
 sp-runtime = { workspace = true }
@@ -77,8 +78,10 @@ pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
 
 # Tracing
-creditcoin3-evm-tracer = { workspace = true, optional = true }
-creditcoin3-rpc-primitives-debug = { workspace = true }
+ethereum = { workspace = true }
+evm-tracing-events = { workspace = true, optional = true }
+moonbeam-evm-tracer = { workspace = true, optional = true }
+moonbeam-rpc-primitives-debug = { workspace = true }
 
 # Gluwa
 pallet-attestation-poc = { workspace = true }
@@ -91,7 +94,6 @@ pallet-evm-precompile-proof-verifier = { workspace = true }
 pallet-evm-precompile-substrate-transfer = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
-#rlp = "0.5.2"
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -107,7 +109,6 @@ runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system-benchmarking/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
-    "pallet-attestation-poc/runtime-benchmarks",
     "pallet-babe/runtime-benchmarks",
     "pallet-bags-list/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
@@ -180,6 +181,7 @@ std = [
     "pallet-transaction-payment/std",
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-utility/std",
+    "sp-genesis-builder/std",
     # Frontier
     "fp-evm/std",
     "fp-rpc/std",
@@ -195,8 +197,9 @@ std = [
     "pallet-evm-precompile-sha3fips/std",
     "pallet-evm-precompile-simple/std",
     "pallet-hotfix-sufficients/std",
-    "creditcoin3-evm-tracer/std",
-    "creditcoin3-rpc-primitives-debug/std",
+    "moonbeam-evm-tracer/std",
+    "moonbeam-rpc-primitives-debug/std",
+    "ethereum/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
     "pallet-evm-precompile-proof-verifier/std",

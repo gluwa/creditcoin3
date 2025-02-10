@@ -527,7 +527,7 @@ impl<'a> Client {
     ) -> Result<()> {
         let tx = cc3::tx()
             .balances()
-            .transfer(subxt::utils::MultiAddress::Id(target), amount.into());
+            .transfer_allow_death(subxt::utils::MultiAddress::Id(target), amount.into());
 
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()

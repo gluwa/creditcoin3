@@ -18,8 +18,8 @@ use crate::eth::EthConfiguration;
 
 use super::*;
 
-use creditcoin3_rpc_debug::{DebugHandler, DebugRequester};
-use creditcoin3_rpc_trace::{CacheRequester as TraceFilterCacheRequester, CacheTask};
+use moonbeam_rpc_debug::{DebugHandler, DebugRequester};
+use moonbeam_rpc_trace::{CacheRequester as TraceFilterCacheRequester, CacheTask};
 use substrate_prometheus_endpoint::Registry as PrometheusRegistry;
 use tokio::sync::Semaphore;
 
@@ -41,7 +41,7 @@ where
     C: HeaderBackend<B> + HeaderMetadata<B, Error = BlockChainError> + 'static,
     C: BlockchainEvents<B>,
     C: Send + Sync + 'static,
-    C::Api: EthereumRuntimeRPCApi<B> + creditcoin3_rpc_primitives_debug::DebugRuntimeApi<B>,
+    C::Api: EthereumRuntimeRPCApi<B> + moonbeam_rpc_primitives_debug::DebugRuntimeApi<B>,
     C::Api: BlockBuilder<B>,
     B: BlockT<Hash = H256> + Send + Sync + 'static,
     B::Header: HeaderT<Number = u32>,
@@ -69,9 +69,9 @@ where
         let (debug_task, debug_requester) = DebugHandler::task(
             Arc::clone(&params.client),
             Arc::clone(&params.substrate_backend),
-            match params.frontier_backend {
-                fc_db::Backend::KeyValue(b) => Arc::new(b),
-                fc_db::Backend::Sql(b) => Arc::new(b),
+            match *params.frontier_backend.clone() {
+                fc_db::Backend::KeyValue(ref b) => b.clone(),
+                fc_db::Backend::Sql(ref b) => b.clone(),
             },
             Arc::clone(&permit_pool),
             Arc::clone(&params.overrides),

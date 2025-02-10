@@ -1,5 +1,3 @@
-#![cfg(feature = "runtime-benchmarks")]
-
 use super::*;
 use frame_benchmarking::v1::benchmarks;
 use frame_support::traits::OnInitialize;

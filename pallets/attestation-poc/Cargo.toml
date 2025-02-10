@@ -12,7 +12,7 @@ log = { workspace = true }
 
 frame-support = { workspace = true }
 frame-system = { workspace = true }
-parity-scale-codec = { workspace = true }
+parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
@@ -88,3 +88,4 @@ std = [
     "randomness-primitives/std",
     "pallet-randomness/std",
 ]
+try-runtime = []

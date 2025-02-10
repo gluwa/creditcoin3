@@ -54,7 +54,6 @@ services:
       - "host.docker.internal:host-gateway"
     entrypoint: /bin/prover
     command:
-      - --verbose
       - --cc3-rpc-url
       - ws://creditcoin-validator:9944
       - --cc3-key

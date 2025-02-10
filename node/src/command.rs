@@ -58,7 +58,7 @@ impl SubstrateCli for Cli {
     }
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn ChainSpec>, String> {
-        Ok(match id {
+        let ret = match id {
             "dev" => {
                 let enable_manual_seal = self.sealing.map(|_| true);
                 Box::new(chain_spec::development_config(enable_manual_seal))
@@ -69,11 +69,13 @@ impl SubstrateCli for Cli {
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
             )?),
-        })
+        };
+        Ok(ret)
     }
 }
 
 /// Parse and run command line arguments
+#[allow(deprecated)]
 pub fn run() -> sc_cli::Result<()> {
     let cli = Cli::from_args();
 
@@ -179,7 +181,7 @@ pub fn run() -> sc_cli::Result<()> {
             use crate::benchmarking::{
                 inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder,
             };
-            use creditcoin3_runtime::{Block, ExistentialDeposit};
+            use creditcoin3_runtime::{ExistentialDeposit, Hashing};
             use frame_benchmarking_cli::{
                 BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE,
             };
@@ -187,11 +189,9 @@ pub fn run() -> sc_cli::Result<()> {
             let runner = cli.create_runner(cmd)?;
             match cmd {
                 BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| {
-                    cmd.run::<Block, (
-                        proof_verifier::host_api::HostFunctions,
-                        proof_verifier::host_benchmark_api::HostFunctions,
-                        creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
-                    )>(config)
+                    cmd.run_with_spec::<Hashing, crate::client::HostFunctions>(Some(
+                        config.chain_spec,
+                    ))
                 }),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
@@ -234,19 +234,22 @@ pub fn run() -> sc_cli::Result<()> {
             }
         }
         #[cfg(not(feature = "runtime-benchmarks"))]
-        Some(Subcommand::Benchmark) => Err("Benchmarking wasn't enabled when building the node. \
+        Some(Subcommand::Benchmark(_)) => {
+            Err("Benchmarking wasn't enabled when building the node. \
 			You can enable it with `--features runtime-benchmarks`."
-            .into()),
+                .into())
+        }
         Some(Subcommand::FrontierDb(cmd)) => {
             let runner = cli.create_runner(cmd)?;
             runner.sync_run(|mut config| {
                 let (client, _, _, _, frontier_backend) =
                     service::new_chain_ops(&mut config, &cli.eth)?;
-                let frontier_backend = match frontier_backend {
-                    fc_db::Backend::KeyValue(kv) => std::sync::Arc::new(kv),
+                let binding = frontier_backend.clone();
+                let frontier_backend = match &*binding {
+                    fc_db::Backend::KeyValue(kv) => kv,
                     _ => panic!("Only fc_db::Backend::KeyValue supported"),
                 };
-                cmd.run(client, frontier_backend)
+                cmd.run(client, frontier_backend.clone())
             })
         }
         None => {

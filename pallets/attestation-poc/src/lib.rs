@@ -8,9 +8,11 @@ pub mod weights;
 #[cfg(test)]
 mod mock;
 
-mod benchmarking;
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 
 mod asset;
 mod impls;

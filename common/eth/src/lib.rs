@@ -1,3 +1,4 @@
+use alloy::consensus::Receipt;
 use alloy::core::primitives::Log;
 use alloy::{
     consensus::{
@@ -91,16 +92,24 @@ impl TypedTransaction {
     fn fields_len(&self) -> usize {
         match self {
             Self::Legacy(tx, _) => {
-                tx.tx().fields_len() + tx.signature().length() + tx.tx().signature_hash().length()
+                tx.tx().length()
+                    + tx.signature().as_bytes().len()
+                    + tx.tx().signature_hash().length()
             }
             Self::Type1(tx, _) => {
-                tx.tx().fields_len() + tx.signature().length() + tx.tx().signature_hash().length()
+                tx.tx().length()
+                    + tx.signature().as_bytes().len()
+                    + tx.tx().signature_hash().length()
             }
             Self::Type2(tx, _) => {
-                tx.tx().fields_len() + tx.signature().length() + tx.tx().signature_hash().length()
+                tx.tx().length()
+                    + tx.signature().as_bytes().len()
+                    + tx.tx().signature_hash().length()
             }
             Self::Type3(tx, _) => {
-                tx.tx().fields_len() + tx.signature().length() + tx.tx().signature_hash().length()
+                tx.tx().length()
+                    + tx.signature().as_bytes().len()
+                    + tx.tx().signature_hash().length()
             }
         }
     }
@@ -112,7 +121,7 @@ impl TryFrom<Transaction> for TypedTransaction {
     fn try_from(tx: Transaction) -> std::result::Result<Self, Self::Error> {
         let tx_hash = tx.tx_hash();
 
-        Ok(match tx.transaction_type {
+        Ok(match tx.transaction_type() {
             None | Some(0) => Self::Legacy(tx.try_into()?, tx_hash),
             Some(1) => Self::Type1(tx.try_into()?, tx_hash),
             Some(2) => Self::Type2(tx.try_into()?, tx_hash),
@@ -132,7 +141,7 @@ impl Encodable for TypedTransaction {
                 tx.tx().to.encode(out);
                 tx.tx().value.encode(out);
                 tx.tx().input.0.encode(out);
-                tx.signature().encode(out);
+                tx.signature().write_rlp_rs(out);
                 tx.tx().signature_hash().encode(out);
             }
 
@@ -145,7 +154,7 @@ impl Encodable for TypedTransaction {
                 tx.tx().value.encode(out);
                 tx.tx().input.0.encode(out);
                 tx.tx().access_list.encode(out);
-                tx.signature().encode(out);
+                tx.signature().write_rlp_rs(out);
                 tx.tx().signature_hash().encode(out);
             }
 
@@ -159,7 +168,7 @@ impl Encodable for TypedTransaction {
                 tx.tx().value.encode(out);
                 tx.tx().input.0.encode(out);
                 tx.tx().access_list.encode(out);
-                tx.signature().encode(out);
+                tx.signature().write_rlp_rs(out);
                 tx.tx().signature_hash().encode(out);
             }
             Self::Type3(tx, _) => {
@@ -174,7 +183,7 @@ impl Encodable for TypedTransaction {
                 tx.tx().access_list.encode(out);
                 tx.tx().blob_versioned_hashes.encode(out);
                 tx.tx().max_fee_per_blob_gas.encode(out);
-                tx.signature().encode(out);
+                tx.signature().write_rlp_rs(out);
                 tx.tx().signature_hash().encode(out);
             }
         }
@@ -185,7 +194,7 @@ impl Encodable for TypedTransaction {
 pub struct TxRx {
     id: BlockItemIdentifier,
     tx: TypedTransaction,
-    rx: ReceiptWithBloom<Log>,
+    rx: ReceiptWithBloom<Receipt>,
 }
 
 impl Encodable for TxRx {
@@ -199,10 +208,11 @@ impl Encodable for TxRx {
         .encode(out);
         self.tx.encode(out);
 
-        self.rx.status_or_post_state().encode(out);
-        self.rx.cumulative_gas_used().encode(out);
-        self.rx.bloom().encode(out);
-        self.rx.logs().to_vec().encode(out);
+        let (r, bloom) = self.rx.clone().into_components();
+        r.status_or_post_state().encode(out);
+        r.cumulative_gas_used.encode(out);
+        r.with_bloom().encode(out);
+        bloom.encode(out);
     }
 
     fn length(&self) -> usize {
@@ -234,7 +244,8 @@ impl TxRx {
     pub fn tx(&self) -> &TypedTransaction {
         &self.tx
     }
-    pub fn rx(&self) -> &ReceiptWithBloom<Log> {
+
+    pub fn rx(&self) -> &ReceiptWithBloom<Receipt> {
         &self.rx
     }
 
@@ -244,16 +255,15 @@ impl TxRx {
 
     fn payload_len(&self) -> usize {
         let tx_fields_len = self.tx.fields_len();
-
-        let rx_fields_len = self.rx.status_or_post_state().length()
-            + self.rx.cumulative_gas_used().length()
-            + self.rx.bloom().length()
-            + self.rx.logs().to_vec().length();
+        let rx_fields_len = self
+            .rx
+            .receipt
+            .rlp_encoded_fields_length_with_bloom(&self.rx.logs_bloom);
 
         tx_fields_len + rx_fields_len
     }
 
-    fn transform_rx(rx: TransactionReceipt) -> Option<ReceiptWithBloom<Log>> {
+    fn transform_rx(rx: TransactionReceipt) -> Option<ReceiptWithBloom<Receipt>> {
         let rwb = rx.inner.as_receipt_with_bloom()?;
         rwb.receipt
             .logs
@@ -290,7 +300,7 @@ impl BlockItem for TxRx {
 pub struct OrderedBlock {
     chain_id: u64,
     number: u64,
-    hash: Option<BlockHash>,
+    hash: BlockHash,
     items: Vec<TxRx>,
 }
 
@@ -298,7 +308,7 @@ impl OrderedBlock {
     pub fn try_create(
         chain_id: u64,
         number: u64,
-        hash: Option<BlockHash>,
+        hash: BlockHash,
         mut transactions: Vec<Transaction>,
         mut receipts: Vec<TransactionReceipt>,
     ) -> Result<Self, ConversionError> {
@@ -332,7 +342,7 @@ impl OrderedBlock {
         self.number
     }
     pub fn hash(&self) -> Option<BlockHash> {
-        self.hash
+        Some(self.hash)
     }
     pub fn items(&self) -> &[TxRx] {
         &self.items[..]
@@ -342,7 +352,7 @@ impl OrderedBlock {
 pub struct OrderedRawBlock {
     pub chain_id: Option<u64>,
     pub number: u64,
-    pub hash: Option<BlockHash>,
+    pub hash: BlockHash,
     pub transactions: Vec<Transaction>,
     pub receipts: Vec<TransactionReceipt>,
 }
@@ -351,7 +361,7 @@ impl OrderedRawBlock {
     pub fn new(
         chain_id: Option<u64>,
         number: u64,
-        hash: Option<BlockHash>,
+        hash: BlockHash,
         mut transactions: Vec<Transaction>,
         mut receipts: Vec<TransactionReceipt>,
     ) -> Self {
@@ -499,7 +509,7 @@ impl Client {
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {
         self.http
-            .get_block_receipts(BlockNumberOrTag::Number(number))
+            .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
             .await
             .map_err(|e| {
                 error!("Failed to get receipts: {:?}", e);

@@ -323,7 +323,7 @@ pub async fn build_historical_cache_for_chain(
         info!("Starting to sync from: {}", digest);
         digest
     } else {
-        error!("No historical attestations found for chain: {}", chain);
+        warn!("No historical attestations found for chain: {}", chain);
         return Ok(());
     };
 

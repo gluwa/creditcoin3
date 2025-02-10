@@ -22,6 +22,7 @@ rlp = { version = "0.5.2", features = ["rlp-derive"], default-features = false }
 starknet-ff = { version = "0.3.7", default-features = false }
 
 # Workspace dependencies
+mmr = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 serde = { workspace = true, features = [
@@ -35,13 +36,9 @@ sp-std = { workspace = true, default-features = false }
 starknet-crypto = { workspace = true }
 starknet-types-core = { workspace = true }
 
-# Can't use workspace, I don't know why
-mmr = { path = "../mmr", default-features = false }
-
 [features]
 default = ["std"]
 std = [
-    "starknet-crypto/std",
     "ethereum-types/std",
     "serde/std",
     "serde_json/std",
@@ -50,13 +47,13 @@ std = [
     "rlp/std",
     "ethereum/std",
     "acid_io/std",
-    "starknet-ff/std",
     "sp-std/std",
-    "starknet-ff/std",
     "mmr/std",
     "fs2",
     "chrono/std",
-    "starknet-types-core/std",
+    "starknet-ff/std",
     "parity-scale-codec/std",
     "scale-info/std",
+    "starknet-crypto/std",
+    "starknet-types-core/std",
 ]

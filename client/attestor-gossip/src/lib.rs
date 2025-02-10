@@ -2,7 +2,7 @@ use futures::{stream::Fuse, FutureExt, StreamExt};
 use log::{debug, error, info};
 use parity_scale_codec::Codec;
 use sc_client_api::{client::BlockBackend, Backend, FinalityNotification};
-use sc_network::ProtocolName;
+use sc_network::{NotificationService, ProtocolName};
 use sc_network_gossip::{GossipEngine, Network as GossipNetwork, Syncing as GossipSyncing};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_api::ProvideRuntimeApi;
@@ -72,7 +72,7 @@ pub struct AttestorNetworkParams<B: BlockT, N, S, AccountId> {
     /// Syncing service implementing a sync oracle and an event stream for peers.
     pub sync: Arc<S>,
     /// Handle for receiving notification events.
-    // pub notification_service: Box<dyn NotificationService>,
+    pub notification_service: Box<dyn NotificationService>,
     /// Chain specific Attestor gossip protocol name. See
     /// [`communication::attestor_protocol_name::gossip_protocol_name`].
     pub gossip_protocol_name: ProtocolName,
@@ -187,7 +187,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
     let AttestorNetworkParams {
         network,
         sync,
-        // notification_service,
+        notification_service,
         gossip_protocol_name,
         // justifications_protocol_name,
         msg_stream,
@@ -201,17 +201,18 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
         finality_notification_transformer_future(finality_notifications);
 
     let gossip_validator = AttestorGossipValidator::<B, AccountId>::default();
-    let validator: Arc<AttestorGossipValidator<B, AccountId>> = Arc::new(gossip_validator);
+    let gossip_validator = Arc::new(gossip_validator);
     let gossip_engine = GossipEngine::new(
         network.clone(),
         sync.clone(),
+        notification_service,
         gossip_protocol_name.clone(),
-        validator.clone(),
+        gossip_validator.clone(),
         None,
     );
     let mut attestor_comms = AttestorComms {
         gossip_engine,
-        gossip_validator: validator,
+        gossip_validator,
         gossip_report_stream: msg_stream,
     };
 
@@ -251,20 +252,32 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
     }
 }
 
-pub fn peers_set_config(protocol_name: ProtocolName) -> sc_network::config::NonDefaultSetConfig {
-    sc_network::config::NonDefaultSetConfig {
-        notifications_protocol: protocol_name,
-        fallback_names: vec![],
-        // Notifications reach ~256kiB in size at the time of writing on Kusama and Polkadot.
-        max_notification_size: 1024 * 1024,
-        handshake: None,
-        set_config: sc_network::config::SetConfig {
-            in_peers: 0,
-            out_peers: 0,
+pub fn peers_set_config<
+    B: sp_runtime::traits::Block,
+    N: sc_network::NetworkBackend<B, <B as sp_runtime::traits::Block>::Hash>,
+>(
+    gossip_protocol_name: sc_network::ProtocolName,
+    metrics: sc_network::service::NotificationMetrics,
+    peer_store_handle: std::sync::Arc<dyn sc_network::peer_store::PeerStoreProvider>,
+) -> (
+    N::NotificationProtocolConfig,
+    Box<dyn sc_network::NotificationService>,
+) {
+    let (cfg, notification_service) = N::notification_config(
+        gossip_protocol_name,
+        Vec::new(),
+        1024 * 1024,
+        None,
+        sc_network::config::SetConfig {
+            in_peers: 25,
+            out_peers: 25,
             reserved_nodes: Vec::new(),
-            non_reserved_mode: sc_network::config::NonReservedPeerMode::Deny,
+            non_reserved_mode: sc_network::config::NonReservedPeerMode::Accept,
         },
-    }
+        metrics,
+        peer_store_handle,
+    );
+    (cfg, notification_service)
 }
 
 use sc_client_api::{BlockchainEvents, Finalizer, HeaderBackend};

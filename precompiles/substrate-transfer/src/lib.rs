@@ -41,6 +41,7 @@ where
     BalanceOf<Runtime, Instance>: TryFrom<U256> + Into<U256>,
     Instance: 'static,
     Runtime::AccountId: From<[u8; 32]>,
+    <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
     #[precompile::public("transfer_substrate(bytes32,uint256)")]
     fn transfer_substrate(
@@ -67,6 +68,7 @@ where
                     dest: Runtime::Lookup::unlookup(to),
                     value: amount,
                 },
+                0,
             )?;
         }
 
