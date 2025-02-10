@@ -40,7 +40,7 @@ impl Engine {
     /// Create a new attestation engine
     /// This will create a new connection to the evm chain and the creditcoin chain
     pub async fn new(config: &Config) -> Result<Self> {
-        let eth_client = Client::new(&config.eth_rpc_url, &String::new()).await?;
+        let eth_client = Client::new(&config.eth_rpc_url, None).await?;
         let chain_id = eth_client.chain_id();
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 

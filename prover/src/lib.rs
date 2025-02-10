@@ -60,7 +60,8 @@ impl Server {
             .clone()
             .replace("ws://", "http://")
             .replace("wss://", "https://");
-        let cc3_eth_client = EthClient::new(&cc3_http_url, &config.cc3_evm_private_key).await?;
+        let cc3_eth_client =
+            EthClient::new(&cc3_http_url, Some(&config.cc3_evm_private_key)).await?;
         contract::deploy(&cc3_eth_client).await?;
         info!("Deployed prover contract");
 
@@ -78,9 +79,9 @@ impl Server {
 
         let attestations_cache = self.attestations_cache.clone();
         let cc3_client = Arc::new(cc3_client);
-
+        debug!("Created cc3 client");
         // Create an eth client
-        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, &String::new()).await?);
+        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
 
         // Get the chain id of the eth chain
         let chain_id = eth_client.get_chain_id().await?;
@@ -175,7 +176,7 @@ impl Server {
 
     async fn process_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {
         // Create an eth client
-        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, &String::new()).await?);
+        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
 
         let r = query::process(
             eth_client.clone(),

@@ -6,7 +6,7 @@ pub async fn retrieve_and_compute_merkle_tree(
     url: &str,
     block_number: u64,
 ) -> anyhow::Result<StarknetPedersenMerkleTree> {
-    let eth_client = Client::new(url, "").await?;
+    let eth_client = Client::new(url, None).await?;
     let block = eth_client.get_block(block_number).await?;
 
     Ok(eth_common::starknet_pedersen_mmr(&block))

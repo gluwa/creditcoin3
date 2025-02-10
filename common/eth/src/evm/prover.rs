@@ -39,7 +39,6 @@ pub async fn deploy(
     proceeds_address: Option<Address>,
 ) -> Result<GluwaPublicProverContract> {
     let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
         .wallet(EthereumWallet::from(client.get_signer()?))
         .on_http(client.get_url());
 
@@ -77,7 +76,6 @@ impl GluwaPublicProverContract {
         info!("Computing query cost");
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(client.get_signer()?))
             .on_http(client.get_url());
 
@@ -118,7 +116,6 @@ impl GluwaPublicProverContract {
         info!("Submitting query proof for query: {:?}", query_id);
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(client.get_signer()?))
             .on_http(client.get_url());
 
@@ -141,9 +138,7 @@ impl GluwaPublicProverContract {
             self.address
         );
 
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .on_http(client.get_url());
+        let provider = ProviderBuilder::new().on_http(client.get_url());
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
@@ -184,7 +179,6 @@ impl GluwaPublicProverContract {
         let principal = signer.address();
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(signer))
             .on_http(client.get_url());
 
@@ -223,9 +217,7 @@ impl GluwaPublicProverContract {
             query_id
         );
 
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .on_http(client.get_url());
+        let provider = ProviderBuilder::new().on_http(client.get_url());
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
@@ -250,9 +242,7 @@ impl GluwaPublicProverContract {
     pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>> {
         info!("Getting unprocessed queries");
 
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .on_http(client.get_url());
+        let provider = ProviderBuilder::new().on_http(client.get_url());
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
@@ -282,7 +272,6 @@ impl GluwaPublicProverContract {
         let signer = client.get_signer()?;
 
         let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
             .wallet(EthereumWallet::from(signer))
             .on_http(client.get_url());
 

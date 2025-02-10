@@ -1,13 +1,16 @@
-use alloy::consensus::Receipt;
-use alloy::core::primitives::Log;
 use alloy::{
     consensus::{
-        ReceiptWithBloom, SignableTransaction, Signed, TxEip1559, TxEip2930, TxEip4844, TxLegacy,
-        TxReceipt,
+        Receipt, ReceiptWithBloom, SignableTransaction, Signed, TxEip1559, TxEip2930, TxEip4844,
+        TxLegacy, TxReceipt,
     },
+    core::primitives::Log,
+    network::Ethereum,
     primitives::BlockHash,
-    providers::{network::TransactionResponse, Provider, ProviderBuilder, RootProvider},
-    pubsub::PubSubFrontend,
+    providers::{
+        fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
+        network::TransactionResponse,
+        Identity, Provider, ProviderBuilder, RootProvider,
+    },
     rlp::{BufMut, Encodable},
     rpc::{
         client::WsConnect,
@@ -21,6 +24,7 @@ use alloy::{
 };
 
 use anyhow::Result;
+use hex::FromHexError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tracing::{error, info};
@@ -60,6 +64,10 @@ pub enum Error {
     FailedToGetSyncInfo,
     #[error("Failed to send block on channel")]
     SendError(#[from] SendError<OrderedBlock>),
+    #[error("No Wallet configured")]
+    NoWalletConfigured,
+    #[error("Hex decoding error {0}")]
+    HexDecodingError(#[from] FromHexError),
 }
 
 #[derive(Debug)]
@@ -378,25 +386,32 @@ impl OrderedRawBlock {
     }
 }
 
+type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
+
+pub(crate) type ExeFiller = JoinFill<
+    Identity,
+    JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+>;
+
 #[derive(Debug, Clone)]
 pub struct Client {
     url: Url,
-    private_key: String,
+    private_key: Option<String>,
     // ws: RootProvider<PubSubFrontend>,
-    http: RootProvider<alloy::transports::http::Http<alloy::transports::http::Client>>,
+    http: AlloyProvider,
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
 }
 
 impl Client {
-    pub async fn new(
-        url: impl Into<String> + Copy,
-        private_key: impl Into<String> + Copy,
-    ) -> Result<Self> {
-        let url = Url::parse(&url.into())?;
+    pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self> {
+        let url = Url::parse(url)?;
 
-        let http = ProviderBuilder::new().on_http(url.clone());
+        let http = ProviderBuilder::new()
+            .network::<Ethereum>()
+            .on_http(url.clone());
+
         info!("Connecting to Ethereum node at {}", url);
 
         let chain_id = http.get_chain_id().await.map_err(|e| {
@@ -406,7 +421,7 @@ impl Client {
 
         Ok(Self {
             url,
-            private_key: private_key.into(),
+            private_key: private_key.map(|s| s.to_owned()),
             http,
             chain_id,
         })
@@ -417,7 +432,10 @@ impl Client {
     }
 
     pub async fn renew_http(&mut self) -> Result<()> {
-        let http = ProviderBuilder::new().on_http(self.url.clone());
+        let http = ProviderBuilder::new()
+            .network::<Ethereum>()
+            .on_http(self.url.clone());
+
         self.http = http;
         Ok(())
     }
@@ -427,7 +445,7 @@ impl Client {
         self.url.clone()
     }
 
-    pub async fn get_ws(&self) -> Result<RootProvider<PubSubFrontend>> {
+    pub async fn get_ws(&self) -> Result<AlloyProvider> {
         let mut url = self.url.clone();
 
         if url.scheme() == "http" {
@@ -445,14 +463,24 @@ impl Client {
         }
 
         let ws = WsConnect::new(url);
-        let provider = ProviderBuilder::new().on_ws(ws).await?;
+        let provider = ProviderBuilder::new()
+            .network::<Ethereum>()
+            .on_ws(ws)
+            .await?;
 
         Ok(provider)
     }
 
-    pub fn get_signer(&self) -> Result<PrivateKeySigner> {
-        let decoded = hex::decode(self.private_key.clone().replace("0x", ""))?;
-        let signing_key = SigningKey::from_slice(&decoded)?;
+    pub fn get_signer(&self) -> Result<PrivateKeySigner, Error> {
+        if self.private_key.is_none() {
+            return Err(Error::NoWalletConfigured);
+        }
+
+        let decoded = hex::decode(self.private_key.clone().unwrap().replace("0x", ""))?;
+        let signing_key = SigningKey::from_slice(&decoded).map_err(|e| {
+            error!("Failed to create signing key: {:?}", e);
+            Error::ClientError(anyhow::anyhow!("Failed to create signing key"))
+        })?;
 
         Ok(PrivateKeySigner::from_signing_key(signing_key))
     }

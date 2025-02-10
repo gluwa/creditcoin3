@@ -63,11 +63,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         anyhow::anyhow!("Please provide an Infura API key (--infura-api-key 'somekey')")
     })?;
 
-    let query_eth_client = Client::new(
-        &prompt.network.url(infura_api_key, args.eth_rpc_url),
-        &String::new(),
-    )
-    .await?;
+    let query_eth_client =
+        Client::new(&prompt.network.url(infura_api_key, args.eth_rpc_url), None).await?;
 
     let block = query_eth_client.get_block(prompt.height).await?;
     // Get tx index
@@ -113,7 +110,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .cc3_rpc_url
             .replace("ws://", "http://")
             .replace("wss://", "https://"),
-        &args.cc3_evm_private_key,
+        Some(&args.cc3_evm_private_key),
     )
     .await?;
     let contract = evm::prover::new(args.prover_contract_address)?;
@@ -164,7 +161,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
     });
 
     // Initialize the Ethereum client for ccnext and the contract
-    let eth_client = Client::new(&eth_rpc_url, &args.cc3_evm_private_key).await?;
+    let eth_client = Client::new(&eth_rpc_url, Some(&args.cc3_evm_private_key)).await?;
     let contract = evm::prover::new(args.prover_contract_address)?;
 
     println!("Computing query cost...");
