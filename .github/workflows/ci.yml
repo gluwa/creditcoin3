@@ -42,6 +42,7 @@ jobs:
               --validator --chain devnet                                   \
               --name "test-node-devnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
               --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --node-key ${{ secrets.CI_VALIDATOR_NODE_KEY }} \
               --prometheus-external \
               --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
               --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
@@ -75,6 +76,7 @@ jobs:
               --validator --chain testnet                                   \
               --name "test-node-testnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
               --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --node-key ${{ secrets.CI_VALIDATOR_NODE_KEY }} \
               --prometheus-external \
               --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
               --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
@@ -110,6 +112,7 @@ jobs:
               --validator --chain mainnet                                   \
               --name "test-node-mainnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
               --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --node-key ${{ secrets.CI_VALIDATOR_NODE_KEY }} \
               --prometheus-external \
               --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
               --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
@@ -147,6 +150,8 @@ jobs:
           sleep 10
 
       - name: Start Testnet container via compose
+        env:
+          NODE_KEY: ${{ secrets.CI_VALIDATOR_NODE_KEY }}
         run: |
           docker compose up -d
 
