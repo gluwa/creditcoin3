@@ -1,3 +1,5 @@
+use crate::metrics::register_metrics;
+use crate::{metric_inc, metric_set, metrics::VoterMetrics};
 use attestor_primitives::ChainKey;
 use futures::{stream::Fuse, StreamExt};
 use log::{debug, error, info, warn};
@@ -8,11 +10,9 @@ use sp_consensus::SyncOracle;
 use sp_consensus_babe::BabeApi;
 use sp_core::H256;
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
-use substrate_prometheus_endpoint::Registry;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
-use crate::metrics::register_metrics;
-use crate::{metric_inc, metric_set, metrics::VoterMetrics};
+use substrate_prometheus_endpoint::Registry;
 
 use attestor_primitives::{
     api::AttestorApi,
@@ -300,7 +300,6 @@ where
             return Err(Error::WorkerInSync);
         }
 
-
         let block_hash = self.backend.blockchain().info().best_hash;
 
         // Get the round for the attestation
@@ -340,7 +339,7 @@ where
             }
             VoteImportResult::Ok => {
                 let block_number = self.backend.blockchain().info().best_number;
-                let block_number : u64 = block_number.into();
+                let block_number: u64 = block_number.into();
                 metric_set!(self.metrics, attestor_best_voted, block_number);
                 info!(target: LOG_TARGET, "📝 Attestation added to round");
             }
