@@ -65,16 +65,16 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             maxFreezes: u32 & AugmentedConst<ApiType>;
             /**
-             * The maximum number of holds that can exist on an account at any time.
-             **/
-            maxHolds: u32 & AugmentedConst<ApiType>;
-            /**
              * The maximum number of locks that should exist on an account.
              * Not strictly enforced, but used for weight estimation.
+             *
+             * Use of locks is deprecated in favour of freezes. See `https://github.com/paritytech/substrate/pull/12951/`
              **/
             maxLocks: u32 & AugmentedConst<ApiType>;
             /**
              * The maximum number of named reserves that can exist on an account.
+             *
+             * Use of reserves is deprecated in favour of holds. See `https://github.com/paritytech/substrate/pull/12951/`
              **/
             maxReserves: u32 & AugmentedConst<ApiType>;
             /**
@@ -118,20 +118,15 @@ declare module '@polkadot/api-base/types/consts' {
         };
         identity: {
             /**
-             * The amount held on deposit for a registered identity
+             * The amount held on deposit for a registered identity.
              **/
             basicDeposit: u128 & AugmentedConst<ApiType>;
             /**
-             * The amount held on deposit per additional field for a registered identity.
+             * The amount held on deposit per encoded byte for a registered identity.
              **/
-            fieldDeposit: u128 & AugmentedConst<ApiType>;
+            byteDeposit: u128 & AugmentedConst<ApiType>;
             /**
-             * Maximum number of additional fields that may be stored in an ID. Needed to bound the I/O
-             * required to access an identity, but can be pretty high.
-             **/
-            maxAdditionalFields: u32 & AugmentedConst<ApiType>;
-            /**
-             * Maxmimum number of registrars allowed in the system. Needed to bound the complexity
+             * Maximum number of registrars allowed in the system. Needed to bound the complexity
              * of, e.g., updating judgements.
              **/
             maxRegistrars: u32 & AugmentedConst<ApiType>;
@@ -139,6 +134,18 @@ declare module '@polkadot/api-base/types/consts' {
              * The maximum number of sub-accounts allowed per identified account.
              **/
             maxSubAccounts: u32 & AugmentedConst<ApiType>;
+            /**
+             * The maximum length of a suffix.
+             **/
+            maxSuffixLength: u32 & AugmentedConst<ApiType>;
+            /**
+             * The maximum length of a username, including its suffix and any system-added delimiters.
+             **/
+            maxUsernameLength: u32 & AugmentedConst<ApiType>;
+            /**
+             * The number of blocks within which a username grant must be accepted.
+             **/
+            pendingUsernameExpiration: u32 & AugmentedConst<ApiType>;
             /**
              * The amount held on deposit for a registered subaccount. This should account for the fact
              * that one storage item's value will increase by the size of an account ID, and there will
@@ -179,6 +186,10 @@ declare module '@polkadot/api-base/types/consts' {
              * Such a scenario would also be the equivalent of the pool being 90% slashed.
              **/
             maxPointsToBalance: u8 & AugmentedConst<ApiType>;
+            /**
+             * The maximum number of simultaneous unbonding chunks that can exist per member.
+             **/
+            maxUnbonding: u32 & AugmentedConst<ApiType>;
             /**
              * The nomination pool's pallet id.
              **/
@@ -242,8 +253,8 @@ declare module '@polkadot/api-base/types/consts' {
              * Following information is kept for eras in `[current_era -
              * HistoryDepth, current_era]`: `ErasStakers`, `ErasStakersClipped`,
              * `ErasValidatorPrefs`, `ErasValidatorReward`, `ErasRewardPoints`,
-             * `ErasTotalStake`, `ErasStartSessionIndex`,
-             * `StakingLedger.claimed_rewards`.
+             * `ErasTotalStake`, `ErasStartSessionIndex`, `ClaimedRewards`, `ErasStakersPaged`,
+             * `ErasStakersOverview`.
              *
              * Must be more than the number of eras delayed by session.
              * I.e. active era must always be in history. I.e. `active_era >
@@ -253,19 +264,26 @@ declare module '@polkadot/api-base/types/consts' {
              * this should be set to same value or greater as in storage.
              *
              * Note: `HistoryDepth` is used as the upper bound for the `BoundedVec`
-             * item `StakingLedger.claimed_rewards`. Setting this value lower than
+             * item `StakingLedger.legacy_claimed_rewards`. Setting this value lower than
              * the existing value can lead to inconsistencies in the
              * `StakingLedger` and will need to be handled properly in a migration.
              * The test `reducing_history_depth_abrupt` shows this effect.
              **/
             historyDepth: u32 & AugmentedConst<ApiType>;
             /**
-             * The maximum number of nominators rewarded for each validator.
+             * The maximum size of each `T::ExposurePage`.
              *
-             * For each validator only the `$MaxNominatorRewardedPerValidator` biggest stakers can
-             * claim their reward. This used to limit the i/o cost for the nominator payout.
+             * An `ExposurePage` is weakly bounded to a maximum of `MaxExposurePageSize`
+             * nominators.
+             *
+             * For older non-paged exposure, a reward payout was restricted to the top
+             * `MaxExposurePageSize` nominators. This is to limit the i/o cost for the
+             * nominator payout.
+             *
+             * Note: `MaxExposurePageSize` is used to bound `ClaimedRewards` and is unsafe to reduce
+             * without handling it in a migration.
              **/
-            maxNominatorRewardedPerValidator: u32 & AugmentedConst<ApiType>;
+            maxExposurePageSize: u32 & AugmentedConst<ApiType>;
             /**
              * The maximum number of `unlocking` chunks a [`StakingLedger`] can
              * have. Effectively determines how many unique eras a staker may be
@@ -321,7 +339,7 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             ss58Prefix: u16 & AugmentedConst<ApiType>;
             /**
-             * Get the chain's current version.
+             * Get the chain's in-code version.
              **/
             version: SpVersionRuntimeVersion & AugmentedConst<ApiType>;
             /**
@@ -331,10 +349,12 @@ declare module '@polkadot/api-base/types/consts' {
         };
         timestamp: {
             /**
-             * The minimum period between blocks. Beware that this is different to the *expected*
-             * period that the block production apparatus provides. Your chosen consensus system will
-             * generally work with this to determine a sensible block time. e.g. For Aura, it will be
-             * double this period on default settings.
+             * The minimum period between blocks.
+             *
+             * Be aware that this is different to the *expected* period that the block production
+             * apparatus provides. Your chosen consensus system will generally work with this to
+             * determine a sensible block time. For example, in the Aura pallet it will be double this
+             * period on default settings.
              **/
             minimumPeriod: u64 & AugmentedConst<ApiType>;
             /**
@@ -344,10 +364,10 @@ declare module '@polkadot/api-base/types/consts' {
         };
         transactionPayment: {
             /**
-             * A fee mulitplier for `Operational` extrinsics to compute "virtual tip" to boost their
+             * A fee multiplier for `Operational` extrinsics to compute "virtual tip" to boost their
              * `priority`
              *
-             * This value is multipled by the `final_fee` to obtain a "virtual tip" that is later
+             * This value is multiplied by the `final_fee` to obtain a "virtual tip" that is later
              * added to a tip component in regular `priority` calculations.
              * It means that a `Normal` transaction can front-run a similarly-sized `Operational`
              * extrinsic (with no tip), by including a tip value greater than the virtual tip.

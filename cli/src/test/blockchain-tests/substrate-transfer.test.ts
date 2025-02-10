@@ -15,6 +15,7 @@ describe('Precompile: transfer_substrate()', (): void => {
     let alithBalanceBefore: bigint;
     let api: ApiPromise;
     let gasPrice: bigint;
+    let gasLimit: number;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -39,6 +40,7 @@ describe('Precompile: transfer_substrate()', (): void => {
 
         destinationBalanceBefore = (await api.derive.balances.all(destination.address)).availableBalance.toBigInt();
 
+        gasLimit = 10000000;
         // note: larger timeout b/c this also executes against Testnet forks where block time is 15s
     }, 90_000);
 
@@ -54,6 +56,7 @@ describe('Precompile: transfer_substrate()', (): void => {
         const amount = parseEther('10.0');
         const result = await contract.transfer_substrate(destination.addressRaw, amount, {
             gasPrice,
+            gasLimit,
         });
         const receipt = await result.wait();
         expect(receipt).toBeDefined();

@@ -39,6 +39,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             DeadAccount: AugmentedError<ApiType>;
             /**
+             * The delta cannot be zero.
+             **/
+            DeltaZero: AugmentedError<ApiType>;
+            /**
              * Value too low to create account due to existential deposit.
              **/
             ExistentialDeposit: AugmentedError<ApiType>;
@@ -55,6 +59,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InsufficientBalance: AugmentedError<ApiType>;
             /**
+             * The issuance cannot be modified since it is already deactivated.
+             **/
+            IssuanceDeactivated: AugmentedError<ApiType>;
+            /**
              * Account liquidity restrictions prevent withdrawal.
              **/
             LiquidityRestrictions: AugmentedError<ApiType>;
@@ -63,7 +71,7 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyFreezes: AugmentedError<ApiType>;
             /**
-             * Number of holds exceed `MaxHolds`.
+             * Number of holds exceed `VariantCountOf<T::RuntimeHoldReason>`.
              **/
             TooManyHolds: AugmentedError<ApiType>;
             /**
@@ -115,9 +123,17 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             GasPriceTooLow: AugmentedError<ApiType>;
             /**
+             * The chain id is invalid.
+             **/
+            InvalidChainId: AugmentedError<ApiType>;
+            /**
              * Nonce is invalid
              **/
             InvalidNonce: AugmentedError<ApiType>;
+            /**
+             * the signature is invalid.
+             **/
+            InvalidSignature: AugmentedError<ApiType>;
             /**
              * Calculating total payment overflowed
              **/
@@ -243,9 +259,21 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidJudgement: AugmentedError<ApiType>;
             /**
+             * The signature on a username was not valid.
+             **/
+            InvalidSignature: AugmentedError<ApiType>;
+            /**
+             * The provided suffix is too long.
+             **/
+            InvalidSuffix: AugmentedError<ApiType>;
+            /**
              * The target is invalid.
              **/
             InvalidTarget: AugmentedError<ApiType>;
+            /**
+             * The username does not meet the requirements.
+             **/
+            InvalidUsername: AugmentedError<ApiType>;
             /**
              * The provided judgement was for a different identity.
              **/
@@ -259,9 +287,17 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             JudgementPaymentFailed: AugmentedError<ApiType>;
             /**
+             * The authority cannot allocate any more usernames.
+             **/
+            NoAllocation: AugmentedError<ApiType>;
+            /**
              * No identity found.
              **/
             NoIdentity: AugmentedError<ApiType>;
+            /**
+             * The username cannot be forcefully removed because it can still be accepted.
+             **/
+            NotExpired: AugmentedError<ApiType>;
             /**
              * Account isn't found.
              **/
@@ -279,13 +315,21 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             NotSub: AugmentedError<ApiType>;
             /**
+             * The sender does not have permission to issue a username.
+             **/
+            NotUsernameAuthority: AugmentedError<ApiType>;
+            /**
+             * The requested username does not exist.
+             **/
+            NoUsername: AugmentedError<ApiType>;
+            /**
+             * Setting this username requires a signature, but none was provided.
+             **/
+            RequiresSignature: AugmentedError<ApiType>;
+            /**
              * Sticky judgement.
              **/
             StickyJudgement: AugmentedError<ApiType>;
-            /**
-             * Too many additional fields.
-             **/
-            TooManyFields: AugmentedError<ApiType>;
             /**
              * Maximum amount of registrars reached. Cannot add any more.
              **/
@@ -294,6 +338,10 @@ declare module '@polkadot/api-base/types/errors' {
              * Too many subs-accounts.
              **/
             TooManySubAccounts: AugmentedError<ApiType>;
+            /**
+             * The username is already taken.
+             **/
+            UsernameTaken: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
@@ -319,6 +367,10 @@ declare module '@polkadot/api-base/types/errors' {
              * pool at a time.
              **/
             AccountBelongsToOtherPool: AugmentedError<ApiType>;
+            /**
+             * The pool or member delegation has already migrated to delegate stake.
+             **/
+            AlreadyMigrated: AugmentedError<ApiType>;
             /**
              * Bonding extra is restricted to the exact pending reward amount.
              **/
@@ -388,9 +440,9 @@ declare module '@polkadot/api-base/types/errors' {
             /**
              * The amount does not meet the minimum bond to either join or create a pool.
              *
-             * The depositor can never unbond to a value less than
-             * `Pallet::depositor_min_bond`. The caller does not have nominating
-             * permissions for the pool. Members can never unbond to a value below `MinJoinBond`.
+             * The depositor can never unbond to a value less than `Pallet::depositor_min_bond`. The
+             * caller does not have nominating permissions for the pool. Members can never unbond to a
+             * value below `MinJoinBond`.
              **/
             MinimumBondNotMet: AugmentedError<ApiType>;
             /**
@@ -407,9 +459,21 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             NotDestroying: AugmentedError<ApiType>;
             /**
+             * No imbalance in the ED deposit for the pool.
+             **/
+            NothingToAdjust: AugmentedError<ApiType>;
+            /**
+             * No slash pending that can be applied to the member.
+             **/
+            NothingToSlash: AugmentedError<ApiType>;
+            /**
              * Either a) the caller cannot make a valid kick or b) the pool is not destroying.
              **/
             NotKickerOrDestroying: AugmentedError<ApiType>;
+            /**
+             * The pool or member delegation has not migrated yet to delegate stake.
+             **/
+            NotMigrated: AugmentedError<ApiType>;
             /**
              * The caller does not have nominating permissions for the pool.
              **/
@@ -418,6 +482,10 @@ declare module '@polkadot/api-base/types/errors' {
              * The pool is not open to join
              **/
             NotOpen: AugmentedError<ApiType>;
+            /**
+             * This call is not allowed in the current state of the pallet.
+             **/
+            NotSupported: AugmentedError<ApiType>;
             /**
              * The transaction could not be executed due to overflow risk for the pool.
              **/
@@ -442,6 +510,10 @@ declare module '@polkadot/api-base/types/errors' {
              * A reward pool does not exist. In all cases this is a system logic error.
              **/
             RewardPoolNotFound: AugmentedError<ApiType>;
+            /**
+             * The slash amount is too low to be applied.
+             **/
+            SlashTooLow: AugmentedError<ApiType>;
             /**
              * A sub pool does not exist.
              **/
@@ -545,9 +617,17 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             CannotChillOther: AugmentedError<ApiType>;
             /**
+             * Cannot reset a ledger.
+             **/
+            CannotRestoreLedger: AugmentedError<ApiType>;
+            /**
              * Commission is too low. Must be at least `MinCommission`.
              **/
             CommissionTooLow: AugmentedError<ApiType>;
+            /**
+             * Used when attempting to use deprecated controller account logic.
+             **/
+            ControllerDeprecated: AugmentedError<ApiType>;
             /**
              * Duplicate index.
              **/
@@ -583,6 +663,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidNumberOfNominations: AugmentedError<ApiType>;
             /**
+             * No nominators exist on this page.
+             **/
+            InvalidPage: AugmentedError<ApiType>;
+            /**
              * Slash record index out of bounds.
              **/
             InvalidSlashIndex: AugmentedError<ApiType>;
@@ -595,6 +679,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             NotController: AugmentedError<ApiType>;
             /**
+             * Not enough funds available to withdraw.
+             **/
+            NotEnoughFunds: AugmentedError<ApiType>;
+            /**
              * Items are not sorted and unique.
              **/
             NotSortedAndUnique: AugmentedError<ApiType>;
@@ -606,6 +694,10 @@ declare module '@polkadot/api-base/types/errors' {
              * Can not rebond without unlocking chunks.
              **/
             NoUnlockChunk: AugmentedError<ApiType>;
+            /**
+             * Provided reward destination is not allowed.
+             **/
+            RewardDestinationRestricted: AugmentedError<ApiType>;
             /**
              * There are too many nominators in the system. Governance needs to adjust the staking
              * settings to keep things safe for the runtime.
@@ -621,13 +713,17 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyValidators: AugmentedError<ApiType>;
             /**
+             * Operation not allowed for virtual stakers.
+             **/
+            VirtualStakerNotAllowed: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;
         };
         sudo: {
             /**
-             * Sender must be the Sudo account
+             * Sender must be the Sudo account.
              **/
             RequireSudo: AugmentedError<ApiType>;
             /**
@@ -652,6 +748,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidSpecName: AugmentedError<ApiType>;
             /**
+             * A multi-block migration is ongoing and prevents the current code from being replaced.
+             **/
+            MultiBlockMigrationsOngoing: AugmentedError<ApiType>;
+            /**
              * Suicide called when the account has non-default composite data.
              **/
             NonDefaultComposite: AugmentedError<ApiType>;
@@ -660,10 +760,18 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             NonZeroRefCount: AugmentedError<ApiType>;
             /**
+             * No upgrade authorized.
+             **/
+            NothingAuthorized: AugmentedError<ApiType>;
+            /**
              * The specification version is not allowed to decrease between the current runtime
              * and the new runtime.
              **/
             SpecVersionNeedsToIncrease: AugmentedError<ApiType>;
+            /**
+             * The submitted code is not authorized.
+             **/
+            Unauthorized: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
