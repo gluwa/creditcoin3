@@ -16,6 +16,8 @@ services:
       - --validator
       - --chain
       - testnet
+      - --node-key
+      - ${NODE_KEY}
       - --telemetry-url
       - "wss://telemetry.creditcoin.network/submit 0"
       - --bootnodes
