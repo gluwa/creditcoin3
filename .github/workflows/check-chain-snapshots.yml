@@ -277,4 +277,5 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           matrix: ${{ toJson(matrix) }}
-          channel: '#ccdev-internal'
+          channel: '#noti-creditcoin-snapshots'
+          message: 'cc <@U028EMRHS3S>'
