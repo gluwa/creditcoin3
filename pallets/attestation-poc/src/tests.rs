@@ -1557,6 +1557,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
             0
         );
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
 
         assert_ok!(Attestation::bootstrap_chain(
             RuntimeOrigin::root(),
@@ -1580,7 +1581,14 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
 
         // event
         System::assert_last_event(
-            crate::Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_checkpoint).into(),
+            crate::Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_checkpoint.clone())
+                .into(),
+        );
+
+        // assert last checkpoint
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(expected_checkpoint)
         );
     })
 }
@@ -1593,6 +1601,7 @@ fn commit_attestation_works() {
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
             0
         );
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
 
         assert_ok!(Attestation::register_attestor(
             attestor.stash.clone(),
@@ -1624,6 +1633,11 @@ fn commit_attestation_works() {
         };
         assert_eq!(
             Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
+            Some(expected_checkpoint.clone())
+        );
+        // assert last checkpoint
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
             Some(expected_checkpoint)
         );
 
@@ -1887,8 +1901,12 @@ fn creating_checkpoint_works() {
         );
         assert_eq!(
             Attestation::checkpoints(SUPPORTED_CHAIN_KEY, resulting_checkpoint.digest),
+            Some(resulting_checkpoint.clone())
+        );
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
             Some(resulting_checkpoint)
-        )
+        );
     })
 }
 
@@ -2965,6 +2983,18 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
                 let mut queue = CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
                 queue.push_back(attestation.digest());
                 CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, queue);
+
+                // Insert checkpoint
+                let checkpoint = AttestationCheckpoint {
+                    block_number: i as u64, // Mimic gap between checkpoint blocks
+                    digest: attestation.digest(),
+                };
+                Checkpoints::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    attestation.digest(),
+                    checkpoint.clone(),
+                );
+                LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint);
             }
             if i == max_attestations - 1 {
                 LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, attestation.digest());
@@ -3042,6 +3072,7 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
             <Test as Config>::DefaultAttestationsPerCheckpoint::get()
         );
         assert_eq!(ChainReward::<Test>::get(SUPPORTED_CHAIN_KEY), None);
+        assert_eq!(LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY), None);
 
         System::assert_has_event(
             crate::Event::ClearedStorageForRemovedChain(SUPPORTED_CHAIN_KEY).into(),

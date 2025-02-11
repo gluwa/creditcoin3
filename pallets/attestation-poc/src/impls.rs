@@ -213,7 +213,8 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
+                LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             }
             Some(_prev_digest) => {
                 // Add to checkpointing queue
@@ -277,7 +278,8 @@ impl<T: Config> Pallet<T> {
 
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
+            Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
+            LastCheckpoint::<T>::insert(chain_key, &checkpoint);
 
             return Ok(());
         }
@@ -763,7 +765,8 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint);
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
+                LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             }
         }
 
@@ -883,6 +886,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
 
         CheckpointingQueues::<T>::remove(chain_key);
+        LastCheckpoint::<T>::remove(chain_key);
         LastDigest::<T>::remove(chain_key);
         TargetSampleSize::<T>::remove(chain_key);
         ChainAttestationInterval::<T>::remove(chain_key);

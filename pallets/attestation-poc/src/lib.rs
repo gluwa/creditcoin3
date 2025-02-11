@@ -211,6 +211,10 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
+    #[pallet::getter(fn last_checkpoint)]
+    pub type LastCheckpoint<T> = StorageMap<_, Blake2_128Concat, ChainKey, AttestationCheckpoint>;
+
+    #[pallet::storage]
     #[pallet::getter(fn checkpointing_queues)]
     pub type CheckpointingQueues<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
