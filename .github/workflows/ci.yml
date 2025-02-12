@@ -1536,6 +1536,28 @@ jobs:
           yarn install
           yarn test:attestation
 
+      - name: Restart creditcoin3-node
+        run: |
+          .github/restart-creditcoin3-node.sh
+
+      - name: Check if prover restarted query subscription
+        working-directory: /var/tmp/integration-test-attestor-network
+        run: |
+          grep "Retrying subscription in one second" prover-1.log
+          grep "Starting query submission subscription" prover-1.log
+
+          EXPECTED=5
+          SUBSCRIPTION_COUNT=$(grep -c "Starting query submission subscription" prover-1.log)
+          echo "INFO: subscribed $SUBSCRIPTION_COUNT/$EXPECTED times"
+
+          if [ "$SUBSCRIPTION_COUNT" -ge "$EXPECTED" ]; then
+              echo "PASS"
+              exit 0
+          else
+              echo "FAIL"
+              exit 1
+          fi
+
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
