@@ -1475,6 +1475,43 @@ jobs:
           # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
+      - name: Start prover DB
+        working-directory: ./prover
+        run: |
+          docker compose pull
+          docker compose up -d
+
+      - name: Set up Python for Cairo/Prover
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      - run: pip install -r prover/requirements.txt
+
+      - name: Download prover binary
+        uses: actions/download-artifact@v4
+        with:
+          name: prover-for-testing-ci
+          path: target/release
+
+      - name: Start Prover for Anvil-1
+        env:
+          RUST_LOG_STYLE: never
+        run: |
+          # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
+          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+
+          chmod a+x ./target/release/prover
+          ./target/release/prover \
+            --cc3-key "//Alice"   \
+            --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
+            --eth-rpc-url http://127.0.0.1:8141 \
+            --postgres-uri postgres://prover:prover@localhost/attestations \
+            > /var/tmp/integration-test-attestor-network/prover-1.log 2>&1 &
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -1520,6 +1557,8 @@ jobs:
           killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
+          killall -9 prover
+          docker compose -f prover/compose.yaml down
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
