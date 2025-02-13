@@ -20,13 +20,13 @@ pub type Client = FullClient<creditcoin3_runtime::RuntimeApi>;
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
     frame_benchmarking::benchmarking::HostFunctions,
-    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
 );
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
-    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
 );
 
 /// A set of APIs that every runtimes must implement.
