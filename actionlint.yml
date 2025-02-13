@@ -5,4 +5,4 @@ paths:
   .github/workflows/**/*.{yml,yaml}:
     ignore:
       # Ignore the specific error from shellcheck
-      - 'shellcheck reported issue in this script: SC2129:.+'
+      - "shellcheck reported issue in this script: SC2129:.+"
