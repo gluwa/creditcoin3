@@ -1,17 +1,13 @@
 endpoint: wss://mainnet3.creditcoin.network
-# endpoint: wss://rpc.cc3-devnet.creditcoin.network/ws
 allow-unresolved-imports: true
 mock-signature-host: true
-# wasm-override: /Users/mykyta/dev/gluwa/creditcoin3-before-forks-update/target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
 
 import-storage:
   Sudo:
     Key: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY # Alice
   System:
     Account:
-      -
-        -
-          - 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+      - - - 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
         - providers: 1
           data:
             free: "100000000000000000000000"
