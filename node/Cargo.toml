@@ -94,7 +94,7 @@ creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 creditcoin3-cli-opt = { workspace = true }
 
 # Tracing
-moonbeam-primitives-ext = { workspace = true }
+creditcoin3-primitives-ext = { workspace = true }
 moonbeam-rpc-debug = { workspace = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 moonbeam-rpc-trace = { workspace = true }
