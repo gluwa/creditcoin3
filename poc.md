@@ -72,7 +72,7 @@ cd attestor_zombienet
 
 Now check if attestations are coming through on the polkadot explorer. There should be events like: `AttestationSubmitted`.
 
-## 6. Start prover
+## 5. Start prover
 
 This is prover module that will deploy a Prover contract on ccnext chain where we can create and prove queries.
 
@@ -133,7 +133,7 @@ You should see something like
 
 Once started it will log the prover contract address. Copy this address and use it in the next module. In this example it is `0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3`.
 
-## 7. Make a transfer
+## 6. Make a transfer
 
 This will transfer some amount from `Alice` to some other random account.
 
@@ -144,7 +144,7 @@ node transfer.js
 
 Save the ouput to create a Query later.
 
-## 8. Query cli
+## 7. Query cli
 
 Create a query, first check on the anvil logs for a transaction in a block. Currently it's only possible to create queries for blocks that are attested to,
 so either check the prover logs for attestations that are being cached or check the chain.
@@ -174,7 +174,7 @@ Select:
 
 Now the prover should run the query and prove it. The result is submitted back to the cli and eventually it exits.
 
-## 9. Resetting After Tests
+## 8. Resetting After Tests
 Whenever you start up a new chain as in step 2 there is an additional cleanup consideration.
 
 1. This file must be deleted with each restart, `artifacts/chain_deployment_artifacts.json`
@@ -188,7 +188,7 @@ Failing to clean the DB can result in multiple attestations, blocks, or checkpoi
 Some of those will have the wrong digests, as they were saved from past chains.
 This can cause mismatches when proving claims.
 
-## 10. Creating a query against devnet
+## 9. Creating a query against devnet
 
 To create a query against the devnet, you first need to run a transfer.
 
@@ -211,7 +211,7 @@ cargo run -- \
 
 Now you can wait for the prover to finish proving the query.
 
-## 11. Running the Prover in Light Mode
+## 10. Running the Prover in Light Mode
 
 When run in light mode, the prover only schedules and provides inputs for proving jobs.
 The actual proving work is delegated to an Azure data pipeline mediated by a 

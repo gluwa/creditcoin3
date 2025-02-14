@@ -51,6 +51,9 @@ prover/.env
 **/ignition/deployments/
 precompiles/metadata/abi/*.json
 
+# Bridge usage example
+bridge-usage-example/out/*
+
 # temp, output & test files
 data/attestation-chain/*
 # don't ignore block-cache for integration tests
