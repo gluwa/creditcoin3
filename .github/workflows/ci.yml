@@ -1458,8 +1458,8 @@ jobs:
           # adjust path to binary b/c running from the root dir of the repository
           sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
 
-          mkdir /var/tmp/integration-test-attestor-network/attestors-alice
-          mkdir /var/tmp/integration-test-attestor-network/attestors-bob
+          mkdir -p /var/tmp/integration-test-attestor-network/attestors-alice
+          mkdir -p /var/tmp/integration-test-attestor-network/attestors-bob
 
           ./target/release/attestor_zombienet \
                 --cc3-key "//Alice" --supported-chain-key 2 \
