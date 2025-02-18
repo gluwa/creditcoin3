@@ -1478,8 +1478,9 @@ jobs:
       - name: Start prover DB
         working-directory: ./prover
         run: |
+          sed -ie '/ports/{N; d;}' compose.yaml
           docker compose pull
-          docker compose up -d
+          docker compose --project-name anvil-1 up -d
 
       - name: Set up Python for Cairo/Prover
         uses: actions/setup-python@v5
@@ -1504,12 +1505,14 @@ jobs:
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
           export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
+          DB_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' anvil-1-postgres-1)
+
           chmod a+x ./target/release/prover
           ./target/release/prover \
             --cc3-key "//Alice"   \
             --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
             --eth-rpc-url http://127.0.0.1:8141 \
-            --postgres-uri postgres://prover:prover@localhost/attestations \
+            --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
             > /var/tmp/integration-test-attestor-network/prover-1.log 2>&1 &
 
       - name: Install Node.js
@@ -1580,7 +1583,7 @@ jobs:
           killall -9 attestor
           killall -9 creditcoin3-node
           killall -9 prover
-          docker compose -f prover/compose.yaml down
+          docker compose -f prover/compose.yaml -p anvil-1 down
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
