@@ -10,4 +10,4 @@ d103b6518efc18d8fcef9dd0bb211036fbec9543:chainspecs/devnetSpec.json:generic-api-
 68b67ae9fb7477445373e03b2f6f871313b9734e:chainspecs/dryRunSpec.json:generic-api-key:147
 6f55319db6d92462e373ce14198f80698b0a1ba4:eth_scripts/index.js:generic-api-key:52
 6f55319db6d92462e373ce14198f80698b0a1ba4:eth_scripts/index.js:generic-api-key:53
-fdfa4fbde460468413bc3f4fc8a3b08e7bf508f0:cli/src/test/attestation-tests/sanity.test.ts:generic-api-key:5
+81f8d5bc42884b00a5c70dba3c0fc8f2c47b733d:cli/src/test/attestation-tests/sanity.test.ts:generic-api-key:4
