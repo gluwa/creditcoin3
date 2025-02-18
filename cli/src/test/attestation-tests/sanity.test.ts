@@ -6,7 +6,7 @@ const DEV_CHAIN = 2;
 
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
-    const maxBlocks = 220; // ~ 16:40 mins
+    const maxBlocks = 220; // ~ 18:20 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -100,5 +100,5 @@ describe('BlockAttested events', (): void => {
             // nevertheless should be good enough for CI to detect if something suddenly
             // starts failing
         });
-    }, 1_500_000); // 200 blocks is 1000 sec + reserve to avoid timeouts
+    }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
 });
