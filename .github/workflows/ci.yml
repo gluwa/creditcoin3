@@ -1753,6 +1753,12 @@ jobs:
         run: |
           yarn install
 
+      - name: Check that Creditcoin chain has ETH blocks
+        working-directory: ./cli
+        run: |
+          yarn build
+          node dist/scripts/eth-check.js ws://127.0.0.1:9944
+
       - name: Auto-update typedefs
         id: update_typedefs
         working-directory: ./cli
@@ -1801,6 +1807,7 @@ jobs:
 
           echo "validator_cycle=yes" >> "$GITHUB_OUTPUT"
 
+      # note: potentially rebuilds with newer type definitions
       - name: Build creditcoin-cli
         working-directory: ./cli
         run: |
