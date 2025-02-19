@@ -41,6 +41,11 @@ services:
       - --unsafe-rpc-external
     expose:
       - 9944
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -H 'Content-Type: application/json' -d '{\"id\":\"1\", \"jsonrpc\":\"2.0\", \"method\": \"state_getMetadata\", \"params\":[]}' http://127.0.0.1:9944" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   prover:
     container_name: creditcoin-prover
@@ -49,7 +54,7 @@ services:
       database:
         condition: service_healthy
       validator:
-        condition: service_started
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: /bin/prover
