@@ -4,6 +4,12 @@
 
 # Running the POC
 
+## 0. Setup
+Get dependencies and build
+```sh
+forge build
+```
+
 ## 1. Spin up Bridge POC
 Universal smart contracts hosted on Creditcoin3-next are dependant on the CCNext decentralized bridge.
 
@@ -16,6 +22,7 @@ We now deploy our TestERC20 smart contract on our source chain. The contract aut
 
 Run the following to deploy your contract:
 
+// The `--private-key` provided is one of the default pre-funded Anvil accounts
 ```sh
 cd bridge-usage-example
 forge create --rpc-url 127.0.0.1:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 TestERC20
@@ -29,6 +36,7 @@ Burn contract tokens by transferring them to one of the 0x0000000... addresses. 
 
 cast send --rpc-url <RPC-URL> <CONTRACT-ADDRESS> "transfer(address, uint256)" <ADDRESS> <AMOUNT> --private-key <PRIVATE-KEY>
 
+Again, we use our pre-funded Anvil account with private key 0xac09...
 EX:
 ```sh
 cast send --rpc-url 127.0.0.1:8545 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 "transfer(address, uint256)" "0x0000000000000000000000000000000000000001" "50" --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
@@ -47,7 +55,7 @@ The prover that you ran in step 1 should begin proving your transaction. This us
 Note: If you are using an x86 machine, Linux or Mac, then you can run proof generation locally. Otherwise you will have to run the prover in light mode as detailed in step #10 of [document](../poc.md)
 
 ## 5. Deploy Universal Smart Contract
-TODO: Add Universal Smart Contract (USC) example in this repo. It should be an OpenZeppelin ERC20 with one additional function, `usc_bridge_complete_mint()`, which takes as arguments a `prover_contract_addr` and a `query_id`.
+TODO: Add Universal Smart Contract (USC) example in this repo. It should be an OpenZeppelin ERC20 with one additional function, `usc_bridge_complete_mint(prover_contract_addr, query_id)`.
 
 ## 6. Mint Tokens Using Proof of Burn
 We can see that proof generation is complete in either of two places:

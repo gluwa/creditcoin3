@@ -1,3 +1,0 @@
-[submodule "bridge-usage-example/lib/openzeppelin-contracts"]
-	path = bridge-usage-example/lib/openzeppelin-contracts
-	url = https://github.com/OpenZeppelin/openzeppelin-contracts

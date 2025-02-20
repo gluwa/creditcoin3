@@ -11,7 +11,8 @@ contract TestERCTest is Test {
         testERC20 = new TestERC20();
     }
 
-    function testTransfer(address to) public {
-        testERC20.transfer(to, 100000);
+    function testTransfer() public {
+        // Transfer to burn address
+        testERC20.transfer(0x0000000000000000000000000000000000000001, 100000);
     }
 }

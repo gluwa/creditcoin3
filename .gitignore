@@ -53,6 +53,7 @@ precompiles/metadata/abi/*.json
 
 # Bridge usage example
 bridge-usage-example/out/*
+bridge-usage-example/lib/*
 
 # temp, output & test files
 data/attestation-chain/*
