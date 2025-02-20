@@ -9,14 +9,17 @@
 # https://pygithub.readthedocs.io
 
 import os
+import sys
 
 from datetime import datetime, timedelta
 from github import Auth, Github
 
 
+skip_self_hosted = "--skip-self-hosted".lower() in sys.argv
+
 OWNER_REPO=os.environ.get("OWNER_REPO", "gluwa/creditcoin3")
-PERIOD_START=datetime(2024, 8, 1, 0, 0, 0)
-PERIOD_END=datetime(2024, 8, 31, 23, 59, 59)
+PERIOD_START=datetime(2025, 2, 1, 0, 0, 0)
+PERIOD_END=datetime(2025, 2, 28, 23, 59, 59)
 DURATION_PER_JOB={}
 DURATION_PER_BRANCH={}
 
@@ -58,8 +61,9 @@ while start <= PERIOD_END:
         # GitHub API doesn't support filtering by name so iterate over all jobs in a workflow
         # https://docs.github.com/en/rest/actions/workflow-jobs?apiVersion=2022-11-28#list-jobs-for-a-workflow-run
         for job in workflow_run.jobs():
-            # IMPORTANT: count only jobs executed in GHA, not self-hosted
-            if "self-hosted" not in job.labels:
+            if skip_self_hosted and "self-hosted" in job.labels:
+                continue
+            else:
                 duration = job.completed_at - job.started_at
 
                 # TODO: should account for minute multipliers on Windows and MacOS
