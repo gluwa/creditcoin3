@@ -215,6 +215,8 @@ impl<T: Config> Pallet<T> {
 
                 Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
+                // delete first attestation since the first checkpoint is already created
+                Attestations::<T>::remove(chain_key, digest);
             }
             Some(_prev_digest) => {
                 // Add to checkpointing queue
@@ -280,7 +282,8 @@ impl<T: Config> Pallet<T> {
 
             Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
             LastCheckpoint::<T>::insert(chain_key, &checkpoint);
-
+            // delete first attestation since the first checkpoint is already created
+            Attestations::<T>::remove(chain_key, digest);
             return Ok(());
         }
 
