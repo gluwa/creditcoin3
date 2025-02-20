@@ -71,7 +71,7 @@ impl Server {
             .await?
             .expect("Prover could not find chain key on startup.");
 
-        contract::deploy(&cc3_eth_client, chain_key).await?;
+        contract::deploy(&cc3_eth_client, config.cost_per_byte, config.base_fee, chain_key).await?;
         info!("Deployed prover contract");
 
         Ok(Server {

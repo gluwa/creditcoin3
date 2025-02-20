@@ -12,6 +12,8 @@ pub struct Config {
     pub cc3_key: String,
     pub eth_rpc_url: String,
     pub cc3_evm_private_key: String,
+    pub cost_per_byte: Option<u64>,
+    pub base_fee: Option<u64>,
     pub claim_buffer: u8,
     pub postgres_uri: String,
     pub prover_be_socket_addr: Option<String>,

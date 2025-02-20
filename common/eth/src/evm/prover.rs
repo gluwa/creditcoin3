@@ -37,6 +37,8 @@ pub struct GluwaPublicProverContract {
 pub async fn deploy(
     client: &Client,
     proceeds_address: Option<Address>,
+    cost_per_byte: Option<u64>,
+    base_fee: Option<u64>,
     chain_key: ChainKey,
 ) -> Result<GluwaPublicProverContract> {
     let provider = ProviderBuilder::new()
@@ -44,14 +46,20 @@ pub async fn deploy(
         .on_http(client.get_url());
 
     // If the proceeds address is not provided, use the cc client keypair derived evm address
-    let proceeds_address = if let Some(proceeds_address) = proceeds_address {
-        proceeds_address
-    } else {
-        client.get_signer()?.address()
-    };
+    let proceeds_address = proceeds_address.unwrap_or(client.get_signer()?.address());
+    // If the cost per byte and base fee are not provided, use 10 and 1000 as default values
+    let cost_per_byte = cost_per_byte.unwrap_or(10);
+    let base_fee = base_fee.unwrap_or(1000);
 
     info!("Deploying Gluwa Public Prover contract");
-    let contract = CreditcoinPublicProver::deploy(provider, proceeds_address, chain_key).await?;
+    let contract = CreditcoinPublicProver::deploy(
+        provider,
+        proceeds_address,
+        U256::from(cost_per_byte),
+        U256::from(base_fee),
+        chain_key,
+    )
+    .await?;
 
     info!(
         "Gluwa Public Prover contract deploy at {}",
@@ -266,6 +274,46 @@ impl GluwaPublicProverContract {
                     .collect(),
             })
             .collect())
+    }
+
+    pub async fn set_base_cost_per_bytes(
+        &self,
+        client: Client,
+        new_cost_per_byte: u64,
+    ) -> Result<String> {
+        info!("Setting base cost per bytes: {}", new_cost_per_byte);
+
+        let signer = client.get_signer()?;
+
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .on_http(client.get_url());
+
+        let contract = CreditcoinPublicProver::new(self.address, provider);
+
+        let builder = contract.setBaseCostPerByte(U256::from(new_cost_per_byte));
+
+        let result = builder.send().await?.watch().await?;
+
+        Ok(result.to_string())
+    }
+
+    pub async fn set_base_fee(&self, client: Client, new_base_fee: u64) -> Result<String> {
+        info!("Setting base fee: {}", new_base_fee);
+
+        let signer = client.get_signer()?;
+
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .on_http(client.get_url());
+
+        let contract = CreditcoinPublicProver::new(self.address, provider);
+
+        let builder = contract.setBaseFee(U256::from(new_base_fee));
+
+        let result = builder.send().await?.watch().await?;
+
+        Ok(result.to_string())
     }
 
     pub async fn remove_query_id(&self, client: &Client, query_id: H256) -> Result<String> {

@@ -23,6 +23,12 @@ pub struct Prover {
     #[arg(short, long)]
     verbose: bool,
 
+    #[arg(long, required = false)]
+    cost_per_byte: Option<u64>,
+
+    #[arg(long, required = false)]
+    base_fee: Option<u64>,
+
     #[arg(long, default_value_t = 100)]
     claim_buffer: u8,
 
@@ -70,6 +76,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cc3_key: args.cc3_key,
         eth_rpc_url: args.eth_rpc_url,
         cc3_evm_private_key: args.cc3_evm_private_key,
+        cost_per_byte: args.cost_per_byte,
+        base_fee: args.base_fee,
         claim_buffer: args.claim_buffer,
         postgres_uri: args.postgres_uri,
         prover_be_socket_addr: args.prover_be_socket_addr,

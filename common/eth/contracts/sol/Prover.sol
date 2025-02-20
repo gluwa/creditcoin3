@@ -12,27 +12,25 @@ contract CreditcoinPublicProver is Ownable {
     Balance totalEscrowBalance;
     QueryVerifierContract verifier;
     address proceedsAccount;
+    uint256 public baseCostPerByte;
+    uint256 public baseFee;
     uint64 chainKey;
 
-    constructor(address _proceedsAccount, uint64 _chainKey) Ownable() {
+    constructor(address _proceedsAccount, uint256 _baseCostPerByte, uint256 _baseFee, uint64 _chainKey) Ownable() {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
         totalEscrowBalance = Balance.wrap(0);
+        baseCostPerByte = _baseCostPerByte;
+        baseFee = _baseFee;
         chainKey = _chainKey;
     }
 
-    function computeQueryCost(Query calldata query) public pure returns (uint256) {
+    function computeQueryCost(Query calldata query) public view returns (uint256) {
         // Cost function is based on the size of the query layoutsegments
         // I think it should also somehow include the distance between the required
         // block height and its nearest checkpoint or something of sorts (if distance
         // to a checkpoint determines the time prover needs to generate the proof)
         // not sure yet how to implement something like that
-
-        // Define the base cost per byte
-        uint256 baseCostPerByte = 10; // Dummy default value for now
-
-        // Define a base fee for the query submission
-        uint256 baseFee = 1000; // Dummy default value for now
 
         // Calculate the total size of the query based on its layout segments
         uint256 totalBytes = 0;
@@ -46,6 +44,13 @@ contract CreditcoinPublicProver is Ownable {
         return cost;
     }
 
+    function setBaseCostPerByte(uint256 _newBaseCostPerByte) external onlyOwner {
+        baseCostPerByte = _newBaseCostPerByte;
+    }
+
+    function setBaseFee(uint256 _newBaseFee) external onlyOwner {
+        baseFee = _newBaseFee;
+    }
 
     function submitQuery(Query calldata query, address principal) public payable {
         require (query.chainId == chainKey, "Chain not supported");
