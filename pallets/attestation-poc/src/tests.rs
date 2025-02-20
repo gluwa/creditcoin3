@@ -1539,7 +1539,11 @@ fn bootstrap_chain_should_error_when_chain_is_unsupported() {
 fn bootstrap_chain_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 1, None);
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 1, None);
+        let attestation_for_block_10 =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 10, None);
+
         let expected_checkpoint = AttestationCheckpoint {
             block_number: attestation.header_number(),
             digest: attestation.digest(),
@@ -1569,9 +1573,10 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
             Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
             Some(attestation.digest())
         );
+        // Should be none because the first attestation was already processed and removed
         assert_eq!(
-            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
-            Some(attestation.clone())
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_for_block_10.digest()),
+            None
         );
         // Shouldn't add first attestation for chain to checkpointing queue
         assert_eq!(
@@ -1581,8 +1586,43 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
 
         // event
         System::assert_last_event(
-            crate::Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_checkpoint.clone())
-                .into(),
+            Event::CheckpointReached(SUPPORTED_CHAIN_KEY, expected_checkpoint.clone()).into(),
+        );
+
+        // assert last checkpoint
+        assert_eq!(
+            Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
+            Some(expected_checkpoint.clone())
+        );
+
+        assert_ok!(Attestation::bootstrap_chain(
+            RuntimeOrigin::root(),
+            attestation_for_block_10.clone(),
+        ),);
+
+        // storage
+        assert_eq!(
+            Attestation::last_attestation_digest(SUPPORTED_CHAIN_KEY),
+            Some(attestation_for_block_10.digest())
+        );
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_for_block_10.digest()),
+            Some(attestation_for_block_10.clone())
+        );
+        // Only the second attestation should be inside the checkpointing queue because the first was already processed
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            1
+        );
+
+        // event
+        System::assert_last_event(
+            Event::BlockAttested(
+                SUPPORTED_CHAIN_KEY,
+                attestation_for_block_10.clone(),
+                attestation_for_block_10.digest(),
+            )
+            .into(),
         );
 
         // assert last checkpoint
@@ -1618,7 +1658,8 @@ fn commit_attestation_works() {
 
         progress_to_block(5);
 
-        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 1, None);
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 1, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -1640,6 +1681,14 @@ fn commit_attestation_works() {
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
             Some(expected_checkpoint)
         );
+
+        // Create a second attestation since first became a checkpoint and was removed from attestations
+        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 10, None);
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            attestation.clone()
+        ));
 
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
@@ -1709,7 +1758,20 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 
         progress_to_block(5);
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            attestation.clone()
+        ));
+
+        // Should fail validation check because the first attestation became a checkpoint and was removed from the attestations
+        assert_noop!(
+            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
+            Error::<Test>::InvalidAttestation
+        );
+
+        let attestation = create_signed_attestation(vec![attestor], 1, 10, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -1788,9 +1850,10 @@ fn submitting_attestation_chain_works() {
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).back(),
             Some(&attestation_2.digest())
         );
+        // Attestation_1 became a checkpoint so it was removed from attestations
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_1.digest()),
-            Some(attestation_1)
+            None
         );
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_2.digest()),
@@ -1859,7 +1922,7 @@ fn creating_checkpoint_works() {
                 i if i < att_per_check as usize && i != 0 => {
                     removed_by_checkpoint.push(attestation.digest());
                 }
-                i if i == att_per_check as usize => {
+                i if i == att_per_check as usize || i == 0 => {
                     // End of first checkpoint interval
                     removed_by_checkpoint.push(attestation.digest());
                     checkpoint_attestation = Some(attestation);
