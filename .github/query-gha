@@ -64,6 +64,10 @@ while start <= PERIOD_END:
             if skip_self_hosted and "self-hosted" in job.labels:
                 continue
             else:
+                # skip jobs which are still running
+                if job.completed_at is None:
+                    continue
+
                 duration = job.completed_at - job.started_at
 
                 # TODO: should account for minute multipliers on Windows and MacOS
