@@ -37,8 +37,8 @@ pub struct GluwaPublicProverContract {
 pub async fn deploy(
     client: &Client,
     proceeds_address: Option<Address>,
-    cost_per_byte: Option<u64>,
-    base_fee: Option<u64>,
+    cost_per_byte: u64,
+    base_fee: u64,
     chain_key: ChainKey,
 ) -> Result<GluwaPublicProverContract> {
     let provider = ProviderBuilder::new()
@@ -47,9 +47,6 @@ pub async fn deploy(
 
     // If the proceeds address is not provided, use the cc client keypair derived evm address
     let proceeds_address = proceeds_address.unwrap_or(client.get_signer()?.address());
-    // If the cost per byte and base fee are not provided, use 10 and 1000 as default values
-    let cost_per_byte = cost_per_byte.unwrap_or(10);
-    let base_fee = base_fee.unwrap_or(1000);
 
     info!("Deploying Gluwa Public Prover contract");
     let contract = CreditcoinPublicProver::deploy(

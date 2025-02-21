@@ -15,12 +15,7 @@ const CC3_CHAIN_ID: u64 = 42;
 // Deploy the contract
 // This function will deploy the contract to the chain
 // If the contract is already deployed, it will fetch the artifact
-pub async fn deploy(
-    eth_client: &Client,
-    cost_per_byte: Option<u64>,
-    base_fee: Option<u64>,
-    chain_key: ChainKey,
-) -> Result<()> {
+pub async fn deploy(eth_client: &Client, cost_per_byte: u64, base_fee: u64, chain_key: ChainKey) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
     let artifact = if artifacts::has_artifact(chain_id).await? {

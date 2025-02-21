@@ -23,11 +23,11 @@ pub struct Prover {
     #[arg(short, long)]
     verbose: bool,
 
-    #[arg(long, required = false)]
-    cost_per_byte: Option<u64>,
+    #[arg(long, required = false, default_value_t = 10)]
+    cost_per_byte: u64,
 
-    #[arg(long, required = false)]
-    base_fee: Option<u64>,
+    #[arg(long, required = false, default_value_t = 1000)]
+    base_fee: u64,
 
     #[arg(long, default_value_t = 100)]
     claim_buffer: u8,
