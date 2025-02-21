@@ -48,7 +48,7 @@ contract CreditcoinPublicProver is Ownable {
 
 
     function submitQuery(Query calldata query, address principal) public payable {
-        require (query.chainId == chainKey, "ChainId not supported");
+        require (query.chainId == chainKey, "Chain not supported");
 
         // Guards
         // QueryId may be computed differently if you'd like.

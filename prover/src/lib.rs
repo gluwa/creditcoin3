@@ -62,7 +62,16 @@ impl Server {
             .replace("wss://", "https://");
         let cc3_eth_client =
             EthClient::new(&cc3_http_url, Some(&config.cc3_evm_private_key)).await?;
-        contract::deploy(&cc3_eth_client, config.chain_key).await?;
+
+        let cc3_client = cc3::Client::new(&config.cc3_rpc_url, &config.cc3_key).await?;
+        let eth_client = Arc::new(EthClient::new(&config.eth_rpc_url, None).await?);
+        let chain_id = eth_client.get_chain_id().await?;
+        let chain_key = cc3_client
+            .get_chain_key(chain_id)
+            .await?
+            .expect("Prover could not find chain key on startup.");
+
+        contract::deploy(&cc3_eth_client, chain_key).await?;
         info!("Deployed prover contract");
 
         Ok(Server {
