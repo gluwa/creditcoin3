@@ -7,14 +7,14 @@ use tracing::info;
 use pallet_prover_primitives::{LayoutSegment, Query};
 use sp_core::H256;
 
+use crate::Client;
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
     providers::ProviderBuilder,
     sol,
 };
-
-use crate::Client;
+use attestor_primitives::ChainKey;
 
 sol! {
     #[sol(rpc)]
@@ -37,6 +37,7 @@ pub struct GluwaPublicProverContract {
 pub async fn deploy(
     client: &Client,
     proceeds_address: Option<Address>,
+    chain_key: ChainKey,
 ) -> Result<GluwaPublicProverContract> {
     let provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(client.get_signer()?))
@@ -50,7 +51,7 @@ pub async fn deploy(
     };
 
     info!("Deploying Gluwa Public Prover contract");
-    let contract = CreditcoinPublicProver::deploy(provider, proceeds_address).await?;
+    let contract = CreditcoinPublicProver::deploy(provider, proceeds_address, chain_key).await?;
 
     info!(
         "Gluwa Public Prover contract deploy at {}",

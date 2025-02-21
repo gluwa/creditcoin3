@@ -62,7 +62,7 @@ impl Server {
             .replace("wss://", "https://");
         let cc3_eth_client =
             EthClient::new(&cc3_http_url, Some(&config.cc3_evm_private_key)).await?;
-        contract::deploy(&cc3_eth_client).await?;
+        contract::deploy(&cc3_eth_client, config.chain_key).await?;
         info!("Deployed prover contract");
 
         Ok(Server {

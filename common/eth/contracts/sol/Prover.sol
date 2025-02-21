@@ -12,11 +12,13 @@ contract CreditcoinPublicProver is Ownable {
     Balance totalEscrowBalance;
     QueryVerifierContract verifier;
     address proceedsAccount;
+    uint64 chainKey;
 
-    constructor(address _proceedsAccount) Ownable() {
+    constructor(address _proceedsAccount, uint64 _chainKey) Ownable() {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
         totalEscrowBalance = Balance.wrap(0);
+        chainKey = _chainKey;
     }
 
     function computeQueryCost(Query calldata query) public pure returns (uint256) {
@@ -46,6 +48,8 @@ contract CreditcoinPublicProver is Ownable {
 
 
     function submitQuery(Query calldata query, address principal) public payable {
+        require (query.chainId == chainKey, "ChainId not supported");
+
         // Guards
         // QueryId may be computed differently if you'd like.
         QueryId queryId = QueryId.wrap(keccak256(abi.encode(query)));

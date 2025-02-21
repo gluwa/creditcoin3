@@ -4,6 +4,7 @@ use tracing::info;
 
 use crate::query::QueryId;
 use artifacts::ChainDeploymentArtifact;
+use attestor_primitives::ChainKey;
 use eth::Client;
 use pallet_prover_primitives::Query;
 
@@ -14,7 +15,7 @@ const CC3_CHAIN_ID: u64 = 42;
 // Deploy the contract
 // This function will deploy the contract to the chain
 // If the contract is already deployed, it will fetch the artifact
-pub async fn deploy(eth_client: &Client) -> Result<()> {
+pub async fn deploy(eth_client: &Client, chain_key: ChainKey) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
     let artifact = if artifacts::has_artifact(chain_id).await? {
@@ -22,7 +23,7 @@ pub async fn deploy(eth_client: &Client) -> Result<()> {
         artifacts::get_deployment_artifact(chain_id).await?
     } else {
         info!("Deploying Gluwa Public Prover contract");
-        let contract = eth::evm::prover::deploy(eth_client, None).await?;
+        let contract = eth::evm::prover::deploy(eth_client, None, chain_key).await?;
         artifacts::create_deployment_artifact(chain_id, contract.clone()).await?;
 
         ChainDeploymentArtifact { chain_id, contract }

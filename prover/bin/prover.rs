@@ -1,10 +1,10 @@
+use attestor_primitives::ChainKey;
 use clap::Parser;
 use dotenv::dotenv;
+use prover::{config::Config, Server};
 use std::error::Error;
 use tokio::signal;
 use tracing::{debug, info};
-
-use prover::{config::Config, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "prover")]
@@ -23,6 +23,9 @@ pub struct Prover {
 
     #[arg(short, long)]
     verbose: bool,
+
+    #[arg(long, default_value_t = 2)]
+    chain_key: ChainKey,
 
     #[arg(long, default_value_t = 100)]
     claim_buffer: u8,
@@ -71,6 +74,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cc3_key: args.cc3_key,
         eth_rpc_url: args.eth_rpc_url,
         cc3_evm_private_key: args.cc3_evm_private_key,
+        chain_key: args.chain_key,
         claim_buffer: args.claim_buffer,
         postgres_uri: args.postgres_uri,
         prover_be_socket_addr: args.prover_be_socket_addr,
