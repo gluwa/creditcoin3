@@ -40,7 +40,7 @@ where
 
 /// Function to calculate the threshold for a committee set size to reach majority vote
 fn calculate_threshold(committee_set_size: u32) -> u32 {
-    (2 * committee_set_size + 3) / 3
+    (2 * committee_set_size) / 3
 }
 
 #[cfg(test)]
@@ -51,27 +51,27 @@ mod test {
     fn test_calculate_threshold_3() {
         let committee_set_size = 3;
         let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 3);
+        assert_eq!(threshold, 2);
     }
 
     #[test]
     fn test_calculate_threshold_4() {
         let committee_set_size = 4;
         let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 3);
+        assert_eq!(threshold, 2);
     }
 
     #[test]
     fn test_calculate_threshold_5() {
         let committee_set_size = 5;
         let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 4);
+        assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_10() {
         let committee_set_size = 10;
         let threshold = calculate_threshold(committee_set_size);
-        assert_eq!(threshold, 7);
+        assert_eq!(threshold, 6);
     }
 }

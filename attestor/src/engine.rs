@@ -169,8 +169,20 @@ impl Engine {
         Ok(())
     }
 
-    pub fn change_interval(&mut self, new_interval: u64) {
+    /// Restart the attestation engine
+    pub async fn restart(&mut self, start_block: Option<u64>) -> Result<(), Error> {
+        self.stop().await;
+        self.start(start_block).await
+    }
+
+    // Change the attestation interval
+    // returns true if the interval was changed
+    pub fn change_interval(&mut self, new_interval: u64) -> bool {
+        if self.cc3_client.get_attestation_interval() == new_interval {
+            return false;
+        }
         self.cc3_client.change_attestation_interval(new_interval);
+        true
     }
 
     pub async fn next(&mut self) -> Option<AttestationPrimitive<H256>> {

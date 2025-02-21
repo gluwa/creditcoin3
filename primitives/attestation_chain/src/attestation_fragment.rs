@@ -190,7 +190,7 @@ impl TryFrom<(AttestationFragmentSerializable, AttestationChainParams)> for Atte
     }
 }
 
-#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AttestationFragmentSerializable {
     //    params: AttestationChainParams,
     blocks: Vec<BlockSerializable>,
@@ -199,6 +199,14 @@ pub struct AttestationFragmentSerializable {
 impl AttestationFragmentSerializable {
     pub fn get_blocks_ref(&self) -> &Vec<BlockSerializable> {
         &self.blocks
+    }
+
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -239,5 +247,20 @@ mod tests {
         }
 
         assert!(fragment.is_full());
+    }
+
+    #[test]
+    fn serialize_attestation_fragment() {
+        let mut fragment = AttestationFragment::new(10);
+
+        for i in 0..10 {
+            let block = Block::new(i, Felt::default());
+            let block = fragment.try_append_block(block).unwrap();
+            assert_eq!(block.n(), i);
+        }
+
+        let serializable = AttestationFragmentSerializable::from(&fragment);
+
+        assert!(serializable.len() == 10);
     }
 }

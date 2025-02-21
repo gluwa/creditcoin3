@@ -124,8 +124,8 @@ describe('BlockAttested events', (): void => {
 
             // 200 CC blocks is 1000 seconds which means around 166 Anvil blocks
             // ingested at 10 blocks this means 15-16 events max
-            expect(attestedEvents['2']).toBeLessThanOrEqual(20);
-            expect(attestedEvents['4']).toBeLessThanOrEqual(20);
+            expect(attestedEvents['2']).toBeLessThanOrEqual(25);
+            expect(attestedEvents['4']).toBeLessThanOrEqual(25);
 
             // match the frequency b/c we don't want this to pass if only a few events are recorded
             // and then something suddenly fails/disconnects

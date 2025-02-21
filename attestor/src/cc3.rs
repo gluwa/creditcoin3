@@ -1,4 +1,5 @@
 use anyhow::Result;
+use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use serde::Serialize;
 use sp_core::H256;
@@ -226,7 +227,8 @@ impl<'a> Client {
             proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
-            continuity_proof: vec![],
+            // Default continuity proof until we create a fragment later
+            continuity_proof: AttestationFragmentSerializable::default(),
         })
     }
 

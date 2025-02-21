@@ -1,4 +1,5 @@
 use anyhow::Result;
+use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use eth::Client;
 use sp_core::H256;
 use std::collections::BTreeSet;
@@ -88,7 +89,13 @@ impl Server {
                             info!(
                                 "Attestation interval updated. New interval: {}", new_interval
                             );
-                            engine.change_interval(new_interval);
+                            let need_restart = engine.change_interval(new_interval);
+
+                            if need_restart {
+                                let start_block = self.voted_for.last().copied();
+                                engine.restart(start_block).await?;
+                            }
+
                         },
                         CcEvent::CheckpointReached(checkpoint, ck) => {
                             info!("✅ Checkpoint reached, block: {:}, digest: {:}", checkpoint.block_number, checkpoint.digest);
@@ -146,7 +153,7 @@ impl Server {
         cc3_client: &cc3::Client,
         attestation: AttestationPrimitive<H256>,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
-        let signed_attestation = cc3_client.sign_attestation(attestation).await?;
+        let mut signed_attestation = cc3_client.sign_attestation(attestation).await?;
 
         let header_number = signed_attestation.attestation_data.header_number;
         info!("Attestor selected for block({})", header_number);
@@ -171,7 +178,7 @@ impl Server {
 
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
-        retry::ret(
+        let fragment: AttestationFragmentSerializable = retry::ret(
             || async {
                 let mut signed_attestation = signed_attestation.clone();
                 fragment::create(chain_key, start_block, &mut signed_attestation, eth_client).await
@@ -181,6 +188,9 @@ impl Server {
             None,
         )
         .await?;
+
+        // Set the continuity proof
+        signed_attestation.continuity_proof = fragment;
 
         Ok(signed_attestation)
     }

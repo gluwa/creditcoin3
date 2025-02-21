@@ -1,3 +1,4 @@
+use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use attestor_primitives::{Attestation as AttestationPrimitive, BlsPublicKey};
 use bls_signatures::Signature;
 use bls_signatures::{key::Serialize, PrivateKey};
@@ -58,7 +59,7 @@ pub fn create_signed_attestation(
     Attestation {
         attestation_data,
         attestor: attestor.account_id.clone(),
-        continuity_proof: vec![],
+        continuity_proof: AttestationFragmentSerializable::default(),
         proof_of_inclusion: Default::default(),
         signature: sr_signature,
         signature_bls: attestor_primitives::bls::WrapEncode(bls_signature),

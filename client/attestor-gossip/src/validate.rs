@@ -11,7 +11,7 @@ use log::{debug, error};
 use parity_scale_codec::Codec;
 use starknet_crypto::Felt;
 
-use attestation_chain::block::{Block, BlockSerializable};
+use attestation_chain::block::Block;
 use attestor_primitives::{
     api::AttestorApi,
     bls::{Bls, BlsSerialize, CryptoScheme, PublicKey},
@@ -84,14 +84,25 @@ where
             return Err(Error::AttestationExists);
         }
 
+        let is_chain_supported =
+            runtime.is_chain_supported(block_hash, attestation.attestation_data.chain_key)?;
+
+        if !is_chain_supported {
+            debug!(target: LOG_TARGET, "📝 Chain is not supported, attestation rejected");
+            return Err(Error::ChainNotSupported);
+        }
+
+        // Every attestation must have a continuity proof
+        // except for the first attestation in the chain
+        if attestation.continuity_proof.is_empty() && round.1 != 0 {
+            return Err(Error::InvalidAttestationContinuityProof);
+        }
+
         // Check that continuity from prior attestation is valid
-        let flattened_proof = attestation
-            .continuity_proof
-            .iter()
-            .flat_map(|frag| frag.get_blocks_ref().clone())
-            .collect::<Vec<BlockSerializable>>();
         let mut last_block_digest: Option<Felt> = None;
-        for serializable in flattened_proof {
+        debug!(target: LOG_TARGET, "📝 Checking Continuity proof, length: {:?}", attestation.continuity_proof.len());
+        for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
+            debug!(target: LOG_TARGET, "📝 Checking continuity proof for block {:?}", serializable);
             let block: Block = Block::try_from(serializable)
                 .map_err(|_| Error::InvalidAttestationContinuityProof)?;
 
@@ -102,36 +113,17 @@ where
                 return Err(Error::InvalidAttestationContinuityProof);
             }
 
-            if let Some(last_digest) = last_block_digest {
-                if last_digest == block.prev_digest {
+            // Check continuity
+            match last_block_digest {
+                Some(last_digest) if last_digest == block.prev_digest => {
                     last_block_digest = Some(block.digest);
-                } else {
-                    return Err(Error::InvalidAttestationContinuityProof);
                 }
-            } else {
-                // The digest of the first block in our continutiy proof
-                // should be identical to the prior attestation digest
-                let last_digest = runtime
-                    .last_digest(block_hash, attestation.attestation_data.chain_key)?
-                    .ok_or(Error::InvalidAttestationContinuityProof)?;
-                let last_digest_felt = Felt::from_dec_str(&hex::encode(last_digest)).unwrap();
-                if block.digest == last_digest_felt {
-                    last_block_digest = Some(block.digest);
-                } else {
-                    return Err(Error::InvalidAttestationContinuityProof);
-                }
+                Some(_) => return Err(Error::InvalidAttestationContinuityProof),
+                None => last_block_digest = Some(block.digest),
             }
         }
 
-        let is_chain_supported =
-            runtime.is_chain_supported(block_hash, attestation.attestation_data.chain_key)?;
-
-        if !is_chain_supported {
-            debug!(target: LOG_TARGET, "📝 Chain is not supported, attestation rejected");
-            return Err(Error::ChainNotSupported);
-        }
-
-        debug!(target: LOG_TARGET, "📝 Attestation signature is valid");
+        debug!(target: LOG_TARGET, "📝 Attestation is valid");
         Ok(())
     }
 

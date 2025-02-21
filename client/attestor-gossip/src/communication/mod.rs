@@ -17,7 +17,7 @@ pub struct Attestation<H, AccountId> {
     pub proof_of_inclusion: vrf::ProofOfInclusion,
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
-    pub continuity_proof: Vec<AttestationFragmentSerializable>,
+    pub continuity_proof: AttestationFragmentSerializable,
 }
 
 impl<H, AccountId> Attestation<H, AccountId>

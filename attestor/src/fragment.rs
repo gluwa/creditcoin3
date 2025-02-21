@@ -19,17 +19,16 @@ pub async fn create(
     start_block: u64,
     signed_attestation: &mut Attestation<H256, AttestorId>,
     eth_client: &Client,
-) -> Result<(), cc3::Error> {
+) -> Result<AttestationFragmentSerializable, cc3::Error> {
+    let attestation_header_number = signed_attestation.attestation_data.header_number;
     // Only for genesis block we don't need to build a fragment
-    if start_block == 0 {
+    if attestation_header_number == 0 {
         info!("No need to build full fragment for genesis block");
         let serializeable_frament =
             AttestationFragmentSerializable::from(&AttestationFragment::new(0));
-        signed_attestation.continuity_proof = vec![serializeable_frament];
-        return Ok(());
+        return Ok(serializeable_frament);
     }
 
-    let attestation_header_number = signed_attestation.attestation_data.header_number;
     // Fragment size is the difference between the attestation header number and the last finalized attestation header number
     // Start and end block are inclusive
     let fragment_size = attestation_header_number.saturating_sub(start_block) + 1;
@@ -46,7 +45,7 @@ pub async fn create(
 
     // Construct the previous block for the first block in the fragment
     // Because the first block in the fragment needs to reference the previous block's digest
-    let previous_block = eth_client.get_block(start_block - 1).await?;
+    let previous_block = eth_client.get_block(start_block.saturating_sub(1)).await?;
     let attestation = attestation::create(chain_key, &previous_block);
     let first_fragment_prev_block = FragmentBlock::new(
         attestation.header_number,
@@ -74,7 +73,7 @@ pub async fn create(
         // If this is the first block in the fragment, we need to construct the block from the previous block
         // In order to set the prev_digest correctly
         // In the other case, the `try_append_block` method on fragment will take care of this if the fragment is not empty
-        let fragment_block = if fragment.is_empty() {
+        let fragment_block = if fragment.is_empty() && i != 0 {
             FragmentBlock::try_from_previous(&first_fragment_prev_block, fragment_block)?
         } else {
             fragment_block
@@ -92,12 +91,7 @@ pub async fn create(
     fragment.try_append_block(fragment_block)?;
 
     // Serialize the fragment to be sent over the wire
-    let serializeable_frament = AttestationFragmentSerializable::from(&fragment);
+    let serialized_fragment = AttestationFragmentSerializable::from(&fragment);
 
-    // Add the fragment to the signed attestation
-    signed_attestation.continuity_proof = vec![serializeable_frament];
-
-    debug!("Fragment created, ready for submission");
-
-    Ok(())
+    Ok(serialized_fragment)
 }

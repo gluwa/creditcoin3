@@ -84,7 +84,7 @@ impl MaybeCreatedFromEmpty for Block {
 
 #[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockSerializable {
-    block_number: String,
+    block_number: u64,
     root: String,
     prev_digest: String,
     digest: String,
@@ -93,7 +93,7 @@ pub struct BlockSerializable {
 impl From<&Block> for BlockSerializable {
     fn from(b: &Block) -> Self {
         Self {
-            block_number: b.block_number.to_string(),
+            block_number: b.block_number,
             root: b.root.to_string(),
             prev_digest: b.prev_digest.to_string(),
             digest: b.digest.to_string(),
@@ -106,7 +106,7 @@ impl TryFrom<BlockSerializable> for Block {
 
     fn try_from(block: BlockSerializable) -> Result<Self, ()> {
         Ok(Self {
-            block_number: block.block_number.parse().map_err(|_| ())?,
+            block_number: block.block_number,
             root: Felt::from_dec_str(block.root.as_ref()).map_err(|_| ())?,
             prev_digest: Felt::from_dec_str(block.prev_digest.as_ref()).map_err(|_| ())?,
             digest: Felt::from_dec_str(block.digest.as_ref()).map_err(|_| ())?,
