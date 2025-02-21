@@ -10,6 +10,10 @@
 
 import os
 import sys
+from collections import Counter
+from pprint import pprint
+
+import requests
 
 from datetime import datetime, timedelta
 from github import Auth, Github
@@ -17,17 +21,33 @@ from github import Auth, Github
 
 skip_self_hosted = "--skip-self-hosted".lower() in sys.argv
 
-OWNER_REPO=os.environ.get("OWNER_REPO", "gluwa/creditcoin3")
-PERIOD_START=datetime(2025, 2, 1, 0, 0, 0)
-PERIOD_END=datetime(2025, 2, 28, 23, 59, 59)
+OWNER_REPO=os.environ.get("OWNER_REPO") or input("OWNER_REPO:")
+PERIOD_START=datetime(2025, 2, 18, 10, 0, 0)
+PERIOD_END=datetime(2025, 2, 18, 10, 59, 59)
 DURATION_PER_JOB={}
 DURATION_PER_BRANCH={}
+JOB_FAILURES={}
+FAILED_JOBS_COUNTER=Counter()
+ANNOTATIONS_COUNTER=Counter()
+
+
+def logs_from_step(cookie, repo, job, step, end_line, back_track = 5):
+    url = f"{repo.html_url}/commit/{job.head_sha}/checks/{job.id}/logs/{step.number}"
+    response = requests.get(url, headers={"Cookie": cookie}, allow_redirects=True)
+
+    logs = []
+    for line in response.text.split("\n")[end_line - back_track:end_line]:
+        # strip leading timestamps
+        line = " ".join(line.split(" ")[1:])
+        logs.append(line)
+    return "\n".join(logs)
+
 
 # Provide the GITHUB_TOKEN ENV variable to work around
 # API request limits for anonymous users
-
 auth = None
-token = os.environ.get("GITHUB_TOKEN")
+token = os.environ.get("GITHUB_TOKEN") or input("GITHUB_TOKEN:")
+BROWSER_COOKIE = input("Browser Cookie for Step Log calls:")
 if token:
     auth = Auth.Token(token)
 
@@ -43,6 +63,7 @@ start_str = PERIOD_START.strftime("%Y-%m-%d")
 end_str = PERIOD_END.strftime("%Y-%m-%d")
 # the numner itself is correct, but pagination results are limited to 1000
 total_workflows = repo.get_workflow_runs(created=f"{start_str}..{end_str}").totalCount
+total_failures = 0
 
 # iterate over all workflow runs
 start = PERIOD_START
@@ -68,6 +89,33 @@ while start <= PERIOD_END:
                 if job.completed_at is None:
                     continue
 
+                if job.conclusion in ["failure"]:
+                    # note: check run & job IDs appear to match
+                    check_run = repo.get_check_run(job.id)
+                    for annotation in check_run.get_annotations():
+                        if annotation.annotation_level != "failure":
+                            continue
+
+                        # WARNING: annotation.title is always empty b/c this API needs a GitHub App token
+                        # that's why we try to workaround this by using the name of the first failing step
+                        for step in job.steps:
+                            if step.conclusion == "failure":
+                                annotation._title = annotation._makeStringAttribute(step.name)
+                                break
+
+                        error_log = logs_from_step(BROWSER_COOKIE, repo, job, step, annotation.end_line)
+
+                    total_failures += 1
+                    if job.name not in JOB_FAILURES:
+                        JOB_FAILURES[job.name] = {}
+                    if job.head_branch not in JOB_FAILURES[job.name]:
+                        JOB_FAILURES[job.name][job.head_branch] = {}
+                    if annotation.title not in JOB_FAILURES[job.name][job.head_branch]:
+                        JOB_FAILURES[job.name][job.head_branch][annotation.title] = []
+                    JOB_FAILURES[job.name][job.head_branch][annotation.title].append((job.html_url, annotation.message, error_log))
+                    FAILED_JOBS_COUNTER.update([job.name])
+                    ANNOTATIONS_COUNTER.update([annotation.title])
+
                 duration = job.completed_at - job.started_at
 
                 # TODO: should account for minute multipliers on Windows and MacOS
@@ -85,6 +133,7 @@ while start <= PERIOD_END:
                     gh.rate_limiting,
                     f"W: {workflow_run.id} @ {workflow_run.created_at} "
                     f"J: {job.id} ",
+                    job.conclusion,
                     job.name,
                     duration,
                     job.labels,
@@ -123,3 +172,14 @@ print("====================================================================")
 print("========== Duration per branch prefix (mins), Low -> High ==========")
 for branch_name, duration in sorted(DURATION_PER_BRANCH.items(), key=lambda x: x[1]):
     print(branch_name, duration.total_seconds() / 60)
+
+print("====================================================================")
+print("========== Failed CI jobs ==========")
+print(f"Number of failures: {total_failures} / {number_of_jobs} == {total_failures / number_of_jobs:.2%}")
+print("--- Most commonly failing jobs")
+print(FAILED_JOBS_COUNTER.most_common())
+print("--- Most common annotations")
+print(ANNOTATIONS_COUNTER.most_common())
+print("--- Failed jobs")
+for job_name, _count in FAILED_JOBS_COUNTER.most_common():
+    pprint(JOB_FAILURES[job_name])
