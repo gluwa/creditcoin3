@@ -50,6 +50,7 @@ prover/.env
 **/typechain-types/
 **/ignition/deployments/
 precompiles/metadata/abi/*.json
+docs/smart-contract-development/with-hardhat/artifacts/*
 
 # Bridge usage example
 bridge-usage-example/out/*
