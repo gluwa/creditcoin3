@@ -20,10 +20,10 @@ from github import Auth, Github
 
 
 skip_self_hosted = "--skip-self-hosted".lower() in sys.argv
-
+no_error_logs = "--no-error-logs".lower() in sys.argv
 OWNER_REPO=os.environ.get("OWNER_REPO") or input("OWNER_REPO:")
-PERIOD_START=datetime(2025, 2, 18, 10, 0, 0)
-PERIOD_END=datetime(2025, 2, 18, 10, 59, 59)
+PERIOD_START=datetime(2025, 2, 1, 10, 0, 0)
+PERIOD_END=datetime(2025, 2, 28, 23, 59, 59)
 DURATION_PER_JOB={}
 DURATION_PER_BRANCH={}
 JOB_FAILURES={}
@@ -103,7 +103,9 @@ while start <= PERIOD_END:
                                 annotation._title = annotation._makeStringAttribute(step.name)
                                 break
 
-                        error_log = logs_from_step(BROWSER_COOKIE, repo, job, step, annotation.end_line)
+                        error_log = None
+                        if not no_error_logs:
+                            error_log = logs_from_step(BROWSER_COOKIE, repo, job, step, annotation.end_line)
 
                     total_failures += 1
                     if job.name not in JOB_FAILURES:
@@ -160,9 +162,6 @@ print(f"Overall duration: {overall_duration.total_seconds()} seconds")
 print(f"Overall duration: {overall_duration.total_seconds() / 60} minutes")
 print(f"Overall duration: {overall_duration.total_seconds() / 3600} hours")
 
-if inspected_workflows != total_workflows:
-    raise RuntimeError("Failed to inspect all workflows")
-
 print("================================================================")
 print("========== Duration per job (in minutes), Low -> High ==========")
 for job_name, duration in sorted(DURATION_PER_JOB.items(), key=lambda x: x[1]):
@@ -183,3 +182,6 @@ print(ANNOTATIONS_COUNTER.most_common())
 print("--- Failed jobs")
 for job_name, _count in FAILED_JOBS_COUNTER.most_common():
     pprint(JOB_FAILURES[job_name])
+
+if inspected_workflows != total_workflows:
+    raise RuntimeError("Failed to inspect all workflows")
