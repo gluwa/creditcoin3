@@ -3241,7 +3241,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     asOrigin:
                         | Creditcoin3RuntimeOriginCaller
                         | { system: any }
-                        | { Void: any }
                         | { Ethereum: any }
                         | string
                         | Uint8Array,

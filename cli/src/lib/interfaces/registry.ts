@@ -211,7 +211,6 @@ import type {
     SpConsensusSlotsEquivocationProof,
     SpCoreCryptoKeyTypeId,
     SpCoreSr25519VrfVrfSignature,
-    SpCoreVoid,
     SpRuntimeDigest,
     SpRuntimeDigestDigestItem,
     SpRuntimeDispatchError,
@@ -439,7 +438,6 @@ declare module '@polkadot/types/types/registry' {
         SpConsensusSlotsEquivocationProof: SpConsensusSlotsEquivocationProof;
         SpCoreCryptoKeyTypeId: SpCoreCryptoKeyTypeId;
         SpCoreSr25519VrfVrfSignature: SpCoreSr25519VrfVrfSignature;
-        SpCoreVoid: SpCoreVoid;
         SpRuntimeDigest: SpRuntimeDigest;
         SpRuntimeDigestDigestItem: SpRuntimeDigestDigestItem;
         SpRuntimeDispatchError: SpRuntimeDispatchError;
