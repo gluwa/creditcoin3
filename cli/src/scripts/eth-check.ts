@@ -9,7 +9,7 @@ async function checkEthBlockNumber(wsUrl: string): Promise<void> {
         console.log(`DEBUG: eth.blockNumber=${ethBlockNumber.toString()}`);
 
         // means the ETH compatibility layer isn't ready yet
-        if (ethBlockNumber.isZero()) {
+        if (ethBlockNumber.toNumber() < 3) {
             throw new Error('eth.blockNumber() is zero');
         }
     } finally {
