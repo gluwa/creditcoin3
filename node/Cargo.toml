@@ -95,7 +95,7 @@ proof-verifier = { workspace = true }
 
 # Tracing
 creditcoin3-cli-opt = { workspace = true }
-moonbeam-primitives-ext = { workspace = true }
+creditcoin3-primitives-ext = { workspace = true }
 moonbeam-rpc-debug = { workspace = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 moonbeam-rpc-trace = { workspace = true }

@@ -232,9 +232,9 @@ evm-runtime = { version = "0.42.0", default-features = false, features = [
 creditcoin3-cli-opt = { path = "node/cli-opt", default-features = false }
 
 # Vendor packages (Moonbeam)
+creditcoin3-primitives-ext = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-primitives-ext", default-features = false }
 moonbeam-client-evm-tracing = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-client-evm-tracing" }
 moonbeam-evm-tracer = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-evm-tracer", default-features = false }
-moonbeam-primitives-ext = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-primitives-ext", default-features = false }
 # Vendor rpc-core (Moonbeam)
 moonbeam-rpc-core-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-debug" }
 moonbeam-rpc-core-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-trace" }

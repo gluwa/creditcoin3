@@ -9,7 +9,7 @@ use crate::eth::EthCompatRuntimeApiCollection;
 #[cfg(feature = "runtime-benchmarks")]
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
-    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
     proof_verifier::host_benchmark_api::HostFunctions,
     proof_verifier::host_api::HostFunctions,
     frame_benchmarking::benchmarking::HostFunctions,
@@ -18,7 +18,7 @@ pub type HostFunctions = (
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
-    moonbeam_primitives_ext::moonbeam_ext::HostFunctions,
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
     proof_verifier::host_api::HostFunctions,
 );
 
