@@ -22,8 +22,8 @@ from github import Auth, Github
 skip_self_hosted = "--skip-self-hosted".lower() in sys.argv
 no_error_logs = "--no-error-logs".lower() in sys.argv
 OWNER_REPO=os.environ.get("OWNER_REPO") or input("OWNER_REPO:")
-PERIOD_START=datetime(2025, 2, 1, 10, 0, 0)
-PERIOD_END=datetime(2025, 2, 28, 23, 59, 59)
+PERIOD_START=datetime(2025, 1, 1, 0, 0, 0)
+PERIOD_END=datetime(2025, 1, 31, 23, 59, 59)
 DURATION_PER_JOB={}
 DURATION_PER_BRANCH={}
 JOB_FAILURES={}
@@ -92,6 +92,7 @@ while start <= PERIOD_END:
                 if job.conclusion in ["failure"]:
                     # note: check run & job IDs appear to match
                     check_run = repo.get_check_run(job.id)
+                    annotation = None
                     for annotation in check_run.get_annotations():
                         if annotation.annotation_level != "failure":
                             continue
@@ -112,11 +113,13 @@ while start <= PERIOD_END:
                         JOB_FAILURES[job.name] = {}
                     if job.head_branch not in JOB_FAILURES[job.name]:
                         JOB_FAILURES[job.name][job.head_branch] = {}
-                    if annotation.title not in JOB_FAILURES[job.name][job.head_branch]:
-                        JOB_FAILURES[job.name][job.head_branch][annotation.title] = []
-                    JOB_FAILURES[job.name][job.head_branch][annotation.title].append((job.html_url, annotation.message, error_log))
+                    if annotation:
+                        if annotation.title not in JOB_FAILURES[job.name][job.head_branch]:
+                            JOB_FAILURES[job.name][job.head_branch][annotation.title] = []
+                        JOB_FAILURES[job.name][job.head_branch][annotation.title].append((job.html_url, annotation.message, error_log))
+                        ANNOTATIONS_COUNTER.update([annotation.title])
+
                     FAILED_JOBS_COUNTER.update([job.name])
-                    ANNOTATIONS_COUNTER.update([annotation.title])
 
                 duration = job.completed_at - job.started_at
 
