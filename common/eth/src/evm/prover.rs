@@ -273,7 +273,7 @@ impl GluwaPublicProverContract {
             .collect())
     }
 
-    pub async fn set_base_cost_per_bytes(
+    pub async fn update_base_cost_per_bytes(
         &self,
         client: Client,
         new_cost_per_byte: u64,
@@ -288,14 +288,14 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
-        let builder = contract.setBaseCostPerByte(U256::from(new_cost_per_byte));
+        let builder = contract.updateCostPerByte(U256::from(new_cost_per_byte));
 
         let result = builder.send().await?.watch().await?;
 
         Ok(result.to_string())
     }
 
-    pub async fn set_base_fee(&self, client: Client, new_base_fee: u64) -> Result<String> {
+    pub async fn update_base_fee(&self, client: Client, new_base_fee: u64) -> Result<String> {
         info!("Setting base fee: {}", new_base_fee);
 
         let signer = client.get_signer()?;
@@ -306,7 +306,7 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
-        let builder = contract.setBaseFee(U256::from(new_base_fee));
+        let builder = contract.updateBaseFee(U256::from(new_base_fee));
 
         let result = builder.send().await?.watch().await?;
 

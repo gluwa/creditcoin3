@@ -12,15 +12,15 @@ contract CreditcoinPublicProver is Ownable {
     Balance totalEscrowBalance;
     QueryVerifierContract verifier;
     address proceedsAccount;
-    uint256 public baseCostPerByte;
+    uint256 public costPerByte;
     uint256 public baseFee;
     uint64 chainKey;
 
-    constructor(address _proceedsAccount, uint256 _baseCostPerByte, uint256 _baseFee, uint64 _chainKey) Ownable() {
+    constructor(address _proceedsAccount, uint256 _costPerByte, uint256 _baseFee, uint64 _chainKey) Ownable() {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
         totalEscrowBalance = Balance.wrap(0);
-        baseCostPerByte = _baseCostPerByte;
+        costPerByte = _costPerByte;
         baseFee = _baseFee;
         chainKey = _chainKey;
     }
@@ -39,17 +39,19 @@ contract CreditcoinPublicProver is Ownable {
         }
 
         // Calculate the total cost as a function of the size and base cost
-        uint256 cost = (totalBytes * baseCostPerByte) + baseFee;
+        uint256 cost = (totalBytes * costPerByte) + baseFee;
 
         return cost;
     }
 
-    function setBaseCostPerByte(uint256 _newBaseCostPerByte) external onlyOwner {
-        baseCostPerByte = _newBaseCostPerByte;
+    function updateCostPerByte(uint256 _newCostPerByte) external onlyOwner {
+        costPerByte = _newCostPerByte;
+        emit CostPerByteUpdated(_newCostPerByte);
     }
 
-    function setBaseFee(uint256 _newBaseFee) external onlyOwner {
+    function updateBaseFee(uint256 _newBaseFee) external onlyOwner {
         baseFee = _newBaseFee;
+        emit BaseFeeUpdated(_newBaseFee);
     }
 
     function submitQuery(Query calldata query, address principal) public payable {
@@ -245,4 +247,5 @@ event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 esc
 event QueryProofVerified(QueryId indexed queryId, bytes proof);
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
-
+event CostPerByteUpdated(uint256 newCostPerByte);
+event BaseFeeUpdated(uint256 newBaseFee);
