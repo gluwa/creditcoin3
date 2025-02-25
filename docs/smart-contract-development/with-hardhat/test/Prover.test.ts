@@ -1,9 +1,10 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { Contract, Signer } from 'ethers';
+import { Signer } from 'ethers';
+import { CreditcoinPublicProver } from '../typechain-types';
 
 describe('CreditcoinPublicProver', function () {
-    let prover: Contract;
+    let prover: CreditcoinPublicProver;
     let owner: Signer;
     let user: Signer;
     let proceedsAccount: Signer;
@@ -12,8 +13,8 @@ describe('CreditcoinPublicProver', function () {
     before(async function () {
         [owner, user, proceedsAccount] = await ethers.getSigners();
 
-        const CreditcoinPublicProver = await ethers.getContractFactory('CreditcoinPublicProver');
-        prover = await CreditcoinPublicProver.deploy(await proceedsAccount.getAddress());
+        const proverFactory = await ethers.getContractFactory('CreditcoinPublicProver');
+        prover = await proverFactory.deploy(await proceedsAccount.getAddress());
 
         sampleQuery = {
             chainId: 1,

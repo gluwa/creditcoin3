@@ -4,7 +4,7 @@
         "format": "prettier --write .",
         "check-format": "prettier --check .",
         "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "hardhat compile && tsc --noEmit"
     },
     "devDependencies": {
         "@nomicfoundation/hardhat-toolbox": "^5.0.0",

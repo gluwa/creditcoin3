@@ -1,9 +1,9 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { Contract } from 'ethers';
+import { Counter } from '../typechain-types';
 
 describe('Counter contract', function () {
-    let counter: Contract;
+    let counter: Counter;
 
     beforeEach(async function () {
         // Deploy the Counter contract before the tests
