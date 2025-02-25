@@ -16,8 +16,6 @@ pub struct VoterMetrics {
     pub attestor_best_block: Gauge<U64>,
     /// Best block attestor voted on
     pub attestor_best_voted: Gauge<U64>,
-    /// Next block attestor should vote on
-    pub attestor_should_vote_on: Gauge<U64>,
     /// Number of times no Authority public key found in store
     pub attestor_no_authority_found_in_store: Counter<U64>,
     /// Number of good votes successfully handled
@@ -26,8 +24,6 @@ pub struct VoterMetrics {
     pub attestor_equivocation_votes: Counter<U64>,
     /// Number of invalid votes received
     pub attestor_invalid_votes: Counter<U64>,
-    /// Number of valid but stale votes received
-    pub attestor_stale_votes: Counter<U64>,
     /// Number of valid votes successfully imported
     pub attestor_imported_votes: Counter<U64>,
     /// Number of attestor votes received from RPC
@@ -59,13 +55,6 @@ impl PrometheusRegister for VoterMetrics {
                 )?,
                 registry,
             )?,
-            attestor_should_vote_on: register(
-                Gauge::new(
-                    "substrate_attestor_should_vote_on",
-                    "Next block, attestor should vote on",
-                )?,
-                registry,
-            )?,
             attestor_no_authority_found_in_store: register(
                 Counter::new(
                     "substrate_attestor_no_authority_found_in_store",
@@ -94,17 +83,17 @@ impl PrometheusRegister for VoterMetrics {
                 )?,
                 registry,
             )?,
-            attestor_stale_votes: register(
-                Counter::new(
-                    "substrate_attestor_stale_votes",
-                    "Number of valid but stale votes received",
-                )?,
-                registry,
-            )?,
             attestor_imported_votes: register(
                 Counter::new(
                     "attestor_imported_votes",
                     "Number of valid votes successfully imported",
+                )?,
+                registry,
+            )?,
+            attestor_votes_from_rpc: register(
+                Counter::new(
+                    "attestor_votes_from_rpc",
+                    "Number of attestor votes received from RPC",
                 )?,
                 registry,
             )?,
