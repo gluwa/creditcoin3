@@ -1,10 +1,10 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
-import { CreditcoinPublicProver } from '../typechain-types';
+import { ProverForTesting } from '../typechain-types';
 
 describe('CreditcoinPublicProver', function () {
-    let prover: CreditcoinPublicProver;
+    let prover: ProverForTesting;
     let owner: Signer;
     let user: Signer;
     let proceedsAccount: Signer;
@@ -13,8 +13,11 @@ describe('CreditcoinPublicProver', function () {
     before(async function () {
         [owner, user, proceedsAccount] = await ethers.getSigners();
 
-        const proverFactory = await ethers.getContractFactory('CreditcoinPublicProver');
-        prover = await proverFactory.deploy(await proceedsAccount.getAddress());
+        // NOTE: interacting with a contract that inherits the SUT b/c it exposes
+        // additional helper methods, like setQueryState for example
+        const proverFactory = await ethers.getContractFactory('ProverForTesting');
+        prover = await proverFactory.deploy(await proceedsAccount.getAddress(), 10n, 1000n, 2);
+        await prover.waitForDeployment();
 
         sampleQuery = {
             chainId: 1,
@@ -33,7 +36,7 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Should initialize with zero total escrow balance', async function () {
-            const totalEscrowBalance = await prover.totalEscrowBalance();
+            const totalEscrowBalance = await prover.getTotalEscrowBalance();
             expect(totalEscrowBalance).to.equal(0);
         });
     });
