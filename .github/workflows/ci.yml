@@ -1663,13 +1663,34 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - name: DEBUG
-        continue-on-error: true
+      - name: Configure rustc version
         run: |
-          ls -l  ./target/
-          ls -lR ./target/release/
-          md5sum ./target/release/creditcoin3-node
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
+      - name: Install Rust toolchain
+        uses: gluwa/toolchain@dev
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          profile: minimal
+          override: true
+
+      # WARNING: always before actions/download-artifact
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: subxt-cli
+
+      - name: Install subxt-cli
+        run: |
+          cargo install subxt-cli@0.37.0 --locked
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
@@ -1683,52 +1704,8 @@ jobs:
           ls -lR ./target/release/
           md5sum ./target/release/creditcoin3-node
 
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          profile: minimal
-          override: true
-
-      - name: DEBUG
-        continue-on-error: true
-        run: |
-          ls -l  ./target/
-          ls -lR ./target/release/
-          md5sum ./target/release/creditcoin3-node
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: subxt-cli
-
-      - name: DEBUG
-        continue-on-error: true
-        run: |
-          ls -l  ./target/
-          ls -lR ./target/release/
-          md5sum ./target/release/creditcoin3-node
-
-      - name: Install subxt-cli
-        run: |
-          cargo install subxt-cli@0.37.0 --locked
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install -g yarn
-
       - name: Start creditcoin3-node in order to update typedefs
         run: |
-          ls -l  ./target/
-          ls -lR ./target/release/
-          md5sum ./target/release/creditcoin3-node
-
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
             --chain dev \
@@ -2268,35 +2245,6 @@ jobs:
               exit 1
           fi
 
-      - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
-        with:
-          name: creditcoin-node-for-testing-benchmarks
-          path: target/release
-
-      - name: Check if runner machine meets chain's requirements
-        continue-on-error: true
-        run: |
-          chmod a+x ./target/release/creditcoin3-node
-          .github/check-hardware.sh
-
-      - name: Run benchmarks to generate dummy weights
-        run: |
-          # configure the path so we can discover external binaries
-          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
-          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
-          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
-          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
-
-          .github/bench.sh -p attestation_poc -b -r 1 -s 2
-          .github/bench.sh -p prover -b -r 1 -s 2
-          .github/bench.sh -p randomness -b -r 1 -s 2
-          .github/bench.sh -p supported_chains -b -r 1 -s 2
-
-      - name: git diff
-        run: |
-          git diff
-
       - name: Set-Up
         run: |
           sudo apt-get update
@@ -2321,9 +2269,47 @@ jobs:
           override: true
 
       # use cache from previous build jobs
+      # WARNING: always before actions/download-artifact
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
+
+      # WARNING: always after Swatinem/rust-cache
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-benchmarks
+          path: target/release
+
+      - name: DEBUG
+        continue-on-error: true
+        run: |
+          ls -l  ./target/
+          ls -lR ./target/release/
+          md5sum ./target/release/creditcoin3-node
+
+      - name: Check if runner machine meets chain's requirements
+        continue-on-error: true
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          .github/check-hardware.sh
+
+      - name: Run benchmarks to generate dummy weights
+        run: |
+          # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
+          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+
+          .github/bench.sh -p attestation_poc -b -r 1 -s 2
+          .github/bench.sh -p prover -b -r 1 -s 2
+          .github/bench.sh -p randomness -b -r 1 -s 2
+          .github/bench.sh -p supported_chains -b -r 1 -s 2
+
+      - name: git diff
+        run: |
+          git diff
 
       # check if automatically generated weights compile
       - name: Rebuild SUT with newly generated weights
