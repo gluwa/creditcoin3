@@ -245,6 +245,7 @@ where
 
                         match message.clone() {
                             Message::Attestation(attestation) => {
+                                metric_inc!(self.metrics, attestor_votes_from_rpc);
                                 let chain_key = attestation.attestation_data.chain_key;
                                 let header_number = attestation.attestation_data.header_number;
 
@@ -336,6 +337,7 @@ where
         match import_result {
             VoteImportResult::DoubleVote => {
                 warn!(target: LOG_TARGET, "📝 Double vote detected");
+                metric_inc!(self.metrics, attestor_equivocation_votes);
             }
             VoteImportResult::Ok => {
                 let block_number = self.backend.blockchain().info().best_number;
