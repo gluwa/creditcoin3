@@ -47,7 +47,7 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Query Submission', function () {
         it('Should accept query with sufficient payment', async function () {
-            const cost = await prover.computeQueryCost(sampleQuery);
+            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(user)
                 .submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1000n });
@@ -67,7 +67,7 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Escrow Reclaim', function () {
         it('Should allow principal to reclaim escrow for timed out query', async function () {
-            const cost = await prover.computeQueryCost(sampleQuery);
+            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(user)
                 .submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1n });
@@ -93,7 +93,7 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Query Proof Submission', function () {
         it('Should process valid proof submission', async function () {
-            const cost = await prover.computeQueryCost(sampleQuery);
+            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(owner)
                 .submitQuery(sampleQuery, await owner.getAddress(), { value: cost + 1000n });
@@ -109,7 +109,7 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Should only allow owner to submit proofs', async function () {
-            const cost = await prover.computeQueryCost(sampleQuery);
+            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1000n });
 
             const receipt = await tx.wait();
@@ -130,7 +130,7 @@ describe('CreditcoinPublicProver', function () {
                 value: ethers.parseEther('1.0'),
             });
 
-            const cost = await prover.computeQueryCost(sampleQuery);
+            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(owner)
                 .submitQuery(sampleQuery, await owner.getAddress(), { value: cost + 1000n });
