@@ -210,6 +210,10 @@ jobs:
               exit 1
           fi
 
+      - name: Check for duplicate files
+        run: |
+          .github/check-for-duplicate-files.sh
+
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
