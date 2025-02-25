@@ -57,7 +57,7 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    entrypoint: /bin/prover
+    entrypoint: /usr/libexec/sleep-and-prover.sh
     command:
       - --cc3-rpc-url
       - ws://creditcoin-validator:9944
@@ -69,3 +69,5 @@ services:
       - 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133
       - --postgres-uri
       - postgres://prover:creditcoin@prover-database:5432/attestations
+    environment:
+      SLEEP_FOR: 60

@@ -78,6 +78,7 @@ ENV PATH=/creditcoin-node/venv/bin:/cairo/scripts:/cairo/stone-prover:/cairo/sto
     VIRTUAL_ENV=/creditcoin-node/venv
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/venv/ /creditcoin-node/venv
 COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/cairo/ /cairo
+COPY --from=devel-base --chown=creditcoin:creditcoin /creditcoin-node/prover/sleep-and-prover.sh /usr/libexec/sleep-and-prover.sh
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
