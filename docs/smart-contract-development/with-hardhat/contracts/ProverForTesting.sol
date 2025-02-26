@@ -1,5 +1,6 @@
 pragma solidity ^0.8.0;
 
+import 'hardhat/console.sol';
 import './Prover.sol';
 
 contract ProverForTesting is CreditcoinPublicProver {

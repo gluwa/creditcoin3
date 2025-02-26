@@ -40,6 +40,7 @@ module.exports = {
                 default: 'array',
             },
         ],
+        '@typescript-eslint/ban-ts-comment': 'off',
         '@typescript-eslint/ban-types': [
             'error',
             {

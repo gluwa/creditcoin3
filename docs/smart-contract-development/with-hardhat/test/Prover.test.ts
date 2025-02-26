@@ -58,6 +58,7 @@ describe('CreditcoinPublicProver', function () {
 
             const receipt = await tx.wait();
             const event = receipt?.logs[0];
+            // @ts-ignore
             expect(event?.fragment.name).to.equal('QuerySubmitted');
         });
 
@@ -77,6 +78,7 @@ describe('CreditcoinPublicProver', function () {
                 .submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1n });
 
             const receipt = await tx.wait();
+            // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
             if (!queryId) {
@@ -103,6 +105,7 @@ describe('CreditcoinPublicProver', function () {
                 .submitQuery(sampleQuery, await owner.getAddress(), { value: cost + 1000n });
 
             const receipt = await tx.wait();
+            // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
             const proof = new Uint8Array(32);
@@ -117,6 +120,7 @@ describe('CreditcoinPublicProver', function () {
             const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1000n });
 
             const receipt = await tx.wait();
+            // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
             const proof = new Uint8Array(32);
@@ -140,6 +144,7 @@ describe('CreditcoinPublicProver', function () {
                 .submitQuery(sampleQuery, await owner.getAddress(), { value: cost + 1000n });
 
             const receipt = await tx.wait();
+            // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
             const proof = new Uint8Array(32);
