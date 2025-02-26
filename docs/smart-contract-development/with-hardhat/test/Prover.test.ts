@@ -52,11 +52,28 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Query Submission', function () {
         it('Should accept query with sufficient payment', async function () {
+            const escrowBeforeSubmit = await prover.getTotalEscrowBalance();
+            expect(escrowBeforeSubmit).to.equal(0);
+
+            const balanceBeforeSubmit = await ethers.provider.getBalance(await user.getAddress());
+
+            const willingToPay = queryCost + 1n;
             const tx = await prover
                 .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
-
+                .submitQuery(sampleQuery, await user.getAddress(), { value: willingToPay });
             const receipt = await tx.wait();
+
+            // amount held in escrow increased by amount specified by sender
+            const escrowAfterSubmit = await prover.getTotalEscrowBalance();
+            expect(escrowAfterSubmit).to.equal(willingToPay);
+
+            // sender's funds decreased by gas fees + actual query cost
+            const balanceAfterSubmit = await ethers.provider.getBalance(await user.getAddress());
+            expect(balanceAfterSubmit).to.equal(
+                // @ts-ignore
+                balanceBeforeSubmit - willingToPay - receipt?.cumulativeGasUsed * receipt?.gasPrice,
+            );
+
             const event = receipt?.logs[0];
             // @ts-ignore
             expect(event?.fragment.name).to.equal('QuerySubmitted');
@@ -71,9 +88,10 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Escrow Reclaim', function () {
         it('Should allow principal to reclaim escrow for timed out query', async function () {
+            const willingToPay = queryCost + 1n;
             const tx = await prover
                 .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+                .submitQuery(sampleQuery, await user.getAddress(), { value: willingToPay });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -84,14 +102,29 @@ describe('CreditcoinPublicProver', function () {
             }
 
             await prover.connect(owner).setQueryState(queryId);
-
             const balanceBefore = await ethers.provider.getBalance(await user.getAddress());
-            await prover.connect(user).reclaimEscrowedPayment(queryId);
-            const balanceAfter = await ethers.provider.getBalance(await user.getAddress());
 
-            console.log('before: ', balanceBefore);
-            console.log('after:  ', balanceAfter);
-            expect(balanceAfter).to.be.gt(balanceBefore);
+            // this is held in escrow for now
+            const escrowBeforeReclaim = await prover.getTotalEscrowBalance();
+            expect(escrowBeforeReclaim).to.equal(willingToPay);
+
+            const reclaimReceipt = await (await prover.connect(user).reclaimEscrowedPayment(queryId)).wait();
+            const escrowAfterReclaim = await prover.getTotalEscrowBalance();
+
+            // nothing held in escrow anymore
+            expect(escrowAfterReclaim).to.eq(0);
+
+            // sender's funds decreased by gas fees
+            // actual query price held in escrow was restored
+            const balanceAfter = await ethers.provider.getBalance(await user.getAddress());
+            expect(balanceAfter).to.equal(
+                // @ts-ignore
+                balanceBefore - reclaimReceipt?.cumulativeGasUsed * reclaimReceipt?.gasPrice + willingToPay,
+            );
+
+            const event = reclaimReceipt?.logs[0];
+            // @ts-ignore
+            expect(event?.fragment.name).to.equal('EscrowedPaymentReclaimed');
         });
     });
 
