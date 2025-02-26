@@ -8,7 +8,16 @@ describe('CreditcoinPublicProver', function () {
     let owner: Signer;
     let user: Signer;
     let proceedsAccount: Signer;
-    let sampleQuery: any;
+    let queryCost: bigint;
+    const sampleQuery = {
+        chainId: 1,
+        height: 1000n,
+        index: 0,
+        layoutSegments: [
+            { offset: 0, size: 32 },
+            { offset: 32, size: 64 },
+        ],
+    };
 
     before(async function () {
         [owner, user, proceedsAccount] = await ethers.getSigners();
@@ -16,18 +25,10 @@ describe('CreditcoinPublicProver', function () {
         // NOTE: interacting with a contract that inherits the SUT b/c it exposes
         // additional helper methods, like setQueryState for example
         const proverFactory = await ethers.getContractFactory('ProverForTesting');
-        prover = await proverFactory.deploy(await proceedsAccount.getAddress(), 10n, 1000n, 2);
+        prover = await proverFactory.deploy(await proceedsAccount.getAddress(), 10n, 1000n, sampleQuery.chainId);
         await prover.waitForDeployment();
 
-        sampleQuery = {
-            chainId: 1,
-            height: 1000n,
-            index: 0,
-            layoutSegments: [
-                { offset: 0, size: 32 },
-                { offset: 32, size: 64 },
-            ],
-        };
+        queryCost = await prover.computeQueryCost(sampleQuery);
     });
 
     describe('Deployment', function () {
@@ -42,19 +43,17 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('Query Cost Computation', function () {
-        it('Should compute correct query cost based on layout segments', async function () {
-            const cost = await prover.computeQueryCost(sampleQuery);
+        it('Should compute correct query cost based on layout segments', function () {
             const expectedCost = 1000n + 96n * 10n;
-            expect(cost).to.equal(expectedCost);
+            expect(queryCost).to.equal(expectedCost);
         });
     });
 
     describe('Query Submission', function () {
         it('Should accept query with sufficient payment', async function () {
-            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1000n });
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1000n });
 
             const receipt = await tx.wait();
             const event = receipt?.logs[0];
@@ -63,19 +62,17 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Should reject query with insufficient payment', async function () {
-            const cost = await prover.computeQueryCost(sampleQuery);
             await expect(
-                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: cost - 1n }),
+                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost - 1n }),
             ).to.be.revertedWithoutReason();
         });
     });
 
     describe('Escrow Reclaim', function () {
         it('Should allow principal to reclaim escrow for timed out query', async function () {
-            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1n });
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -99,10 +96,9 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Query Proof Submission', function () {
         it('Should process valid proof submission', async function () {
-            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(owner)
-                .submitQuery(sampleQuery, await owner.getAddress(), { value: cost + 1000n });
+                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1000n });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -116,8 +112,7 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Should only allow owner to submit proofs', async function () {
-            const cost: bigint = await prover.computeQueryCost(sampleQuery);
-            const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: cost + 1000n });
+            const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1000n });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -138,10 +133,9 @@ describe('CreditcoinPublicProver', function () {
                 value: ethers.parseEther('1.0'),
             });
 
-            const cost: bigint = await prover.computeQueryCost(sampleQuery);
             const tx = await prover
                 .connect(owner)
-                .submitQuery(sampleQuery, await owner.getAddress(), { value: cost + 1000n });
+                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1000n });
 
             const receipt = await tx.wait();
             // @ts-ignore
