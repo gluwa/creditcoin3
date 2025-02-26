@@ -53,7 +53,7 @@ describe('CreditcoinPublicProver', function () {
         it('Should accept query with sufficient payment', async function () {
             const tx = await prover
                 .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1000n });
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
             const event = receipt?.logs[0];
@@ -98,7 +98,7 @@ describe('CreditcoinPublicProver', function () {
         it('Should process valid proof submission', async function () {
             const tx = await prover
                 .connect(owner)
-                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1000n });
+                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -112,7 +112,7 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Should only allow owner to submit proofs', async function () {
-            const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1000n });
+            const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -135,7 +135,7 @@ describe('CreditcoinPublicProver', function () {
 
             const tx = await prover
                 .connect(owner)
-                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1000n });
+                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
             // @ts-ignore
