@@ -42,7 +42,7 @@ pub struct CairoVerifierOutput {
     //    pub claim_id: ClaimIdentifier,
     pub claim_index: u64,
     pub continuity_checkpoint_digest: Felt,
-    pub continuity_checkpoint_block_number: u64,
+    pub continuity_proof_length: u64,
     pub query_hash: Felt,
     pub claim_fields: Vec<Felt>,
 }
@@ -93,11 +93,8 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
         let continuity_checkpoint_digest =
             Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_digest")?;
 
-        let continuity_checkpoint_block_number = Self::parse_field(
-            it.next(),
-            try_parse_u64,
-            "continuity_checkpoint_block_number",
-        )?;
+        let continuity_proof_length =
+            Self::parse_field(it.next(), try_parse_u64, "continuity_proof_length")?;
         let query_hash = Self::parse_field(it.next(), try_parse_felt, "query_hash")?;
         it.take(rlp_len)
             .enumerate()
@@ -107,7 +104,7 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
                 claim_index,
                 //                claim_id,
                 continuity_checkpoint_digest,
-                continuity_checkpoint_block_number,
+                continuity_proof_length,
                 query_hash,
                 claim_fields,
             })

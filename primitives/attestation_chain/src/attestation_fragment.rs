@@ -111,7 +111,7 @@ impl AttestationFragment {
                     .map(BlockSerializable::from)
                     .collect();
                 Ok(FragmentBlocksSerializable {
-                    start: tail,
+                    start: claim_block_number - 1,
                     blocks: blocks_subset,
                 })
             }
