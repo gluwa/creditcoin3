@@ -6,7 +6,9 @@ use eth_common::OrderedBlock;
 use tracing::{debug, info};
 
 use attestation_chain::attestation_checkpoints::AttestationCheckpoint;
-use attestation_chain::attestation_fragment::AttestationFragment;
+use attestation_chain::attestation_fragment::{
+    AttestationFragment, FragmentContinuityBlocksSerializable,
+};
 use prover_primitives::claim::ClaimSerializable;
 use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
 
@@ -59,7 +61,9 @@ pub async fn run_cairo_verifier(
         .map_err(|e| anyhow!("{:?}", e))?;
     debug!("fetching block and building merkle trees...");
 
-    let mut cairo_verifier = build_prover(claim.clone(), fragment_subset, block)
+    let fragment_continuity_blocks = FragmentContinuityBlocksSerializable::from(fragment_subset);
+
+    let mut cairo_verifier = build_prover(claim.clone(), fragment_continuity_blocks, block)
         .await
         .inspect(|claim_cairo_verifier| {
             debug!("done");

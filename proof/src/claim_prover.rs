@@ -1,5 +1,7 @@
 use crate::json_serializable::JsonSerializable;
-use attestation_chain::attestation_fragment::FragmentBlocksSerializable;
+use attestation_chain::attestation_fragment::{
+    FragmentBlocksSerializable, FragmentContinuityBlocksSerializable,
+};
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimSerializable;
@@ -19,8 +21,8 @@ use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 pub struct ClaimProver {
     block_number: u64,
     merkle_proof: MerkleProofSerializable,
-    claim_digest_roots: ClaimDigestRoot,
-    attestation_chain: FragmentBlocksSerializable,
+    claim_digest_root: ClaimDigestRoot,
+    continuity_chain: FragmentContinuityBlocksSerializable,
     claim: ClaimSerializable,
     out_of_bounds_flag: u8,
 
@@ -103,16 +105,16 @@ impl ClaimProver {
         merkle_proof: StarknetPedersenMerkleProof,
         rlp: Vec<u8>,
         claim: ClaimSerializable,
-        claim_digest_roots: ClaimDigestRoot,
-        attestation_chain: FragmentBlocksSerializable,
+        claim_digest_root: ClaimDigestRoot,
+        attestation_chain: FragmentContinuityBlocksSerializable,
         out_of_bounds_flag: bool,
     ) -> Self {
         Self {
             block_number,
             merkle_proof: (merkle_proof, rlp).into(),
             claim,
-            claim_digest_roots,
-            attestation_chain,
+            claim_digest_root,
+            continuity_chain: attestation_chain,
             out_of_bounds_flag: out_of_bounds_flag.into(),
 
             cairo_input_file: None,
@@ -196,7 +198,7 @@ impl ClaimProver {
 
 pub async fn build_prover(
     claim: ClaimSerializable,
-    fragment_blocks: FragmentBlocksSerializable,
+    fragment_blocks: FragmentContinuityBlocksSerializable,
     block: OrderedBlock,
 ) -> Result<ClaimProver, ClaimProverError> {
     let claim_block_number = claim.id().block_number();

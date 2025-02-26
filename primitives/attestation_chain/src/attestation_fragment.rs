@@ -1,5 +1,7 @@
 use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
-use crate::block::{Block, BlockError, BlockSerializable};
+use crate::block::{
+    Block, BlockError, BlockSerializable, ContinuityBlock, ContinuityBlockSerializable,
+};
 use crate::AttestationChainParams;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -109,6 +111,7 @@ impl AttestationFragment {
                     .map(BlockSerializable::from)
                     .collect();
                 Ok(FragmentBlocksSerializable {
+                    start: tail,
                     blocks: blocks_subset,
                 })
             }
@@ -138,7 +141,27 @@ impl AttestationFragment {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FragmentBlocksSerializable {
+    pub start: u64,
     pub blocks: Vec<BlockSerializable>,
+}
+
+impl From<FragmentBlocksSerializable> for FragmentContinuityBlocksSerializable {
+    fn from(blocks: FragmentBlocksSerializable) -> Self {
+        Self {
+            start: blocks.start,
+            blocks: blocks
+                .blocks
+                .into_iter()
+                .map(ContinuityBlockSerializable::from)
+                .collect::<Vec<_>>(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FragmentContinuityBlocksSerializable {
+    pub start: u64,
+    pub blocks: Vec<ContinuityBlockSerializable>,
 }
 
 #[derive(Debug, Clone, Error)]

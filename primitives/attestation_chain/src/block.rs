@@ -112,6 +112,56 @@ pub struct BlockSerializable {
     digest: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ContinuityBlock {
+    root: Felt,
+    digest: Felt,
+}
+
+#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContinuityBlockSerializable {
+    root: String,
+    digest: String,
+}
+
+impl From<&ContinuityBlock> for ContinuityBlockSerializable {
+    fn from(b: &ContinuityBlock) -> Self {
+        Self {
+            root: b.root.to_string(),
+            digest: b.digest.to_string(),
+        }
+    }
+}
+
+impl From<&Block> for ContinuityBlock {
+    fn from(b: &Block) -> Self {
+        Self {
+            root: b.root.clone(),
+            digest: b.digest.clone(),
+        }
+    }
+}
+
+impl From<BlockSerializable> for ContinuityBlockSerializable {
+    fn from(b: BlockSerializable) -> Self {
+        Self {
+            root: b.root.clone(),
+            digest: b.digest.clone(),
+        }
+    }
+}
+
+impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
+    type Error = ();
+
+    fn try_from(block: ContinuityBlockSerializable) -> Result<Self, ()> {
+        Ok(Self {
+            root: Felt::from_dec_str(block.root.as_ref()).map_err(|_| ())?,
+            digest: Felt::from_dec_str(block.digest.as_ref()).map_err(|_| ())?,
+        })
+    }
+}
+
 impl From<&Block> for BlockSerializable {
     fn from(b: &Block) -> Self {
         Self {
