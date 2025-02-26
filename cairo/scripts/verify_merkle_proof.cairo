@@ -10,11 +10,8 @@ const INDEX_SIZE = 1;
 const INDEX_FELT_OFFSET = 1;
 const NULL_LEAF_HASH = 0;
 
-
-struct AttestationBlock {
-    block_number: felt,
+struct ContinuityBlock {
     merkle_root: felt,
-    prev_digest: felt,
     digest: felt,
 }
 func pedersen_hash2{pedersen_ptr: HashBuiltin*, range_check_ptr}(x, y) -> felt {
@@ -30,7 +27,7 @@ func pedersen_array{pedersen_ptr: HashBuiltin*, range_check_ptr}(arr: felt*, arr
     }
 
     let h = pedersen_array(arr=arr, array_len=array_len - 1);
-    
+
     return pedersen_hash2(h, arr[array_len - 1]);
 }
 
@@ -38,33 +35,32 @@ func pedersen_array{pedersen_ptr: HashBuiltin*, range_check_ptr}(arr: felt*, arr
 // that generated the proof
 func verify_merkle_path{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr}(
     root,
-    word_hash, 
-    proof_items: felt*, 
-    offsets: felt*, 
-    arity, 
-    height, 
+    word_hash,
+    proof_items: felt*,
+    offsets: felt*,
+    arity,
+    height,
     i,
     ind,
     a,
     zero_height_hamming_distance,
     inner_node_prefix
-//) {
 ) -> (felt, felt) {
     // case of empty block, return index 0 as out-of-bounds witness
     if (height == 0) {
         return (0, 0);
-    } 
+    }
     let h = hash_with_siblings(
-                word_hash, 
-                proof_item=proof_items, 
-                offset=offsets[0], 
-                arity=arity, 
+                word_hash,
+                proof_item=proof_items,
+                offset=offsets[0],
+                arity=arity,
                 inner_node_prefix=inner_node_prefix
             );
 
     // add exactly 1 to zero_height_hamming_distance iff current offset == arity - 1,
     // this recursive function output zero_height_hamming_distance == proof_height
-    // iff this condition holds for every iteration 
+    // iff this condition holds for every iteration
     let zero_height_hamming_distance = zero_height_hamming_distance + (arity - offsets[0]);
 
     if (i == height - 1) {
@@ -77,14 +73,14 @@ func verify_merkle_path{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr}
     let a = a * arity;
 
     return verify_merkle_path(
-                root, 
-                h, 
-                proof_items=proof_items+arity, 
-                offsets=offsets+1, 
-                arity=arity, 
-                height=height, 
-                i=i+1, 
-                ind=index, 
+                root,
+                h,
+                proof_items=proof_items+arity,
+                offsets=offsets+1,
+                arity=arity,
+                height=height,
+                i=i+1,
+                ind=index,
                 a=a,
                 zero_height_hamming_distance=zero_height_hamming_distance,
                 inner_node_prefix=inner_node_prefix
@@ -92,9 +88,9 @@ func verify_merkle_path{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr}
 }
 
 func hash_with_siblings{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr}(
-    word_hash, 
-    proof_item: felt*, 
-    offset, 
+    word_hash,
+    proof_item: felt*,
+    offset,
     arity,
     inner_node_prefix
 ) -> felt {
@@ -102,12 +98,12 @@ func hash_with_siblings{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr}
     let (curr_item) = alloc();
 
     init_curr_item(
-            item=curr_item, 
-            word=word_hash, 
-            original=proof_item, 
-            at=offset, 
-            len=arity, 
-            i=0, 
+            item=curr_item,
+            word=word_hash,
+            original=proof_item,
+            at=offset,
+            len=arity,
+            i=0,
             inner_node_prefix=inner_node_prefix,
         );
 
@@ -127,17 +123,16 @@ func init_curr_item{range_check_ptr}(item: felt*, word, original: felt*, at, len
         assert [item + i] = i;
         return ();
     }
-    // put zero as first element
+    // put inner_node_prefix as first element
     if (i == 0) {
-        //assert [item + i] = 0;
         assert [item + i] = inner_node_prefix;
         init_curr_item(
-                item=item, 
-                word=word, 
-                original=original, 
-                at=at, 
-                len=len, 
-                i=i+1, 
+                item=item,
+                word=word,
+                original=original,
+                at=at,
+                len=len,
+                i=i+1,
                 inner_node_prefix=inner_node_prefix
             );
         return();
@@ -150,75 +145,41 @@ func init_curr_item{range_check_ptr}(item: felt*, word, original: felt*, at, len
         // copy original felt
         assert [item + i] = original[0];
     }
-    
+
     init_curr_item(
-            item=item, 
-            word=word, 
-            original=original+1, 
-            at=at-1, 
-            len=len-1, 
-            i=i+1, 
+            item=item,
+            word=word,
+            original=original+1,
+            at=at-1,
+            len=len-1,
+            i=i+1,
             inner_node_prefix=inner_node_prefix
         );
     return ();
 }
 
-// test initialization of a path item with claim hash
-// auxiliary - for dev & debugging
-func test_init_curr_item{range_check_ptr}(proof_felts: felt*, at, proof_arity) {
-    alloc_locals;
-    let (curr_item) = alloc();
-
-    let claim = 42;
-    let zero_prepend_offset = 1;
-    let inner_node_prefix = 1;
-
-    init_curr_item(
-        item=curr_item, 
-        word=claim, 
-        original=proof_felts, 
-        at=at, 
-        len=proof_arity, 
-        i=0, 
-        inner_node_prefix=inner_node_prefix
-    );
-
-    assert curr_item[0] = 0;
-    assert curr_item[zero_prepend_offset + at] = claim;
-    assert curr_item[zero_prepend_offset + proof_arity] = proof_arity;
-
-    test_rest_item_intact(proof_felts, curr_item, at, proof_arity, i=zero_prepend_offset);
-    
-    return();
-}
-
-// auxiliary - for dev & debugging
-func test_rest_item_intact{range_check_ptr}(proof_felts: felt*, item: felt*, at, proof_arity, i) {
-    let zero_prepend_offset = 1;
-
-    if (i == proof_arity + zero_prepend_offset) {
-        return ();
-    }
-
-    if (i - zero_prepend_offset != at) {
-        assert proof_felts[i - zero_prepend_offset] = item[i];
-    }
-    test_rest_item_intact(proof_felts, item, at, proof_arity, i=i+1);
-    return ();
-}
-
-func generate_continuity_attestation{pedersen_ptr: HashBuiltin*, range_check_ptr}(attestation_blocks: AttestationBlock*, len) -> AttestationBlock {
+// generates a checkpoint digest from the continuity chain
+func generate_continuity_attestation{pedersen_ptr: HashBuiltin*, range_check_ptr}(
+    continuity_blocks: ContinuityBlock*,
+    block_number,
+    prev_digest,
+    len
+) -> felt {
     assert_nn(len - 1);
 
-    let d = pedersen_hash2(attestation_blocks[0].block_number, attestation_blocks[0].merkle_root);
-//    let d2 = pedersen_hash2(d1, attestation_blocks[0].rx_root);
-    let digest = pedersen_hash2(d, attestation_blocks[0].digest);
+    let d = pedersen_hash2(block_number, continuity_blocks[0].merkle_root);
+    let digest = pedersen_hash2(d, prev_digest);
 
     if (len == 1) {
-        return attestation_blocks[0];
+        return digest;
     }
 
-    return generate_continuity_attestation(attestation_blocks=attestation_blocks+AttestationBlock.SIZE, len=len-1);
+    return generate_continuity_attestation(
+        continuity_blocks = continuity_blocks + ContinuityBlock.SIZE,
+        block_number = block_number + 1,
+        prev_digest = digest,
+        len = len - 1
+    );
 }
 
 // outputs an array of felts: the last felt output is the array's lenght
@@ -248,37 +209,30 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     local proof_root;
     local proof_felts: felt*;
     local proof_offsets: felt*;
-    
+
     local prefixed_subject_felts: felt*;
     local prefixed_subject_felts_len;
-    
+
     local query_offsets: felt*;
     local query_offsets_len;
-    
+
     local inner_node_prefix;
 
-    local block_number;
-    local claim_index;
     local block_number;
     local claim_index;
 
     local digest_root_to_match_to_claim_root;
     local digest;
-    // local digest_tx_root;
-    // local digest_rx_root;
-    local prev_block_digest;
     local curr_digest_from_attestation_chain;
 
-    local attestation_blocks: AttestationBlock*;
-    local attestation_blocks_len;
-
-    local claim_leaf_hash;
-    local out_of_bounds_flag;
+    local continuity_chain_start;
+    local continuity_blocks: ContinuityBlock*;
+    local continuity_blocks_len;
 
     local claim_leaf_hash;
     local out_of_bounds_flag;
     // parse the claim and assign local variables
-    %{ 
+    %{
         # parse bytes as 248-bit long elements (closest to canonical safe representation of felts)
         FELT_SIZE = 31
         def flatten_list(nested_list):
@@ -292,22 +246,17 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
 
         merkle_proof = program_input['merkle_proof']
         claim = program_input['claim']
-        digest_roots = program_input['claim_digest_roots']
-        attestation_chain = program_input['attestation_chain']['blocks']
+        digest_roots = program_input['claim_digest_root']
+        continuity_chain_start = int(program_input['continuity_chain']['start'])
+        continuity_chain = program_input['continuity_chain']['blocks']
 
         ids.out_of_bounds_flag = int(program_input['out_of_bounds_flag'])
 
-        #ids.claim_id.claim_kind = 1 if claim['id']['kind'] == "Tx" else 2
-        #claim_kind = 1 if claim['id']['kind'] == "Tx" else 2
-        
-        #ids.digest_root_to_match_to_claim_root = int(digest_roots['tx_root'] if claim_kind == 1 else digest_roots['rx_root'])
         ids.digest_root_to_match_to_claim_root = int(digest_roots['merkle_root'])
-        #ids.digest_tx_root = int(digest_roots['tx_root'])
-        #ids.digest_rx_root = int(digest_roots['rx_root'])
 
         ids.proof_root = int(merkle_proof['root'])
-        ids.proof_height = merkle_proof['height'] 
-        ids.proof_arity = arity = merkle_proof['arity'] 
+        ids.proof_height = merkle_proof['height']
+        ids.proof_arity = arity = merkle_proof['arity']
         ids.inner_node_prefix = int(merkle_proof['inner_node_hash_prefix'])
 
         path = merkle_proof['path']
@@ -315,7 +264,7 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
 
         ids.proof_felts = path_felts_ind = segments.add()
         ids.proof_offsets = path_offsets_ind = segments.add()
-        
+
         leaf_offset = -1
         felts = list()
         for i, felt_or_offset in enumerate(flat_path):
@@ -328,7 +277,7 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
                 memory[path_offsets_ind] = felt_or_offset; path_offsets_ind += 1
 
         # claim leaf is undefined for empty block, so set it to 0
-        ids.claim_leaf_hash = felts[leaf_offset] if leaf_offset >= 0 else 0 
+        ids.claim_leaf_hash = felts[leaf_offset] if leaf_offset >= 0 else 0
 
         subject_bytes_prefixed = [merkle_proof['leaf_hash_prefix']] + merkle_proof['claim_subject']
         prefixed_subject_felts = bytes_to_felt_array(subject_bytes_prefixed)
@@ -344,13 +293,6 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
         ids.prefixed_subject_felts_len = length + 1
 
         # refer to BlockItemIdentifier::to_bytes() padding in Rust lib
-        indexOffset = FELT_SIZE
-        # blockNumberOffset = FELT_SIZE
-        #block_number = int.from_bytes(subject_bytes_prefixed[blockNumberOffset : blockNumberOffset + 2*31], "big")
-        #rlpStartOffset = blockNumberOffset + FELT_SIZE * ids.BlockItemIdentifier.SIZE
-
-        # padded leaf prefix + hi + lo + index
-        #blockItemIdFeltsLen = ids.PADDING_SIZE + ids.BlockItemIdentifier.SIZE
         blockItemIdFeltsLen = ids.PADDING_SIZE + 1
 
         ids.query_offsets = ind = segments.add()
@@ -359,24 +301,16 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
         ids.query_offsets_len = min(ind - ids.query_offsets, ids.prefixed_subject_felts_len - blockItemIdFeltsLen - 1)
         memory[ind] = ids.query_offsets_len
 
-        prev_block = [b for b in attestation_chain if int(b['block_number'])==(block_number - 1)]
-        curr_block = [(ind, b) for (ind, b) in enumerate(attestation_chain) if int(b['block_number'])==block_number]
-        
-        ids.prev_block_digest = int(prev_block[0]['digest'])
-        ids.curr_digest_from_attestation_chain = int(curr_block[0][1]['digest'])
+        continuity_blocks_start_index = block_number - continuity_chain_start - 1;
 
-        attestation_blocks_start_index = curr_block[0][0]
-        ids.attestation_blocks_len = len(attestation_chain) - attestation_blocks_start_index
+        ids.curr_digest_from_attestation_chain = int(continuity_chain[continuity_blocks_start_index + 1]['digest'])
 
-        ids.attestation_blocks = ind = segments.add()
-        for attestation_block in attestation_chain[attestation_blocks_start_index:]:
-            attestation_block_number = int(attestation_block['block_number'])
+        ids.continuity_blocks_len = len(continuity_chain) - continuity_blocks_start_index
 
-            memory[ind] = attestation_block_number; ind += 1
+        ids.continuity_chain_start = continuity_chain_start;
+        ids.continuity_blocks = ind = segments.add()
+        for attestation_block in continuity_chain[continuity_blocks_start_index:]:
             memory[ind] = int(attestation_block['root']); ind += 1
-            #memory[ind] = int(attestation_block['tx_root']); ind += 1
-            #memory[ind] = int(attestation_block['rx_root']); ind += 1
-            memory[ind] = int(attestation_block['prev_digest']); ind += 1
             memory[ind] = int(attestation_block['digest']); ind += 1
     %}
 
@@ -386,10 +320,10 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
 
     let (claim_index_from_path, zero_height_hamming_distance) = verify_merkle_path(
         root=proof_root,
-        word_hash=claim_leaf_hash, 
-        proof_items=proof_felts, 
-        offsets=proof_offsets, 
-        arity=proof_arity, 
+        word_hash=claim_leaf_hash,
+        proof_items=proof_felts,
+        offsets=proof_offsets,
+        arity=proof_arity,
         height=proof_height,
         i=0,
         ind=0,
@@ -403,7 +337,6 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     assert assert_claim_index_for_dev = 0;
 
     let rlp_felts = prefixed_subject_felts + PADDING_SIZE + INDEX_SIZE;
-    // THE BELOW IS ONLY CORRECT FOR STANDALONE MERKLE TREE DESIGN, NOT MMR
     // the entire statement must equal to 0
     // statement breakdown:
     // in case prover set out_of_bounds_flag == 1:
@@ -415,68 +348,36 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     let claim_leaf_hash_assertion_expr = out_of_bounds_null_leaf_expr * (claim_leaf_hash - hashed_claim_subject);
     assert claim_leaf_hash_assertion_expr = 0;
 
-//    let full_tree_height_assert_expr = (rlp_felts[0] - proof_height);
-//    let out_of_bounds_full_tree_expr = (zero_height_hamming_distance - proof_height) * full_tree_height_assert_expr;
     let out_of_bounds_full_tree_expr = zero_height_hamming_distance - proof_height;
-    
+
     let out_of_bounds_expr = out_of_bounds_flag * out_of_bounds_null_leaf_expr * out_of_bounds_full_tree_expr;
 
-//    let in_bounds_expr = (1 - out_of_bounds_flag);
-    
-//    let expr_to_assert = out_of_bounds_expr + in_bounds_expr;
-    let expr_to_assert = out_of_bounds_expr;
-
-    assert expr_to_assert = 0;
-    claim_index = prefixed_subject_felts[INDEX_FELT_OFFSET];
-    // just for dev: ensure that claim_index_from_path is computed correctly
-    let assert_claim_index_for_dev = (1 - out_of_bounds_flag) * (claim_index - claim_index_from_path);
-    assert assert_claim_index_for_dev = 0;
-
-    let rlp_felts = prefixed_subject_felts + PADDING_SIZE + INDEX_SIZE;
-    // THE BELOW IS ONLY CORRECT FOR STANDALONE MERKLE TREE DESIGN, NOT MMR
-    // the entire statement must equal to 0
-    // statement breakdown:
-    // in case prover set out_of_bounds_flag == 1:
-    //  either claim_leaf_hash must be NULL_LEAF_HASH, or in case of full Merkle tree the convention is to send
-    //  the last leaf and so, zero_height_hamming_distance == height
-    let out_of_bounds_null_leaf_expr = NULL_LEAF_HASH - claim_leaf_hash;
-
-    // assert hashed rlp-encoded (raw) subject equals to leaf felt unless it's a NULL leaf
-    let claim_leaf_hash_assertion_expr = out_of_bounds_null_leaf_expr * (claim_leaf_hash - hashed_claim_subject);
-    assert claim_leaf_hash_assertion_expr = 0;
-
-//    let full_tree_height_assert_expr = (rlp_felts[0] - proof_height);
-//    let out_of_bounds_full_tree_expr = (zero_height_hamming_distance - proof_height) * full_tree_height_assert_expr;
-    let out_of_bounds_full_tree_expr = zero_height_hamming_distance - proof_height;
-    
-    let out_of_bounds_expr = out_of_bounds_flag * out_of_bounds_null_leaf_expr * out_of_bounds_full_tree_expr;
-
-//    let in_bounds_expr = (1 - out_of_bounds_flag);
-    
-//    let expr_to_assert = out_of_bounds_expr + in_bounds_expr;
     let expr_to_assert = out_of_bounds_expr;
 
     assert expr_to_assert = 0;
 
     // compute digest using data from the claim and previous digest from the attestation chain
-    //let d1 = pedersen_hash2(block_number, digest_tx_root);
     let d = pedersen_hash2(block_number, proof_root);
-    //let d2 = pedersen_hash2(d1, digest_rx_root);
-    let digest = pedersen_hash2(d, prev_block_digest);
- 
+    let digest = pedersen_hash2(d, continuity_blocks[0].digest);
+
     // assert equality of computed digest and the digest from the corresponding block in the attestation chain
     assert curr_digest_from_attestation_chain = digest;
- 
+
     // assert continuity and return the last digest
-    let continuity_attestation_checkpoint = generate_continuity_attestation(
-        attestation_blocks=attestation_blocks, 
-        len=attestation_blocks_len
+    let checkpoint_digest = generate_continuity_attestation(
+        continuity_blocks = continuity_blocks + ContinuityBlock.SIZE,
+        block_number = continuity_chain_start + 1,
+        prev_digest = continuity_blocks[0].digest,
+        len = continuity_blocks_len - 1
     );
+    let continuity_attestation_checkpoint = continuity_blocks[continuity_blocks_len - 1];
+
+    assert checkpoint_digest = continuity_attestation_checkpoint.digest;
+
     // hash query offsets so it can be checked by claimer
     let query_hash = pedersen_array(query_offsets, array_len = query_offsets_len + 1);
 
     // output claim identifier fields
-//    assert [output_ptr] = claim_index;
     assert [output_ptr] = claim_index_from_path;
     let output_ptr = output_ptr + 1;
 
@@ -484,8 +385,8 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     assert [output_ptr] = continuity_attestation_checkpoint.digest;
     let output_ptr = output_ptr + 1;
 
-    // output continuity attestation checkpoint block number
-    assert [output_ptr] = continuity_attestation_checkpoint.block_number;
+    // output continuity attestation chain length
+    assert [output_ptr] = continuity_blocks_len;
     let output_ptr = output_ptr + 1;
 
     // output query offsets hash
@@ -493,9 +394,6 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     let output_ptr = output_ptr + 1;
 
     // output rlp fields, if out_of_bounds_flag output nothing
-//    output_array_at_offsets(rlp_felts, query_offsets, query_offsets_len * (1 - out_of_bounds_flag) + out_of_bounds_flag);
-    // output rlp fields, if out_of_bounds_flag output nothing
-//    output_array_at_offsets(rlp_felts, query_offsets, query_offsets_len * (1 - out_of_bounds_flag) + out_of_bounds_flag);
     output_array_at_offsets(rlp_felts, query_offsets, query_offsets_len);
     
     return ();
