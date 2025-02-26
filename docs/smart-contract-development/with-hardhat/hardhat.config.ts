@@ -8,8 +8,15 @@ const config: HardhatUserConfig = {
             url: 'http://127.0.0.1:9944',
             // EVM private keys for development accounts are documented at
             // https://docs.moonbeam.network/builders/get-started/networks/moonbeam-dev/#pre-funded-development-accounts
-            // This is the account Balthathar !
-            accounts: ['0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b'],
+            // this list has a direct effect on what ethers.getSigners() returns
+            accounts: [
+                // Balthathar
+                '0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b',
+                // Charleth
+                '0x0b6e18cafb6ed99687ec547bd28139cafdd2bffe70e6b688025de6b445aa5c5b',
+                // Dorothy
+                '0x39539ab1876910bbf3a223d84a29e28f1cb4e2e456503e7e91ed39b2e7223d68',
+            ],
         },
         hardhatLocal: {
             url: 'http://127.0.0.1:8545',

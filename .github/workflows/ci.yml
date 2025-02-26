@@ -2127,7 +2127,7 @@ jobs:
         run: |
           npx hardhat compile
 
-      - name: Test contract(s)
+      - name: Test contract(s) against ephemeral Hardhat
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           npx hardhat test

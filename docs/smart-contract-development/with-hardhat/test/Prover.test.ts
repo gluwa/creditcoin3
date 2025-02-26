@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 import { ProverForTesting } from '../typechain-types';
+import { skipIfNotCreditcoin } from './helpers';
 
 describe('CreditcoinPublicProver', function () {
     let prover: ProverForTesting;
@@ -95,6 +96,9 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('Query Proof Submission', function () {
+        // SUT tries to access Creditcoin precompile internally
+        before(skipIfNotCreditcoin);
+
         it('Should process valid proof submission', async function () {
             const tx = await prover
                 .connect(owner)
@@ -127,6 +131,9 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('Proceeds Withdrawal', function () {
+        // SUT tries to access Creditcoin precompile internally
+        before(skipIfNotCreditcoin);
+
         it('Should allow owner to withdraw unescrow proceeds', async function () {
             await owner.sendTransaction({
                 to: await prover.getAddress(),

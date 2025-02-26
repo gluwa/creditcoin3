@@ -2,6 +2,9 @@ import { time, loadFixture } from '@nomicfoundation/hardhat-toolbox/network-help
 import { anyValue } from '@nomicfoundation/hardhat-chai-matchers/withArgs';
 import { expect } from 'chai';
 import hre from 'hardhat';
+import { skipIfNotHardhat } from './helpers';
+
+before(skipIfNotHardhat);
 
 describe('Lock', function () {
     // We define a fixture to reuse the same setup in every test.
