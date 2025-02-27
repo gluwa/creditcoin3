@@ -18,6 +18,8 @@ pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
+        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+        STARK_PROGRAM_V3_HASH,
         Query, ResultSegment, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
     };
     use sp_core::H256;
@@ -77,6 +79,7 @@ pub mod pallet {
         fn build(&self) {
             StarkProgramMetadata::<T>::insert(1, STARK_PROGRAM_V1_HASH);
             StarkProgramMetadata::<T>::insert(2, STARK_PROGRAM_V2_HASH);
+            StarkProgramMetadata::<T>::insert(3, STARK_PROGRAM_V3_HASH);
         }
     }
 

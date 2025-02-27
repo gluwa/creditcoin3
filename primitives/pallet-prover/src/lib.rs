@@ -11,6 +11,7 @@ use sp_std::vec::Vec;
 
 // duplicate with constants in StarkProgramMetadataStorage
 // primitives/prover/src/stark_program_auth.rs, CSUB-1303
+// 0xe7bdcde60ddd457ca7f344693f68f5387ed1a9de7084bfa3648d68c30266e2c4
 pub const STARK_PROGRAM_V1_HASH: H256 = H256([
     231, 189, 205, 230, 13, 221, 69, 124, 167, 243, 68, 105, 63, 104, 245, 56, 126, 209, 169, 222,
     112, 132, 191, 163, 100, 141, 104, 195, 2, 102, 226, 196,
@@ -22,6 +23,14 @@ pub const STARK_PROGRAM_V1_HASH: H256 = H256([
 pub const STARK_PROGRAM_V2_HASH: H256 = H256([
     23, 60, 142, 139, 65, 10, 94, 136, 148, 221, 116, 19, 248, 132, 191, 237, 163, 61, 32, 184,
     115, 108, 71, 87, 26, 208, 49, 13, 0, 45, 173, 249,
+]);
+
+// duplicate with constants in StarkProgramMetadataStorage
+// primitives/prover/src/stark_program_auth.rs, CSUB-1303
+// 0xa4d8a2991782c77c6e303f6090ac7afa0e8032d2473ef36df13b5aed2358a665
+pub const STARK_PROGRAM_V3_HASH: H256 = H256([
+    164, 216, 162, 153, 23, 130, 199, 124, 110, 48, 63, 96, 144, 172, 122, 250, 14, 128, 50, 210,
+    71, 62, 243, 109, 241, 59, 90, 237, 35, 88, 166, 101,
 ]);
 
 pub const U248_BYTE_COUNT: u64 = 31;

@@ -1,7 +1,5 @@
 use crate::json_serializable::JsonSerializable;
-use attestation_chain::attestation_fragment::{
-    FragmentBlocksSerializable, FragmentContinuityBlocksSerializable,
-};
+use attestation_chain::attestation_fragment::FragmentContinuityBlocksSerializable;
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::claim::ClaimSerializable;

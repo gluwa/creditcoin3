@@ -1,7 +1,5 @@
 use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
-use crate::block::{
-    Block, BlockError, BlockSerializable, ContinuityBlock, ContinuityBlockSerializable,
-};
+use crate::block::{Block, BlockError, BlockSerializable, ContinuityBlockSerializable};
 use crate::AttestationChainParams;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};

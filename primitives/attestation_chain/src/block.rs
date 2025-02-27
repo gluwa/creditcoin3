@@ -136,8 +136,8 @@ impl From<&ContinuityBlock> for ContinuityBlockSerializable {
 impl From<&Block> for ContinuityBlock {
     fn from(b: &Block) -> Self {
         Self {
-            root: b.root.clone(),
-            digest: b.digest.clone(),
+            root: b.root,
+            digest: b.digest,
         }
     }
 }

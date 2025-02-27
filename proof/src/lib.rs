@@ -108,29 +108,29 @@ pub async fn run_cairo_verifier(
         // always use the gnensis block 0. Rework once outdated crates sharing
         // `try_from_block` are removed.
         AttestationChainParams::new(0, 10),
-        claim_block_number + output.continuity_proof_length,
+        claim_block_number - 1 + output.continuity_proof_length - 1,
         output.continuity_checkpoint_digest,
     )
     .ok_or(anyhow!(
         "expected to get a valid checkpoint from cairo verifier's output"
     ))?;
 
-    // if input_checkpoint == output_checkpoint {
-    //     debug!(
-    //         "{}",
-    //         format!(
-    //             "\nclaim continuity validated at checkpoint: {:?}",
-    //             output_checkpoint
-    //         )
-    //         .green()
-    //     );
-    // } else {
-    //     return Err(anyhow!(
-    //         "claim continuity not validated on attestation chain, here {:?}, there {:?}",
-    //         input_checkpoint,
-    //         output_checkpoint
-    //     ));
-    // };
+    if input_checkpoint == output_checkpoint {
+        debug!(
+            "{}",
+            format!(
+                "\nclaim continuity validated at checkpoint: {:?}",
+                output_checkpoint
+            )
+            .green()
+        );
+    } else {
+        return Err(anyhow!(
+            "claim continuity not validated on attestation chain, here {:?}, there {:?}",
+            input_checkpoint,
+            output_checkpoint
+        ));
+    };
 
     Ok(cairo_verifier)
 }
