@@ -134,10 +134,15 @@ contract CreditcoinPublicProver is Ownable {
         emit EscrowedPaymentReclaimed(queryId, escrowedAmount);
     }
 
+    // wrapper which can be used to mock the verifier precompile for testing
+    function _call_verifier_verify(QueryId queryId, bytes calldata proof) virtual internal returns (uint64) {
+        return verifier.verify(proof, queries[queryId].query);
+    }
+
     // submitQueryProof is called by the prover when a query's proof is ready.
     function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (uint64) {
         // Fist verify the proof
-        uint64 result = verifier.verify(proof, queries[queryId].query);
+        uint64 result = _call_verifier_verify(queryId, proof);
 
         // Calculate the prover's fee
         // Transfer the prover's fee to the prover
