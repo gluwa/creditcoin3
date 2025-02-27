@@ -1,3 +1,0 @@
-**Grafana dashboard**
-
-![](assets/20250227_112122_FBB7D44A-3CFA-4371-ABC3-0CC05D8D181B.jpeg)
