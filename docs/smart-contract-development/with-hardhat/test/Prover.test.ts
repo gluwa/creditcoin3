@@ -132,12 +132,9 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('Query Proof Submission', function () {
-        // SUT tries to access Creditcoin precompile internally
-        before(skipIfNotCreditcoin);
-
         it('Should process valid proof submission', async function () {
             const tx = await prover
-                .connect(owner)
+                .connect(user)
                 .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
@@ -145,10 +142,14 @@ describe('CreditcoinPublicProver', function () {
             const queryId = receipt?.logs[0]?.args?.[0];
 
             const proof = new Uint8Array(32);
+            // mark proof as valid
+            await prover.mock_setVerifierResult(0);
             await prover.connect(owner).submitQueryProof(queryId, proof);
 
             const queryDetails = await prover.queries(queryId);
-            expect(queryDetails.state).to.equal(1);
+            // Query is verified and the result is available
+            // aka QueryState.ResultAvailable,
+            expect(queryDetails.state).to.equal(2);
         });
 
         it('Should only allow owner to submit proofs', async function () {

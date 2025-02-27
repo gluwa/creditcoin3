@@ -4,10 +4,9 @@ import 'hardhat/console.sol';
 import './Prover.sol';
 
 contract ProverForTesting is CreditcoinPublicProver {
-    // mock handling
     uint64 private fakeVerifierResult;
 
-    function _mock_setVerifierResult(uint64 value) public {
+    function mock_setVerifierResult(uint64 value) public {
         fakeVerifierResult = value;
     }
 
