@@ -20,7 +20,10 @@ describe('CreditcoinPublicProver', function () {
         ],
     };
 
-    before(async function () {
+    // WARNING: using a high-level beforeEach() instead of before() b/c we want contract
+    // to be redeployed for every test scenario so that each scenario starts in a fresh state!
+    // Otherwise we'll have to deal with tracking internal contract state & removing queries
+    beforeEach(async function () {
         [owner, user, proceedsAccount] = await ethers.getSigners();
 
         // NOTE: interacting with a contract that inherits the SUT b/c it exposes
