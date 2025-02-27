@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Attestor dashboard",
+  "description": "attestor votes from rpc",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -25,7 +25,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -37,8 +37,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "green",
@@ -76,10 +75,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_best_block",
@@ -97,7 +92,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -109,8 +104,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "green",
@@ -148,10 +142,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_votes_sent",
@@ -169,7 +159,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -181,8 +171,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "green",
@@ -220,10 +209,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_best_voted",
@@ -241,7 +226,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -253,8 +238,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "green",
@@ -294,7 +278,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${prometheus}"
+            "uid": "cee4wzocbuo00d"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
@@ -315,7 +299,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -327,8 +311,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -366,10 +349,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "attestor_imported_votes",
@@ -387,7 +366,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -399,8 +378,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "color": "red"
               },
               {
                 "color": "red",
@@ -436,10 +414,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_invalid_votes",
@@ -457,7 +431,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -469,8 +443,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -508,10 +481,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_successful_handled_votes",
@@ -529,7 +498,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -541,8 +510,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "color": "red"
               },
               {
                 "color": "red",
@@ -578,10 +546,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_no_authority_found_in_store",
@@ -599,7 +563,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${prometheus}"
+        "uid": "cee4wzocbuo00d"
       },
       "fieldConfig": {
         "defaults": {
@@ -611,8 +575,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -650,10 +613,6 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_equivocation_votes",
@@ -674,21 +633,7 @@
   "schemaVersion": 40,
   "tags": [],
   "templating": {
-    "list": [
-      {
-        "current": {
-          "text": "prometheus",
-          "value": "cee4wzocbuo00d"
-        },
-        "label": "prometheus",
-        "name": "prometheus",
-        "options": [],
-        "query": "prometheus",
-        "refresh": 1,
-        "regex": "",
-        "type": "datasource"
-      }
-    ]
+    "list": []
   },
   "time": {
     "from": "now-15m",
@@ -698,6 +643,6 @@
   "timezone": "browser",
   "title": "attestor votes from rpc",
   "uid": "bee77k569dv5sf",
-  "version": 47,
+  "version": 33,
   "weekStart": ""
 }
