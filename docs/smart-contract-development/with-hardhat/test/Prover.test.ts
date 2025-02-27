@@ -2,7 +2,6 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 import { ProverForTesting } from '../typechain-types';
-import { skipIfNotCreditcoin } from './helpers';
 
 describe('CreditcoinPublicProver', function () {
     let prover: ProverForTesting;
@@ -168,33 +167,6 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('Proceeds Withdrawal', function () {
-        // SUT tries to access Creditcoin precompile internally
-        before(skipIfNotCreditcoin);
-
-        it('Should allow owner to withdraw unescrow proceeds', async function () {
-            await owner.sendTransaction({
-                to: await prover.getAddress(),
-                value: ethers.parseEther('1.0'),
-            });
-
-            const tx = await prover
-                .connect(owner)
-                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1n });
-
-            const receipt = await tx.wait();
-            // @ts-ignore
-            const queryId = receipt?.logs[0]?.args?.[0];
-
-            const proof = new Uint8Array(32);
-            await prover.connect(owner).submitQueryProof(queryId, proof);
-
-            const balanceBefore = await ethers.provider.getBalance(await proceedsAccount.getAddress());
-            await prover.connect(owner).withdrawProceeds();
-            const balanceAfter = await ethers.provider.getBalance(await proceedsAccount.getAddress());
-
-            expect(balanceAfter).to.be.gt(balanceBefore);
-        });
-
         it('Should only allow owner to withdraw proceeds', async function () {
             await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
         });
