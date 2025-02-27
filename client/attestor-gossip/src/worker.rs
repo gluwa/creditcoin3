@@ -220,7 +220,6 @@ where
                 vote = votes.next() => {
                     if let Some(vote) = vote {
                         debug!(target: LOG_TARGET, "📝 Got a vote from the network");
-                        metric_inc!(self.metrics, attestor_imported_votes);
                         match self.triage_message(vote.clone()).await {
                             Ok(()) => {
                                 metric_inc!(self.metrics, attestor_good_votes_processed);
@@ -333,6 +332,8 @@ where
         let import_result =
             self.state
                 .note_vote(attestation.clone(), &round_config, current_epoch)?;
+
+        metric_inc!(self.metrics, attestor_imported_votes);
 
         match import_result {
             VoteImportResult::DoubleVote => {
