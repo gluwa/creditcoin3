@@ -23,7 +23,7 @@ contract ProverForTesting is CreditcoinPublicProver {
         return totalEscrowBalance;
     }
 
-    function setQueryState(QueryId queryId) public onlyOwner {
-        queries[queryId].state = QueryState.TimedOut;
+    function mock_setQueryState(QueryId queryId, QueryState newState) public onlyOwner {
+        queries[queryId].state = newState;
     }
 }

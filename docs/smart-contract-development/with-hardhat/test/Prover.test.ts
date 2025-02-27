@@ -26,7 +26,7 @@ describe('CreditcoinPublicProver', function () {
         [owner, user, proceedsAccount] = await ethers.getSigners();
 
         // NOTE: interacting with a contract that inherits the SUT b/c it exposes
-        // additional helper methods, like setQueryState for example
+        // additional helper methods, like mock_setQueryState() for example
         const proverFactory = await ethers.getContractFactory('ProverForTesting');
         prover = await proverFactory.deploy(await proceedsAccount.getAddress(), 10n, 1000n, sampleQuery.chainId);
         await prover.waitForDeployment();
@@ -103,7 +103,8 @@ describe('CreditcoinPublicProver', function () {
                 throw new Error('QueryId not found in event logs');
             }
 
-            await prover.connect(owner).setQueryState(queryId);
+            // QueryState.TimedOut
+            await prover.connect(owner).mock_setQueryState(queryId, 3);
             const balanceBefore = await ethers.provider.getBalance(await user.getAddress());
 
             // this is held in escrow for now
