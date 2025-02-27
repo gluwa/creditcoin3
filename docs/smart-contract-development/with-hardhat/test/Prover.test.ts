@@ -122,6 +122,7 @@ describe('CreditcoinPublicProver', function () {
             const balanceAfter = await ethers.provider.getBalance(await user.getAddress());
             expect(balanceAfter).to.equal(
                 // @ts-ignore
+                // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
                 balanceBefore - reclaimReceipt?.cumulativeGasUsed * reclaimReceipt?.gasPrice + willingToPay,
             );
 

@@ -15,6 +15,7 @@ describe('Lock', function () {
         const ONE_GWEI = 1_000_000_000;
 
         const lockedAmount = ONE_GWEI;
+        // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
         const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
 
         // Contracts are deployed using the first signer/account by default
