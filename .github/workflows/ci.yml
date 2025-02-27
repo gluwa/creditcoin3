@@ -2130,7 +2130,14 @@ jobs:
       - name: Test contract(s) against ephemeral Hardhat
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
-          npx hardhat test
+          npx hardhat coverage
+
+      - name: Upload coverage report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardhat-coverage-report
+          path: ./docs/smart-contract-development/with-hardhat/coverage/
 
       - name: Deploy contract(s) to ephemeral Hardhat
         working-directory: ./docs/smart-contract-development/with-hardhat
