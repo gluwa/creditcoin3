@@ -3115,6 +3115,8 @@ export default {
             'QueryIdNotValidated',
             'QueryOutOfBounds',
             'QueryOffsetMismatch',
+            'QueryCheckpointMismatch',
+            'QueryBlockNumberMismatch',
             'ResultSegmentsExceedMaxSize',
         ],
     },

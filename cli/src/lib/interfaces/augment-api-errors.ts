@@ -584,6 +584,8 @@ declare module '@polkadot/api-base/types/errors' {
             FileError: AugmentedError<ApiType>;
             InvalidProofSubmitted: AugmentedError<ApiType>;
             ProofParseError: AugmentedError<ApiType>;
+            QueryBlockNumberMismatch: AugmentedError<ApiType>;
+            QueryCheckpointMismatch: AugmentedError<ApiType>;
             QueryIdNotValidated: AugmentedError<ApiType>;
             QueryOffsetMismatch: AugmentedError<ApiType>;
             QueryOutOfBounds: AugmentedError<ApiType>;

@@ -3638,6 +3638,8 @@ declare module '@polkadot/types/lookup' {
         readonly isQueryIdNotValidated: boolean;
         readonly isQueryOutOfBounds: boolean;
         readonly isQueryOffsetMismatch: boolean;
+        readonly isQueryCheckpointMismatch: boolean;
+        readonly isQueryBlockNumberMismatch: boolean;
         readonly isResultSegmentsExceedMaxSize: boolean;
         readonly type:
             | 'InvalidProofSubmitted'
@@ -3651,6 +3653,9 @@ declare module '@polkadot/types/lookup' {
             | 'VerifierProcessError'
             | 'QueryIdNotValidated'
             | 'QueryOutOfBounds'
+            | 'QueryOffsetMismatch'
+            | 'QueryCheckpointMismatch'
+            | 'QueryBlockNumberMismatch';
             | 'QueryOffsetMismatch'
             | 'ResultSegmentsExceedMaxSize';
     }
