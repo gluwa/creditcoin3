@@ -919,6 +919,7 @@ impl pallet_prover::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
     type SupportedChains = SupportedChains;
+    type Checkpoints = Attestation;
     type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 

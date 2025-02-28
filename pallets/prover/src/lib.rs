@@ -15,6 +15,7 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use attestor_primitives::provider::CheckpointProvider;
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
@@ -31,6 +32,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         type SupportedChains: SupportedChainsProvider;
+        type Checkpoints: CheckpointProvider;
         #[pallet::constant]
         type MaxSegmentsPerVerifierResult: Get<u32>;
     }
@@ -105,6 +107,8 @@ pub mod pallet {
         QueryIdNotValidated,
         QueryOutOfBounds,
         QueryOffsetMismatch,
+        QueryCheckpointMismatch,
+        QueryBlockNumberMismatch,
         ResultSegmentsExceedMaxSize,
     }
 
@@ -123,21 +127,44 @@ pub mod pallet {
             ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
-            let (status, result_segments) =
-                proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
+            {
+                let (status, checkpoint_digest, continuity_proof_len, result_segments) =
+                    proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
-            #[cfg(not(feature = "runtime-benchmarks"))]
-            match status {
-                0 => (),
-                1..=5 => return Err(Error::<T>::FileError.into()),
-                6 | 7 => return Err(Error::<T>::ProofParseError.into()),
-                8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
-                9 => return Err(Error::<T>::VerifierExecutionError.into()),
-                10 => return Err(Error::<T>::VerifierProcessError.into()),
-                11 => return Err(Error::<T>::QueryIdNotValidated.into()),
-                12 => return Err(Error::<T>::QueryOutOfBounds.into()),
-                13 => return Err(Error::<T>::QueryOffsetMismatch.into()),
-                _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
+                ensure!(
+                    checkpoint_digest.is_some(),
+                    Error::<T>::QueryCheckpointMismatch
+                );
+
+                let checkpoint =
+                    T::Checkpoints::get_checkpoint(query.chain_id, checkpoint_digest.unwrap());
+
+                ensure!(checkpoint.is_some(), Error::<T>::QueryCheckpointMismatch);
+
+                let checkpoint_block_number = checkpoint.unwrap().block_number;
+
+                ensure!(
+                    continuity_proof_len.is_some(),
+                    Error::<T>::QueryBlockNumberMismatch
+                );
+
+                ensure!(
+                    checkpoint_block_number - continuity_proof_len.unwrap() + 1 == query.height,
+                    Error::<T>::QueryBlockNumberMismatch
+                );
+
+                match status {
+                    0 => (),
+                    1..=5 => return Err(Error::<T>::FileError.into()),
+                    6 | 7 => return Err(Error::<T>::ProofParseError.into()),
+                    8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
+                    9 => return Err(Error::<T>::VerifierExecutionError.into()),
+                    10 => return Err(Error::<T>::VerifierProcessError.into()),
+                    11 => return Err(Error::<T>::QueryIdNotValidated.into()),
+                    12 => return Err(Error::<T>::QueryOutOfBounds.into()),
+                    13 => return Err(Error::<T>::QueryOffsetMismatch.into()),
+                    _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
+                }
             }
 
             let query_id = query.id();

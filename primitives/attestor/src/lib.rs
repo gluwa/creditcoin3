@@ -11,6 +11,7 @@ use starknet_types_core::felt::Felt;
 
 pub mod api;
 pub mod bls;
+pub mod provider;
 
 // Chain id to chain name mapping
 // Only these are supported for now

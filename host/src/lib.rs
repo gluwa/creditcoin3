@@ -18,11 +18,11 @@ pub trait HostApi {
         #[cfg(target_arch = "x86_64")]
         {
             match command::run_verifier(proof, query, metadata) {
-                Ok((log, result_segments)) => {
-                    log::debug!("result of verifying proof: {:?}", log);
-                    (0, result_segments)
-                }
-                Err(e) => (command::VerifierError::status_code(&e), Vec::new()),
+                Ok(r) => {
+                    log::debug!("result of verifying proof: {:?}", r);
+                    (0, Some(r.1), Some(r.2), result_segments)
+                                }
+                Err(e) => (command::VerifierError::status_code(&e), None, None, Vec::new()),
             }
         }
 
@@ -30,7 +30,7 @@ pub trait HostApi {
         {
             log::debug!("proof len: {}", proof.len());
             log::warn!("run_verifier is not supported on this architecture.");
-            (0, Vec::new())
+            (0, None, Vec::new())
         }
     }
 }
