@@ -45,6 +45,33 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
+    describe('updateCostPerByte()', function () {
+        it('Should store new cost and emit an event', async function () {
+            const defaultCost = await prover.costPerByte();
+            // configured in the contract constructor
+            expect(defaultCost).to.equal(10n);
+
+            // now let's change it
+            const tx = await prover.connect(owner).updateCostPerByte(100n);
+            const receipt = await tx.wait();
+            const event = receipt?.logs[0];
+            // @ts-ignore
+            expect(event?.fragment.name).to.equal('CostPerByteUpdated');
+
+            const newCost = await prover.costPerByte();
+            expect(newCost).to.equal(100n);
+
+            // subsequent query cost calculation uses the new cost/byte
+            const newQueryCost = await prover.computeQueryCost(sampleQuery);
+            const expectedCost = 1000n + 96n * 100n;
+            expect(newQueryCost).to.equal(expectedCost);
+        });
+
+        it('Does not allow calls from non-owner', async function () {
+            await expect(prover.connect(user).updateCostPerByte(100n)).to.be.revertedWith('Caller is not the owner');
+        });
+    });
+
     describe('Query Cost Computation', function () {
         it('Should compute correct query cost based on layout segments', function () {
             const expectedCost = 1000n + 96n * 10n;
