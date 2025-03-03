@@ -72,6 +72,33 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
+    describe('updateBaseFee()', function () {
+        it('Should store new fee and emit an event', async function () {
+            const defaultFee = await prover.baseFee();
+            // configured in the contract constructor
+            expect(defaultFee).to.equal(1000n);
+
+            // now let's change it
+            const tx = await prover.connect(owner).updateBaseFee(100n);
+            const receipt = await tx.wait();
+            const event = receipt?.logs[0];
+            // @ts-ignore
+            expect(event?.fragment.name).to.equal('BaseFeeUpdated');
+
+            const newFee = await prover.baseFee();
+            expect(newFee).to.equal(100n);
+
+            // subsequent query cost calculation uses the new fee
+            const newQueryCost = await prover.computeQueryCost(sampleQuery);
+            const expectedCost = 100n + 96n * 10n;
+            expect(newQueryCost).to.equal(expectedCost);
+        });
+
+        it('Does not allow calls from non-owner', async function () {
+            await expect(prover.connect(user).updateBaseFee(100n)).to.be.revertedWith('Caller is not the owner');
+        });
+    });
+
     describe('Query Cost Computation', function () {
         it('Should compute correct query cost based on layout segments', function () {
             const expectedCost = 1000n + 96n * 10n;
