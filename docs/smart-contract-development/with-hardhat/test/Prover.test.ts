@@ -212,47 +212,83 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
-    describe('Escrow Reclaim', function () {
-        it('Should allow principal to reclaim escrow for timed out query', async function () {
-            const willingToPay = queryCost + 1n;
+    describe('reclaimEscrowedPayment()', function () {
+        const queryStates = [
+            { name: 'QueryState.TimedOut', value: 3 },
+            { name: 'QueryState.InvalidQuery', value: 4 },
+        ];
+
+        queryStates.forEach(({ name, value }) => {
+            it(`Should allow principal to reclaim escrow when ${name}`, async function () {
+                const willingToPay = queryCost + 1n;
+                const tx = await prover
+                    .connect(user)
+                    .submitQuery(sampleQuery, await user.getAddress(), { value: willingToPay });
+
+                const receipt = await tx.wait();
+                // @ts-ignore
+                const queryId = receipt?.logs[0]?.args?.[0];
+
+                if (!queryId) {
+                    throw new Error('QueryId not found in event logs');
+                }
+
+                await prover.connect(owner).mock_setQueryState(queryId, value);
+                const balanceBefore = await ethers.provider.getBalance(await user.getAddress());
+
+                // this is held in escrow for now
+                const escrowBeforeReclaim = await prover.getTotalEscrowBalance();
+                expect(escrowBeforeReclaim).to.equal(willingToPay);
+
+                const reclaimReceipt = await (await prover.connect(user).reclaimEscrowedPayment(queryId)).wait();
+                const escrowAfterReclaim = await prover.getTotalEscrowBalance();
+
+                // nothing held in escrow anymore
+                expect(escrowAfterReclaim).to.eq(0);
+
+                // sender's funds decreased by gas fees
+                // actual query price held in escrow was restored
+                const balanceAfter = await ethers.provider.getBalance(await user.getAddress());
+                expect(balanceAfter).to.equal(
+                    // @ts-ignore
+                    // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
+                    balanceBefore - reclaimReceipt?.cumulativeGasUsed * reclaimReceipt?.gasPrice + willingToPay,
+                );
+
+                const event = reclaimReceipt?.logs[0];
+                // @ts-ignore
+                expect(event?.fragment.name).to.equal('EscrowedPaymentReclaimed');
+            });
+        });
+
+        it(`Should not allow principal to reclaim escrow when query.state isn't supported`, async function () {
             const tx = await prover
                 .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: willingToPay });
-
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
             const receipt = await tx.wait();
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            if (!queryId) {
-                throw new Error('QueryId not found in event logs');
-            }
+            // QueryState.Uninitialied
+            await prover.connect(owner).mock_setQueryState(queryId, 0);
 
-            // QueryState.TimedOut
-            await prover.connect(owner).mock_setQueryState(queryId, 3);
-            const balanceBefore = await ethers.provider.getBalance(await user.getAddress());
-
-            // this is held in escrow for now
-            const escrowBeforeReclaim = await prover.getTotalEscrowBalance();
-            expect(escrowBeforeReclaim).to.equal(willingToPay);
-
-            const reclaimReceipt = await (await prover.connect(user).reclaimEscrowedPayment(queryId)).wait();
-            const escrowAfterReclaim = await prover.getTotalEscrowBalance();
-
-            // nothing held in escrow anymore
-            expect(escrowAfterReclaim).to.eq(0);
-
-            // sender's funds decreased by gas fees
-            // actual query price held in escrow was restored
-            const balanceAfter = await ethers.provider.getBalance(await user.getAddress());
-            expect(balanceAfter).to.equal(
-                // @ts-ignore
-                // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
-                balanceBefore - reclaimReceipt?.cumulativeGasUsed * reclaimReceipt?.gasPrice + willingToPay,
+            await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
+                'Query state does not allow reclaim',
             );
+        });
 
-            const event = reclaimReceipt?.logs[0];
+        it('Should revert when sender != query.principal', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
             // @ts-ignore
-            expect(event?.fragment.name).to.equal('EscrowedPaymentReclaimed');
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // note: trying to reclaim as `owner` instead of `user`
+            await expect(prover.connect(owner).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
+                'Sender different from query.principal',
+            );
         });
     });
 

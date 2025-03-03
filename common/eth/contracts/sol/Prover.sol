@@ -117,10 +117,10 @@ contract CreditcoinPublicProver is Ownable {
         // to submit a proof or fails otherwise
         // the escrowed payment is transferred to the principal specified
         // in the submitQuery call
-        require(queries[queryId].principal == msg.sender);
+        require(queries[queryId].principal == msg.sender, 'Sender different from query.principal');
 
         QueryState state = queries[queryId].state;
-        require(state == QueryState.TimedOut || state == QueryState.InvalidQuery);
+        require(state == QueryState.TimedOut || state == QueryState.InvalidQuery, 'Query state does not allow reclaim');
 
         uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
 
