@@ -106,7 +106,7 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
-    describe('Query Submission', function () {
+    describe('submitQuery()', function () {
         it('Should accept query with sufficient payment', async function () {
             const escrowBeforeSubmit = await prover.getTotalEscrowBalance();
             expect(escrowBeforeSubmit).to.equal(0);
@@ -139,6 +139,76 @@ describe('CreditcoinPublicProver', function () {
             await expect(
                 prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost - 1n }),
             ).to.be.revertedWithoutReason();
+        });
+
+        it('Should revert when query.chainId does not match chainId configured in contract', async function () {
+            const bogusQuery = {
+                chainId: 999,
+                height: 1000n,
+                index: 0,
+                layoutSegments: [
+                    { offset: 0, size: 32 },
+                    { offset: 32, size: 64 },
+                ],
+            };
+
+            await expect(
+                prover.connect(user).submitQuery(bogusQuery, await user.getAddress(), { value: queryCost + 1n }),
+            ).to.be.revertedWith('Chain not supported');
+        });
+
+        it('Should revert when a TimedOut query is submitted again', async function () {
+            // submit query once
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // QueryState.TimedOut
+            await prover.connect(owner).mock_setQueryState(queryId, 3);
+
+            // submit the same query again
+            await expect(
+                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
+            ).to.be.revertedWith('Query already timed out');
+        });
+
+        it('Should revert when an InvalidQuery query is submitted again', async function () {
+            // submit query once
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // QueryState.InvalidQuery
+            await prover.connect(owner).mock_setQueryState(queryId, 4);
+
+            // submit the same query again
+            await expect(
+                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
+            ).to.be.revertedWith('Query already invalidated');
+        });
+
+        it('Should revert when query is submitted again while still processing the first one', async function () {
+            // submit query once
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // QueryState.Submitted
+            await prover.connect(owner).mock_setQueryState(queryId, 1);
+
+            // submit the same query again
+            await expect(
+                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
+            ).to.be.revertedWith('Query already submitted, processing in progress');
         });
     });
 
