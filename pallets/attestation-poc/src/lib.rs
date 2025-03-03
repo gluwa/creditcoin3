@@ -22,9 +22,10 @@ mod ledger;
 pub mod pallet {
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
-        provider::CheckpointProvider, AttestationChainConfiguration, AttestationCheckpoint,
-        Attestor, BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
-        ChainKey, Digest, InherentError, SignedAttestation, INHERENT_IDENTIFIER,
+        provider::{AttestationProvider, CheckpointProvider},
+        AttestationChainConfiguration, AttestationCheckpoint, Attestor, BlsPublicKey,
+        BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainKey, Digest,
+        InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use frame_support::{
         pallet_prelude::{OptionQuery, *},
@@ -885,6 +886,15 @@ pub mod pallet {
     impl<T: Config> CheckpointProvider for Pallet<T> {
         fn get_checkpoint(chain_key: ChainKey, digest: Digest) -> Option<AttestationCheckpoint> {
             Checkpoints::<T>::get(chain_key, digest)
+        }
+    }
+
+    impl<T: Config> AttestationProvider<T::Hash, T::AccountId> for Pallet<T> {
+        fn get_attestation(
+            chain_key: ChainKey,
+            digest: Digest,
+        ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
+            Attestations::<T>::get(chain_key, digest)
         }
     }
 }

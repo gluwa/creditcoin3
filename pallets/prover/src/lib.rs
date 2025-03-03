@@ -15,7 +15,7 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use attestor_primitives::provider::CheckpointProvider;
+    use attestor_primitives::provider::{AttestationProvider, CheckpointProvider};
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
@@ -33,6 +33,7 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
         type SupportedChains: SupportedChainsProvider;
         type Checkpoints: CheckpointProvider;
+        type Attestations: AttestationProvider<Self::Hash, Self::AccountId>;
         #[pallet::constant]
         type MaxSegmentsPerVerifierResult: Get<u32>;
     }
@@ -137,11 +138,11 @@ pub mod pallet {
                 );
 
                 let checkpoint =
-                    T::Checkpoints::get_checkpoint(query.chain_id, checkpoint_digest.unwrap());
+                    T::Attestations::get_attestation(query.chain_id, checkpoint_digest.unwrap());
 
                 ensure!(checkpoint.is_some(), Error::<T>::QueryCheckpointMismatch);
 
-                let checkpoint_block_number = checkpoint.unwrap().block_number;
+                let checkpoint_block_number = checkpoint.unwrap().attestation.header_number;
 
                 ensure!(
                     continuity_proof_len.is_some(),

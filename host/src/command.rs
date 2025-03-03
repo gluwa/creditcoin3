@@ -301,7 +301,7 @@ pub fn run_verifier(
     fs::remove_file(&temp_file_path)?;
 
     fn felt_to_h256(felt: Felt) -> H256 {
-        let bytes = felt.to_bytes_be();
+        let bytes = felt.to_bytes_le();
 
         let mut h256_bytes = [0u8; 32];
         let start_idx = 32 - bytes.len();
