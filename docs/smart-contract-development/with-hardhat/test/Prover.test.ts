@@ -52,11 +52,9 @@ describe('CreditcoinPublicProver', function () {
             expect(defaultCost).to.equal(10n);
 
             // now let's change it
-            const tx = await prover.connect(owner).updateCostPerByte(100n);
-            const receipt = await tx.wait();
-            const event = receipt?.logs[0];
-            // @ts-ignore
-            expect(event?.fragment.name).to.equal('CostPerByteUpdated');
+            await expect(prover.connect(owner).updateCostPerByte(100n))
+                .to.emit(prover, 'CostPerByteUpdated')
+                .withArgs(100n);
 
             const newCost = await prover.costPerByte();
             expect(newCost).to.equal(100n);
@@ -79,11 +77,7 @@ describe('CreditcoinPublicProver', function () {
             expect(defaultFee).to.equal(1000n);
 
             // now let's change it
-            const tx = await prover.connect(owner).updateBaseFee(100n);
-            const receipt = await tx.wait();
-            const event = receipt?.logs[0];
-            // @ts-ignore
-            expect(event?.fragment.name).to.equal('BaseFeeUpdated');
+            await expect(prover.connect(owner).updateBaseFee(100n)).to.emit(prover, 'BaseFeeUpdated').withArgs(100n);
 
             const newFee = await prover.baseFee();
             expect(newFee).to.equal(100n);
