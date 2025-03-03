@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use pallet_prover_primitives::Query;
+use pallet_prover_primitives::{Query, VerifierResponse};
 use sp_core::H256;
 use sp_runtime_interface::runtime_interface;
 use sp_std::vec::Vec;
@@ -14,13 +14,13 @@ pub trait HostApi {
         proof: Vec<u8>,
         #[allow(unused)] query: Query,
         #[allow(unused)] metadata: Vec<(u8, H256)>,
-    ) -> u8 {
+    ) -> VerifierResponse {
         #[cfg(target_arch = "x86_64")]
         {
             match command::run_verifier(proof, query, metadata) {
-                Ok(r) => {
+                Ok((log, result_segments)) => {
                     log::debug!("result of verifying proof: {:?}", r);
-                    0
+                    (0, result_segments)
                 }
                 Err(e) => command::VerifierError::status_code(&e),
             }
@@ -30,7 +30,7 @@ pub trait HostApi {
         {
             log::debug!("proof len: {}", proof.len());
             log::warn!("run_verifier is not supported on this architecture.");
-            0
+            (0, Vec::new())
         }
     }
 }

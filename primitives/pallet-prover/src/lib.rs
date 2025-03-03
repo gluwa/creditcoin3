@@ -42,6 +42,15 @@ pub struct LayoutSegment {
     pub size: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec)]
+pub struct ResultSegment {
+    pub offset: u64,
+    pub bytes: Vec<u8>,
+}
+
+// Exit status and result segments
+pub type VerifierResponse = (u8, Vec<ResultSegment>);
+
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash)]
 pub enum VerifierExitStatus {
     // Success: proof verifies and requested byte ranges could

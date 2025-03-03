@@ -108,10 +108,10 @@ pub mod pallet {
             ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
-            let result = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
+            let (status, _segments) = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
-            match result {
+            match status {
                 0 => (),
                 1..=5 => return Err(Error::<T>::FileError.into()),
                 6 | 7 => return Err(Error::<T>::ProofParseError.into()),

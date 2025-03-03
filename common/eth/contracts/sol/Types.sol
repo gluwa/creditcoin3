@@ -24,7 +24,7 @@ struct ResultEvidence {
 
 struct ResultSegment {
     uint256 offset; // potentially not need due to ordering i
-    uint256 value;
+    bytes rlpBytes;
 }
 
 struct QueryDetails {

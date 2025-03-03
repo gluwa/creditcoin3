@@ -218,7 +218,7 @@ The actual proving work is delegated to an Azure data pipeline mediated by a
 prover-be-api server. That server will soon be hosted on Kubernetes for devnet, but for
 now you need to build and launch your own with docker.
 
-To set up the prover-be-api server, clone the code base found [here](https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE). Then follow the steps in its readme.
+To set up the prover-be-api server, clone the code base found [here](https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE). Then follow the steps in its readme [here](https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE?path=/CCNext.StoneProver.BE.API/README.md).
 
 Note the exposed socket address of your prover-be-api server. In place of "http:// localhost:55644" below, use the socket exposed by your target prover-be-api instance. 
 
@@ -230,7 +230,7 @@ In light mode you must also provide a UUID api key for requests sent to the prov
 ./target/release/prover \
 --cc3-key "//Alice" \
 --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
---prover-be-socket-addr "http:// localhost:55644" \
+--prover-be-socket-addr "https://ccnextstoneproverbeapi-ckapandqcjdpghg6.westus2-01.azurewebsites.net" \
 --be-api-key "f40677cb-8aa5-4a8e-bb99-2933b12b473c" \
 --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```

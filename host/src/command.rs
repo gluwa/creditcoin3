@@ -1,5 +1,5 @@
 use core::cmp::Ordering::*;
-use sp_core::H256;
+use sp_core::{H256, U256};
 use std::{
     collections::HashMap,
     env, fs,
@@ -10,7 +10,7 @@ use std::{
 use tempfile::{NamedTempFile, PersistError};
 use thiserror::Error;
 
-use pallet_prover_primitives::Query;
+use pallet_prover_primitives::{Query, LayoutSegment, ResultSegment};
 use prover_primitives::claim::ClaimValidationError;
 use prover_primitives::claim::ClaimValidationError::*;
 use prover_primitives::stark_program_auth::{
@@ -19,6 +19,7 @@ use prover_primitives::stark_program_auth::{
 };
 use prover_primitives::types::{CairoVerifierOutput, StoneProof, StoneProofJson};
 use utils::pedersen_hash::pedersen_array;
+use utils::utils::U248_BYTE_COUNT;
 use utils::{utils::felts_from_bytes, Felt};
 
 /// The RLP encoded empty data (used to mean "null value").
@@ -232,7 +233,7 @@ pub fn run_verifier(
     proof: Vec<u8>,
     query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
-) -> Result<String, VerifierError> {
+) -> Result<(String, Vec<ResultSegment>), VerifierError> {
     log::debug!("current dir: {:?}", env::current_dir()?.as_os_str());
 
     // Write proof to a temporary JSON file
@@ -280,6 +281,9 @@ pub fn run_verifier(
             VerifierError::CairoVerifierOutputConversionError(e)
         })?;
 
+    // Save layout segments for later composition of ResultSegments
+    let layout_segments = query.layout_segments.clone();
+
     match validate_query_against_proof(query, &cairo_verifier_output) {
         Ok(_) => log::debug!("Query validated successfully"),
         Err(e) => return Err(VerifierError::QueryValidationError(e)),
@@ -297,12 +301,23 @@ pub fn run_verifier(
     fs::remove_file(&temp_file_path)?;
 
     if output.status.success() {
+        // Return result segments along with message on success
+        let claim_felts = cairo_verifier_output.claim_fields.clone();
+        let result_segments: Vec<ResultSegment> = get_result_segments(&claim_felts, &layout_segments);
+
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        Ok(stdout)
+        Ok((stdout, result_segments))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         Err(VerifierError::VerifierProcessError(stderr))
     }
+}
+
+pub fn get_result_segments(
+    claim_felts: &Vec<Felt>,
+    layout_segments: &Vec<LayoutSegment>,
+) -> Vec<ResultSegment> {
+    Vec::new()
 }
 
 #[cfg(all(test, target_arch = "x86_64"))]
