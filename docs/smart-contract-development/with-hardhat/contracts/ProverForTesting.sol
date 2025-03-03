@@ -23,6 +23,10 @@ contract ProverForTesting is CreditcoinPublicProver {
         return totalEscrowBalance;
     }
 
+    function allQueryIds() external view returns (QueryId[] memory) {
+        return queryIds;
+    }
+
     function mock_setQueryState(QueryId queryId, QueryState newState) public onlyOwner {
         queries[queryId].state = newState;
     }

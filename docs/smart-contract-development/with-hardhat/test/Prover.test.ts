@@ -308,7 +308,9 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Should only allow owner to submit proofs', async function () {
-            const tx = await prover.submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
 
             const receipt = await tx.wait();
             // @ts-ignore
@@ -325,6 +327,120 @@ describe('CreditcoinPublicProver', function () {
     describe('Proceeds Withdrawal', function () {
         it('Should only allow owner to withdraw proceeds', async function () {
             await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
+        });
+    });
+
+    describe('removeQueryId()', function () {
+        it('Should remove queries from internal storage', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            const oldQueryIds = await prover.allQueryIds();
+            expect(oldQueryIds).to.include.members([queryId]);
+
+            const oldQueryDetails = await prover.queries(queryId);
+            expect(oldQueryDetails.query.chainId).to.equal(sampleQuery.chainId);
+            expect(oldQueryDetails.query.height).to.equal(sampleQuery.height);
+            expect(oldQueryDetails.query.index).to.equal(sampleQuery.index);
+
+            // call
+            await prover.connect(owner).removeQueryId(queryId);
+
+            const newQueryIds = await prover.allQueryIds();
+            expect(newQueryIds).to.not.include.members([queryId]);
+            // eslint-disable-next-line
+            expect(newQueryIds).to.be.empty;
+
+            // not removed, but storage is zeroed out
+            const newQueryDetails = await prover.queries(queryId);
+            expect(newQueryDetails.query.chainId).to.equal(0n);
+            expect(newQueryDetails.query.height).to.equal(0n);
+            expect(newQueryDetails.query.index).to.equal(0n);
+        });
+
+        it('Should remove queries when there are more than 1', async function () {
+            const receiptOne = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryIdOne = receiptOne?.logs[0]?.args?.[0];
+
+            const queryTwo = sampleQuery;
+            queryTwo.index = 444;
+            const receiptTwo = await (
+                await prover.connect(user).submitQuery(queryTwo, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryIdTwo = receiptTwo?.logs[0]?.args?.[0];
+
+            const oldQueryIds = await prover.allQueryIds();
+            expect(oldQueryIds).to.include.members([queryIdOne, queryIdTwo]);
+
+            // remove the 1st query to exercise an if branch inside FUT
+            await prover.connect(owner).removeQueryId(queryIdOne);
+
+            const newQueryIds = await prover.allQueryIds();
+            expect(newQueryIds).to.not.include.members([queryIdOne]);
+            expect(newQueryIds).to.include.members([queryIdTwo]);
+
+            // not removed, but storage is zeroed out
+            const qdOne = await prover.queries(queryIdOne);
+            expect(qdOne.query.chainId).to.equal(0n);
+            expect(qdOne.query.height).to.equal(0n);
+            expect(qdOne.query.index).to.equal(0n);
+
+            // this wasn't affected
+            const qdTwo = await prover.queries(queryIdTwo);
+            expect(qdTwo.query.chainId).to.equal(queryTwo.chainId);
+            expect(qdTwo.query.height).to.equal(queryTwo.height);
+            expect(qdTwo.query.index).to.equal(queryTwo.index);
+        });
+
+        it('Should NOT remove when ID does not match', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            const oldQueryIds = await prover.allQueryIds();
+            expect(oldQueryIds).to.include.members([queryId]);
+
+            const oldQueryDetails = await prover.queries(queryId);
+            expect(oldQueryDetails.query.chainId).to.equal(sampleQuery.chainId);
+            expect(oldQueryDetails.query.height).to.equal(sampleQuery.height);
+            expect(oldQueryDetails.query.index).to.equal(sampleQuery.index);
+
+            // call with an id which doesn't match
+            // there should be no error and query should not be removed
+            await prover
+                .connect(owner)
+                .removeQueryId('0x9999999999999999999999999999999999999999999999999999999999999999');
+
+            const newQueryIds = await prover.allQueryIds();
+            expect(newQueryIds).to.include.members([queryId]);
+
+            // nothing has changed
+            const newQueryDetails = await prover.queries(queryId);
+            expect(newQueryDetails.query.chainId).to.equal(sampleQuery.chainId);
+            expect(newQueryDetails.query.height).to.equal(sampleQuery.height);
+            expect(newQueryDetails.query.index).to.equal(sampleQuery.index);
+        });
+
+        it('Does not allow calls from non-owner', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            await expect(prover.connect(user).removeQueryId(queryId)).to.be.revertedWith('Caller is not the owner');
         });
     });
 });
