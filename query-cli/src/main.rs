@@ -76,7 +76,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let tx_rx = &block.items()[tx_index];
     let data = tx_rx.payload_bytes();
-    println!("RLP bytes: {:?}", data);
 
     let layout_segments = if !prompt.offset_end_ranges.is_empty() {
         prompt

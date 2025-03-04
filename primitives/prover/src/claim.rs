@@ -267,43 +267,46 @@ fn deserialize_and_compact_ranges<'de, D: serde::Deserializer<'de>>(
 //impl JsonSerializable for Vec<ClaimSerializable> {}
 
 fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
-    let mut compact_ranges = compact_contiguous_ranges(ranges);
-    compact_ranges.sort_by(|a, b| a.start.cmp(&b.start));
+    // Sort segments in order of least to greatest offset
+    let mut sanitized = ranges;
+    sanitized.sort_by(|range_a, range_b| {
+        range_a.start.cmp(&range_b.start)
+    });
 
-    compact_ranges
+    // Condense segments pair by pair starting from end. We start with i = sanitized.len() - 2 
+    // because the last pair of segment indices is (len - 2, len - 1)
+    let mut i = sanitized.len() - 2;
+    loop {
+        let left_range = &sanitized[i];
+        let right_range = &sanitized[i + 1];
+
+        // Immediately adjacent counts as overlapping for our purposes. That with half open intervals gives us.
+        let overlapping = left_range.end >= right_range.start;
+        if overlapping {
+            let range_start = left_range.start.min(right_range.start);
+            let range_end = left_range.end.max(right_range.end);
+            let new_range = Range { start: range_start, end: range_end};
+            // Replace two combined segments with new segment
+            sanitized.remove(i + 1);
+            sanitized[i] = new_range;
+        } 
+        // Proceed to next pair or break if this was the last pair
+        if i == 0 { break; }
+        i -= 1;
+    }
+
+    sanitized
 }
-// TODO: check worst case complexity
-// TODO: could an intentionally malformed query be an attack vector to degrade claimer performance?
-fn compact_contiguous_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
-    let mut compact_ranges = Vec::<Range<usize>>::with_capacity(ranges.len());
-    let mut needs_further_compaction = false;
 
-    for r in ranges.into_iter() {
-        match compact_ranges
-            .iter()
-            .enumerate()
-            .find_map(|(i, cr)| range_union(&r, cr).map(|r1| (i, r1)))
-        {
-            Some((i, r1)) => {
-                needs_further_compaction = true;
-                compact_ranges[i] = r1;
-            }
-            None => compact_ranges.push(r),
-        }
-    }
-    if needs_further_compaction {
-        compact_contiguous_ranges(compact_ranges)
-    } else {
-        compact_ranges
-    }
-}
+#[test]
+fn compact_ranges_works() {
+    let test = vec![
+        Range { start: 5, end: 7},
+        Range { start: 2, end: 4},
+        Range { start: 3, end: 5},
+    ];
 
-fn range_union(r1: &Range<usize>, r2: &Range<usize>) -> Option<Range<usize>> {
-    if r1.start <= r2.start && r1.end >= r2.start {
-        Some(r1.start..max(r1.end, r2.end))
-    } else if r2.start <= r1.start && r2.end >= r1.start {
-        Some(r2.start..max(r1.end, r2.end))
-    } else {
-        None
-    }
+    let sanitized = compact_and_sort_ranges(test);
+
+    assert_eq!(sanitized, vec![Range { start: 2, end: 7 }]);
 }
