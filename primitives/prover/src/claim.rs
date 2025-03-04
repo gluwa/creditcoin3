@@ -1,6 +1,5 @@
 use crate::claim_query::{ClaimQuery, ClaimQueryFieldError};
 use crate::types::StoneProofPublicInput;
-use core::cmp::max;
 use core::ops::Range;
 use rlp::Rlp;
 use scale_info::prelude::format;
@@ -13,6 +12,7 @@ use utils::{
     utils::{felts_from_bytes, felts_to_bytes, U248_BYTE_COUNT},
     Felt,
 };
+use std::cmp::Ordering;
 
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ClaimValidationError {
@@ -76,15 +76,14 @@ impl<Q: ClaimQuery> Claim<Q> {
         &self,
         proof_public_input: &StoneProofPublicInput,
     ) -> Result<(), ClaimValidationError> {
-        use core::cmp::Ordering::*;
         use ClaimValidationError::*;
 
         // validate claim id returned by prover
         match self.id.index().cmp(&proof_public_input.claim_index) {
             // check out-of-bounds case
-            Greater => Err(QueryOutOfBounds(proof_public_input.claim_index)),
+            Ordering::Greater => Err(QueryOutOfBounds(proof_public_input.claim_index)),
 
-            Equal => {
+            Ordering::Equal => {
                 // check if the claim falls on the first NULL leaf (out of bounds edge case)
                 if felts_from_bytes(&rlp::NULL_RLP[..]) == proof_public_input.claim_fields {
                     Err(QueryOutOfBounds(proof_public_input.claim_index))
@@ -119,7 +118,7 @@ impl<Q: ClaimQuery> Claim<Q> {
                 }
             }
             // claim id not validated, not out-of-bounds case
-            Less => Err(QueryIdNotValidated(
+            Ordering::Less => Err(QueryIdNotValidated(
                 self.id.index(),
                 proof_public_input.claim_index,
             )),

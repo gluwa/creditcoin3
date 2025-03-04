@@ -108,7 +108,7 @@ pub mod pallet {
             ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
-            let (status, _segments) = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
+            let (status, result_segments) = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
             match status {

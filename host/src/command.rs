@@ -1,6 +1,6 @@
-use core::cmp::Ordering::*;
-use sp_core::{H256, U256};
+use sp_core::H256;
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     env, fs,
     io::Write,
@@ -10,7 +10,7 @@ use std::{
 use tempfile::{NamedTempFile, PersistError};
 use thiserror::Error;
 
-use pallet_prover_primitives::{Query, LayoutSegment, ResultSegment};
+use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use prover_primitives::claim::ClaimValidationError;
 use prover_primitives::claim::ClaimValidationError::*;
 use prover_primitives::stark_program_auth::{
@@ -165,9 +165,9 @@ pub fn validate_query_against_proof(
     cairo_verifier_output: &CairoVerifierOutput,
 ) -> Result<(), ClaimValidationError> {
     match query.index.cmp(&cairo_verifier_output.claim_index) {
-        Greater => Err(QueryOutOfBounds(cairo_verifier_output.claim_index)),
+        Ordering::Greater => Err(QueryOutOfBounds(cairo_verifier_output.claim_index)),
 
-        Equal => {
+        Ordering::Equal => {
             if felts_from_bytes(&NULL_RLP[..]) == cairo_verifier_output.claim_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
@@ -194,7 +194,7 @@ pub fn validate_query_against_proof(
             }
         }
 
-        Less => Err(QueryIdNotValidated(
+        Ordering::Less => Err(QueryIdNotValidated(
             query.index,
             cairo_verifier_output.claim_index,
         )),
@@ -303,7 +303,8 @@ pub fn run_verifier(
     if output.status.success() {
         // Return result segments along with message on success
         let claim_felts = cairo_verifier_output.claim_fields.clone();
-        let result_segments: Vec<ResultSegment> = get_result_segments(&claim_felts, &layout_segments);
+        let result_segments: Vec<ResultSegment> =
+            get_result_segments(&claim_felts, &layout_segments);
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok((stdout, result_segments))
@@ -317,7 +318,156 @@ pub fn get_result_segments(
     claim_felts: &Vec<Felt>,
     layout_segments: &Vec<LayoutSegment>,
 ) -> Vec<ResultSegment> {
-    Vec::new()
+    // 1. Sanitize incoming layout segments
+    let sanitized = sanitize(&layout_segments);
+
+    // 2. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
+    let felt_segments = convert_ranges_to_felt_ranges(&sanitized);
+
+    // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
+    let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &felt_segments);
+
+    // 4. Convert felt-aligned extracted data back into the sanitized byte-based segments
+    let sanitized_result =
+        extract_bytes_from_felt_array_using_original_ranges(&result_felts, &sanitized);
+
+    // 5. Convert sanitized segments into result segments with original layout
+    extract_original_byte_ranges_from_sanitized(sanitized_result, &layout_segments)
+}
+
+fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    // Sort segments in order of least to greatest offset
+    let mut sanitized = segments.to_vec();
+    sanitized.sort_by(|seg_a, seg_b| seg_a.offset.cmp(&seg_b.offset));
+
+    // Condense segments pair by pair starting from end. We start with i = sanitized.len() - 2
+    // because the last pair of segment indices is (len - 2, len - 1)
+    let mut i = sanitized.len() - 2;
+    loop {
+        let left_segment = &sanitized[i];
+        let right_segment = &sanitized[i + 1];
+
+        // Immediately adjacent counts as overlapping for our purposes. Therefore `right_segment.offset - 1`
+        let overlapping = (left_segment.offset + left_segment.size) >= right_segment.offset - 1;
+        if overlapping {
+            let first_byte_index = left_segment.offset.min(right_segment.offset);
+            let last_byte_index = (left_segment.offset + left_segment.size)
+                .max(right_segment.offset + right_segment.size)
+                - 1;
+            let new_segment = LayoutSegment {
+                offset: first_byte_index,
+                size: last_byte_index - first_byte_index + 1,
+            };
+            // Replace two combined segments with new segment
+            sanitized.remove(i + 1);
+            sanitized[i] = new_segment;
+        }
+        // Proceed to next pair or break if this was the last pair
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    sanitized
+}
+
+fn convert_ranges_to_felt_ranges(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    let mut felt_ranges = Vec::with_capacity(segments.len());
+    for seg in segments {
+        // Inclusive last byte index of the segment
+        let last_byte_index = seg.offset + seg.size - 1;
+        // Felt index at start and end of the segment
+        let felt_offset = seg.offset / U248_BYTE_COUNT as u64;
+        let felt_end = last_byte_index / U248_BYTE_COUNT as u64;
+        // Number of 31-byte felts needed to cover this segment
+        let felt_count = felt_end - felt_offset + 1;
+        felt_ranges.push(LayoutSegment {
+            offset: felt_offset,
+            size: felt_count,
+        });
+    }
+    return felt_ranges;
+}
+
+fn extract_felt_ranges_from_felt_array(
+    felt_array: &[Felt],
+    felt_ranges: &[LayoutSegment],
+) -> Vec<Vec<Felt>> {
+    let mut extracted_felt_segments = Vec::with_capacity(felt_ranges.len());
+
+    for range in felt_ranges {
+        let start_index = range.offset as usize;
+        let count = range.size as usize;
+        let end_index = start_index + count;
+
+        // Collect the felt chunks covering this range
+        let segment_felts = felt_array[start_index..end_index].to_vec();
+        extracted_felt_segments.push(segment_felts);
+    }
+
+    extracted_felt_segments
+}
+
+fn extract_bytes_from_felt_array_using_original_ranges(
+    felt_segments: &[Vec<Felt>],
+    original_segments: &[LayoutSegment],
+) -> Vec<ResultSegment> {
+    original_segments
+        .iter()
+        .enumerate()
+        .map(|(i, orig)| {
+            let mut combined_bytes = Vec::with_capacity(felt_segments[i].len() * U248_BYTE_COUNT);
+            for felt in &felt_segments[i] {
+                let felt_bytes = felt.to_bytes_be(); // Get 32 bytes
+                combined_bytes.extend_from_slice(&felt_bytes[1..]); // Skip first byte (padding)
+            }
+
+            let start = orig.offset as usize % U248_BYTE_COUNT;
+            let end = start + orig.size as usize;
+            ResultSegment {
+                offset: orig.offset,
+                bytes: combined_bytes[start..end].to_vec(),
+            }
+        })
+        .collect()
+}
+
+fn extract_original_byte_ranges_from_sanitized(
+    sanitized_results: Vec<ResultSegment>,
+    original_segments: &[LayoutSegment],
+) -> Vec<ResultSegment> {
+    let mut result: Vec<ResultSegment> = Vec::with_capacity(original_segments.len());
+    for orig in original_segments {
+        let mut collected_bytes: Vec<u8> = Vec::with_capacity(orig.size as usize);
+        let mut collected_up_to: usize = orig.offset as usize;
+        for sanitized in &sanitized_results {
+            let last_sanitized_byte_idx = sanitized.offset as usize + sanitized.bytes.len() - 1;
+            // If part of original segment range is contained in sanitized segment, then copy bytes over
+            if sanitized.offset as usize <= collected_up_to
+                && last_sanitized_byte_idx >= collected_up_to
+            {
+                let last_orig_seg_idx = (orig.offset + orig.size - 1) as usize;
+                let last_copy_idx = last_orig_seg_idx.min(last_sanitized_byte_idx);
+                let sanitized_start_idx = collected_up_to - sanitized.offset as usize;
+                let sanitized_end_idx = last_copy_idx - sanitized.offset as usize;
+
+                for byte in &sanitized.bytes[sanitized_start_idx..=sanitized_end_idx] {
+                    collected_bytes.insert(collected_up_to - orig.offset as usize, *byte);
+                    collected_up_to += 1;
+                }
+                // All bytes collected
+                if collected_up_to >= last_orig_seg_idx + 1 {
+                    break;
+                }
+            }
+        }
+        // When last byte of original segment is found, then add ResultSegment to result and move on
+        result.push(ResultSegment {
+            offset: orig.offset,
+            bytes: collected_bytes,
+        });
+    }
+    result
 }
 
 #[cfg(all(test, target_arch = "x86_64"))]
