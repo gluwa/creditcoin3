@@ -30,6 +30,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 # shellcheck source=/dev/null
 RUN source ~/.cargo/env && \
+    rustup toolchain install && \
     cargo build --release ${BUILD_ARGS}
 
 
