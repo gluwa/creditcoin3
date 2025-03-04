@@ -252,7 +252,7 @@ where
                                 let round = (chain_key, header_number);
                                 debug!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
 
-
+                                metric_inc!(self.metrics, attestor_good_votes_processed);
                                 // Also process the message
                                 match self.process_attestation_message(attestation).await {
                                     Ok(()) => {
