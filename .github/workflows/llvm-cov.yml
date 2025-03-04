@@ -33,13 +33,11 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          components: llvm-tools-preview
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          components: llvm-tools-preview, rust-src
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
