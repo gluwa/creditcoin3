@@ -124,12 +124,11 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          targets: wasm32-unknown-unknown
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
 
       - name: Build SUT
@@ -404,11 +403,9 @@ jobs:
           sudo apt install -y gcc
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          profile: minimal
-          override: true
 
       - name: Install Subwasm
         uses: gluwa/cargo@dev
@@ -534,11 +531,9 @@ jobs:
           sudo apt install -y gcc
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          profile: minimal
-          override: true
 
       - name: Install Subwasm
         uses: gluwa/cargo@dev

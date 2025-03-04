@@ -62,11 +62,9 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          profile: minimal
-          override: true
 
       - name: Install Subwasm
         uses: gluwa/cargo@dev
@@ -93,11 +91,9 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          profile: minimal
-          override: true
 
       - name: Install Subwasm
         uses: gluwa/cargo@dev
