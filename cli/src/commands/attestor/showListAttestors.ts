@@ -6,7 +6,7 @@ import { proxyForOption } from '../options';
 import { substrateAddressOption } from '../options';
 
 export function makeShowAttestorStatusCommand() {
-    const cmd = new Command('show-attestor-status');
+    const cmd = new Command('show-list-attestors');
     cmd.description('Show attestor status for a given address and chain key');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.option(
