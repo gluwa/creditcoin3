@@ -18,7 +18,7 @@ pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
-        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+        VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
     };
     use sp_core::H256;
     use sp_std::prelude::*;
@@ -32,7 +32,7 @@ pub mod pallet {
     }
 
     pub trait WeightInfo {
-        fn submit_proof() -> Weight;
+        fn post_query_result() -> Weight;
         fn set_stark_program_metadata() -> Weight;
         fn remove_stark_program_metadata() -> Weight;
     }
@@ -79,68 +79,29 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        InvalidProofSubmitted,
-        StarkProgramMetadataNotSet,
         StarkProgramMetadataAlreadySet,
         StarkProgramMetadataNotFound,
-        FileError,
-        ProofParseError,
-        StarkProgramAuthenticationError,
-        VerifierExecutionError,
-        VerifierProcessError,
-        QueryIdNotValidated,
-        QueryOutOfBounds,
-        QueryOffsetMismatch,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as Config>::WeightInfo::submit_proof())]
-        pub fn submit_proof(origin: OriginFor<T>, proof: Vec<u8>, query: Query) -> DispatchResult {
+        #[pallet::weight(<T as Config>::WeightInfo::post_query_result())]
+        pub fn post_query_result(
+            origin: OriginFor<T>,
+            query_id: H256,
+            verifier_exit_status: VerifierExitStatus,
+        ) -> DispatchResult {
             let prover = ensure_signed(origin)?;
-
-            // Pre eliminary check
-            ensure!(!proof.is_empty(), Error::<T>::InvalidProofSubmitted);
-
-            let metadata = StarkProgramMetadata::<T>::iter().collect::<Vec<_>>();
-
-            ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
-
-            #[cfg(not(feature = "runtime-benchmarks"))]
-            let (status, result_segments) = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
-
-            #[cfg(not(feature = "runtime-benchmarks"))]
-            match status {
-                0 => (),
-                1..=5 => return Err(Error::<T>::FileError.into()),
-                6 | 7 => return Err(Error::<T>::ProofParseError.into()),
-                8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
-                9 => return Err(Error::<T>::VerifierExecutionError.into()),
-                10 => return Err(Error::<T>::VerifierProcessError.into()),
-                11 => return Err(Error::<T>::QueryIdNotValidated.into()),
-                12 => return Err(Error::<T>::QueryOutOfBounds.into()),
-                13 => return Err(Error::<T>::QueryOffsetMismatch.into()),
-                _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
-            }
-
-            #[cfg(feature = "runtime-benchmarks")]
-            let result =
-                proof_verifier::host_benchmark_api::verify_proof(proof, query.clone(), metadata);
-
-            #[cfg(feature = "runtime-benchmarks")]
-            ensure!(result, Error::<T>::InvalidProofSubmitted);
-
-            let query_id = query.id();
 
             // Deposit event
             Self::deposit_event(Event::<T>::QueryVerified(
                 query_id,
                 prover,
-                VerifierExitStatus::Success,
+                verifier_exit_status.clone(),
             ));
 
-            QueryResultById::<T>::insert(query_id, VerifierExitStatus::Success);
+            QueryResultById::<T>::insert(query_id, verifier_exit_status);
 
             Ok(())
         }

@@ -8496,6 +8496,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "precompile-utils",
+ "proof-verifier",
  "scale-info",
  "serde",
  "sha3",

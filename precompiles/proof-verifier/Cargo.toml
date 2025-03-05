@@ -24,6 +24,7 @@ pallet-prover-primitives = { workspace = true, default-features = false }
 
 # Prover
 pallet-prover = { workspace = true, default-features = false }
+proof-verifier = { workspace = true, default-features = false }
 
 # Substrate
 frame-support = { workspace = true }
