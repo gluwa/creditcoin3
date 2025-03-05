@@ -443,4 +443,55 @@ describe('CreditcoinPublicProver', function () {
             await expect(prover.connect(user).removeQueryId(queryId)).to.be.revertedWith('Caller is not the owner');
         });
     });
+
+    describe('getUnprocessedQueries()', function () {
+        it('starts with zero queries', async function () {
+            const unprocessed = await prover.connect(user).getUnprocessedQueries();
+            // eslint-disable-next-line
+            expect(unprocessed).to.be.empty;
+        });
+
+        it('submitted query is immediately reported as unprocessed', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+            const queryDetails = await prover.queries(queryId);
+
+            const unprocessed = await prover.connect(user).getUnprocessedQueries();
+            expect(unprocessed.length).to.equal(1);
+            expect(unprocessed[0].chainId).to.equal(queryDetails.query.chainId);
+            expect(unprocessed[0].height).to.equal(queryDetails.query.height);
+            expect(unprocessed[0].index).to.equal(queryDetails.query.index);
+        });
+
+        it('processed queries are not returned', async function () {
+            const receiptOne = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryIdOne = receiptOne?.logs[0]?.args?.[0];
+
+            const queryTwo = sampleQuery;
+            queryTwo.height = 4n;
+            queryTwo.index = 444;
+            const receiptTwo = await (
+                await prover.connect(user).submitQuery(queryTwo, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryIdTwo = receiptTwo?.logs[0]?.args?.[0];
+            const qdTwo = await prover.queries(queryIdTwo);
+
+            // QueryState.TimedOut
+            await prover.connect(owner).mock_setQueryState(queryIdOne, 3);
+
+            const unprocessed = await prover.connect(user).getUnprocessedQueries();
+            expect(unprocessed.length).to.equal(1);
+            expect(unprocessed[0].chainId).to.equal(qdTwo.query.chainId);
+            expect(unprocessed[0].height).to.equal(qdTwo.query.height);
+            expect(unprocessed[0].index).to.equal(qdTwo.query.index);
+        });
+    });
 });
