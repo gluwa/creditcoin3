@@ -8,6 +8,10 @@ export function setPayeeCommand() {
     const cmd = new Command('set-payee-attestor');
     cmd.description('Set payee address for attestor, which will receive rewards on claim rewards');
     cmd.addOption(proxyForOption);
+    cmd.option(
+        '-p, --payee [payee]',
+        'Specify payee address to set',
+    );
     cmd.action(setPayeeAction);
     return cmd;
 }
