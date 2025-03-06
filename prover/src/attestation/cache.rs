@@ -300,7 +300,7 @@ pub async fn sync_cache(
 
                 // check if exists in cache
                 if attestations_cache
-                    .attestation_digest_exists(attestation.digest())
+                    .attestation_digest_exists(H256::from_slice(&attestation.digest()))
                     .await?
                 {
                     warn!("Attestation already exists in cache, skipping");
@@ -434,13 +434,13 @@ async fn cache_historical_attestations(
     for attestation in attestations {
         // Check if the attestation already exists in the cache
         let exists_in_cache = attestations_cache
-            .attestation_digest_exists(attestation.attestation.digest())
+            .attestation_digest_exists(H256::from_slice(&attestation.attestation.digest()))
             .await?;
 
         if !exists_in_cache {
             // Insert the attestation into the cache
             info!(
-                "Inserting attestation with digest({}) for chain key: {}, blocknumber: {} into cache",
+                "Inserting attestation with digest({:?}) for chain key: {}, blocknumber: {} into cache",
                 attestation.attestation.digest(),
                 attestation.chain_key(),
                 attestation.header_number(),
@@ -450,6 +450,29 @@ async fn cache_historical_attestations(
     }
 
     Ok(())
+}
+
+#[test]
+fn hex_encode() {
+    // let a = "03034c684b2a940109d954581894020fb092817c6072f4b5206b76491579b6ed";
+    // let b = "016d0c335721514e1bca09ef26af0f04473e44568cd2542b0a4c34cca1b46da7";
+    //
+    // println!("a: {:?}", a.as_bytes());
+    // println!("b: {:?}", b.as_bytes());
+    //
+    // let a = hex::decode(a).unwrap();
+    // let b = hex::decode(b).unwrap();
+    //
+    // println!("a: {:?}", a);
+    // println!("b: {:?}", b);
+
+    println!(
+        "a: {:?}",
+        hex::encode([
+            3, 114, 212, 108, 225, 215, 208, 80, 200, 46, 141, 49, 255, 160, 173, 220, 147, 96,
+            198, 65, 160, 160, 186, 12, 250, 219, 165, 227, 101, 241, 207, 200
+        ])
+    );
 }
 
 async fn cache_historical_checkpoints(

@@ -137,8 +137,10 @@ pub mod pallet {
                     Error::<T>::QueryCheckpointMismatch
                 );
 
-                let checkpoint =
-                    T::Attestations::get_attestation(query.chain_id, checkpoint_digest.unwrap());
+                let checkpoint = T::Attestations::get_attestation(
+                    query.chain_id,
+                    checkpoint_digest.unwrap().into(),
+                );
 
                 ensure!(checkpoint.is_some(), Error::<T>::QueryCheckpointMismatch);
 

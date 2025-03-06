@@ -1,5 +1,5 @@
 use anyhow::Result;
-use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
+use attestor_primitives::{api::AttestorApi, Digest, PalletDigest, SignedAttestation};
 use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
 use log::{error, info};
 use parity_scale_codec::{Codec, Encode};

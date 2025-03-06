@@ -140,7 +140,7 @@ where
     BE: Backend<B>,
     C: Client<B, BE> + BlockBackend<B>,
     H256: From<<B as BlockT>::Hash>,
-    <B as BlockT>::Hash: From<H256>,
+    <B as BlockT>::Hash: From<H256> + From<[u8; 32]>,
     <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
     S: SyncOracle,
     AccountId: Clone

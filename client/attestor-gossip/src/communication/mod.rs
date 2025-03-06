@@ -6,7 +6,7 @@ use thiserror::Error;
 use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use attestor_primitives::bls::{Bls, CryptoScheme};
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest, Round,
+    Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest, Round, PalletDigest,
 };
 
 pub mod gossip;
@@ -27,7 +27,7 @@ where
     H: AsRef<[u8]>,
     AccountId: Into<[u8; 32]> + Clone,
 {
-    pub fn digest(&self) -> Digest {
+    pub fn digest(&self) -> PalletDigest {
         self.attestation_data.digest()
     }
 

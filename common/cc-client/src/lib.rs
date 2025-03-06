@@ -30,7 +30,7 @@ use cc3::runtime_types::attestor_primitives::{
 
 use attestor_primitives::{
     Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainKey, Digest,
-    SignedAttestation,
+    PalletDigest, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation as RpcAttestation;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
@@ -194,7 +194,10 @@ impl<'a> Client {
         Ok(result)
     }
 
-    pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>, Error> {
+    pub async fn fetch_last_digest(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<PalletDigest>, Error> {
         let storage_query = cc3::storage().attestation().last_digest(chain_key);
 
         let result = self

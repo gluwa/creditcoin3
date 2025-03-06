@@ -53,7 +53,7 @@ use pallet_grandpa::{
 use pallet_transaction_payment::ConstFeeMultiplier;
 // Frontier
 use attestor_primitives::{
-    AttestorStatus, BlsPublicKey, ChainId, ChainKey, Digest, SignedAttestation,
+    AttestorStatus, BlsPublicKey, ChainId, ChainKey, Digest, PalletDigest, SignedAttestation,
 };
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
@@ -1497,15 +1497,15 @@ impl_runtime_apis! {
             Attestation::working_set_size(chain_key)
         }
 
-        fn last_digest(chain_key: ChainKey) -> Option<Digest> {
+        fn last_digest(chain_key: ChainKey) -> Option<PalletDigest> {
             Attestation::last_digest(chain_key)
         }
 
-        fn get(chain_key: ChainKey, digest: Digest) -> Option<SignedAttestation<Hash, AccountId>> {
+        fn get(chain_key: ChainKey, digest: PalletDigest) -> Option<SignedAttestation<Hash, AccountId>> {
             Attestation::get(chain_key, digest)
         }
 
-        fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
+        fn contains_digest(chain_key: ChainKey, digest: PalletDigest) -> bool {
             Attestation::contains_digest(chain_key, digest)
         }
 

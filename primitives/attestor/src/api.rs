@@ -1,7 +1,7 @@
 use parity_scale_codec::{Codec, Decode};
 use sp_std::vec::Vec;
 
-use crate::{AttestorStatus, ChainKey, Digest, SignedAttestation};
+use crate::{AttestorStatus, ChainKey, Digest, PalletDigest, SignedAttestation};
 
 use super::BlsPublicKey;
 
@@ -17,11 +17,11 @@ sp_api::decl_runtime_apis! {
 
         fn working_set_size(chain_key: ChainKey) -> u32;
 
-        fn last_digest(chain_key: ChainKey) -> Option<Digest>;
+        fn last_digest(chain_key: ChainKey) -> Option<PalletDigest>;
 
-        fn get(chain_key: ChainKey, digest: Digest) -> Option<SignedAttestation<H, AccountId>>;
+        fn get(chain_key: ChainKey, digest: PalletDigest) -> Option<SignedAttestation<H, AccountId>>;
 
-        fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool;
+        fn contains_digest(chain_key: ChainKey, digest: PalletDigest) -> bool;
 
         fn attestor_bls_pubkey(chain_key: ChainKey, attestor: &AccountId) -> Option<BlsPublicKey>;
 

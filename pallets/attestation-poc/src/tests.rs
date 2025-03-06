@@ -15,8 +15,8 @@ use sp_runtime::traits::BadOrigin;
 #[derive(Debug, Clone)]
 pub struct Attestor {
     pub stash: RuntimeOrigin,
-    pub stash_id: mock::AccountId,
-    pub attestor_id: mock::AccountId,
+    pub stash_id: AccountId,
+    pub attestor_id: AccountId,
     private_key: PrivateKey,
     pub public_key: BlsPublicKey,
     pub signature: BlsSignature,

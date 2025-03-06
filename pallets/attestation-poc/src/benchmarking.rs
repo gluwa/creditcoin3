@@ -365,7 +365,7 @@ mod benchmarks {
             attestors,
             DEV_CHAIN_KEY,
             11_u64,
-            Some(prior_attestation.digest()),
+            Some(H256(prior_attestation.digest())),
         );
 
         #[extrinsic_call]
