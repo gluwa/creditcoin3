@@ -300,6 +300,7 @@ where
             warn!(target: LOG_TARGET, "📝 Node is syncing, skipping message");
             return Err(Error::WorkerInSync);
         }
+        metric_set!(self.metrics, attestor_best_block, attestation.header_number());
 
         let block_hash = self.backend.blockchain().info().best_hash;
 
@@ -340,9 +341,7 @@ where
                 metric_inc!(self.metrics, attestor_equivocation_votes);
             }
             VoteImportResult::Ok => {
-                let block_number = self.backend.blockchain().info().best_number;
-                let block_number: u64 = block_number.into();
-                metric_set!(self.metrics, attestor_best_voted, block_number);
+                metric_set!(self.metrics, attestor_best_voted, attestation.header_number());
                 info!(target: LOG_TARGET, "📝 Attestation added to round");
             }
             VoteImportResult::RoundConcluded => {
@@ -573,7 +572,6 @@ where
                 .ok_or(Error::Overflow)?,
             active_attestors,
         );
-        metric_set!(self.metrics, attestor_best_block, current_block);
         Ok(())
     }
 }
