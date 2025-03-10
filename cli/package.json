@@ -50,7 +50,6 @@
     "dependencies": {
         "@polkadot/api": "^10.13.1",
         "@polkadot/types-augment": "^10.13.1",
-        "bls-signatures-bindings": "^0.2.0",
         "cli-table3": "^0.6.3",
         "commander": "^12.1.0",
         "ethers": "^6.13.0",
