@@ -1820,12 +1820,12 @@ jobs:
           message: "Auto-update metadata & TypeScript type definitions"
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload code coverage
-        uses: codecov/codecov-action@v5
+      - name: Upload coverage report as artifact
+        if: ${{ matrix.proxy == 'yes' && matrix.proxy_type == 'All' }}
+        uses: actions/upload-artifact@v4
         with:
-          files: cli/coverage/lcov.info
-          fail_ci_if_error: false
-          verbose: true
+          name: integration-test-cli-coverage-report
+          path: cli/src/test/coverage/
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
