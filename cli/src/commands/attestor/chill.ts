@@ -8,6 +8,10 @@ export function makeChillAttestorCommand() {
     const cmd = new Command('chill-attestor');
     cmd.description('Chill attestor');
     cmd.addOption(proxyForOption);
+    cmd.option(
+        '-c, --chain [chain]',
+        'chain key to chill',
+    );
     cmd.action(chillAction);
     return cmd;
 }
@@ -15,7 +19,7 @@ export function makeChillAttestorCommand() {
 async function chillAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const chainKey = options.chainKey as string;
+    const chainKey = options.chain as string;
 
     const keyring = await initKeyring(options);
 
