@@ -3,11 +3,11 @@ use crate::ledger::AttestorLedger;
 use crate::mock::*;
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainKey,
-    SignedAttestation,
+    InherentError, SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
-use frame_support::{assert_noop, assert_ok};
+use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
@@ -1663,7 +1663,7 @@ fn commit_attestation_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
         // The first attestation for a chain immediately creates a corresponding checkpoint
@@ -1687,7 +1687,7 @@ fn commit_attestation_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
         assert_eq!(
@@ -1704,7 +1704,10 @@ fn commit_attestation_should_error_when_signed() {
         let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
 
         assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::signed(ATTESTOR_1), attestation),
+            Attestation::commit_attestation(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                vec![attestation].try_into().unwrap()
+            ),
             BadOrigin
         );
     })
@@ -1717,7 +1720,10 @@ fn commit_attestation_should_error_when_signed_by_root() {
         let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
 
         assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::root(), attestation),
+            Attestation::commit_attestation(
+                RuntimeOrigin::root(),
+                vec![attestation].try_into().unwrap()
+            ),
             BadOrigin
         );
     })
@@ -1731,10 +1737,8 @@ fn commit_attestation_should_error_when_chain_is_not_supported() {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], chain_key, 1, None);
 
-        assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::ChainNotSupported
-        );
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, InherentError::NotValid);
     })
 }
 
@@ -1762,26 +1766,23 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
-        // Should fail validation check because the first attestation became a checkpoint and was removed from the attestations
-        assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::InvalidAttestation
-        );
+        // Should error when trying to submit the same attestation again
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, InherentError::Duplicate(attestation.digest()));
 
         let attestation = create_signed_attestation(vec![attestor], 1, 10, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
-        assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::AttestationExists
-        );
+        // Should error when trying to submit the same attestation again
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, InherentError::Duplicate(attestation.digest()));
     })
 }
 
@@ -1792,10 +1793,8 @@ fn commit_attestation_should_error_when_it_cannot_validate_the_attestation() {
         let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
 
         // note: not calling register_attestor() will cause the validation to fail
-        assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::InvalidAttestation
-        );
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, InherentError::AttestorNotActive);
     })
 }
 
@@ -1828,7 +1827,7 @@ fn submitting_attestation_chain_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation_1.clone()
+            vec![attestation_1.clone()].try_into().unwrap()
         ));
 
         let digest = attestation_1.digest();
@@ -1838,7 +1837,7 @@ fn submitting_attestation_chain_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation_2.clone()
+            vec![attestation_2.clone()].try_into().unwrap()
         ));
 
         // Only second attestation should have been added to a queue
@@ -1915,7 +1914,7 @@ fn creating_checkpoint_works() {
 
             assert_ok!(Attestation::commit_attestation(
                 RuntimeOrigin::none(),
-                attestation.clone()
+                vec![attestation.clone()].try_into().unwrap()
             ));
 
             match i {
@@ -2016,7 +2015,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
 
             assert_ok!(Attestation::commit_attestation(
                 RuntimeOrigin::none(),
-                attestation.clone()
+                vec![attestation.clone()].try_into().unwrap()
             ));
         }
 
@@ -2048,7 +2047,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
 
                 assert_ok!(Attestation::commit_attestation(
                     RuntimeOrigin::none(),
-                    attestation.clone()
+                    vec![attestation.clone()].try_into().unwrap()
                 ));
 
                 // The final attestation should have been successfully added to
@@ -2070,7 +2069,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
                 // No checkpointing this pass
                 assert_ok!(Attestation::commit_attestation(
                     RuntimeOrigin::none(),
-                    attestation.clone()
+                    vec![attestation.clone()].try_into().unwrap()
                 ));
             }
         }
@@ -2320,10 +2319,8 @@ fn chilled_attestor_cannot_commit_attestation() {
 
         let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
 
-        assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::InvalidAttestation
-        );
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, InherentError::AttestorNotActive);
     });
 }
 
@@ -2362,8 +2359,11 @@ fn unregistered_attestor_cannot_commit_attestation() {
         let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
 
         assert_noop!(
-            Attestation::commit_attestation(RuntimeOrigin::none(), attestation),
-            Error::<Test>::InvalidAttestation
+            Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                vec![attestation].try_into().unwrap()
+            ),
+            Error::<Test>::AddressNotAttestor
         );
     });
 }
@@ -2393,7 +2393,7 @@ fn accumulating_rewards_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
         // Get reward for chain 1
@@ -2420,7 +2420,7 @@ fn accumulating_rewards_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation
+            vec![attestation].try_into().unwrap()
         ));
 
         let rewards = AccumulatedRewards::<Test>::get(attestor.stash_id);
@@ -2483,7 +2483,7 @@ fn accumulating_rewards_with_multiple_attestors_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
         // Get reward for chain 1
@@ -2504,7 +2504,7 @@ fn accumulating_rewards_with_multiple_attestors_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation
+            vec![attestation].try_into().unwrap()
         ));
 
         let rewards = AccumulatedRewards::<Test>::get(attestor.stash_id);
@@ -2779,7 +2779,7 @@ fn claim_rewards_should_update_balance_and_emit_event() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
         // reward for chain 1 configured in mock.rs
@@ -2870,7 +2870,7 @@ fn accumulating_rewards_with_multiple_stashes_and_attestors_works() {
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            attestation.clone()
+            vec![attestation.clone()].try_into().unwrap()
         ));
 
         // Get reward for chain 1
@@ -3273,4 +3273,224 @@ fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
             None
         );
     })
+}
+
+#[test]
+fn batch_attestations_works() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor2.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.public_key,
+            attestor2.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation1 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+        );
+        let attestation2 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            10,
+            None,
+        );
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            vec![attestation1.clone(), attestation2.clone()]
+                .try_into()
+                .unwrap()
+        ));
+
+        // Checkpoint is created for the first attestation
+        let checkpoint =
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
+        assert_eq!(checkpoint.block_number, 0);
+    });
+}
+
+#[test]
+fn batch_attestations_duplicate_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor2.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.public_key,
+            attestor2.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation1 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+        );
+        let attestation2 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            10,
+            None,
+        );
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            vec![attestation1.clone(), attestation2.clone()]
+                .try_into()
+                .unwrap()
+        ));
+
+        // Checkpoint is created for the first attestation
+        let checkpoint =
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
+        assert_eq!(checkpoint.block_number, 0);
+
+        let result = Attestation::validate_attestation(attestation1.chain_key(), &attestation1);
+        assert_err!(result, InherentError::Duplicate(attestation1.digest()));
+
+        let result = Attestation::validate_attestation(attestation2.chain_key(), &attestation2);
+        assert_err!(result, InherentError::Duplicate(attestation2.digest()));
+    });
+}
+
+#[test]
+fn batch_attestations_adding_one_on_duplicates_fails() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        let attestor2 = Attestor::new(STASH_1, ATTESTOR_2);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor2.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor2.public_key,
+            attestor2.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation1 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+        );
+        let attestation2 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            10,
+            None,
+        );
+
+        let mut attestations = vec![attestation1.clone(), attestation2.clone()];
+
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            attestations.clone().try_into().unwrap()
+        ));
+
+        // Checkpoint is created for the first attestation
+        let checkpoint =
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
+        assert_eq!(checkpoint.block_number, 0);
+
+        let attestation3 = create_signed_attestation(
+            vec![attestor.clone(), attestor2.clone()],
+            SUPPORTED_CHAIN_KEY,
+            20,
+            None,
+        );
+
+        // Add a new attestation
+        attestations.push(attestation3.clone());
+
+        // Duplicate attestation1
+        let result = Attestation::validate_attestation(attestation1.chain_key(), &attestation1);
+        assert_err!(result, InherentError::Duplicate(attestation1.digest()));
+
+        // Duplicate attestation2
+        let result = Attestation::validate_attestation(attestation2.chain_key(), &attestation2);
+        assert_err!(result, InherentError::Duplicate(attestation2.digest()));
+
+        // Add a new attestation
+        let result = Attestation::validate_attestation(attestation3.chain_key(), &attestation3);
+        assert_ok!(result);
+    });
 }

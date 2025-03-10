@@ -100,4 +100,6 @@ pub enum Error {
     WorkerInSync,
     #[error("Overflow error")]
     Overflow,
+    #[error("Attestation round already concluded")]
+    RoundAlreadyConcluded,
 }

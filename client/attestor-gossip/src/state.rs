@@ -110,6 +110,8 @@ where
 pub struct State<H, AccountId> {
     /// Maps chain key to a map of block number to votes
     pub chain_head_votes: ChainVoteRound<H, AccountId>,
+    // Concluded rounds
+    pub concluded_rounds: Vec<Round>,
 }
 
 impl<H, AccountId> State<H, AccountId>
@@ -170,6 +172,11 @@ where
         epoch_index: u64,
     ) -> Result<VoteImportResult, Error> {
         let round = attestation.round();
+
+        if self.concluded_rounds.contains(&round) {
+            return Err(Error::RoundAlreadyConcluded);
+        }
+
         let chain_key = round.0;
         let header_number = round.1;
         let attestor_id = attestation.attestor.clone();
@@ -188,6 +195,8 @@ where
         }
 
         if self.check_round_state(round, round_config)? {
+            // Conclude the round
+            self.concluded_rounds.push(round);
             return Ok(VoteImportResult::RoundConcluded);
         }
 
@@ -195,7 +204,7 @@ where
     }
 
     pub fn check_round_state(
-        &mut self,
+        &self,
         round: Round,
         round_config: &RoundConfig,
     ) -> Result<bool, Error> {
@@ -236,6 +245,7 @@ impl<H, AccountId> Default for State<H, AccountId> {
     fn default() -> Self {
         State {
             chain_head_votes: BTreeMap::new(),
+            concluded_rounds: Vec::new(),
         }
     }
 }
@@ -327,9 +337,9 @@ mod tests {
         let attestation = create_signed_attestation(&attestor, attestation_data);
 
         let round_config = RoundConfig {
-            committee_set_size: 1,
-            target_sample_size: 1,
-            threshold: 1,
+            committee_set_size: 2,
+            target_sample_size: 2,
+            threshold: 2,
         };
 
         state
@@ -340,6 +350,33 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, VoteImportResult::DoubleVote);
+    }
+
+    #[test]
+    fn test_round_concluded() {
+        let mut state = State::default();
+
+        let attestor_1 = Attestor::new();
+        let attestor_2 = Attestor::new();
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
+        let attestation_2 = create_signed_attestation(&attestor_2, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 1,
+            target_sample_size: 1,
+            threshold: 1,
+        };
+
+        state
+            .note_vote(attestation_1.clone(), &round_config, 1)
+            .unwrap();
+
+        // Let attestor_2 vote on the same round
+        let result = state.note_vote(attestation_2.clone(), &round_config, 1);
+
+        assert!(result.is_err(), "Double vote should not be allowed");
     }
 
     #[test]
@@ -447,9 +484,9 @@ mod tests {
         let attestation = create_signed_attestation(&attestor, attestation_data);
 
         let round_config = RoundConfig {
-            committee_set_size: 1,
-            target_sample_size: 1,
-            threshold: 1,
+            committee_set_size: 3,
+            target_sample_size: 3,
+            threshold: 2,
         };
 
         state

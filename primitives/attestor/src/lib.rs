@@ -82,7 +82,7 @@ impl BlsPublicKeyWrapper {
 /// Inherent identifier for attestor inherent
 pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 
-#[derive(Encode, Decode, sp_runtime::RuntimeDebug)]
+#[derive(Encode, Decode, sp_runtime::RuntimeDebug, PartialEq, Eq, Clone)]
 pub enum InherentError {
     NotValid,
     InvalidAttestorFound,

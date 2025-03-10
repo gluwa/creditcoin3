@@ -241,20 +241,6 @@ impl<T: Config> Pallet<T> {
         attestation: SignedAttestation<T::Hash, T::AccountId>,
     ) -> DispatchResult {
         let chain_key = attestation.chain_key();
-        ensure!(
-            T::SupportedChains::is_chain_supported(chain_key),
-            Error::<T>::ChainNotSupported
-        );
-
-        ensure!(
-            !Attestations::<T>::contains_key(chain_key, attestation.digest()),
-            Error::<T>::AttestationExists
-        );
-
-        ensure!(
-            Self::validate_attestation(&attestation).is_ok(),
-            Error::<T>::InvalidAttestation
-        );
 
         // Store the attestation
         let digest = attestation.digest();
@@ -697,10 +683,24 @@ impl<T: Config> Pallet<T> {
         Invulnerables::<T>::contains_key(chain_key, address)
     }
 
+    /// Validate the attestation
+    /// This checks if the attestation is valid
+    /// The attestation is valid if the BLS signature is valid
+    /// Is valid if the attestation is not a duplicate
+    /// Is valid if the chain is supported
     pub(crate) fn validate_attestation(
+        chain_key: ChainKey,
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> Result<(), InherentError> {
-        Self::check_duplicate(attestation)?;
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            InherentError::NotValid
+        );
+
+        if Self::check_duplicate(attestation) {
+            return Err(InherentError::Duplicate(attestation.digest()));
+        }
+
         let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
         let attestor_public_keys =
             Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
@@ -778,16 +778,25 @@ impl<T: Config> Pallet<T> {
 }
 // helper functions for checking inherent data
 impl<T: Config> Pallet<T> {
-    pub(crate) fn check_duplicate(
-        attestation: &SignedAttestation<T::Hash, T::AccountId>,
-    ) -> Result<(), InherentError> {
-        if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_key) {
-            if digest == attestation.attestation.digest() {
-                log::error!("Attestation with digest: {:?} is duplicate", digest);
-                return Err(InherentError::Duplicate(digest));
+    pub(crate) fn check_duplicate(attestation: &SignedAttestation<T::Hash, T::AccountId>) -> bool {
+        let digest = attestation.digest();
+        if Attestations::<T>::get(attestation.attestation.chain_key, digest).is_some() {
+            log::error!("Attestation with digest: {:?} is duplicate", digest);
+            return true;
+        }
+
+        // Get last checkpoint
+        if let Some(checkpoint) = LastCheckpoint::<T>::get(attestation.attestation.chain_key) {
+            if checkpoint.block_number == attestation.header_number() {
+                log::error!(
+                    "Attestation with block number: {:?} is duplicate",
+                    attestation.header_number()
+                );
+                return true;
             }
         }
-        Ok(())
+
+        false
     }
 
     pub(crate) fn extract_agg_signature(signature: &[u8]) -> Result<Signature, InherentError> {

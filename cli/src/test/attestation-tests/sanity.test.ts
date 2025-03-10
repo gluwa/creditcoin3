@@ -116,29 +116,29 @@ describe('BlockAttested events', (): void => {
             });
             expect(checkpointsForGenesis).toBe(1);
 
-            expect(electionEvents['2']).toBeGreaterThanOrEqual(10);
-            expect(electionEvents['4']).toBeGreaterThanOrEqual(10);
+            expect(electionEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(10);
+            expect(electionEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(10);
 
-            expect(attestedEvents['2']).toBeGreaterThan(0);
-            expect(attestedEvents['4']).toBeGreaterThan(0);
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
 
             // 200 CC blocks is 1000 seconds which means around 166 Anvil blocks
             // ingested at 10 blocks this means 15-16 events max
-            expect(attestedEvents['2']).toBeLessThanOrEqual(25);
-            expect(attestedEvents['4']).toBeLessThanOrEqual(25);
+            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(25);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(25);
 
             // match the frequency b/c we don't want this to pass if only a few events are recorded
             // and then something suddenly fails/disconnects
-            expect(attestedEvents['2']).toBeGreaterThanOrEqual(6);
-            expect(attestedEvents['4']).toBeGreaterThanOrEqual(6);
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(6);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(6);
             // note that this isn't super robust b/c we still don't quite know what the
             // average distance between these events is, see CSUB-1268 but
             // nevertheless should be good enough for CI to detect if something suddenly
             // starts failing
 
-            expect(intervalChangedEvents['2']).toBe(0);
+            expect(intervalChangedEvents[chain_Anvil1_Key]).toBe(0);
             // this test loops over roughly 15 epochs and we make a change every 2
-            expect(intervalChangedEvents['4']).toBeGreaterThanOrEqual(5);
+            expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
     }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
 });

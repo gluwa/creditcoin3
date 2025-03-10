@@ -354,7 +354,7 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::commit_attestation(
             none_origin.clone(),
-            prior_attestation.clone()
+            vec![prior_attestation.clone()].try_into().unwrap(),
         ));
 
         // Create attestation
@@ -371,7 +371,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             none_origin as <T as frame_system::Config>::RuntimeOrigin,
-            attestation,
+            vec![attestation].try_into().unwrap(),
         )
     }
 
@@ -536,7 +536,7 @@ mod benchmarks {
 
         assert_ok!(Attestation::<T>::commit_attestation(
             none_origin.clone(),
-            attestation.clone(),
+            vec![attestation.clone()].try_into().unwrap(),
         ));
 
         let signed_origin = attestor.stash_origin;

@@ -26,7 +26,6 @@ pub mod pallet {
         BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainKey, Digest,
         InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
-    use bls_signatures::key::aggregate_public_keys;
     use frame_support::{
         pallet_prelude::{OptionQuery, *},
         traits::{Currency, LockableCurrency, OnUnbalanced},
@@ -118,6 +117,9 @@ pub mod pallet {
             + From<[u8; 42]>;
 
         type SupportedChains: SupportedChainsProvider;
+
+        #[pallet::constant]
+        type MaxAttestationsPerBlock: Get<u32>;
     }
 
     pub trait WeightInfo {
@@ -671,14 +673,21 @@ pub mod pallet {
         }
 
         #[pallet::call_index(9)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(attestation.attestors.len() as u32), DispatchClass::Mandatory))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(attestations.len() as u32), DispatchClass::Mandatory))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
-            attestation: SignedAttestation<T::Hash, T::AccountId>,
+            attestations: BoundedVec<
+                SignedAttestation<T::Hash, T::AccountId>,
+                T::MaxAttestationsPerBlock,
+            >,
         ) -> DispatchResult {
             ensure_none(origin)?;
 
-            Self::do_commit_attestation(attestation)
+            for attestation in attestations.into_iter() {
+                Self::do_commit_attestation(attestation)?;
+            }
+
+            Ok(())
         }
 
         #[pallet::call_index(10)]
@@ -810,27 +819,43 @@ pub mod pallet {
         const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
 
         fn create_inherent(data: &InherentData) -> Option<Self::Call> {
-            let inherent_data = data
-                .get_data::<SignedAttestation<T::Hash, T::AccountId>>(&INHERENT_IDENTIFIER)
-                .expect("Attestation inherent data not correctly encoded");
+            let inherent_data =
+                data.get_data::<BoundedVec<
+                    SignedAttestation<T::Hash, T::AccountId>,
+                    T::MaxAttestationsPerBlock,
+                >>(&INHERENT_IDENTIFIER)
+                    .expect("Attestation inherent data not correctly encoded");
 
-            // Check if atleast the attestation was not already submitted
-            if let Some(attestation) = inherent_data {
-                if let Some(digest) = LastDigest::<T>::get(attestation.attestation.chain_key) {
-                    if digest == attestation.digest() {
-                        log::error!("Attestation with digest: {:?} is duplicate", digest);
-                        return None;
-                    }
-                };
-                if !T::SupportedChains::is_chain_supported(attestation.chain_key()) {
-                    log::error!(
-                        "Chain with id: {:?} is not supported",
-                        attestation.chain_key()
-                    );
+            // Check if at least one attestation can be submitted
+            if let Some(attestations) = inherent_data {
+                let valid_attestations: Vec<_> = attestations
+                    .into_iter()
+                    .filter(|attestation| {
+                        // Check if the attestation is valid, if not filter it out
+                        if Self::validate_attestation(attestation.chain_key(), attestation).is_err()
+                        {
+                            log::info!(
+                                "📝 Attestation with digest {:?} is invalid",
+                                attestation.digest()
+                            );
+                            false
+                        } else {
+                            log::info!(
+                                "📝 Attestation with digest {:?} is valid ✅",
+                                attestation.digest()
+                            );
+                            true
+                        }
+                    })
+                    .collect();
+
+                if valid_attestations.is_empty() {
                     return None;
                 }
 
-                Some(Call::commit_attestation { attestation })
+                Some(Call::commit_attestation {
+                    attestations: valid_attestations.try_into().unwrap(),
+                })
             } else {
                 None
             }
@@ -841,30 +866,7 @@ pub mod pallet {
             _data: &InherentData,
         ) -> sp_std::result::Result<(), Self::Error> {
             match call {
-                Call::commit_attestation { attestation } => {
-                    Pallet::<T>::check_duplicate(attestation)?;
-                    let agg_signature = Pallet::<T>::extract_agg_signature(&attestation.signature)?;
-                    let attestor_public_keys = Pallet::<T>::gather_attestor_public_keys(
-                        attestation.chain_key(),
-                        &attestation.attestors,
-                    )?;
-                    let aggregated_public_key = aggregate_public_keys(&attestor_public_keys[..])
-                        .map_err(|_| {
-                            log::error!("Failed to aggregate public keys");
-                            InherentError::NotValid
-                        })?;
-
-                    let message = &attestation.attestation.serialize()[..];
-
-                    Pallet::<T>::verify_agg_signature(
-                        &agg_signature,
-                        message,
-                        aggregated_public_key,
-                    )?;
-
-                    log::debug!("Attestation signature is valid");
-                    Ok(())
-                }
+                Call::commit_attestation { .. } => Ok(()),
                 _ => Err(InherentError::NotValid),
             }
         }

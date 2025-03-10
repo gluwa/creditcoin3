@@ -3,7 +3,7 @@ use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
 use log::{error, info};
 use parity_scale_codec::{Codec, Encode};
-use sc_client_api::{Backend, HeaderBackend};
+use sc_client_api::Backend;
 use sp_api::ProvideRuntimeApi;
 use sp_core::Decode;
 use sp_inherents::{Error, InherentData, InherentIdentifier};
@@ -12,6 +12,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use crate::{HashFor, LOG_TARGET};
+
+pub const ATTESTATIONS_PER_BLOCK: usize = 10;
 
 #[derive(Clone)]
 pub struct Provider<A, B: BlockT, RA, BE> {
@@ -53,15 +55,21 @@ where
         Ok(())
     }
 
-    // Provide a reference to the most recent attestation
-    pub fn get_latest(&mut self) -> Option<SignedAttestation<HashFor<B>, A>> {
-        self.attestation_queue.pop_front()
-    }
-
     // Removes an attestation from the queue by digest
     pub fn remove_by_digest(&mut self, digest: Digest) {
         self.attestation_queue
             .retain(|attestation| attestation.attestation.digest() != digest);
+    }
+
+    pub fn pop_front_x(&mut self, x: usize) -> Vec<SignedAttestation<HashFor<B>, A>> {
+        let mut attestations: Vec<SignedAttestation<HashFor<B>, A>> = (0..x)
+            .filter_map(|_| self.attestation_queue.pop_front())
+            .collect();
+
+        // Sort attestations by `block_number`
+        attestations.sort_by_key(|a| a.header_number());
+
+        attestations
     }
 }
 
@@ -107,33 +115,9 @@ where
             sp_inherents::Error::FatalErrorReported
         })?;
 
-        let block_hash = provider.backend.blockchain().info().best_hash;
-
-        // Get the latest attestation
-        while let Some(attestation) = provider.get_latest() {
-            // Get the runtime and fetch the last digest
-            let runtime = provider.runtime_api.runtime_api();
-
-            let digest = attestation.attestation.digest();
-
-            let contains_digest = runtime
-                .contains_digest(block_hash, attestation.attestation.chain_key, digest)
-                .map_err(|_e| sp_inherents::Error::FatalErrorReported)?;
-
-            // If the last digest matches the one we want to submit in the inherent
-            // we can safely remove this pending attestation. It means this was already submitted to the network
-            // Check if the attestation is already included on the chain
-            if contains_digest {
-                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping", digest);
-                provider.remove_by_digest(digest);
-            } else {
-                // Update inherent data and then remove the attestation from queue
-                inherent_data.put_data(INHERENT_IDENTIFIER, &attestation)?;
-                info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} submitted", digest);
-                provider.remove_by_digest(digest);
-                break; // Break the loop since we successfully submitted an attestation
-            }
-        }
+        // Get max 10 attestations from the provider
+        let attestations = provider.pop_front_x(ATTESTATIONS_PER_BLOCK);
+        inherent_data.put_data(INHERENT_IDENTIFIER, &attestations)?;
 
         Ok(())
     }

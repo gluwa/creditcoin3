@@ -107,13 +107,16 @@ declare module '@polkadot/api-base/types/submittable' {
             claimRewards: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
             commitAttestation: AugmentedSubmittable<
                 (
-                    attestation:
-                        | AttestorPrimitivesSignedAttestation
-                        | { attestation?: any; signature?: any; attestors?: any }
-                        | string
-                        | Uint8Array,
+                    attestations:
+                        | Vec<AttestorPrimitivesSignedAttestation>
+                        | (
+                              | AttestorPrimitivesSignedAttestation
+                              | { attestation?: any; signature?: any; attestors?: any }
+                              | string
+                              | Uint8Array
+                          )[],
                 ) => SubmittableExtrinsic<ApiType>,
-                [AttestorPrimitivesSignedAttestation]
+                [Vec<AttestorPrimitivesSignedAttestation>]
             >;
             registerAttestor: AugmentedSubmittable<
                 (

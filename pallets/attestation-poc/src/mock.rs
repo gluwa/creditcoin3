@@ -241,6 +241,7 @@ parameter_types! {
     pub const DefaultTargetSampleSize: u32 = 3;
     pub const DefaultMinBondRequirement: u64 = 10_000;
     pub const MaxUnlockingChunks: u32 = 10;
+    pub const MaxAttestationsPerBlock: u32 = 10;
 }
 
 impl attestation_poc::Config for Test {
@@ -260,6 +261,7 @@ impl attestation_poc::Config for Test {
     type BondingDuration = BondingDuration;
     type Staking = Staking;
     type Reward = ();
+    type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
 }
 
 impl pallet_supported_chains::Config for Test {
