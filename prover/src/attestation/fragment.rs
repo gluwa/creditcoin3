@@ -311,25 +311,24 @@ async fn fetch_interval_ends(
             Ok((start, end))
         }
         FragmentType::AttestationOnEachEnd => {
-            let start: IntervalEndpoint = match attestation_cache
+            let start: IntervalEndpoint = if let Some(start_attestation) = attestation_cache
                 .get_highest_attestation_before(query.height, query.chain_id)
                 .await?
             {
-                Some(start_attestation) => IntervalEndpoint {
+                IntervalEndpoint {
                     block_number: from_storage_type(start_attestation.header_number),
                     digest: start_attestation.digest,
-                },
-                None => {
-                    // Corner case can result in first attestation being removed before its corresponding checkpoint is
-                    // created. In this case we use the first checkpoint instead.
-                    let start_checkpoint = attestation_cache
-                        .get_highest_checkpoint_before(query.height, query.chain_id)
-                        .await?
-                        .ok_or(Error::FailedToGetHighestAttestationBefore(query.height))?;
-                    IntervalEndpoint {
-                        block_number: from_storage_type(start_checkpoint.block_number),
-                        digest: start_checkpoint.digest,
-                    }
+                }
+            } else {
+                // Corner case can result in first attestation being removed before its corresponding checkpoint is
+                // created. In this case we use the first checkpoint instead.
+                let start_checkpoint = attestation_cache
+                    .get_highest_checkpoint_before(query.height, query.chain_id)
+                    .await?
+                    .ok_or(Error::FailedToGetHighestAttestationBefore(query.height))?;
+                IntervalEndpoint {
+                    block_number: from_storage_type(start_checkpoint.block_number),
+                    digest: start_checkpoint.digest,
                 }
             };
 
