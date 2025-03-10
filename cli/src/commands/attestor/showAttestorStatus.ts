@@ -13,11 +13,11 @@ export function makeShowAttestorStatusCommand() {
         '-c, --chain [chain]',
         'Specify chain key to show attestor status for',
     );
-    cmd.action(showUnclaimedRewardsAction);
+    cmd.action(showAttestorStatus);
     return cmd;
 }
 
-async function showUnclaimedRewardsAction(options: OptionValues) {
+async function showAttestorStatus(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const address = options.substrateAddress as string;

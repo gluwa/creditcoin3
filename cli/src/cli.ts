@@ -25,6 +25,10 @@ import { makeRegisterAttestorCommand } from './commands/attestor/registerAttesto
 import { setPayeeCommand } from './commands/attestor/setPayee';
 import { makeUnregisterAttestorCommand } from './commands/attestor/unregisterAttestor';
 import { makeAttestorWithdrawUnbondedCommand } from './commands/attestor/withdrawUnbonded';
+import { makeShowAttestorStatusCommand } from './commands/attestor/showAttestorStatus';
+import { showListAttestorsCommand } from './commands/attestor/showListAttestors';
+import { showClaimRewardsCommand } from './commands/attestor/showUnclaimedRewards';
+
 
 
 const program = new Command();
@@ -48,11 +52,13 @@ program
     .addCommand(makeWizardCommand());
 
 program
-    .addCommand(attestCommand())
     .addCommand(makeChillAttestorCommand())
     .addCommand(makeClaimRewardsCommand())
     .addCommand(makeRegisterAttestorCommand())
     .addCommand(setPayeeCommand())
+    .addCommand(makeShowAttestorStatusCommand())
+    .addCommand(showListAttestorsCommand())
+    .addCommand(showClaimRewardsCommand())
     .addCommand(makeUnregisterAttestorCommand())
     .addCommand(makeAttestorWithdrawUnbondedCommand());
 

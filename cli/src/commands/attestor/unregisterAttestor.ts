@@ -28,6 +28,20 @@ async function unregisterAttestorAction(options: OptionValues) {
 
     const keyring = await initKeyring(options);
 
+    const attestorStatus = await api.query.attestation.attestors(chainKey, attestor);
+    if (attestorStatus.isNone) {
+        console.log(`Address ${attestor} is not an attestor`);
+        process.exit(0);
+    }
+
+    const status = attestorStatus.unwrap().status;
+    if (status.isActive) {
+        console.log(`Address ${attestorStatus} status is Active. Please chill the attestor first`);
+        process.exit(0);
+    }
+    console.log(`Address ${attestor} status is Chill`);
+    console.log(`Calling unregister attestor extrinsic for ${attestor} on chain ${chainKey}`);
+
     const unregisterAttestorTx = api.tx.attestation.unregisterAttestor(chainKey, attestor);
 
     await requireKeyringHasSufficientFunds(unregisterAttestorTx, keyring, api);

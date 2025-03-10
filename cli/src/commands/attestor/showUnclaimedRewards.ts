@@ -5,7 +5,7 @@ import { initKeyring, delegateAddress } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 import { substrateAddressOption } from '../options';
 
-export function makeClaimRewardsCommand() {
+export function showClaimRewardsCommand() {
     const cmd = new Command('show-unclaimed-rewards');
     cmd.description('Show unclaimed rewards that attestor has earned');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());

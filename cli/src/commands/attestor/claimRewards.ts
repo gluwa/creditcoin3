@@ -17,6 +17,14 @@ async function claimRewardsAction(options: OptionValues) {
 
     const keyring = await initKeyring(options);
 
+    const attestorRewards = await api.query.attestation.accumulatedRewards(keyring.pair.address);
+    if (attestorRewards.isNone) {
+        console.log(`No rewards to claim for address ${keyring.pair.address}`);
+        process.exit(0);
+    }
+    const rewards = attestorRewards.unwrap();
+    console.log(`Rewards available to claim: ${rewards} for address ${keyring.pair.address}`);
+
     const claimRewardsAttestorTx = api.tx.attestation.claimRewards();
 
     await requireKeyringHasSufficientFunds(claimRewardsAttestorTx, keyring, api);

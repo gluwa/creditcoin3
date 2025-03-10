@@ -17,6 +17,34 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const keyring = await initKeyring(options);
 
+    const ledger = await api.query.attestation.ledger(keyring.pair.address);
+    if (ledger.isNone) {
+        console.log(`No unbonded funds to withdraw for address ${keyring.pair.address}`);
+        process.exit(0);
+    }
+    const ledgerValue = ledger.unwrap();
+
+    const currentEra = await api.query.staking.currentEra();
+    if (currentEra.isNone) {
+        console.log('Current era is not available');
+        process.exit(0);
+    }
+    const currentEraValue = currentEra.unwrap();
+
+    let canWithdraw = 0;
+    for (const unlocking of ledgerValue.unlocking) {
+        if (unlocking.era.toNumber() <= currentEraValue.toNumber()) {
+            canWithdraw += unlocking.value.toNumber();
+        }
+    }
+
+    if (canWithdraw === 0) {
+        console.log('No unbonded funds to withdraw');
+        process.exit(0);
+    }
+
+    console.log(`Unbonded funds available to withdraw: ${canWithdraw}`);
+
     const withdrawUnbondedAttestorTx = api.tx.attestation.withdrawUnbonded();
 
     await requireKeyringHasSufficientFunds(withdrawUnbondedAttestorTx, keyring, api);
