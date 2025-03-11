@@ -1,0 +1,31 @@
+[package]
+name = "pallet-set-base-fee"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+frame-system = { workspace = true }
+frame-support = { workspace = true }
+#pallet-base-fee = { workspace = true }
+sp-core = { workspace = true }
+parity-scale-codec = { workspace = true }
+scale-info = { workspace = true }
+sp-runtime = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+  "frame-system/std",
+  "frame-support/std",
+  #    "pallet-base-fee/std",
+  "sp-core/std",
+  "parity-scale-codec/std",
+  "scale-info/std",
+  "sp-runtime/std",
+]
