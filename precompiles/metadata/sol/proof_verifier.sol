@@ -21,11 +21,6 @@ struct LayoutSegment {
     uint64 size;
 }
 
-struct ResultSegment {
-    uint256 offset; // potentially not need due to ordering i
-    bytes rlpBytes;
-}
-
 /// @title ProofVerifierContract interface
 /// @notice This interface defines the functions and events for interacting with the ProofVerifierContract.
 interface QueryVerifierContract {
@@ -35,5 +30,5 @@ interface QueryVerifierContract {
     function verify(
         bytes calldata proof,
         Query calldata query
-    ) external returns (uint64, ResultSegment[] memory);
+    ) external returns (uint64);
 }

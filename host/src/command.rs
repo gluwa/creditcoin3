@@ -315,11 +315,11 @@ pub fn run_verifier(
 }
 
 pub fn get_result_segments(
-    claim_felts: &[Felt],
-    layout_segments: &[LayoutSegment],
+    claim_felts: &Vec<Felt>,
+    layout_segments: &Vec<LayoutSegment>,
 ) -> Vec<ResultSegment> {
     // 1. Sanitize incoming layout segments
-    let sanitized = sanitize(layout_segments);
+    let sanitized = sanitize(&layout_segments);
 
     // 2. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
     let felt_segments = convert_ranges_to_felt_ranges(&sanitized);
@@ -332,7 +332,7 @@ pub fn get_result_segments(
         extract_bytes_from_felt_array_using_original_ranges(&result_felts, &sanitized);
 
     // 5. Convert sanitized segments into result segments with original layout
-    extract_original_byte_ranges_from_sanitized(sanitized_result, layout_segments)
+    extract_original_byte_ranges_from_sanitized(sanitized_result, &layout_segments)
 }
 
 fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
@@ -386,7 +386,7 @@ fn convert_ranges_to_felt_ranges(segments: &[LayoutSegment]) -> Vec<LayoutSegmen
             size: felt_count,
         });
     }
-    felt_ranges
+    return felt_ranges;
 }
 
 fn extract_felt_ranges_from_felt_array(
@@ -456,7 +456,7 @@ fn extract_original_byte_ranges_from_sanitized(
                     collected_up_to += 1;
                 }
                 // All bytes collected
-                if collected_up_to > last_orig_seg_idx {
+                if collected_up_to >= last_orig_seg_idx + 1 {
                     break;
                 }
             }

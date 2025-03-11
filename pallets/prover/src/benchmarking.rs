@@ -8,7 +8,7 @@ use sp_core::H256;
 use sp_std::vec;
 
 benchmarks! {
-    post_query_result {
+    submit_proof {
         let who: T::AccountId = account("prover1", 1, 1);
 
         let query = Query {
@@ -19,9 +19,11 @@ benchmarks! {
         };
         let query_id = query.id();
 
+        let proof = vec![0; 745676];
+
         let _ = Prover::<T>::set_stark_program_metadata(RawOrigin::Root.into(), 2, STARK_PROGRAM_V2_HASH);
 
-    }: _(RawOrigin::Signed(who.clone()), query_id, VerifierExitStatus::Success)
+    }: _(RawOrigin::Signed(who.clone()), proof, query)
     verify {
         assert_eq!(QueryResultById::<T>::get(query_id), Some(VerifierExitStatus::Success));
     }

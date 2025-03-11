@@ -2,10 +2,10 @@ use self::mock::PROVER_3;
 
 use super::*;
 use pallet_prover_primitives::{
-    Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+    LayoutSegment, Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
 };
 
-use frame_support::{assert_noop, assert_ok};
+use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
 
@@ -16,7 +16,27 @@ fn prover_configured_in_genesis() -> RuntimeOrigin {
 }
 
 #[test]
-fn post_query_result_should_error_when_not_signed() {
+fn submit_proof_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let proof = b"".to_vec();
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 1,
+            layout_segments: vec![],
+        };
+
+        assert_noop!(
+            ProverModule::submit_proof(RuntimeOrigin::none(), proof, query),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn submit_proof_should_error_when_proof_is_empty() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
@@ -26,47 +46,139 @@ fn post_query_result_should_error_when_not_signed() {
             index: 1,
             layout_segments: vec![],
         };
-        let query_id = query.id();
 
         assert_noop!(
-            ProverModule::post_query_result(
-                RuntimeOrigin::none(),
-                query_id,
-                VerifierExitStatus::Success
-            ),
-            BadOrigin
+            ProverModule::submit_proof(prover_configured_in_genesis(), b"".to_vec(), query),
+            Error::<Test>::InvalidProofSubmitted
         );
-    });
+    })
+}
+
+// this test additionally logs an error since it's unable to verify the proof
+#[test]
+#[cfg(all(test, target_arch = "x86_64"))]
+fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(ProverModule::set_stark_program_metadata(
+            RuntimeOrigin::root(),
+            2,
+            STARK_PROGRAM_V2_HASH
+        ));
+
+        let proof = b"abcd".to_vec();
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 1,
+            layout_segments: vec![],
+        };
+
+        assert_noop!(
+            ProverModule::submit_proof(RuntimeOrigin::signed(PROVER_3), proof, query),
+            Error::<Test>::ProofParseError
+        );
+    })
 }
 
 #[test]
-fn post_query_result_emits_event() {
-    System::set_block_number(1);
+fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metadata_set_correctly() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
 
-    let query = Query {
-        chain_id: 1,
-        height: 1,
-        index: 1,
-        layout_segments: vec![],
-    };
-    let query_id = query.id();
+        assert_ok!(ProverModule::set_stark_program_metadata(
+            RuntimeOrigin::root(),
+            2,
+            STARK_PROGRAM_V2_HASH
+        ));
 
-    assert_ok!(ProverModule::post_query_result(
-        prover_configured_in_genesis(),
-        query_id,
-        VerifierExitStatus::Success
-    ));
+        let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
+            .expect("Proof example to be there");
 
-    // assert on storage change
-    assert_eq!(
-        QueryResultById::<Test>::get(query.id()),
-        Some(VerifierExitStatus::Success)
-    );
+        // create a correct query
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 0,
+            layout_segments: vec![LayoutSegment {
+                offset: 0,
+                size: 418,
+            }],
+        };
 
-    // assert on emited event
-    System::assert_last_event(
-        Event::QueryVerified(query.id(), PROVER_3, VerifierExitStatus::Success).into(),
-    );
+        assert_ok!(ProverModule::submit_proof(
+            RuntimeOrigin::signed(PROVER_3),
+            proof,
+            query.clone()
+        ),);
+
+        // assert on storage change
+        assert_eq!(
+            QueryResultById::<Test>::get(query.id()),
+            Some(VerifierExitStatus::Success)
+        );
+
+        // assert on emited event
+        System::assert_last_event(
+            Event::QueryVerified(query.id(), PROVER_3, VerifierExitStatus::Success).into(),
+        );
+    })
+}
+
+#[test]
+fn submit_proof_should_error_when_stark_metadata_not_set() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        // using some random incorrect proof because the verification will error out at
+        // metadata not set before reaching the proof part
+        let proof = vec![0; 10];
+
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 1,
+            layout_segments: vec![],
+        };
+
+        assert_err!(
+            ProverModule::submit_proof(RuntimeOrigin::signed(PROVER_3), proof, query.clone()),
+            Error::<Test>::StarkProgramMetadataNotSet
+        );
+
+        // assert on storage change
+        assert_eq!(QueryResultById::<Test>::get(query.id()), None);
+    })
+}
+
+#[test]
+#[cfg(all(test, target_arch = "x86_64"))]
+fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(ProverModule::set_stark_program_metadata(
+            RuntimeOrigin::root(),
+            1,
+            H256::random(),
+        ));
+
+        let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
+            .expect("Proof example to be there");
+
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 1,
+            layout_segments: vec![],
+        };
+
+        assert_noop!(
+            ProverModule::submit_proof(RuntimeOrigin::signed(PROVER_3), proof, query),
+            Error::<Test>::StarkProgramAuthenticationError
+        );
+    })
 }
 
 #[test]

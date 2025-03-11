@@ -8,16 +8,18 @@ use frame_support::{
 };
 use log::error;
 use pallet_evm::AddressMapping;
-use pallet_prover::StarkProgramMetadata;
-use pallet_prover_primitives::{Query, ResultSegment, VerifierExitStatus};
+use pallet_prover_primitives::Query;
 use precompile_utils::prelude::*;
 use sp_core::H256;
-use sp_std::vec::Vec;
+use sp_runtime::DispatchError;
 
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod tests;
+
+/// Solidity selector of the ProofSubmitted log, which is the Keccak of the Log signature.
+pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(address, bytes32)");
 
 /// Precompile exposing a pallet_balance as an ERC20.
 /// The precompile uses an additional storage to store approvals.
@@ -42,58 +44,70 @@ where
         handle: &mut impl PrecompileHandle,
         proof: BoundedBytes<ConstU50MB>,
         query: Query,
-    ) -> EvmResult<(u64, Vec<ResultSegment>)> {
+    ) -> EvmResult<u64> {
         handle.record_log_costs_manual(3, 32)?;
-
-        // Pre eliminary check
-        if proof.as_bytes().is_empty() {
-            error!("Invalid proof submitted for query: {:?}", query);
-            return Ok((2, Vec::new()));
-        }
 
         let query_id = query.id();
 
+        // Build call with origin.
         {
-            let metadata = StarkProgramMetadata::<Runtime>::iter().collect::<Vec<_>>();
-            if metadata.is_empty() {
-                error!("Stark program metadata not set for query: {:?}", query);
-                return Ok((4, Vec::new()));
-            }
-            let (result_status, result_segments) =
-                proof_verifier::host_api::verify_proof(proof.clone().into(), query, metadata);
+            let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
+
+            let result = RuntimeHelper::<Runtime>::try_dispatch(
+                handle,
+                Some(origin).into(),
+                pallet_prover::Call::<Runtime>::submit_proof {
+                    proof: proof.clone().into(),
+                    query,
+                },
+                0,
+            );
 
             // Instead of erroring out, we propagate status codes to the prover smart contract
             // and let it deal with them. 1 indicating `LayoutMismatch`, 2 - `ProofInvalid`, etc.
-            match result_status {
-                0 => {
-                    // Build call with origin to emit event
-                    let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
-                    let result = RuntimeHelper::<Runtime>::try_dispatch(
-                        handle,
-                        Some(origin).into(),
-                        pallet_prover::Call::<Runtime>::post_query_result {
-                            query_id,
-                            verifier_exit_status: VerifierExitStatus::Success,
-                        },
-                        0,
-                    );
-                    if result.is_err() {
-                        error!("post_query_result failed")
-                    }
-                    Ok((0, result_segments))
+            match result {
+                Ok(_) => {
+                    log3(
+                        handle.context().address,
+                        SELECTOR_LOG_PROOF_SUBMITTED,
+                        handle.context().caller,
+                        query_id,
+                        solidity::encode_event_data(proof),
+                    )
+                    .record(handle)?;
+
+                    Ok(0)
                 }
-                12 => {
-                    error!("Query out of bounds: {:?}", query_id);
-                    Ok((3, result_segments))
-                }
-                13 => {
-                    error!("Query layout mismatch: {:?}", query_id);
-                    Ok((1, result_segments))
-                }
-                _ => {
-                    error!("Unknown proving error for query: {:?}", query_id);
-                    Ok((4, result_segments))
-                }
+                Err(e) => match e {
+                    TryDispatchError::Evm(_) => Ok(5),
+                    TryDispatchError::Substrate(dispatch_error) => match dispatch_error {
+                        DispatchError::Module(module_error) => {
+                            let error = module_error.error;
+                            match error {
+                                [0, 0, 0, 0] => {
+                                    error!("Invalid proof submitted: {:?}", e);
+                                    Ok(2)
+                                }
+                                [10, 0, 0, 0] => {
+                                    error!("Query out of bounds: {:?}", e);
+                                    Ok(3)
+                                }
+                                [11, 0, 0, 0] => {
+                                    error!("Query layout mismatch: {:?}", e);
+                                    Ok(1)
+                                }
+                                _ => {
+                                    error!("Failed to dispatch submit_proof: {:?}", e);
+                                    Ok(4)
+                                }
+                            }
+                        }
+                        _ => {
+                            error!("Failed to dispatch submit_proof: {:?}", e);
+                            Ok(4)
+                        }
+                    },
+                },
             }
         }
     }
