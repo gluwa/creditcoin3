@@ -9,6 +9,8 @@ QueryVerifierContract constant CLAIM_CONTRACT_ADRRESS = QueryVerifierContract(
     PROOF_VERIFIER_ADDRESS
 );
 
+type QueryId is bytes32;
+
 struct Query {
     uint64 chainId;
     uint64 height;
@@ -21,6 +23,11 @@ struct LayoutSegment {
     uint64 size;
 }
 
+struct ResultSegment {
+    uint256 offset; // potentially not need due to ordering i
+    bytes rlpBytes;
+}
+
 /// @title ProofVerifierContract interface
 /// @notice This interface defines the functions and events for interacting with the ProofVerifierContract.
 interface QueryVerifierContract {
@@ -31,4 +38,10 @@ interface QueryVerifierContract {
         bytes calldata proof,
         Query calldata query
     ) external returns (uint64);
+
+    /// @notice Retrieve result segments for the given query_id if present in pallet-prover
+    /// @param query_id, the id of the query for which we are retrieving result segments
+    function get_result_segments(
+        QueryId query_id
+    ) external returns (ResultSegment[] memory);
 }

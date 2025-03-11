@@ -5,6 +5,7 @@ use rlp::Rlp;
 use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
 use sp_std::{vec, vec::Vec};
+use std::cmp::Ordering;
 use thiserror::Error;
 use utils::block_item_traits::BlockItemIdentifier;
 use utils::{
@@ -12,7 +13,6 @@ use utils::{
     utils::{felts_from_bytes, felts_to_bytes, U248_BYTE_COUNT},
     Felt,
 };
-use std::cmp::Ordering;
 
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ClaimValidationError {
@@ -268,11 +268,9 @@ fn deserialize_and_compact_ranges<'de, D: serde::Deserializer<'de>>(
 fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     // Sort segments in order of least to greatest offset
     let mut sanitized = ranges;
-    sanitized.sort_by(|range_a, range_b| {
-        range_a.start.cmp(&range_b.start)
-    });
+    sanitized.sort_by(|range_a, range_b| range_a.start.cmp(&range_b.start));
 
-    // Condense segments pair by pair starting from end. We start with i = sanitized.len() - 2 
+    // Condense segments pair by pair starting from end. We start with i = sanitized.len() - 2
     // because the last pair of segment indices is (len - 2, len - 1)
     let mut i = sanitized.len() - 2;
     loop {
@@ -284,13 +282,18 @@ fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
         if overlapping {
             let range_start = left_range.start.min(right_range.start);
             let range_end = left_range.end.max(right_range.end);
-            let new_range = Range { start: range_start, end: range_end};
+            let new_range = Range {
+                start: range_start,
+                end: range_end,
+            };
             // Replace two combined segments with new segment
             sanitized.remove(i + 1);
             sanitized[i] = new_range;
-        } 
+        }
         // Proceed to next pair or break if this was the last pair
-        if i == 0 { break; }
+        if i == 0 {
+            break;
+        }
         i -= 1;
     }
 
@@ -300,9 +303,9 @@ fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
 #[test]
 fn compact_ranges_works() {
     let test = vec![
-        Range { start: 5, end: 7},
-        Range { start: 2, end: 4},
-        Range { start: 3, end: 5},
+        Range { start: 5, end: 7 },
+        Range { start: 2, end: 4 },
+        Range { start: 3, end: 5 },
     ];
 
     let sanitized = compact_and_sort_ranges(test);
