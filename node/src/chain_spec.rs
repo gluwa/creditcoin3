@@ -248,7 +248,7 @@ fn testnet_genesis(
     chain_id: u64,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
-        BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
+        BalancesConfig, EVMChainIdConfig, EVMConfig, NewBaseFeeConfig, SudoConfig, SystemConfig,
     };
 
     // STASH must be less than ENDOWMENT to avoid having
@@ -350,6 +350,10 @@ fn testnet_genesis(
             ..Default::default()
         },
         ethereum: Default::default(),
+        new_base_fee: NewBaseFeeConfig {
+            base_fee_per_gas: U256::from(1_470_000_000_000_u128),
+            _marker: Default::default(),
+        },
         dynamic_fee: Default::default(),
         base_fee: Default::default(),
         nomination_pools: Default::default(),

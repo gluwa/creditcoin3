@@ -55,6 +55,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter};
 // Frontier
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
+use frame_system::EnsureRoot;
 use pallet_ethereum::{
     Call::transact, PostLogContent, Transaction as EthereumTransaction, TransactionAction,
     TransactionData,
@@ -64,7 +65,6 @@ use pallet_evm::{
     HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
-
 // A few exports that help ease life for downstream crates.
 pub use frame_system::Call as SystemCall;
 pub use pallet_babe::AuthorityId as BabeId;
@@ -460,10 +460,20 @@ impl pallet_base_fee::BaseFeeThreshold for BaseFeeThreshold {
     }
 }
 
+parameter_types! {
+    pub InitialBaseFeePerGas: U256 = U256::from(1_470_000_000_000_u128);
+}
+
+impl pallet_set_base_fee::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type UpdateOrigin = EnsureRoot<AccountId>;
+    type DefaultBaseFee = InitialBaseFeePerGas;
+}
+
 impl pallet_base_fee::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Threshold = BaseFeeThreshold;
-    type DefaultBaseFeePerGas = DefaultBaseFeePerGas;
+    type DefaultBaseFeePerGas = NewBaseFee;
     type DefaultElasticity = DefaultElasticity;
 }
 
@@ -870,6 +880,7 @@ construct_runtime!(
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
+        NewBaseFee: pallet_set_base_fee,
     }
 );
 
