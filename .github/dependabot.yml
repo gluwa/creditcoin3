@@ -95,6 +95,7 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/attestor/scripts"
+      - "/bridge-usage-example"
       - "/cc3-indexer"
       - "/cli"
       - "/docs/smart-contract-development/with-hardhat"
