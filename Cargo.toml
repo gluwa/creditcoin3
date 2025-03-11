@@ -1,9 +1,10 @@
 [workspace]
 members = [
-	"node",
-	"runtime",
-	"runtime/generate-bags",
-	"precompiles/substrate-transfer",
+  "node",
+  "runtime",
+  "runtime/generate-bags",
+  "precompiles/substrate-transfer",
+  "pallets/set-base-fee",
 ]
 resolver = "2"
 
@@ -43,14 +44,14 @@ paste = "1.0.15"
 slices = "0.2.0"
 affix = "0.1.2"
 parity-scale-codec = { version = "3.6.12", default-features = false, features = [
-	"derive",
+  "derive",
 ] }
 scale-info = { version = "2.11.6", default-features = false, features = [
-	"derive",
+  "derive",
 ] }
 serde = { version = "1.0", default-features = false, features = [
-	"derive",
-	"alloc",
+  "derive",
+  "alloc",
 ] }
 serde_json = "1.0"
 similar-asserts = "1.6.0"
@@ -197,7 +198,7 @@ pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-trans
 
 # Arkworks
 ark-bls12-377 = { version = "0.4.0", default-features = false, features = [
-	"curve",
+  "curve",
 ] }
 ark-bw6-761 = { version = "0.4.0", default-features = false }
 ark-ec = { version = "0.4.0", default-features = false }
@@ -220,6 +221,8 @@ creditcoin3-rpc-core-trace = { path = "client/rpc-core/trace" }
 creditcoin3-rpc-core-types = { path = "client/rpc-core/types" }
 creditcoin3-rpc-debug = { path = "client/rpc/debug" }
 creditcoin3-rpc-trace = { path = "client/rpc/trace" }
+
+pallet-set-base-fee = { path = "pallets/set-base-fee", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

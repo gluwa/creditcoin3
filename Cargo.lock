@@ -1816,6 +1816,7 @@ dependencies = [
  "pallet-offences",
  "pallet-proxy",
  "pallet-session",
+ "pallet-set-base-fee",
  "pallet-staking",
  "pallet-sudo",
  "pallet-timestamp",
@@ -6356,6 +6357,18 @@ dependencies = [
  "sp-state-machine",
  "sp-std",
  "sp-trie",
+]
+
+[[package]]
+name = "pallet-set-base-fee"
+version = "3.41.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]

@@ -24,12 +24,12 @@ evm-runtime = { workspace = true }
 [features]
 default = ["std"]
 std = [
-	"environmental/std",
-	"ethereum-types/std",
-	"ethereum/std",
-	"evm-gasometer/tracing",
-	"evm-runtime/tracing",
-	"evm/tracing",
-	"parity-scale-codec/std",
-	"sp-runtime-interface/std",
+  "environmental/std",
+  "ethereum-types/std",
+  "ethereum/std",
+  "evm-gasometer/tracing",
+  "evm-runtime/tracing",
+  "evm/tracing",
+  "parity-scale-codec/std",
+  "sp-runtime-interface/std",
 ]
