@@ -138,14 +138,14 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_verify(QueryId queryId, bytes calldata proof) virtual internal returns (uint64, ResultSegment[] memory) {
+    function _call_verifier_verify(QueryId queryId, bytes calldata proof) virtual internal returns (uint64) {
         return verifier.verify(proof, queries[queryId].query);
     }
 
     // submitQueryProof is called by the prover when a query's proof is ready.
     function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (uint64) {
         // Fist verify the proof
-        (uint64 result, ResultSegment[] memory segments) = _call_verifier_verify(queryId, proof);
+        uint64 result = _call_verifier_verify(queryId, proof);
 
         // Calculate the prover's fee
         // Transfer the prover's fee to the prover
@@ -161,7 +161,6 @@ contract CreditcoinPublicProver is Ownable {
         // Check the result of the proof verification
         if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
-            queries[queryId].result = segments;
         } else if (result == 1) {
             queries[queryId].state = QueryState.InvalidQuery;
         } else if (result == 2) {
@@ -239,7 +238,7 @@ interface QueryVerifierContract {
     function verify(
         bytes calldata proof,
         ChainQuery calldata query
-    ) external returns (uint64, ResultSegment[] memory);
+    ) external returns (uint64);
 }
 
 event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName);
