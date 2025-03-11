@@ -32,17 +32,17 @@ hex = { workspace = true }
 [features]
 default = ["std"]
 std = [
-	"full_crypto",
-	"hex/std",
-	"impl-serde/std",
-	"libsecp256k1/std",
-	"parity-scale-codec/std",
-	"serde/std",
-	"sha3/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-std/std",
+  "full_crypto",
+  "hex/std",
+  "impl-serde/std",
+  "libsecp256k1/std",
+  "parity-scale-codec/std",
+  "serde/std",
+  "sha3/std",
+  "sp-core/std",
+  "sp-io/std",
+  "sp-runtime/std",
+  "sp-std/std",
 ]
 
 full_crypto = ["sp-runtime-interface/disable_target_static_assertions"]
