@@ -32,37 +32,6 @@ pub mod pallet {
     #[pallet::getter(fn base_fee_per_gas)]
     pub type BaseFeePerGas<T> = StorageValue<_, U256, ValueQuery, DefaultBaseFee<T>>;
 
-    #[pallet::genesis_config]
-    pub struct GenesisConfig<T: Config> {
-        pub base_fee_per_gas: U256,
-        pub _marker: PhantomData<T>,
-    }
-
-    impl<T: Config> GenesisConfig<T> {
-        pub fn new(base_fee_per_gas: U256) -> Self {
-            Self {
-                base_fee_per_gas,
-                _marker: PhantomData,
-            }
-        }
-    }
-
-    impl<T: Config> Default for GenesisConfig<T> {
-        fn default() -> Self {
-            Self {
-                base_fee_per_gas: T::DefaultBaseFee::get(),
-                _marker: PhantomData,
-            }
-        }
-    }
-
-    #[pallet::genesis_build]
-    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-        fn build(&self) {
-            <BaseFeePerGas<T>>::put(self.base_fee_per_gas);
-        }
-    }
-
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {

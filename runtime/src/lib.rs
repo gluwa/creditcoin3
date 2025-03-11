@@ -874,13 +874,13 @@ construct_runtime!(
         FastUnstake: pallet_fast_unstake,
         NominationPools: pallet_nomination_pools,
 
+        NewBaseFee: pallet_set_base_fee,
         Ethereum: pallet_ethereum,
         EVM: pallet_evm,
         EVMChainId: pallet_evm_chain_id,
         DynamicFee: pallet_dynamic_fee,
         BaseFee: pallet_base_fee,
         HotfixSufficients: pallet_hotfix_sufficients,
-        NewBaseFee: pallet_set_base_fee,
     }
 );
 
