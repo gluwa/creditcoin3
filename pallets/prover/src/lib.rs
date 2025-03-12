@@ -18,8 +18,9 @@ pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
-        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH, ResultSegment,
     };
+    use frame_support::sp_runtime::traits::CheckedConversion;
     use sp_core::H256;
     use sp_std::prelude::*;
     use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -29,6 +30,8 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         type SupportedChains: SupportedChainsProvider;
+        #[pallet::constant]
+        type MaxSegmentsPerVerifierResult: Get<u32>;
     }
 
     pub trait WeightInfo {
@@ -43,6 +46,15 @@ pub mod pallet {
         Hasher = Blake2_128Concat,
         Key = H256,
         Value = VerifierExitStatus,
+        QueryKind = OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn result_segments_by_id)]
+    pub type ResultSegmentsById<T: Config> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = H256,
+        Value = BoundedVec<ResultSegment, T::MaxSegmentsPerVerifierResult>,
         QueryKind = OptionQuery,
     >;
 
@@ -91,6 +103,7 @@ pub mod pallet {
         QueryIdNotValidated,
         QueryOutOfBounds,
         QueryOffsetMismatch,
+        ResultSegmentsExceedMaxSize,
     }
 
     #[pallet::call]
@@ -124,14 +137,20 @@ pub mod pallet {
                 _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
             }
 
+            let query_id = query.id();
+
+            #[cfg(not(feature = "runtime-benchmarks"))]
+            {
+                let bounded_segments: BoundedVec<ResultSegment, <T as Config>::MaxSegmentsPerVerifierResult> = BoundedVec::checked_from(result_segments).ok_or(Error::<T>::ResultSegmentsExceedMaxSize)?;
+                ResultSegmentsById::<T>::insert(query_id, bounded_segments);
+            }
+
             #[cfg(feature = "runtime-benchmarks")]
             let result =
                 proof_verifier::host_benchmark_api::verify_proof(proof, query.clone(), metadata);
 
             #[cfg(feature = "runtime-benchmarks")]
             ensure!(result, Error::<T>::InvalidProofSubmitted);
-
-            let query_id = query.id();
 
             // Deposit event
             Self::deposit_event(Event::<T>::QueryVerified(

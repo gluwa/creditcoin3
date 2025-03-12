@@ -82,10 +82,15 @@ impl pallet_balances::Config for Test {
     type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
+parameter_types! {
+    pub const MaxSegmentsPerVerifierResult: u32 = 1000;
+}
+
 impl prover_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = prover_pallet::weights::WeightInfo<Test>;
     type SupportedChains = SupportedChains;
+    type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 
 impl pallet_supported_chains::Config for Test {
