@@ -18,9 +18,8 @@ pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
-        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH, ResultSegment,
+        Query, ResultSegment, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
     };
-    use frame_support::sp_runtime::traits::CheckedConversion;
     use sp_core::H256;
     use sp_std::prelude::*;
     use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -121,7 +120,8 @@ pub mod pallet {
             ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
-            let (status, result_segments) = proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
+            let (status, result_segments) =
+                proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
             #[cfg(not(feature = "runtime-benchmarks"))]
             match status {
@@ -141,7 +141,11 @@ pub mod pallet {
 
             #[cfg(not(feature = "runtime-benchmarks"))]
             {
-                let bounded_segments: BoundedVec<ResultSegment, <T as Config>::MaxSegmentsPerVerifierResult> = BoundedVec::checked_from(result_segments).ok_or(Error::<T>::ResultSegmentsExceedMaxSize)?;
+                let bounded_segments: BoundedVec<
+                    ResultSegment,
+                    <T as Config>::MaxSegmentsPerVerifierResult,
+                > = BoundedVec::checked_from(result_segments)
+                    .ok_or(Error::<T>::ResultSegmentsExceedMaxSize)?;
                 ResultSegmentsById::<T>::insert(query_id, bounded_segments);
             }
 
