@@ -8,10 +8,12 @@ use frame_support::{
 };
 use log::error;
 use pallet_evm::AddressMapping;
-use pallet_prover_primitives::Query;
+use pallet_prover::ResultSegmentsById;
+use pallet_prover_primitives::{Query, ResultSegment};
 use precompile_utils::prelude::*;
 use sp_core::H256;
 use sp_runtime::DispatchError;
+use sp_std::vec::Vec;
 
 #[cfg(test)]
 mod mock;
@@ -26,6 +28,7 @@ pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(ad
 pub struct ProofVerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
 type ConstU50MB = sp_core::ConstU32<52428800>;
+type Const32 = sp_core::ConstU32<32>;
 
 #[precompile_utils::precompile]
 impl<Runtime> ProofVerifierPrecompile<Runtime>
@@ -109,6 +112,28 @@ where
                     },
                 },
             }
+        }
+    }
+
+    #[precompile::public("get_result_segments(bytes32)")]
+    fn get_result_segments(_handle: &mut impl PrecompileHandle, query_id: BoundedBytes<Const32>) -> EvmResult<Vec<ResultSegment>> {
+        let bytes = query_id.as_bytes();
+        if bytes.len() != 32 { 
+            error!("Failed to get result segments. Query id not 256 bits.");
+            return Ok(Vec::new());
+        }
+        // The query_id should always be 32 bytes long
+        let mut sized_bytes = [0; 32];
+        for i in 0..32 {
+            sized_bytes[i] = bytes[i];
+        }
+        let query_id = H256::from(sized_bytes);
+        let result_segments: Option<_> = ResultSegmentsById::<Runtime>::get(query_id);
+        if let Some(segments) = result_segments {
+            Ok(Vec::from(segments))
+        } else {
+            // Empty vec signals failure to retrieve segments to prover contract
+            Ok(Vec::new())
         }
     }
 }

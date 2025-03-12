@@ -222,10 +222,15 @@ impl pallet_evm::Config for Runtime {
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
 }
 
+parameter_types! {
+    pub const MaxSegmentsPerVerifierResult: u32 = 1000;
+}
+
 impl pallet_prover::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
     type SupportedChains = SupportedChains;
+    type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 
 impl pallet_supported_chains::Config for Runtime {
