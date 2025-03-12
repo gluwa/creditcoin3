@@ -230,6 +230,16 @@ contract CreditcoinPublicProver is Ownable {
             }
         }
     }
+
+    function getQueryResultSegments(QueryId queryId) public returns (ResultSegment[] memory) {
+        QueryState state = queries[queryId].state;
+        require(state == QueryState.ResultAvailable, "Query result not available");
+
+        ResultSegment[] memory resultSegments = verifier.get_result_segments(queryId);
+        require(resultSegments.length != 0, "Error in result segment retrieval");
+
+        return resultSegments;
+    }
 }
 
 /// @title QueryVerifierContract interface
@@ -239,6 +249,10 @@ interface QueryVerifierContract {
         bytes calldata proof,
         ChainQuery calldata query
     ) external returns (uint64);
+
+    function get_result_segments(
+        QueryId queryId
+    ) external returns (ResultSegment[] memory);
 }
 
 event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName);

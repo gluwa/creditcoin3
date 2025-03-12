@@ -40,8 +40,8 @@ interface QueryVerifierContract {
     ) external returns (uint64);
 
     /// @notice Retrieve result segments for the given query_id if present in pallet-prover
-    /// @param query_id, the id of the query for which we are retrieving result segments
+    /// @param queryId, the id of the query for which we are retrieving result segments
     function get_result_segments(
-        QueryId query_id
+        QueryId queryId
     ) external returns (ResultSegment[] memory);
 }

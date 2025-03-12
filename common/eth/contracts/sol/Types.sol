@@ -30,7 +30,6 @@ struct ResultSegment {
 struct QueryDetails {
     QueryState state;
     ChainQuery query;
-    ResultSegment[] result;
     Balance escrowedAmount;
     address principal;
     Balance estimatedCost;
