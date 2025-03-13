@@ -12,7 +12,7 @@ use pallet_prover::ResultSegmentsById;
 use pallet_prover_primitives::{Query, ResultSegment};
 use precompile_utils::prelude::*;
 use sp_core::H256;
-use sp_runtime::DispatchError;
+use sp_runtime::{DispatchError, format};
 use sp_std::vec::Vec;
 
 #[cfg(test)]
@@ -124,8 +124,10 @@ where
         if bytes.len() != 32 {
             // Log error here and return it
             let err = "Failed to get result segments. Query id not 256 bits.";
-            error!(err);
-            return Err(PrecompileFailure::Error { exit_status: fp_evm::ExitError::Other(err) });
+            error!("{}", err);
+            return Err(PrecompileFailure::Error {
+                exit_status: fp_evm::ExitError::Other(sp_std::borrow::Cow::Borrowed(err)),
+            });
         }
         // The query_id should always be 32 bytes long
         let mut sized_bytes = [0; 32];
@@ -136,8 +138,10 @@ where
             Ok(Vec::from(segments))
         } else {
             let err = format!("Result segments not found for query: {:?}", query_id);
-            error!(err);
-            return Err(PrecompileFailure::Error { exit_status: fp_evm::ExitError::Other(err) });
+            error!("{}", err);
+            return Err(PrecompileFailure::Error {
+                exit_status: fp_evm::ExitError::Other(sp_std::borrow::Cow::Owned(err)),
+            });
         }
     }
 }
