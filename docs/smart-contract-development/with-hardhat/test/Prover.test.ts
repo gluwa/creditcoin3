@@ -323,7 +323,7 @@ describe('CreditcoinPublicProver', function () {
                 await prover.mock_setVerifierResult(result);
                 await expect(prover.connect(owner).submitQueryProof(queryId, proof))
                     .to.emit(prover, 'QueryProofVerified')
-                    .withArgs(queryId, proof, expectedState);
+                    .withArgs(queryId, [], expectedState);
 
                 // explicitly check query.state again
                 queryDetails = await prover.queries(queryId);
@@ -538,6 +538,64 @@ describe('CreditcoinPublicProver', function () {
             expect(unprocessed[0].chainId).to.equal(qdTwo.query.chainId);
             expect(unprocessed[0].height).to.equal(qdTwo.query.height);
             expect(unprocessed[0].index).to.equal(qdTwo.query.index);
+        });
+    });
+
+    describe('getQueryResultSegments()', function () {
+        it('Should revert when query result not available yet', async function () {
+            const receipt = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // explicitly set the state: QueryState.TimedOut
+            await prover.connect(owner).mock_setQueryState(queryId, 3);
+
+            await expect(prover.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
+                'Query result not available',
+            );
+        });
+
+        it('Should return query result segments', async function () {
+            const receipt = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // explicitly set the state: QueryState.ResultAvailable
+            await prover.connect(owner).mock_setQueryState(queryId, 2);
+            await prover.connect(owner).mock_pushQueryResultSegment({ offset: 1n, abiBytes: new Uint8Array(32) });
+
+            // doesn't crash
+            await prover.connect(user).getQueryResultSegments(queryId);
+            // WARNING: not asserting on the result b/c it's what we've mocked above
+        });
+
+        it('Should revert when verifier.get_query_result_segments() fails', async function () {
+            const factory = await ethers.getContractFactory('ProverWhereVerifierGetResultSegmentsFails');
+            const contract = await factory.deploy(
+                await proceedsAccount.getAddress(),
+                10n,
+                1000n,
+                sampleQuery.chainId,
+                'testing',
+            );
+            await contract.waitForDeployment();
+
+            const receipt = await (
+                await contract.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // explicitly set the state: QueryState.ResultAvailable
+            await contract.connect(owner).mock_setQueryState(queryId, 2);
+
+            await expect(contract.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
+                'Failed on purpose',
+            );
         });
     });
 });

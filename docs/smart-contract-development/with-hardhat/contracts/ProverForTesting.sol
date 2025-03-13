@@ -21,7 +21,7 @@ contract ProverForTesting is CreditcoinPublicProver {
     }
 
     // this will be called by getQueryResultSegments()
-    function _call_verifier_get_result_segments(QueryId) internal override view returns (ResultSegment[] memory) {
+    function _call_verifier_get_result_segments(QueryId) virtual internal override view returns (ResultSegment[] memory) {
         return fakeQueryResultSegments;
     }
 
