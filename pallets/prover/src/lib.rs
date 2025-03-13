@@ -144,8 +144,8 @@ pub mod pallet {
                 let bounded_segments: BoundedVec<
                     ResultSegment,
                     <T as Config>::MaxSegmentsPerVerifierResult,
-                > = BoundedVec::checked_from(result_segments)
-                    .ok_or(Error::<T>::ResultSegmentsExceedMaxSize)?;
+                > = frame_support::BoundedVec::try_from(result_segments)
+                    .map_err(|_| Error::<T>::ResultSegmentsExceedMaxSize)?;
                 ResultSegmentsById::<T>::insert(query_id, bounded_segments);
             }
 

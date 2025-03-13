@@ -5,8 +5,6 @@ describe("Test erc 20", function () {
   // ...previous test...
 
   it("Token burn should work", async function() {
-    const [owner, addr1, addr2] = await ethers.getSigners();
-
     const TestERC20 = await ethers.deployContract("TestERC20");
 
     // Transfer 50 tokens from owner to addr1
