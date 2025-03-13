@@ -28,7 +28,6 @@ pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(ad
 pub struct ProofVerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
 type ConstU50MB = sp_core::ConstU32<52428800>;
-type Const32 = sp_core::ConstU32<32>;
 
 #[precompile_utils::precompile]
 impl<Runtime> ProofVerifierPrecompile<Runtime>
@@ -118,21 +117,8 @@ where
     #[precompile::public("get_result_segments(bytes32)")]
     fn get_result_segments(
         _handle: &mut impl PrecompileHandle,
-        query_id: BoundedBytes<Const32>,
+        query_id: H256,
     ) -> EvmResult<Vec<ResultSegment>> {
-        let bytes = query_id.as_bytes();
-        if bytes.len() != 32 {
-            // Log error here and return it
-            let err = "Failed to get result segments. Query id not 256 bits.";
-            error!("{}", err);
-            return Err(PrecompileFailure::Error {
-                exit_status: fp_evm::ExitError::Other(sp_std::borrow::Cow::Borrowed(err)),
-            });
-        }
-        // The query_id should always be 32 bytes long
-        let mut sized_bytes = [0; 32];
-        sized_bytes.copy_from_slice(&bytes[..32]);
-        let query_id = H256::from(sized_bytes);
         let result_segments: Option<_> = ResultSegmentsById::<Runtime>::get(query_id);
         if let Some(segments) = result_segments {
             Ok(Vec::from(segments))

@@ -143,7 +143,7 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     // submitQueryProof is called by the prover when a query's proof is ready.
-    function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (uint64) {
+    function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (ResultSegment[] memory) {
         // Fist verify the proof
         uint64 result = _call_verifier_verify(queryId, proof);
 
@@ -174,7 +174,8 @@ contract CreditcoinPublicProver is Ownable {
         // Emit event with query ID, proof, and state
         emit QueryProofVerified(queryId, proof, queries[queryId].state);
 
-        return result;
+        ResultSegment[] memory resultSegments = verifier.get_result_segments(queryId);
+        return resultSegments;
     }
 
     function withdrawProceeds() public onlyOwner {
