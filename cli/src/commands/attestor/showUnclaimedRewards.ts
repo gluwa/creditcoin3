@@ -1,8 +1,5 @@
 import { Command, OptionValues } from 'commander';
-import { getValidatorStatus, newApi, requireStatus } from '../../lib';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring, delegateAddress } from '../../lib/account/keyring';
-import { proxyForOption } from '../options';
+import { newApi } from '../../lib';
 import { substrateAddressOption } from '../options';
 
 export function showClaimRewardsCommand() {

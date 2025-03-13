@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
-import { getValidatorStatus, newApi, requireStatus } from '../../lib';
+import { newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring, delegateAddress } from '../../lib/account/keyring';
+import { initKeyring } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 
 export function makeUnregisterAttestorCommand() {
@@ -36,7 +36,7 @@ async function unregisterAttestorAction(options: OptionValues) {
 
     const status = attestorStatus.unwrap().status;
     if (status.isActive) {
-        console.log(`Address ${attestorStatus} status is Active. Please chill the attestor first`);
+        console.log(`Address ${attestor} status is Active. Please chill the attestor first`);
         process.exit(0);
     }
     console.log(`Address ${attestor} status is Chill`);

@@ -21,10 +21,9 @@ async function showListAttestorsAction(options: OptionValues) {
     const chainKey = options.chain as string;
 
     const attestorsKeys = await api.query.attestation.attestors.keys();
-    for (let i = 0; i < attestorsKeys.length; i++) {
-        const key = attestorsKeys[i];
+    for (const [_, key] of attestorsKeys.entries()) {
         const chain = key.args[0].toString();
-        if (chain != chainKey) {
+        if (chain !== chainKey) {
             continue;
         }
         const attestor = await api.query.attestation.attestors(key.args[0], key.args[1]);
@@ -32,8 +31,8 @@ async function showListAttestorsAction(options: OptionValues) {
             continue;
         }
         const attestorValue = attestor.unwrap();
-        if (attestorValue.stash.toString() == address) {
-            console.log(`Address ${key.args[1]} is an attestor for chain ${chainKey}`);
+        if (attestorValue.stash.toString() === address) {
+            console.log(`Address ${key.args[1].toString()} is an attestor for chain ${chainKey}`);
             console.log('');
         }
     }

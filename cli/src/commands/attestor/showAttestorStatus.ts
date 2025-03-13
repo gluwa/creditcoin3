@@ -1,8 +1,5 @@
 import { Command, OptionValues } from 'commander';
-import { getValidatorStatus, newApi, requireStatus } from '../../lib';
-import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring, delegateAddress } from '../../lib/account/keyring';
-import { proxyForOption } from '../options';
+import { newApi } from '../../lib';
 import { substrateAddressOption } from '../options';
 
 export function makeShowAttestorStatusCommand() {
@@ -24,8 +21,8 @@ async function showAttestorStatus(options: OptionValues) {
     const chainKey = options.chain as string;
 
     const activeAttestors = await api.query.attestation.activeAttestors(chainKey);
-    for (let i = 0; i < activeAttestors.length; i++) {
-        if (activeAttestors[i].toString() === address) {
+    for (const attestorItem of activeAttestors) {
+        if (attestorItem.toString() === address) {
             console.log(`Address ${address} status is Elected`);
             process.exit(0);
         }

@@ -18,7 +18,6 @@ import { makeConvertAddressCommand } from './commands/convertAddress';
 import { makeProxyCommands } from './commands/proxy/commands';
 import { noInputOption, urlOption } from './commands/options';
 
-import { attestCommand } from './commands/attestor/attest';
 import { makeChillAttestorCommand } from './commands/attestor/chill';
 import { makeClaimRewardsCommand } from './commands/attestor/claimRewards';
 import { makeRegisterAttestorCommand } from './commands/attestor/registerAttestor';
