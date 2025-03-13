@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "@gluwa/evm-network-test": "^0.1.5"
+    "@gluwa/evm-network-test": "^0.2.9"
   }
 }
