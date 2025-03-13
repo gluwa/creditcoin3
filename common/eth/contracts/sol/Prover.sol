@@ -236,7 +236,6 @@ contract CreditcoinPublicProver is Ownable {
         require(state == QueryState.ResultAvailable, "Query result not available");
 
         ResultSegment[] memory resultSegments = verifier.get_result_segments(queryId);
-        require(resultSegments.length != 0, "Error in result segment retrieval");
 
         return resultSegments;
     }

@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::marker::PhantomData;
-use fp_evm::PrecompileHandle;
+use fp_evm::{PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
@@ -122,8 +122,10 @@ where
     ) -> EvmResult<Vec<ResultSegment>> {
         let bytes = query_id.as_bytes();
         if bytes.len() != 32 {
-            error!("Failed to get result segments. Query id not 256 bits.");
-            return Ok(Vec::new());
+            // Log error here and return it
+            let err = "Failed to get result segments. Query id not 256 bits.";
+            error!(err);
+            return Err(PrecompileFailure::Error { exit_status: fp_evm::ExitError::Other(err) });
         }
         // The query_id should always be 32 bytes long
         let mut sized_bytes = [0; 32];
@@ -133,8 +135,9 @@ where
         if let Some(segments) = result_segments {
             Ok(Vec::from(segments))
         } else {
-            // Empty vec signals failure to retrieve segments to prover contract
-            Ok(Vec::new())
+            let err = format!("Result segments not found for query: {:?}", query_id);
+            error!(err);
+            return Err(PrecompileFailure::Error { exit_status: fp_evm::ExitError::Other(err) });
         }
     }
 }
