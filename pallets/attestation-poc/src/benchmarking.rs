@@ -436,7 +436,7 @@ mod benchmarks {
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
             DEV_CHAIN_KEY,
-            attestor_id,
+            attestor_id.clone(),
         ));
 
         assert_ok!(Attestation::<T>::attest(
@@ -446,12 +446,13 @@ mod benchmarks {
             attestor.signature,
         ));
 
-        let signed_origin = attestor.attestor_origin;
+        let signed_origin = attestor.stash_origin;
 
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
+            attestor_id,
         )
     }
 
