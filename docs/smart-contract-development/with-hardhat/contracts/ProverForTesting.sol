@@ -5,14 +5,24 @@ import './Prover.sol';
 
 contract ProverForTesting is CreditcoinPublicProver {
     uint64 private fakeVerifierResult;
+    ResultSegment[] private fakeQueryResultSegments;
 
     function mock_setVerifierResult(uint64 value) public {
         fakeVerifierResult = value;
     }
 
+    function mock_pushQueryResultSegment(ResultSegment memory value) public {
+        fakeQueryResultSegments.push(value);
+    }
+
     // this will be called by submitQueryProof()
     function _call_verifier_verify(QueryId, bytes calldata) internal override view returns (uint64) {
         return fakeVerifierResult;
+    }
+
+    // this will be called by getQueryResultSegments()
+    function _call_verifier_get_result_segments(QueryId) internal override view returns (ResultSegment[] memory) {
+        return fakeQueryResultSegments;
     }
 
     constructor(
