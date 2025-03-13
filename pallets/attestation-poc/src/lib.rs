@@ -785,7 +785,7 @@ pub mod pallet {
             // Only chill your own attestor
             ensure!(attestor.stash == who, Error::<T>::NotYourAttestor);
 
-            Self::do_chill_attestor(chain_key, who, attestor);
+            Self::do_chill_attestor(chain_key, attestor_id, attestor);
 
             Ok(())
         }

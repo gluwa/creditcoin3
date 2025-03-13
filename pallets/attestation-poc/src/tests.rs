@@ -160,7 +160,7 @@ fn set_chain_reward_should_update_storage_and_emit_event() {
 fn chill_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::chill(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY),
+            Attestation::chill(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, ATTESTOR_1),
             BadOrigin
         );
     })
@@ -170,8 +170,12 @@ fn chill_should_error_when_not_signed() {
 fn chill_should_error_when_not_signed_by_an_attestor() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::chill(RuntimeOrigin::signed(ATTESTOR_1), SUPPORTED_CHAIN_KEY),
-            Error::<Test>::AddressNotAttestor
+            Attestation::chill(
+                RuntimeOrigin::signed(STASH_1),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ),
+            Error::<Test>::AddressNotAttestor,
         );
     })
 }
@@ -188,8 +192,9 @@ fn chill_should_update_status_and_emit_event() {
 
         // act
         assert_ok!(Attestation::chill(
-            RuntimeOrigin::signed(ATTESTOR_1),
-            SUPPORTED_CHAIN_KEY
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
         ));
 
         // assert
@@ -444,8 +449,9 @@ fn attestor_should_be_able_to_toggle_status() {
 
         // Chill
         assert_ok!(Attestation::chill(
-            RuntimeOrigin::signed(att.attestor_id),
-            SUPPORTED_CHAIN_KEY
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
         ));
         let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
         assert_eq!(attestor.status, AttestorStatus::Idle);
@@ -2312,8 +2318,9 @@ fn chilled_attestor_cannot_commit_attestation() {
 
         // Toggle to chilled
         assert_ok!(Attestation::chill(
-            RuntimeOrigin::signed(attestor.attestor_id,),
-            SUPPORTED_CHAIN_KEY
+            RuntimeOrigin::signed(STASH_1,),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
         ));
 
         progress_to_block(5);
@@ -2346,8 +2353,9 @@ fn unregistered_attestor_cannot_commit_attestation() {
 
         // Chill
         assert_ok!(Attestation::chill(
-            RuntimeOrigin::signed(attestor.attestor_id),
-            SUPPORTED_CHAIN_KEY
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id
         ));
 
         // Unregister attestor
