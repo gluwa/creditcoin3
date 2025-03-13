@@ -772,11 +772,18 @@ pub mod pallet {
 
         #[pallet::call_index(14)]
         #[pallet::weight(<T as Config>::WeightInfo::chill())]
-        pub fn chill(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
+        pub fn chill(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let attestor =
-                Attestors::<T>::get(chain_key, &who).ok_or(Error::<T>::AddressNotAttestor)?;
+            let attestor = Attestors::<T>::get(chain_key, &attestor_id)
+                .ok_or(Error::<T>::AddressNotAttestor)?;
+
+            // Only chill your own attestor
+            ensure!(attestor.stash == who, Error::<T>::NotYourAttestor);
 
             Self::do_chill_attestor(chain_key, who, attestor);
 
