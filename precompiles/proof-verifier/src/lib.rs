@@ -12,7 +12,7 @@ use pallet_prover::ResultSegmentsById;
 use pallet_prover_primitives::{Query, ResultSegment};
 use precompile_utils::prelude::*;
 use sp_core::H256;
-use sp_runtime::{DispatchError, format};
+use sp_runtime::{format, DispatchError};
 use sp_std::vec::Vec;
 
 #[cfg(test)]

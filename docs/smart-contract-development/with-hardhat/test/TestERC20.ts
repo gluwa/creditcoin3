@@ -1,5 +1,5 @@
 import { ethers } from 'hardhat';
-const { expect } = require("chai");
+import { expect } from 'chai';
 
 describe("Test erc 20", function () {
   // ...previous test...
