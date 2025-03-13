@@ -324,6 +324,7 @@ pub async fn build_historical_cache_for_chain(
         digest
     } else {
         warn!("No historical attestations found for chain: {}", chain);
+        done_building_cache.send(())?;
         return Ok(());
     };
 
