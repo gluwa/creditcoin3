@@ -32,9 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build docker image
+      - name: Build ${{ github.repository }}:indexer-for-${{ github.sha }} docker image
+        working-directory: ./cc3-indexer
+        run: |
+          tar --create --dereference --exclude-from=.dockerignore . | docker build -t ${{ github.repository }}:indexer-for-${{ github.sha }} -
+
+      - name: Build ${{ github.repository }} docker image
         run: |
           docker build -t ${{ github.repository }} .
+
+      - name: List docker images
+        run: |
+          docker images
 
       - name: Start a container from image
         run: |
@@ -1508,6 +1517,7 @@ jobs:
             --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
             --eth-rpc-url http://127.0.0.1:8141 \
             --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
+            --name "Test" \
             > /var/tmp/integration-test-attestor-network/prover-1.log 2>&1 &
 
       - name: Start Prover for Anvil-2
@@ -1528,6 +1538,7 @@ jobs:
             --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
             --eth-rpc-url http://127.0.0.1:8242 \
             --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
+            --name "Test" \
             > /var/tmp/integration-test-attestor-network/prover-2.log 2>&1 &
 
       - name: Install Node.js
@@ -2051,7 +2062,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        directory: [cli, docs/smart-contract-development/with-hardhat]
+        directory: [cc3-indexer, cli, docs/smart-contract-development/with-hardhat]
         command: [lint, typecheck, check-format]
 
     steps:

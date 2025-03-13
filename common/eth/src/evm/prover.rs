@@ -40,6 +40,7 @@ pub async fn deploy(
     cost_per_byte: u64,
     base_fee: u64,
     chain_key: ChainKey,
+    display_name: String,
 ) -> Result<GluwaPublicProverContract> {
     let provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(client.get_signer()?))
@@ -55,6 +56,7 @@ pub async fn deploy(
         U256::from(cost_per_byte),
         U256::from(base_fee),
         chain_key,
+        display_name,
     )
     .await?;
 
@@ -87,7 +89,7 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
-        let query = CreditcoinPublicProver::Query {
+        let query = CreditcoinPublicProver::ChainQuery {
             chainId: query.chain_id,
             height: query.height,
             index: query.index,
@@ -160,11 +162,11 @@ impl GluwaPublicProverContract {
             // TODO: check log
 
             let query = Query {
-                chain_id: query_submitted.query.chainId,
-                height: query_submitted.query.height,
-                index: query_submitted.query.index,
+                chain_id: query_submitted.chainQuery.chainId,
+                height: query_submitted.chainQuery.height,
+                index: query_submitted.chainQuery.index,
                 layout_segments: query_submitted
-                    .query
+                    .chainQuery
                     .layoutSegments
                     .iter()
                     .map(|l| LayoutSegment {
@@ -190,7 +192,7 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
-        let query = CreditcoinPublicProver::Query {
+        let query = CreditcoinPublicProver::ChainQuery {
             chainId: query.chain_id,
             height: query.height,
             index: query.index,
@@ -206,7 +208,7 @@ impl GluwaPublicProverContract {
 
         let builder = contract
             .submitQuery(query, principal)
-            .value(U256::from(cost + 1) * U256::from(1e18 as u64));
+            .value(U256::from(cost));
 
         let result = builder.send().await?.watch().await?;
 

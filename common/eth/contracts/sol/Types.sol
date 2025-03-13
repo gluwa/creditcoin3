@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 type QueryId is bytes32;
 type Balance is uint256;
 
-struct Query {
+struct ChainQuery {
     uint64 chainId;
     uint64 height;
     uint64 index;
@@ -19,7 +19,7 @@ struct LayoutSegment {
 
 struct ResultEvidence {
     bytes proof;
-    Query query;
+    ChainQuery query;
 }
 
 struct ResultSegment {
@@ -29,7 +29,7 @@ struct ResultSegment {
 
 struct QueryDetails {
     QueryState state;
-    Query query;
+    ChainQuery query;
     ResultSegment[] result;
     Balance escrowedAmount;
     address principal;
@@ -38,15 +38,15 @@ struct QueryDetails {
 }
 
 enum QueryState {
-    // Query is uninitialized, the default state
+    // ChainQuery is uninitialized, the default state
     Uninitialized,
-    // Query is submitted but not yet verified
+    // ChainQuery is submitted but not yet verified
     Submitted,
-    // Query is verified and the result is available
+    // ChainQuery is verified and the result is available
     ResultAvailable,
     // Prover failed to submit proof in time
     TimedOut,
-    // Query targeted a transaction outside of the containing
+    // ChainQuery targeted a transaction outside of the containing
     // range or the query's layout is impossible given the t
     InvalidQuery
 }

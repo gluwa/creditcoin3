@@ -15,17 +15,27 @@ contract CreditcoinPublicProver is Ownable {
     uint256 public costPerByte;
     uint256 public baseFee;
     uint64 chainKey;
+    string public displayName;
 
-    constructor(address _proceedsAccount, uint256 _costPerByte, uint256 _baseFee, uint64 _chainKey) Ownable() {
+    constructor(
+        address _proceedsAccount,
+        uint256 _costPerByte,
+        uint256 _baseFee,
+        uint64 _chainKey,
+        string memory _displayName
+    ) Ownable() {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
         totalEscrowBalance = Balance.wrap(0);
         costPerByte = _costPerByte;
         baseFee = _baseFee;
         chainKey = _chainKey;
+        displayName = _displayName;
+
+        emit ProverDeployed(address(this), msg.sender, _proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName);
     }
 
-    function computeQueryCost(Query calldata query) public view returns (uint256) {
+    function computeQueryCost(ChainQuery calldata query) public view returns (uint256) {
         // Cost function is based on the size of the query layoutsegments
         // I think it should also somehow include the distance between the required
         // block height and its nearest checkpoint or something of sorts (if distance
@@ -54,9 +64,8 @@ contract CreditcoinPublicProver is Ownable {
         emit BaseFeeUpdated(_newBaseFee);
     }
 
-    function submitQuery(Query calldata query, address principal) public payable {
+    function submitQuery(ChainQuery calldata query, address principal) public payable {
         require (query.chainId == chainKey, "Chain not supported");
-
         // Guards
         // QueryId may be computed differently if you'd like.
         QueryId queryId = QueryId.wrap(keccak256(abi.encode(query)));
@@ -64,45 +73,40 @@ contract CreditcoinPublicProver is Ownable {
         // Need a more complex guard for the queries that allows replay attack protection.
 
         uint256 estimatedCost = computeQueryCost(query);
-        require(msg.value > estimatedCost);
+        require(msg.value >= estimatedCost, "Insufficient funds: msg.value must be >= estimatedCost");
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
-        if (queries[queryId].state == QueryState.Uninitialized || queries[queryId].state == QueryState.ResultAvailable) {
-            // Store query details
-            // .state
-            queries[queryId].state = QueryState.Submitted;
-            // .query
-            queries[queryId].query.chainId = query.chainId;
-            queries[queryId].query.height = query.height;
-            queries[queryId].query.index = query.index;
-            for (uint i = 0; i < query.layoutSegments.length; i++) {
-                queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
-            }
-            // .result doesn't need to be set here
-            // .escrowedAmount
-            queries[queryId].escrowedAmount = Balance.wrap(msg.value);
-            // .principal
-            queries[queryId].principal = principal;
-            // .estimatedCost
-            queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
-            // .timestamp
-            queries[queryId].timestamp = block.number;
-
-            // Add to unprocessed queries
-            queryIds.push(queryId);
-
-            // Emit event
-            emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
-
-        } else if (queries[queryId].state == QueryState.TimedOut) {
-            revert("Query already timed out");
-        } else if (queries[queryId].state == QueryState.InvalidQuery) {
-            revert("Query already invalidated");
-        } else {
-            revert("Query already submitted, processing in progress");
+        if (queries[queryId].state != QueryState.Uninitialized) {
+            revert("Query already exists");
         }
 
+        // Store query details
+        // .state
+        queries[queryId].state = QueryState.Submitted;
+        // .query
+        queries[queryId].query.chainId = query.chainId;
+        queries[queryId].query.height = query.height;
+        queries[queryId].query.index = query.index;
+        for (uint i = 0; i < query.layoutSegments.length; i++) {
+            queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
+        }
+        // .result doesn't need to be set here
+        // .escrowedAmount
+        queries[queryId].escrowedAmount = Balance.wrap(msg.value);
+        // .principal
+        queries[queryId].principal = principal;
+        // .estimatedCost
+        queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
+        // .timestamp
+        queries[queryId].timestamp = block.number;
+
+        // Add to unprocessed queries
+        queryIds.push(queryId);
+
+
+        // Emit event
+        emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
     }
 
     function reclaimEscrowedPayment(QueryId queryId) public {
@@ -126,8 +130,7 @@ contract CreditcoinPublicProver is Ownable {
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - escrowedAmount);
 
-        (bool sent, ) = msg.sender.call{value: escrowedAmount}("");
-        require(sent, "Failed to send Fee");
+        payable(msg.sender).transfer(escrowedAmount);
 
         queries[queryId].escrowedAmount = Balance.wrap(0);
 
@@ -151,34 +154,25 @@ contract CreditcoinPublicProver is Ownable {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
 
         // Send to proceedsAccount
-        (bool sent, ) = proceedsAccount.call{value: proverFee}("");
-        require(sent, "Failed to send Fee");
+        payable(proceedsAccount).transfer(proverFee);
 
         queries[queryId].escrowedAmount = Balance.wrap(0);
 
         // Check the result of the proof verification
-        // After the fee is processed, the state of the query should be updated
         if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
         } else if (result == 1) {
             queries[queryId].state = QueryState.InvalidQuery;
-            removeQueryId(queryId);
-            revert("LayoutMismatch");
         } else if (result == 2) {
             queries[queryId].state = QueryState.TimedOut;
-            removeQueryId(queryId);
-            revert("ProofInvalid");
         } else if (result == 3) {
             queries[queryId].state = QueryState.InvalidQuery;
-            removeQueryId(queryId);
-            revert("QueryOutOfBounds");
         } else {
             queries[queryId].state = QueryState.InvalidQuery;
-            removeQueryId(queryId);
-            revert("Unknown error");
         }
 
-        emit QueryProofVerified(queryId, proof);
+        // Emit event with query ID, proof, and state
+        emit QueryProofVerified(queryId, proof, queries[queryId].state);
 
         return result;
     }
@@ -195,13 +189,12 @@ contract CreditcoinPublicProver is Ownable {
         require(withdrawable > 0, "No withdrawable proceeds available");
 
         // Transfer the amount to the proceeds account
-        (bool success, ) = proceedsAccount.call{value: withdrawable}("");
-        require(success, "Failed to Withdraw proceeds");
+        payable(proceedsAccount).transfer(withdrawable);
 
         emit ProceedsWithdrawn(proceedsAccount, withdrawable);
     }
 
-    function getUnprocessedQueries() public view returns (Query[] memory) {
+    function getUnprocessedQueries() public view returns (ChainQuery[] memory) {
         uint256 unprocessedCount;
 
         for (uint256 i = 0; i < queryIds.length; i++) {
@@ -210,7 +203,7 @@ contract CreditcoinPublicProver is Ownable {
             }
         }
 
-        Query[] memory unprocessedQueries = new Query[](unprocessedCount);
+        ChainQuery[] memory unprocessedQueries = new ChainQuery[](unprocessedCount);
         uint256 index;
 
         for (uint256 i = 0; i < queryIds.length; i++) {
@@ -244,12 +237,13 @@ contract CreditcoinPublicProver is Ownable {
 interface QueryVerifierContract {
     function verify(
         bytes calldata proof,
-        Query calldata query
+        ChainQuery calldata query
     ) external returns (uint64);
 }
 
-event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, Query query);
-event QueryProofVerified(QueryId indexed queryId, bytes proof);
+event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName);
+event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, ChainQuery chainQuery);
+event QueryProofVerified(QueryId indexed queryId, bytes proof, QueryState state);
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
 event CostPerByteUpdated(uint256 newCostPerByte);

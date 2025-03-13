@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { Signer } from 'ethers';
+import { Signer, parseEther } from 'ethers';
 import { ProverForTesting } from '../typechain-types';
 
 describe('CreditcoinPublicProver', function () {
@@ -28,7 +28,13 @@ describe('CreditcoinPublicProver', function () {
         // NOTE: interacting with a contract that inherits the SUT b/c it exposes
         // additional helper methods, like mock_setQueryState() for example
         const proverFactory = await ethers.getContractFactory('ProverForTesting');
-        prover = await proverFactory.deploy(await proceedsAccount.getAddress(), 10n, 1000n, sampleQuery.chainId);
+        prover = await proverFactory.deploy(
+            await proceedsAccount.getAddress(),
+            10n,
+            1000n,
+            sampleQuery.chainId,
+            'testing',
+        );
         await prover.waitForDeployment();
 
         queryCost = await prover.computeQueryCost(sampleQuery);
@@ -107,7 +113,7 @@ describe('CreditcoinPublicProver', function () {
 
             const balanceBeforeSubmit = await ethers.provider.getBalance(await user.getAddress());
 
-            const willingToPay = queryCost + 1n;
+            const willingToPay = queryCost;
             const tx = await prover
                 .connect(user)
                 .submitQuery(sampleQuery, await user.getAddress(), { value: willingToPay });
@@ -132,7 +138,7 @@ describe('CreditcoinPublicProver', function () {
         it('Should reject query with insufficient payment', async function () {
             await expect(
                 prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost - 1n }),
-            ).to.be.revertedWithoutReason();
+            ).to.be.revertedWith('Insufficient funds: msg.value must be >= estimatedCost');
         });
 
         it('Should revert when query.chainId does not match chainId configured in contract', async function () {
@@ -151,58 +157,30 @@ describe('CreditcoinPublicProver', function () {
             ).to.be.revertedWith('Chain not supported');
         });
 
-        it('Should revert when a TimedOut query is submitted again', async function () {
-            // submit query once
-            const tx = await prover
-                .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
-            const receipt = await tx.wait();
-            // @ts-ignore
-            const queryId = receipt?.logs[0]?.args?.[0];
+        const queryStates = [
+            { name: 'QueryState.Submitted', value: 1 },
+            { name: 'QueryState.ResultAvailable', value: 2 },
+            { name: 'QueryState.TimedOut', value: 3 },
+            { name: 'QueryState.InvalidQuery', value: 4 },
+        ];
+        queryStates.forEach(({ name, value }) => {
+            it(`Should revert when ${name} query is submitted again`, async function () {
+                // submit query once
+                const tx = await prover
+                    .connect(user)
+                    .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+                const receipt = await tx.wait();
+                // @ts-ignore
+                const queryId = receipt?.logs[0]?.args?.[0];
 
-            // QueryState.TimedOut
-            await prover.connect(owner).mock_setQueryState(queryId, 3);
+                // QueryState.TimedOut
+                await prover.connect(owner).mock_setQueryState(queryId, value);
 
-            // submit the same query again
-            await expect(
-                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
-            ).to.be.revertedWith('Query already timed out');
-        });
-
-        it('Should revert when an InvalidQuery query is submitted again', async function () {
-            // submit query once
-            const tx = await prover
-                .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
-            const receipt = await tx.wait();
-            // @ts-ignore
-            const queryId = receipt?.logs[0]?.args?.[0];
-
-            // QueryState.InvalidQuery
-            await prover.connect(owner).mock_setQueryState(queryId, 4);
-
-            // submit the same query again
-            await expect(
-                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
-            ).to.be.revertedWith('Query already invalidated');
-        });
-
-        it('Should revert when query is submitted again while still processing the first one', async function () {
-            // submit query once
-            const tx = await prover
-                .connect(user)
-                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
-            const receipt = await tx.wait();
-            // @ts-ignore
-            const queryId = receipt?.logs[0]?.args?.[0];
-
-            // QueryState.Submitted
-            await prover.connect(owner).mock_setQueryState(queryId, 1);
-
-            // submit the same query again
-            await expect(
-                prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
-            ).to.be.revertedWith('Query already submitted, processing in progress');
+                // submit the same query again
+                await expect(
+                    prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n }),
+                ).to.be.revertedWith('Query already exists');
+            });
         });
     });
 
@@ -252,6 +230,9 @@ describe('CreditcoinPublicProver', function () {
                 const event = reclaimReceipt?.logs[0];
                 // @ts-ignore
                 expect(event?.fragment.name).to.equal('EscrowedPaymentReclaimed');
+
+                const queryDetails = await prover.queries(queryId);
+                expect(queryDetails.escrowedAmount).to.equal(0);
             });
         });
 
@@ -284,27 +265,70 @@ describe('CreditcoinPublicProver', function () {
                 'Sender different from query.principal',
             );
         });
-    });
 
-    describe('Query Proof Submission', function () {
-        it('Should process valid proof submission', async function () {
-            const tx = await prover
-                .connect(user)
-                .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1n });
-
-            const receipt = await tx.wait();
+        it('Should revert when escrowedAmount transfer fails', async function () {
+            const receipt = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost })
+            ).wait();
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            const proof = new Uint8Array(32);
-            // mark proof as valid
-            await prover.mock_setVerifierResult(0);
-            await prover.connect(owner).submitQueryProof(queryId, proof);
+            const balanceBefore = await ethers.provider.getBalance(await user.getAddress());
+            const escrowBeforeReclaim = await prover.getTotalEscrowBalance();
+
+            // set state to QueryState.TimedOut
+            await prover.connect(owner).mock_setQueryState(queryId, 3);
+            // drain contract balance to cause a failure later
+            await prover.connect(owner).mock_drainBalance(queryCost);
+
+            await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWithoutReason();
+
+            const balanceAfter = await ethers.provider.getBalance(await user.getAddress());
+            const escrowAfterReclaim = await prover.getTotalEscrowBalance();
+
+            // b/c of gas fees paid
+            expect(balanceAfter).to.be.below(balanceBefore);
+            expect(escrowAfterReclaim).to.equal(escrowBeforeReclaim);
 
             const queryDetails = await prover.queries(queryId);
-            // Query is verified and the result is available
-            // aka QueryState.ResultAvailable,
-            expect(queryDetails.state).to.equal(2);
+            expect(queryDetails.escrowedAmount).to.equal(queryCost);
+        });
+    });
+
+    describe('submitQueryProof()', function () {
+        const verificationResult = [
+            { result: 0, expectedState: 2, stateName: 'QueryState.ResultAvailable' },
+            { result: 1, expectedState: 4, stateName: 'QueryState.InvalidQuery' },
+            { result: 2, expectedState: 3, stateName: 'QueryState.TimedOut' },
+            { result: 3, expectedState: 4, stateName: 'QueryState.InvalidQuery' },
+            { result: 4, expectedState: 4, stateName: 'QueryState.InvalidQuery' },
+        ];
+
+        verificationResult.forEach(({ result, expectedState, stateName }) => {
+            it(`Should emit an event and set query.state to ${stateName} when verification result is ${result}`, async function () {
+                const receipt = await (
+                    await prover
+                        .connect(user)
+                        .submitQuery(sampleQuery, await owner.getAddress(), { value: queryCost + 1n })
+                ).wait();
+
+                // @ts-ignore
+                const queryId = receipt?.logs[0]?.args?.[0];
+
+                let queryDetails = await prover.queries(queryId);
+                expect(queryDetails.state).to.equal(1); // QueryState.Submitted
+
+                const proof = new Uint8Array(32);
+                // mark proof as invalid
+                await prover.mock_setVerifierResult(result);
+                await expect(prover.connect(owner).submitQueryProof(queryId, proof))
+                    .to.emit(prover, 'QueryProofVerified')
+                    .withArgs(queryId, proof, expectedState);
+
+                // explicitly check query.state again
+                queryDetails = await prover.queries(queryId);
+                expect(queryDetails.state).to.equal(expectedState);
+            });
         });
 
         it('Should only allow owner to submit proofs', async function () {
@@ -321,6 +345,28 @@ describe('CreditcoinPublicProver', function () {
             await expect(prover.connect(user).submitQueryProof(queryId, proof)).to.be.revertedWith(
                 'Caller is not the owner',
             );
+        });
+
+        it('Should revert when proverFee transfer fails', async function () {
+            const maxCost = (await ethers.provider.getBalance(await user.getAddress())) - parseEther('0.1');
+            const receipt = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: maxCost })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            let queryDetails = await prover.queries(queryId);
+            expect(queryDetails.state).to.equal(1); // QueryState.Submitted
+
+            // drain contract balance to cause a failure later
+            await prover.connect(owner).mock_drainBalance(maxCost);
+
+            const proof = new Uint8Array(32);
+            await expect(prover.connect(owner).submitQueryProof(queryId, proof)).to.be.revertedWithoutReason();
+
+            // explicitly check again that query.state did not change
+            queryDetails = await prover.queries(queryId);
+            expect(queryDetails.state).to.equal(1); // QueryState.Submitted
         });
     });
 

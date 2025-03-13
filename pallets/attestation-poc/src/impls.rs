@@ -318,7 +318,11 @@ impl<T: Config> Pallet<T> {
         attestor.bls_public_key = Some(bls_public_key);
         Attestors::<T>::insert(chain_key, &attestor_id, attestor);
 
-        Self::deposit_event(Event::<T>::AttestorActivated(chain_key, attestor_id));
+        Self::deposit_event(Event::<T>::AttestorActivated(
+            chain_key,
+            attestor_id,
+            bls_public_key,
+        ));
 
         Ok(())
     }

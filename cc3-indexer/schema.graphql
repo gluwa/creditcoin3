@@ -1,0 +1,578 @@
+# To improve query performance, we strongly suggest adding indexes to any field that you plan to filter or sort by
+# Add the `@index` or `@index(unique: true)` annotation after any non-key field
+# https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
+
+type AttestationChainData @entity {
+    id: ID!
+    # The chain key of the attestation chain
+    chainKey: Int! @index
+    # Chain reward
+    chainReward: BigInt!
+    # Minimum bond requirement
+    minBondRequirement: BigInt!
+    # Attestation interval
+    attestationInterval: Int!
+    # Checkpoint interval
+    checkpointInterval: Int!
+    # Target sample size
+    targetSampleSize: Int!
+    # Max set size
+    maxSetSize: Int!
+    # Last checkpoint header number
+    lastCheckpointHeaderNumber: Int!
+    # Last attested header number
+    lastAttestedHeaderNumber: Int!
+    # Last attested digest
+    lastAttestedDigest: String!
+}
+
+type Transfer @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+    """
+    Amount that is transferred
+    """
+    amount: BigInt!
+    """
+    The block height of the transfer
+    """
+    blockNumber: Int!
+    """
+    The date of the transfer
+    """
+    date: Date
+    """
+    The account that transfers are made from
+    """
+    from: Account!
+    """
+    The account that transfers are made to
+    """
+    to: Account!
+}
+
+type Account @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+    """
+    The public key of this account (same across all Polkadot parachains)
+    """
+    publicKey: String!
+    """
+    The first block on which we see a transfer involving this account
+    """
+    firstTransferBlock: Int
+    """
+    The most recent block on which we see a transfer involving this account
+    """
+    lastTransferBlock: Int
+    sentTransfers: [Transfer] @derivedFrom(field: "from") # These are virtual properties to help us navigate to the correct foreign key of Transfer
+    recievedTransfers: [Transfer] @derivedFrom(field: "to") # These are virtual properties to help us navigate to the correct foreign key of Transfer
+}
+
+type MapAttestationAttestor @entity {
+    id: ID!
+    attestation: Attestations!
+    attestor: Attestors!
+}
+
+type Attestations @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    chainKey: Int! @index
+
+    headerNumber: Int!
+
+    headerHash: String!
+
+    root: String!
+
+    prevDigest: String
+
+    signature: String!
+
+    digest: String!
+}
+
+type Attestors @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    chainKey: Int! @index
+
+    attestor: Account! @index
+
+    stash: Account! @index
+
+    lastUpdateBlockNumber: Int!
+    """
+    1 - Registred, 2 Unregistered, 3 - Elected, 4 - Activated, 5 - Chilled
+    """
+    status: Int!
+
+    blsPublicKey: String!
+}
+
+type AttestorsElected @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    epoch: BigInt!
+
+    chainKey: Int!
+
+    attestor: Account!
+}
+
+type AttestorRegistered @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    stash: Account!
+
+    chainKey: Int!
+
+    attestor: Account!
+
+    blockNumber: Int!
+}
+
+type AttestorUnregistered @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    chainKey: Int!
+
+    attestor: Account!
+
+    blockNumber: Int!
+}
+
+type InvulnerableRegistered @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    chainKey: Int!
+
+    attestor: Account!
+
+    blockNumber: Int!
+}
+
+type InvulnerableUnregistered @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    chainKey: Int!
+
+    attestor: Account!
+
+    blockNumber: Int!
+}
+
+type Checkpoints @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    atBlockNumber: Int!
+
+    chainKey: Int!
+
+    blockNumber: Int!
+
+    digest: String!
+}
+
+type TargetSampleSizeChanged @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    blockNumber: Int!
+
+    chainKey: Int!
+
+    eventNewTargetSampleSize: Int!
+}
+
+type Bonded @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    """
+    The block height when it happened
+    """
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    amount: BigInt!
+
+    stash: Account!
+}
+
+type Unbonded @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    """
+    The block height when it happened
+    """
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    amount: BigInt!
+
+    stash: Account!
+}
+
+type Withdrawn @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    """
+    The block height when it happened
+    """
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    amount: BigInt!
+
+    stash: Account!
+}
+
+type RewardClaimed @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    """
+    The block height when it happened
+    """
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    amount: BigInt!
+
+    stash: Account!
+}
+
+type RewardPaid @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    """
+    The block height when it happened
+    """
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    chainKey: Int!
+
+    amount: BigInt!
+
+    stash: Account!
+}
+
+type AttestorActivated @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    blockNumber: Int!
+
+    date: Date
+
+    chainKey: Int!
+
+    attestor: Account!
+
+    blsPublicKey: String!
+}
+
+type AttestorChilled @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    blockNumber: Int!
+
+    date: Date
+
+    chainKey: Int!
+
+    attestor: Account!
+}
+
+type MinBondRequirementUpdated @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+    """
+    New value of MinBondRequirementUpdated that was updated by root
+    """
+    amount: BigInt!
+    """
+    The block height of the transfer
+    """
+    blockNumber: Int!
+    """
+    The date of the transfer
+    """
+    date: Date
+
+    who: Account!
+}
+
+type ChainRewardUpdated @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+    """
+    New value of ChainRewardUpdated that was updated by root
+    """
+    amount: BigInt!
+
+    chainKey: Int!
+
+    """
+    The block height of the transfer
+    """
+    blockNumber: Int!
+    """
+    The date of the transfer
+    """
+    date: Date
+
+    who: Account!
+}
+
+type CheckpointsCleared @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+    """
+    The block height of the transfer
+    """
+    blockNumber: Int!
+    """
+    The date of the transfer
+    """
+    date: Date
+
+    chainKey: Int!
+}
+
+type ClearedStorageForRemovedChain @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    chainKey: Int!
+}
+
+type AttestationIntervalChanged @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: Int!
+
+    date: Date
+
+    chainKey: Int!
+
+    interval: Int!
+}
+
+type CheckpointIntervalChanged @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: Int!
+
+    date: Date
+
+    chainKey: Int!
+
+    interval: Int!
+}
+
+type PendingAttestationIntervalSet @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: Int!
+
+    date: Date
+
+    who: Account!
+
+    chainKey: Int!
+
+    interval: Int!
+}
+
+type Prover @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    owner: String
+
+    proceedsAccount: String
+
+    contractAddress: String
+
+    chainKey: BigInt!
+
+    name: String!
+
+    baseCostPerByte: BigInt!
+
+    baseFee: BigInt!
+}
+
+type ChainQueries @entity {
+    """
+    Represents a ChainQuery with chainKey, height, index, and layout segments
+    """
+    id: ID!
+    chainQueryId: String! @index
+    chainKey: Int!
+    height: BigInt!
+    index: BigInt!
+    layoutSegments: [LayoutSegment]
+    state: QueryStatus!
+
+    estimatedCost: BigInt!
+    escrowedAmount: BigInt!
+}
+
+enum QueryStatus {
+    Uninitialized,
+    Submitted,
+    ResultAvailable,
+    TimedOut,
+    InvalidQuery
+}
+
+type LayoutSegment @jsonField {
+    offset: BigInt!
+    size: BigInt!
+}
+
+type Proof @entity {
+    """
+    Represents a proof with id, queryRef, and proof segments
+    """
+    id: ID!
+    queryRef: String!
+
+    proof: Bytes!
+}
+
+type EscrowPaymentReclaimed @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: Int!
+
+    who: String!
+
+    amount: BigInt!
+}
+
+type ProceedsWithdrawn @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: Int!
+
+    who: String!
+
+    proceedsAccount: String!
+
+    amount: BigInt!
+}

@@ -400,7 +400,7 @@ pub mod pallet {
             stash: T::AccountId,
             amount: BalanceOf<T>,
         },
-        AttestorActivated(ChainKey, T::AccountId),
+        AttestorActivated(ChainKey, T::AccountId, BlsPublicKey),
         AttestorChilled(ChainKey, T::AccountId),
         RewardPaid {
             chain_key: ChainKey,
@@ -427,6 +427,7 @@ pub mod pallet {
         /// Signals that checkpoints were cleared for a chain that is no longer supported.
         /// A fixed number of checkpoints will be cleared per block until none remain.
         CheckpointsCleared(ChainKey),
+        CheckpointIntervalChanged(ChainKey, u32),
         /// A source chain was removed via pallet supported chains. Associated storage
         /// in pallet attestation was cleaned up.
         ClearedStorageForRemovedChain(ChainKey),
@@ -710,6 +711,11 @@ pub mod pallet {
             );
 
             AttestationCheckpointInterval::<T>::set(chain_key, attestations_per_checkpoint);
+            Self::deposit_event(Event::<T>::CheckpointIntervalChanged(
+                chain_key,
+                attestations_per_checkpoint,
+            ));
+
             Ok(())
         }
 

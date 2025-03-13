@@ -239,21 +239,34 @@ jobs:
           TAG_NAME=$(git describe --tag)
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
 
-      - name: Build docker image
+      - name: Build ${{ github.repository }} docker image
         run: |
-          docker build -t ${{ github.repository }}:${{needs.sanity-check.outputs.TAG_NAME  }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
+          docker build -t ${{ github.repository }}:${{needs.sanity-check.outputs.TAG_NAME }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
-          docker push ${{ github.repository }}:${{ needs.sanity-check.outputs.TAG_NAME  }}
+          docker push ${{ github.repository }}:${{ needs.sanity-check.outputs.TAG_NAME }}
 
           # only -mainnet images are tagged as :latest
           # shellcheck disable=SC2046,SC2143
           if [ $(echo "${{ needs.sanity-check.outputs.TAG_NAME }}" | grep "mainnet") ]; then
-              docker tag ${{ github.repository }}:${{ needs.sanity-check.outputs.TAG_NAME  }} gluwa/${{ github.repository }}:latest
+              docker tag ${{ github.repository }}:${{ needs.sanity-check.outputs.TAG_NAME }} ${{ github.repository }}:latest
               docker push ${{ github.repository }}:latest
           fi
 
           docker logout
+          docker images
+
+      - name: Build ${{ github.repository }}:indexer-for-${{ needs.sanity-check.outputs.TAG_NAME }} docker image
+        working-directory: ./cc3-indexer
+        run: |
+          tar --create --dereference --exclude-from=.dockerignore . | docker build -t ${{ github.repository }}:indexer-for-${{ github.sha }} -
+
+          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
+          docker push ${{ github.repository }}:indexer-for-${{ needs.sanity-check.outputs.TAG_NAME }}
+          # NOTE: not tagging indexer as `:latest` b/c it is not the primary image in this repository!
+
+          docker logout
+          docker images
 
   create-release:
     permissions:

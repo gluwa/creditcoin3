@@ -795,7 +795,8 @@ fn attest_should_update_storage_and_emit_event() {
         assert_eq!(attestor.bls_public_key, Some(att1.public_key));
 
         System::assert_last_event(
-            crate::Event::AttestorActivated(SUPPORTED_CHAIN_KEY, att1.attestor_id).into(),
+            crate::Event::AttestorActivated(SUPPORTED_CHAIN_KEY, att1.attestor_id, att1.public_key)
+                .into(),
         );
     })
 }

@@ -16,8 +16,12 @@ contract ProverForTesting is CreditcoinPublicProver {
     }
 
     constructor(
-        address _proceedsAccount, uint256 _costPerByte, uint256 _baseFee, uint64 _chainKey
-    ) CreditcoinPublicProver(_proceedsAccount, _costPerByte, _baseFee, _chainKey) {}
+        address _proceedsAccount,
+        uint256 _costPerByte,
+        uint256 _baseFee,
+        uint64 _chainKey,
+        string memory _displayName
+    ) CreditcoinPublicProver(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName) {}
 
     function getTotalEscrowBalance() public view returns (Balance) {
         return totalEscrowBalance;
@@ -29,5 +33,9 @@ contract ProverForTesting is CreditcoinPublicProver {
 
     function mock_setQueryState(QueryId queryId, QueryState newState) public onlyOwner {
         queries[queryId].state = newState;
+    }
+
+    function mock_drainBalance(uint256 howMuch) public onlyOwner {
+        payable(0).transfer(howMuch);
     }
 }

@@ -9,6 +9,7 @@
 /// - `claim_buffer`: The amount of claims we can handle in a certain period
 /// - `prover_be_socket_addr`: The prover runs in light mode when this flag is provided. It identifies the web socket address to which proving requests are directed.
 /// - `be_api_key`: When in light mode, the prover sends proof requests to the prover BE. The BE requires an api key for auth. This takes the form of a UUID.
+/// - `name`: Name of the prover
 pub struct Config {
     pub cc3_rpc_url: String,
     pub cc3_key: String,
@@ -20,4 +21,5 @@ pub struct Config {
     pub postgres_uri: String,
     pub prover_be_socket_addr: Option<String>,
     pub be_api_key: Option<String>,
+    pub name: String,
 }
