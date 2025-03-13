@@ -6,7 +6,9 @@ import { proxyForOption } from '../options';
 
 export function makeAttestorWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded-attestor');
-    cmd.description('Withdraw unbonded funds from attestor account that become available after calling unregisterAttestor');
+    cmd.description(
+        'Withdraw unbonded funds from attestor account that become available after calling unregisterAttestor',
+    );
     cmd.addOption(proxyForOption);
     cmd.action(withdrawUnbondedAction);
     return cmd;

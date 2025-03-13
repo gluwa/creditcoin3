@@ -28,8 +28,6 @@ import { makeShowAttestorStatusCommand } from './commands/attestor/showAttestorS
 import { showListAttestorsCommand } from './commands/attestor/showListAttestors';
 import { showClaimRewardsCommand } from './commands/attestor/showUnclaimedRewards';
 
-
-
 const program = new Command();
 
 // Add commands. WARNING: DO NOT ADD SUB COMMANDS HERE!

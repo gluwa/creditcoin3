@@ -7,14 +7,8 @@ import { proxyForOption } from '../options';
 export function makeUnregisterAttestorCommand() {
     const cmd = new Command('unregister-attestor');
     cmd.description('Unregister attestor and unbond funds from a stash account');
-    cmd.option(
-        '-a, --attestor [attestor]',
-        'Specify attestor account to unregister',
-    );
-    cmd.option(
-        '-c, --chain [chain]',
-        'Specify chain key to unregister attestor for',
-    );
+    cmd.option('-a, --attestor [attestor]', 'Specify attestor account to unregister');
+    cmd.option('-c, --chain [chain]', 'Specify chain key to unregister attestor for');
     cmd.addOption(proxyForOption);
     cmd.action(unregisterAttestorAction);
     return cmd;

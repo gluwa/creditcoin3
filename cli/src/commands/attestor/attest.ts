@@ -8,18 +8,9 @@ export function attestCommand() {
     const cmd = new Command('attest');
     cmd.description('attest');
     cmd.addOption(proxyForOption);
-    cmd.option(
-        '-c, --chain [chain]',
-        'chain key to attest',
-    );
-    cmd.option(
-        '-b, --bls-public-key [blsPublicKey]',
-        'BLS public key to attest',
-    );
-    cmd.option(
-        '-p, --proof-of-possession [proofOfPossession]',
-        'Proof of possession to attest',
-    );
+    cmd.option('-c, --chain [chain]', 'chain key to attest');
+    cmd.option('-b, --bls-public-key [blsPublicKey]', 'BLS public key to attest');
+    cmd.option('-p, --proof-of-possession [proofOfPossession]', 'Proof of possession to attest');
     cmd.action(attestAction);
     return cmd;
 }
@@ -40,5 +31,3 @@ async function attestAction(options: OptionValues) {
     console.log(result.info);
     process.exit(result.status);
 }
-
-

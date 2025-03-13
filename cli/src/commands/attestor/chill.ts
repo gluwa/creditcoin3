@@ -8,14 +8,8 @@ export function makeChillAttestorCommand() {
     const cmd = new Command('chill-attestor');
     cmd.description('Chill attestor');
     cmd.addOption(proxyForOption);
-    cmd.option(
-        '-c, --chain [chain]',
-        'chain key to chill',
-    );
-    cmd.option(
-        '-a, --attestor [attestor]',
-        'Specify attestor account to unregister',
-    );
+    cmd.option('-c, --chain [chain]', 'chain key to chill');
+    cmd.option('-a, --attestor [attestor]', 'Specify attestor account to unregister');
     cmd.action(chillAction);
     return cmd;
 }

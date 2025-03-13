@@ -6,10 +6,7 @@ export function showListAttestorsCommand() {
     const cmd = new Command('show-list-attestors');
     cmd.description('Show attestor status for a given address and chain key');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.option(
-        '-c, --chain [chain]',
-        'Specify chain key to show attestor status for',
-    );
+    cmd.option('-c, --chain [chain]', 'Specify chain key to show attestor status for');
     cmd.action(showListAttestorsAction);
     return cmd;
 }
