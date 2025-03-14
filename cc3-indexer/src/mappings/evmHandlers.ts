@@ -110,13 +110,13 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
     // Update state
     switch (state) {
         case 0:
-            query.state = QueryStatus.ResultAvailable;
+            query.state = QueryStatus.Uninitialized;
             break;
         case 1:
-            query.state = QueryStatus.InvalidQuery;
+            query.state = QueryStatus.Submitted;
             break;
         case 2:
-            query.state = QueryStatus.TimedOut;
+            query.state = QueryStatus.ResultAvailable;
             break;
         case 3:
             query.state = QueryStatus.TimedOut;
