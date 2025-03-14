@@ -951,7 +951,7 @@
     rxjs "^7.8.1"
     tslib "^2.8.0"
 
-"@polkadot/api@15.8.1", "@polkadot/api@^15":
+"@polkadot/api@15.8.1":
   version "15.8.1"
   resolved "https://registry.yarnpkg.com/@polkadot/api/-/api-15.8.1.tgz#ebc1735b27c38c75f499947130c26a823cef5136"
   integrity sha512-J4BhtTGoBYTLEtd6CMku8J7oKfv66elVd5IRF7yOddJFmY0zb5fNk3B2Y9Pv495fo77M0qKc/LjseCZn207pQQ==

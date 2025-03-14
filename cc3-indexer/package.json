@@ -28,7 +28,7 @@
   "author": "gluwa",
   "license": "MIT",
   "devDependencies": {
-    "@polkadot/api": "^15",
+    "@polkadot/api": "15.8.1",
     "@subql/cli": "5.5.1",
     "@subql/common-substrate": "4.3.7",
     "@subql/frontier-evm-processor": "^1.0.0",
