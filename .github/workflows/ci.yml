@@ -2330,9 +2330,6 @@ jobs:
 
   cc3-indexer-testing:
     runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: ./cc3-indexer
     steps:
       - uses: actions/checkout@v4
 
@@ -2341,24 +2338,20 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install
-        run: yarn install
+      - name: Setup
+        working-directory: ./cc3-indexer
+        run: |
+            yarn install
+            yarn codegen
+            yarn build
 
-      - name: Codegen
-        run: yarn codegen
-
-      - name: Build
-        run: yarn build
-
-      - name: Run compose
-        run: docker compose up postgres -d
+            docker compose up postgres -d
 
       - name: Run tests with Subquery Node
-        run: ./run-tests.sh
-
-      - name: Produce HTML coverage report
-        if: always()
+        working-directory: ./cc3-indexer
         run: |
+          ./run-tests.sh
+
           yarn run c8 report --reporter=html
 
           # remove this b/c these special characters break actions/upload-artifact.
@@ -2373,6 +2366,7 @@ jobs:
           path: cc3-indexer/coverage/
 
       - name: Delete compose
+        working-directory: ./cc3-indexer
         run: docker compose down
 
       - name: Upload logs
