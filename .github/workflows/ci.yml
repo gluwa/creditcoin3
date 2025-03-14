@@ -2471,7 +2471,6 @@ jobs:
         working-directory: ./cc3-indexer
         run: |
             yarn install
-            yarn codegen
             yarn build
 
             docker compose up postgres -d
