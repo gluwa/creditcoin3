@@ -217,6 +217,10 @@ where
     pub fn round(&self) -> Round {
         (self.chain_key, self.header_number)
     }
+
+    pub fn chain_key(&self) -> ChainKey {
+        self.chain_key
+    }
 }
 
 #[derive(

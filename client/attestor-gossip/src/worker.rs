@@ -17,7 +17,7 @@ use substrate_prometheus_endpoint::Registry;
 use attestor_primitives::{
     api::AttestorApi,
     bls::{Bls, CryptoScheme, WrapEncode},
-    Round, SignedAttestation,
+    SignedAttestation,
 };
 
 use bls_signatures::{aggregate, Serialize};
@@ -219,7 +219,7 @@ where
                 // Handler that handles incoming attestation from the gossip netowrk
                 vote = votes.next() => {
                     if let Some(vote) = vote {
-                        debug!(target: LOG_TARGET, "📝 Got a vote from the network");
+                        info!(target: LOG_TARGET, "📝 Got a vote from the network");
                         metric_inc!(self.metrics, attestor_imported_votes);
                         match self.triage_message(vote.clone()).await {
                             Ok(()) => {
@@ -246,10 +246,8 @@ where
                         match message.clone() {
                             Message::Attestation(attestation) => {
                                 metric_inc!(self.metrics, attestor_votes_from_rpc);
-                                let chain_key = attestation.attestation_data.chain_key;
-                                let header_number = attestation.attestation_data.header_number;
 
-                                let round = (chain_key, header_number);
+                                let round = attestation.round();
                                 debug!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
 
                                 metric_inc!(self.metrics, attestor_good_votes_processed);
@@ -308,16 +306,12 @@ where
 
         let block_hash = self.backend.blockchain().info().best_hash;
 
-        // Get the round for the attestation
-        // This is the chain key and header number
-        let round = attestation.round();
-
         // Validate the attestation
         self.attestation_validator
-            .validate_attestation(block_hash, round, &attestation)?;
+            .validate_attestation(block_hash, &attestation)?;
 
         // Verify the VRF output
-        self.verify_vrf(block_hash, round, &attestation)?;
+        self.verify_vrf(block_hash, &attestation)?;
 
         // Short circuit if we are not an authority
         if !self.is_authority {
@@ -326,18 +320,8 @@ where
             return Ok(());
         }
 
-        let round_config = round::get_round_config(self.runtime.clone(), round.0, block_hash)?;
-
-        // Get the current epoch
-        let current_epoch = self
-            .runtime
-            .runtime_api()
-            .current_epoch(block_hash)?
-            .epoch_index;
         // Add the attestation to the round
-        let import_result =
-            self.state
-                .note_vote(attestation.clone(), &round_config, current_epoch)?;
+        let import_result = self.state.note_vote(attestation.clone())?;
 
         match import_result {
             VoteImportResult::DoubleVote => {
@@ -354,7 +338,7 @@ where
             }
             VoteImportResult::RoundConcluded => {
                 info!(target: LOG_TARGET, "📝 Round concluded");
-                self.try_submit_attestation(round, attestation)?;
+                self.try_submit_attestation(attestation)?;
             }
         }
         Ok(())
@@ -364,14 +348,13 @@ where
     /// This checks if the attestor that submitted this attestations vrf output is correct
     /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
     fn verify_vrf(
-        &self,
+        &mut self,
         best_hash: B::Hash,
-        round: Round,
         attestation: &Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
-        debug!(target: LOG_TARGET, "📝 Verifying VRF output for attestation, round: {:?}", round);
-        let chain_key = round.0;
-        let header_number = round.1;
+        debug!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
+        let chain_key = attestation.chain_key();
+        let header_number = attestation.header_number();
 
         let attestor_id = attestation.attestor_id();
 
@@ -383,7 +366,11 @@ where
         // Here we verify the proof of inclusion
         // based on the round config
         // Get round config at the attestation epoch
-        let round_config = round::get_round_config(self.runtime.clone(), chain_key, best_hash)?;
+        let round_config = self
+            .state
+            .get_round_config(chain_key)
+            .ok_or(Error::RoundConfigNotFound)?;
+
         let is_included = vrf::verify_proof_of_inclusion(
             round_config.committee_set_size.into(),
             round_config.target_sample_size.into(),
@@ -408,11 +395,10 @@ where
     /// 3. Flush memory
     fn try_submit_attestation(
         &mut self,
-        round: Round,
         attestation: Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
-        let chain_key = round.0;
-        let header_number = round.1;
+        let chain_key = attestation.chain_key();
+        let header_number = attestation.header_number();
 
         let attestations = self
             .state
@@ -517,13 +503,21 @@ where
             return Ok(());
         }
 
-        debug!(target: LOG_TARGET, "📝 Updating round configuration for epoch: {:?}", current_epoch.epoch_index);
-
         // Get supported chain keys
         let supported_chain_keys = runtime_api.supported_chains(notif.hash)?;
 
         // Update gossip filter for each supported chain
         for chain_key in supported_chain_keys {
+            debug!(target: LOG_TARGET, "📝 Updating round configuration for epoch: {:?}", current_epoch.epoch_index);
+            let round_config = round::create(
+                self.runtime.clone(),
+                chain_key,
+                notif.hash,
+                current_epoch.epoch_index,
+            )?;
+            // Update round configuration
+            self.state.add_round_config(chain_key, round_config.clone());
+
             let last_header_number = if let Some(digest) =
                 runtime_api.last_digest(notif.hash, chain_key)?
             {

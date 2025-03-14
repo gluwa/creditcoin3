@@ -13,12 +13,14 @@ pub struct RoundConfig {
     pub committee_set_size: u32,
     pub target_sample_size: u32,
     pub threshold: u32,
+    pub current_epoch: u64,
 }
 
-pub fn get_round_config<RA, B, AccountId>(
+pub fn create<RA, B, AccountId>(
     ra: Arc<RA>,
     chain_key: ChainKey,
     block_hash: HashFor<B>,
+    current_epoch: u64,
 ) -> Result<RoundConfig, Error>
 where
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
@@ -35,6 +37,7 @@ where
         committee_set_size,
         target_sample_size,
         threshold,
+        current_epoch,
     })
 }
 

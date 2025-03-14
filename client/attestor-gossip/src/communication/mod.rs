@@ -5,7 +5,9 @@ use thiserror::Error;
 
 use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use attestor_primitives::bls::{Bls, CryptoScheme};
-use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, Digest, Round};
+use attestor_primitives::{
+    Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest, Round,
+};
 
 pub mod gossip;
 pub mod validator;
@@ -31,6 +33,10 @@ where
 
     pub fn round(&self) -> Round {
         self.attestation_data.round()
+    }
+
+    pub fn chain_key(&self) -> ChainKey {
+        self.attestation_data.chain_key()
     }
 
     pub fn header_number(&self) -> u64 {
@@ -102,4 +108,6 @@ pub enum Error {
     Overflow,
     #[error("Attestation round already concluded")]
     RoundAlreadyConcluded,
+    #[error("Attestation round config not found")]
+    RoundConfigNotFound,
 }

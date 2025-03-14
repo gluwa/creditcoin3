@@ -15,7 +15,6 @@ use attestation_chain::block::Block;
 use attestor_primitives::{
     api::AttestorApi,
     bls::{Bls, BlsSerialize, CryptoScheme, PublicKey},
-    Round,
 };
 use randomness_primitives::api::RandomnessPalletApi;
 use supported_chains_primitives::api::SupportedChainsApi;
@@ -70,15 +69,17 @@ where
     pub fn validate_attestation(
         &self,
         block_hash: B::Hash,
-        round: Round,
         attestation: &Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
+        let chain_key = attestation.chain_key();
+        let header_number = attestation.header_number();
+
         // Check if the attestation bls signature is valid
         self.verify_bls_signature(block_hash, attestation)?;
 
         let runtime = self.runtime.runtime_api();
 
-        let exists = runtime.contains_digest(block_hash, round.0, attestation.digest())?;
+        let exists = runtime.contains_digest(block_hash, chain_key, attestation.digest())?;
         if exists {
             debug!(target: LOG_TARGET, "📝 Attestation already exists, discarding");
             return Err(Error::AttestationExists);
@@ -94,7 +95,7 @@ where
 
         // Every attestation must have a continuity proof
         // except for the first attestation in the chain
-        if attestation.continuity_proof.is_empty() && round.1 != 0 {
+        if attestation.continuity_proof.is_empty() && header_number != 0 {
             return Err(Error::InvalidAttestationContinuityProof);
         }
 
