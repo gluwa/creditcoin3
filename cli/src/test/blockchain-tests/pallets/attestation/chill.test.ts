@@ -30,8 +30,8 @@ describe('Chill', (): void => {
         return new Promise((resolve, reject): void => {
             // NOTE: this is signed by the random attestor account
             const unsubscribe = api.tx.attestation
-                .chill(chain_Anvil2_Key)
-                .signAndSend(attestorAccount, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .chill(chain_Anvil2_Key, attestorAccount.address)
+                .signAndSend(alice, { nonce: -1 }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));
