@@ -55,7 +55,7 @@ declare module '@polkadot/api-base/types/events' {
              * the interval change.
              **/
             AttestationIntervalChanged: AugmentedEvent<ApiType, [u64, u64]>;
-            AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32, U8aFixed]>;
             AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
             /**
              * Emitted when an attestor is properly registered with the attestation system
@@ -70,6 +70,7 @@ declare module '@polkadot/api-base/types/events' {
             BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
             Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
             ChainRewardUpdated: AugmentedEvent<ApiType, [u64, u128]>;
+            CheckpointIntervalChanged: AugmentedEvent<ApiType, [u64, u32]>;
             CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
             /**
              * Signals that checkpoints were cleared for a chain that is no longer supported.
