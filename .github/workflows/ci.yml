@@ -2329,9 +2329,138 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   cc3-indexer-testing:
+    needs:
+      - build-creditcoin-node-for-testing
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Download attestor binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: attestor-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        run: |
+          mkdir -p /var/tmp/cc3-indexer-testing/
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
+
+      - name: Start Ethereum simulation with Anvil - 2 chains
+        run: |
+          export FOUNDRY_DIR="$HOME/.foundry"
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          ~/.foundry/bin/foundryup
+
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
+
+      - name: Start Attestation Zombienet
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          # adjust path to binary b/c running from the root dir of the repository
+          sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
+
+          mkdir -p /var/tmp/cc3-indexer-testing/attestors-alice
+          mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
+
+          ./target/release/attestor_zombienet \
+                --cc3-key "//Alice" --supported-chain-key 2 \
+                --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
+                --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
+          ./target/release/attestor_zombienet \
+                --cc3-key "//Bob" --supported-chain-key 4 \
+                --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
+                --logs-dir /var/tmp/cc3-indexer-testing/attestors-bob/ &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Start prover DBs
+        working-directory: ./prover
+        run: |
+          sed -ie '/ports/{N; d;}' compose.yaml
+          docker compose pull
+          docker compose --project-name anvil-1 up -d
+          docker compose --project-name anvil-2 up -d
+
+      - name: Set up Python for Cairo/Prover
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      - run: pip install -r prover/requirements.txt
+
+      - name: Download prover binary
+        uses: actions/download-artifact@v4
+        with:
+          name: prover-for-testing-ci
+          path: target/release
+
+      - name: Start Prover for Anvil-1
+        env:
+          RUST_LOG_STYLE: never
+        run: |
+          # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
+          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+
+          DB_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' anvil-1-postgres-1)
+
+          chmod a+x ./target/release/prover
+          ./target/release/prover \
+            --cc3-key "//Alice"   \
+            --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
+            --eth-rpc-url http://127.0.0.1:8141 \
+            --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
+            --name "Test" \
+            > /var/tmp/cc3-indexer-testing/prover-1.log 2>&1 &
+
+      - name: Start Prover for Anvil-2
+        env:
+          RUST_LOG_STYLE: never
+        run: |
+          # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
+          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+
+          DB_ADDR=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' anvil-2-postgres-1)
+
+          chmod a+x ./target/release/prover
+          ./target/release/prover \
+            --cc3-key "//Bob"   \
+            --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+            --eth-rpc-url http://127.0.0.1:8242 \
+            --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
+            --name "Test" \
+            > /var/tmp/cc3-indexer-testing/prover-2.log 2>&1 &
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
@@ -2365,9 +2494,34 @@ jobs:
           name: coverage-report
           path: cc3-indexer/coverage/
 
+      # WARNING: upload logs before killing running processes b/c the created temporary directories
+      # may be removed once the program exits. Read about the implementation details at:
+      # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc3-indexer-testing
+          path: /var/tmp/cc3-indexer-testing/
+          include-hidden-files: true
+
       - name: Delete compose
         working-directory: ./cc3-indexer
         run: docker compose down
+
+      - name: Kill binaries
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 attestor_zombienet
+          killall -9 attestor
+          killall -9 creditcoin3-node
+          killall -9 prover
+          docker compose -f prover/compose.yaml -p anvil-1 down
+          docker compose -f prover/compose.yaml -p anvil-2 down
 
       - name: Upload logs
         if: always()
