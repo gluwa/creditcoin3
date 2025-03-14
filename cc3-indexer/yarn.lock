@@ -1604,12 +1604,24 @@
   resolved "https://registry.yarnpkg.com/@subql/types-core/-/types-core-2.0.1.tgz#b438634e29297873d048ba40364556a1d2a5bff1"
   integrity sha512-y+QaxZYtJK1Pr3XXBVcPYtBQi/d/u5QHYiru5DxZG/lMCnqAjVmumI2dT98iKt4aDRlDAiMEBrrAiYQyxhXWhQ==
 
+"@subql/types-core@2.0.2":
+  version "2.0.2"
+  resolved "https://registry.yarnpkg.com/@subql/types-core/-/types-core-2.0.2.tgz#d32f8de79c660e715f924b983f0eb6594793a276"
+  integrity sha512-goKFvI+j/een6RiTPRTWO8tZA6iSfYwCj3mPh1ULoKtllJiEJ8FNxMgFjRsLMKIoA8CJc5TdMCnvr42b90SsLQ==
+
 "@subql/types@3.11.5", "@subql/types@latest":
   version "3.11.5"
   resolved "https://registry.yarnpkg.com/@subql/types/-/types-3.11.5.tgz#311c053167093ae65e1c6077514a02cd605c4d48"
   integrity sha512-e6EYtYe3Nh9pBRtNMlGyZhVluDGZ/1WvpWJ+lPnWbXHFqL1IquDX9U8MzjSeXQ9PlypO6EvTDTKhXFMTNIbToA==
   dependencies:
     "@subql/types-core" "2.0.1"
+
+"@subql/types@3.12.1":
+  version "3.12.1"
+  resolved "https://registry.yarnpkg.com/@subql/types/-/types-3.12.1.tgz#f3f2d6b72d7b4913b7014c0ee917e55a476d1cc8"
+  integrity sha512-jDjqsSuDfUiVXg7c+udL+gsELFJrPY6Lbs2ujBnFIVeXbSydzYqnl2nvydJjusHm6Levy01w5ZqBZQD2E5+a4g==
+  dependencies:
+    "@subql/types-core" "2.0.2"
 
 "@subql/utils@2.17.2":
   version "2.17.2"
