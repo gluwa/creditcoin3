@@ -18,8 +18,8 @@
     "build:develop": "NODE_ENV=develop subql codegen && NODE_ENV=develop subql build",
     "generate-types": "typechain --target=ethers-v5 --out-dir src/types/chain 'abis/*.json'"
   },
-  "homepage": "https://github.com/subquery/subql-starter",
-  "repository": "github:subquery/subql-starter",
+  "homepage": "https://github.com/gluwa/creditcoin3-next",
+  "repository": "github:gluwa/creditcoin3-next",
   "files": [
     "dist",
     "schema.graphql",
