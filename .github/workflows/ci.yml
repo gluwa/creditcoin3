@@ -2487,10 +2487,23 @@ jobs:
           docker compose up -d
           sleep 30
 
-      - name: Run integration tests for cc3-indexer
-        working-directory: ./cc3-indexer
+      - name: Install Solidity compiler
         run: |
-          echo "TODO"
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Run integration tests for cc3-indexer
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:cc3-indexer
 
       - name: Collect logs
         if: always()
