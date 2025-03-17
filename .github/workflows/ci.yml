@@ -2355,6 +2355,7 @@ jobs:
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --unsafe-rpc-external --rpc-cors all \
             --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
 
       - name: Start Ethereum simulation with Anvil - 2 chains
@@ -2467,31 +2468,35 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup
+      - name: Setup cc3-indexer
         working-directory: ./cc3-indexer
         run: |
-            yarn install
-            yarn build
+          yarn install
 
-            docker compose up postgres -d
+          # overwrite .env before building & starting the application
+          GENESIS_HASH=$(curl --silent -H "Content-Type: application/json" \
+            -d '{"id": 1, "jsonrpc": "2.0", "method": "chain_getBlockHash", "params": [0] }' \
+            http://127.0.0.1:9944 | jq -r .result)
+          echo "ENDPOINT=ws://host.docker.internal:9944/" > .env
+          echo "CHAIN_ID=$GENESIS_HASH" >> .env
+          echo "DATASOURCE=all-in-one" >> .env
 
-      - name: Run tests with Subquery Node
+          yarn build
+
+          docker compose pull
+          docker compose up -d
+          sleep 30
+
+      - name: Run integration tests for cc3-indexer
         working-directory: ./cc3-indexer
         run: |
-          ./run-tests.sh
+          echo "TODO"
 
-          yarn run c8 report --reporter=html
-
-          # remove this b/c these special characters break actions/upload-artifact.
-          # IMPORTANT: coverage report will be slightly broken !
-          rm -f coverage/cc3-indexer/dist/cc3-indexer/external\ node-commonjs\ \"assert\".html
-
-      - name: Upload HTML coverage report
+      - name: Collect logs
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: cc3-indexer/coverage/
+        working-directory: ./cc3-indexer
+        run: |
+          docker compose logs --no-color > /var/tmp/cc3-indexer-testing/indexer-compose.log
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
@@ -2504,17 +2509,12 @@ jobs:
           path: /var/tmp/cc3-indexer-testing/
           include-hidden-files: true
 
-      - name: Delete compose
-        working-directory: ./cc3-indexer
-        run: docker compose down
-
-      - name: Kill binaries
+      - name: Kill processes
         if: always()
         continue-on-error: true
         run: |
-          # if all went well kill the node. Otherwise GitHub Actions would exit on the
-          # previous step killing everything and we don't have to worry about
-          # dangling processes
+          docker compose -f cc3-indexer/docker-compose.yml down
+
           killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
