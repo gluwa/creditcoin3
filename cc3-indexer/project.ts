@@ -19,6 +19,10 @@ if (process.env.DATASOURCE === 'prover') {
 } else if (process.env.DATASOURCE === 'attestations') {
     dataSources.push(attestationDatasources)
     dataSources.push(genesisDatasource)
+} else if (process.env.DATASOURCE === 'all-in-one') {
+    dataSources.push(proverDatasource)
+    dataSources.push(attestationDatasources)
+    dataSources.push(genesisDatasource)
 } else {
     throw new Error('DATASOURCE must be either prover or attestations')
 }
