@@ -202,15 +202,8 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn checkpoints)]
-    pub type Checkpoints<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        ChainKey,
-        Blake2_128Concat,
-        Digest,
-        AttestationCheckpoint,
-        OptionQuery,
-    >;
+    pub type Checkpoints<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, ChainKey, Blake2_128Concat, Digest, u64, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn last_checkpoint)]

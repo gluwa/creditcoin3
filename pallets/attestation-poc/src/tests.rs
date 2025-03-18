@@ -1681,7 +1681,7 @@ fn commit_attestation_works() {
         };
         assert_eq!(
             Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
-            Some(expected_checkpoint.clone())
+            Some(expected_checkpoint.block_number)
         );
         // assert last checkpoint
         assert_eq!(
@@ -1970,7 +1970,7 @@ fn creating_checkpoint_works() {
         );
         assert_eq!(
             Attestation::checkpoints(SUPPORTED_CHAIN_KEY, resulting_checkpoint.digest),
-            Some(resulting_checkpoint.clone())
+            Some(unwrapped_att.header_number())
         );
         assert_eq!(
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
@@ -3061,11 +3061,7 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
                     block_number: i as u64, // Mimic gap between checkpoint blocks
                     digest: attestation.digest(),
                 };
-                Checkpoints::<Test>::insert(
-                    SUPPORTED_CHAIN_KEY,
-                    attestation.digest(),
-                    checkpoint.clone(),
-                );
+                Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, attestation.digest(), i as u64);
                 LastCheckpoint::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint);
             }
             if i == max_attestations - 1 {
@@ -3183,7 +3179,7 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
                 crate::Checkpoints::<Test>::insert(
                     SUPPORTED_CHAIN_KEY,
                     checkpoint_digest,
-                    checkpoint,
+                    checkpoint.block_number,
                 );
             }
             System::set_block_number(1);
@@ -3342,9 +3338,9 @@ fn batch_attestations_works() {
         ));
 
         // Checkpoint is created for the first attestation
-        let checkpoint =
+        let checkpoint_block_number =
             Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
-        assert_eq!(checkpoint.block_number, 0);
+        assert_eq!(checkpoint_block_number, 0);
     });
 }
 
@@ -3406,9 +3402,9 @@ fn batch_attestations_duplicate_fails() {
         ));
 
         // Checkpoint is created for the first attestation
-        let checkpoint =
+        let checkpoint_block_number =
             Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
-        assert_eq!(checkpoint.block_number, 0);
+        assert_eq!(checkpoint_block_number, 0);
 
         let result = Attestation::validate_attestation(attestation1.chain_key(), &attestation1);
         assert_err!(result, InherentError::Duplicate(attestation1.digest()));
@@ -3476,9 +3472,9 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
         ));
 
         // Checkpoint is created for the first attestation
-        let checkpoint =
+        let checkpoint_block_number =
             Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, attestation1.digest()).unwrap();
-        assert_eq!(checkpoint.block_number, 0);
+        assert_eq!(checkpoint_block_number, 0);
 
         let attestation3 = create_signed_attestation(
             vec![attestor.clone(), attestor2.clone()],

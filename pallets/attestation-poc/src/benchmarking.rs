@@ -560,7 +560,7 @@ mod benchmarks {
                     block_number: j as u64 * 100, // Mimic gap between checkpoint blocks
                     digest: checkpoint_digest,
                 };
-                Checkpoints::<T>::insert(chain_key, checkpoint_digest, checkpoint);
+                Checkpoints::<T>::insert(chain_key, checkpoint_digest, checkpoint.block_number);
             }
 
             // Mimic the effects of on_supported_chain_removed

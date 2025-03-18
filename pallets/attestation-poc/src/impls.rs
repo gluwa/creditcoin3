@@ -213,7 +213,7 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, header_number);
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
                 // delete first attestation since the first checkpoint is already created
                 Attestations::<T>::remove(chain_key, digest);
@@ -266,7 +266,7 @@ impl<T: Config> Pallet<T> {
 
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-            Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
+            Checkpoints::<T>::insert(chain_key, checkpoint.digest, header_number);
             LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             // delete first attestation since the first checkpoint is already created
             Attestations::<T>::remove(chain_key, digest);
@@ -772,7 +772,7 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, &checkpoint);
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, removed.header_number());
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             }
         }
