@@ -20,7 +20,7 @@ async function showAttestorBalanceAction(options: OptionValues) {
     const balanceAll = await getBalancesAll(address, api);
 
     const ledger = await api.query.attestation.ledger(address);
-    
+
     if (ledger.isNone) {
         console.log(`No ledger found for ${address}`);
         process.exit(0);
@@ -35,7 +35,7 @@ async function showAttestorBalanceAction(options: OptionValues) {
     const currentEra = await api.query.staking.currentEra();
     if (currentEra.isSome) {
         const currentEraValue = currentEra.unwrap();
-        
+
         for (const unlocking of ledgerValue.unlocking) {
             if (unlocking.era.toNumber() <= currentEraValue.toNumber()) {
                 canWithdraw += unlocking.value.toNumber();
