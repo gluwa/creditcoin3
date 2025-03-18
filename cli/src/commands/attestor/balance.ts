@@ -29,8 +29,8 @@ async function showAttestorBalanceAction(options: OptionValues) {
     let canWithdraw = 0;
     let unbondingAmount = 0;
     const ledgerValue = ledger.unwrap();
-    let active = ledgerValue.active.unwrap();
-    let totalStaked = ledgerValue.totalStaked.unwrap();
+    const active = ledgerValue.active.unwrap();
+    const totalStaked = ledgerValue.totalStaked.unwrap();
 
     const currentEra = await api.query.staking.currentEra();
     if (currentEra.isSome) {
