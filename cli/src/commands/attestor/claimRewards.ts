@@ -1,8 +1,9 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../../lib';
+import { BN, newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
+import { toCTCString } from '../../lib/balance';
 
 export function makeClaimRewardsCommand() {
     const cmd = new Command('claim-rewards-attestor');
@@ -23,7 +24,7 @@ async function claimRewardsAction(options: OptionValues) {
         process.exit(0);
     }
     const rewards = attestorRewards.unwrap();
-    console.log(`Rewards available to claim: ${rewards.toString()} for address ${keyring.pair.address}`);
+    console.log(`Rewards available to claim: ${toCTCString(new BN(rewards), 4)} for address ${keyring.pair.address}`);
 
     const claimRewardsAttestorTx = api.tx.attestation.claimRewards();
 

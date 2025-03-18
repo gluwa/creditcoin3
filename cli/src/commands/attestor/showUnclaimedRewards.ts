@@ -1,6 +1,7 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../../lib';
+import { BN, newApi } from '../../lib';
 import { substrateAddressOption } from '../options';
+import { toCTCString } from '../../lib/balance';
 
 export function showClaimRewardsCommand() {
     const cmd = new Command('show-unclaimed-rewards');
@@ -17,6 +18,11 @@ async function showUnclaimedRewardsAction(options: OptionValues) {
 
     const unclaimedRewardsAttestor = await api.query.attestation.accumulatedRewards(address);
 
-    console.log(`Unclaimed rewards for : ${address} is ${unclaimedRewardsAttestor.toString()}`);
+    if (unclaimedRewardsAttestor.isNone) {
+        console.log(`No rewards to claim for address ${address}`);
+        process.exit(0);
+    }
+
+    console.log(`Unclaimed rewards for : ${address} is ${toCTCString(new BN(unclaimedRewardsAttestor.unwrap()), 4)}`);
     process.exit(0);
 }

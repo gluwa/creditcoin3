@@ -1,8 +1,9 @@
 import { Command, OptionValues } from 'commander';
-import { newApi } from '../../lib';
+import { BN, newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
+import { toCTCString } from '../../lib/balance';
 
 export function makeAttestorWithdrawUnbondedCommand() {
     const cmd = new Command('withdraw-unbonded-attestor');
@@ -45,7 +46,7 @@ async function withdrawUnbondedAction(options: OptionValues) {
         process.exit(0);
     }
 
-    console.log(`Unbonded funds available to withdraw: ${canWithdraw}`);
+    console.log(`Unbonded funds available to withdraw: ${toCTCString(new BN(canWithdraw), 4)}`);
 
     const withdrawUnbondedAttestorTx = api.tx.attestation.withdrawUnbonded();
 
