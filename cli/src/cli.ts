@@ -27,6 +27,7 @@ import { makeAttestorWithdrawUnbondedCommand } from './commands/attestor/withdra
 import { makeShowAttestorStatusCommand } from './commands/attestor/showAttestorStatus';
 import { showListAttestorsCommand } from './commands/attestor/showListAttestors';
 import { showClaimRewardsCommand } from './commands/attestor/showUnclaimedRewards';
+import { showAttestorBalanceActionCommand } from './commands/attestor/balance';
 
 const program = new Command();
 
@@ -57,7 +58,8 @@ program
     .addCommand(showListAttestorsCommand())
     .addCommand(showClaimRewardsCommand())
     .addCommand(makeUnregisterAttestorCommand())
-    .addCommand(makeAttestorWithdrawUnbondedCommand());
+    .addCommand(makeAttestorWithdrawUnbondedCommand())
+    .addCommand(showAttestorBalanceActionCommand());
 
 program.commands.forEach((cmd) => {
     cmd.addOption(noInputOption);

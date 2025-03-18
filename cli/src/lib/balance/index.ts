@@ -52,7 +52,7 @@ export async function getBalance(address: string, api: ApiPromise) {
     return balance;
 }
 
-async function getBalancesAll(address: string, api: ApiPromise) {
+export async function getBalancesAll(address: string, api: ApiPromise) {
     const balance = await api.derive.balances.all(address);
     return balance;
 }
