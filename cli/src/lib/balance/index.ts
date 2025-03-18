@@ -15,6 +15,10 @@ export function parseCTCString(amount: string): BN {
 }
 
 export function toCTCString(amount: BN, decimals = 18): string {
+    const amountStrLen = amount.toString().length;
+    if (amountStrLen < 18 - decimals) {
+        decimals = 18;
+    }
     const CTC = amount.div(MICROUNITS_PER_CTC);
     const remainder = amount.mod(MICROUNITS_PER_CTC);
     const remainderString = remainder.toString().padStart(18, '0').slice(0, decimals);
