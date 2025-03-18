@@ -74,19 +74,27 @@ pub async fn process(
                     query_id, last_height, query_height, retry_count, MAX_RETRIES, total_retry_delay/MAX_RETRIES
                 );
                 tokio::time::sleep(total_retry_delay / MAX_RETRIES).await;
-            },
-            Err(fragment::Error::FirstFragmentBlockMismatch(start_attestation, first_fragment_block, fetched_from_source)) => {
+            }
+            Err(fragment::Error::FirstFragmentBlockMismatch(
+                start_attestation,
+                first_fragment_block,
+                fetched_from_source,
+            )) => {
                 if fetched_from_source {
-                    panic!("First fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. Start attestation: {}, First fragment block: {}", start_attestation, first_fragment_block)
+                    panic!("First fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. Start attestation: {start_attestation}, First fragment block: {first_fragment_block}")
                 } else {
-                    panic!("Digests from first fragment block and start attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. Start attestation: {}, First fragment block: {}", start_attestation, first_fragment_block)
+                    panic!("Digests from first fragment block and start attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. Start attestation: {start_attestation}, First fragment block: {first_fragment_block}")
                 }
-            },
-            Err(fragment::Error::LastFragmentBlockMismatch(end_attestation, last_fragment_block, fetched_from_source)) => {
+            }
+            Err(fragment::Error::LastFragmentBlockMismatch(
+                end_attestation,
+                last_fragment_block,
+                fetched_from_source,
+            )) => {
                 if fetched_from_source {
-                    panic!("Last fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. End attestation: {}, Last fragment block: {}", end_attestation, last_fragment_block)
+                    panic!("Last fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
                 } else {
-                    panic!("Digests from last fragment block and end attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. End attestation: {}, Last fragment block: {}", end_attestation, last_fragment_block)
+                    panic!("Digests from last fragment block and end attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
                 }
             }
             Err(e) => return Err(e.into()),
@@ -95,19 +103,7 @@ pub async fn process(
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
 
-    // Format claim to ClaimSerializable
-    let claim_serializable = ClaimSerializable {
-        id: ClaimIdentifier::new(query.height, query.index),
-
-        felt_ranges: query
-            .layout_segments
-            .iter()
-            .map(|layout| Range {
-                start: usize::try_from(layout.offset).expect("layout offset is too large"),
-                end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
-            })
-            .collect::<Vec<_>>(),
-    };
+    let claim_serializable = get_serializable(query);
 
     info!("Claim serializable: {:?}", claim_serializable);
 
@@ -165,5 +161,20 @@ pub async fn process(
             .map_err(|_e| Error::QueryFiles)?;
 
         Ok(Either::Right(stone_prover_input_files))
+    }
+}
+
+fn get_serializable(query: &Query) -> ClaimSerializable {
+    ClaimSerializable {
+        id: ClaimIdentifier::new(query.height, query.index),
+
+        felt_ranges: query
+            .layout_segments
+            .iter()
+            .map(|layout| Range {
+                start: usize::try_from(layout.offset).expect("layout offset is too large"),
+                end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+            })
+            .collect::<Vec<_>>(),
     }
 }

@@ -104,7 +104,9 @@ pub async fn get_for_claim(
     // If not all fragment blocks are in the cache, then add them.
     // We keep track of whether start and end blocks were fetched from the source chain.
     // This information allows us to detect bad attestations and/or checkpoints in the prover DB.
-    let (fragment_blocks, fetched_start, fetched_end) = if db_fragment.len() as u64 == expected_fragment_size {
+    let (fragment_blocks, fetched_start, fetched_end) = if db_fragment.len() as u64
+        == expected_fragment_size
+    {
         info!(
             "All blocks for fragment found in cache, chain_key: {}, lower_bound: {}, upper_bound: {}",
             chain_key, lower_endpoint.block_number, upper_endpoint.block_number
@@ -112,11 +114,15 @@ pub async fn get_for_claim(
         (db_fragment, false, false)
     } else {
         let fetched_start_block = if let Some(first_frag_block) = db_fragment.first() {
-            if from_storage_type(first_frag_block.header_number) == lower_endpoint.block_number { false } else { true }
-        } else { true };
+            from_storage_type(first_frag_block.header_number) != lower_endpoint.block_number
+        } else {
+            true
+        };
         let fetched_end_block = if let Some(last_frag_block) = db_fragment.last() {
-            if from_storage_type(last_frag_block.header_number) == upper_endpoint.block_number { false } else { true }
-        } else { true };
+            from_storage_type(last_frag_block.header_number) != upper_endpoint.block_number
+        } else {
+            true
+        };
         let fragment = construct_fragment(
             db_fragment,
             eth_client,
@@ -151,7 +157,7 @@ pub async fn get_for_claim(
         return Err(Error::LastFragmentBlockMismatch(
             upper_endpoint.digest,
             last_fragment_block.digest.clone(),
-            fetched_end
+            fetched_end,
         ));
     };
 

@@ -349,21 +349,17 @@ pub async fn build_historical_cache_for_chain(
             .await?
             .ok_or(anyhow!("Could not get last on-chain attestation"))?
             .header_number();
-        if let Some(checkpoint) = attestations_cache
-            .get_highest_checkpoint(chain)
-            .await?
-        {
-            if from_storage_type(checkpoint.block_number) > last_block_height {
-                panic!("Prover DB contains invalid checkpoint state. Clean DB then run prover to resync.")
-            }
+        if let Some(checkpoint) = attestations_cache.get_highest_checkpoint(chain).await? {
+            assert!(
+                (from_storage_type(checkpoint.block_number) <= last_block_height),
+                "Prover DB contains invalid checkpoint state. Clean DB then run prover to resync."
+            );
         }
-        if let Some(attestation) = attestations_cache
-            .get_highest_attestation(chain)
-            .await?
-        {
-            if from_storage_type(attestation.header_number) > last_block_height {
-                panic!("Prover DB contains invalid attestation state. Clean DB then run prover to resync")
-            }
+        if let Some(attestation) = attestations_cache.get_highest_attestation(chain).await? {
+            assert!(
+                (from_storage_type(attestation.header_number) <= last_block_height),
+                "Prover DB contains invalid attestation state. Clean DB then run prover to resync"
+            );
         }
 
         info!("Starting to sync from: {}", digest);
@@ -379,24 +375,24 @@ pub async fn build_historical_cache_for_chain(
     let attestations_handle = tokio::spawn(async move {
         info!("Spawned task for caching historical attestations",);
         if let Err(e) = cache_historical_attestations(client_clone, cache_clone, chain).await {
-            panic!("Error caching historical attestations: {:?}", e);
+            panic!("Error caching historical attestations: {e:?}");
         }
     });
 
     let checkpoints_handle = tokio::spawn(async move {
         info!("Spawned task for caching historical checkpoints",);
         if let Err(e) = cache_historical_checkpoints(cc3_client, attestations_cache, chain).await {
-            panic!("Error caching historical checkpoints: {:?}", e);
+            panic!("Error caching historical checkpoints: {e:?}");
         }
     });
 
     let (attestations_result, checkpoints_result) =
         tokio::join!(attestations_handle, checkpoints_handle);
     if let Err(e) = attestations_result {
-        panic!("Caching historical attestations join error: {}", e);
+        panic!("Caching historical attestations join error: {e}");
     }
     if let Err(e) = checkpoints_result {
-        panic!("Caching historical checkpoints join error: {}", e);
+        panic!("Caching historical checkpoints join error: {e}");
     }
 
     info!("Finished building historical cache for chain: {}", chain);
