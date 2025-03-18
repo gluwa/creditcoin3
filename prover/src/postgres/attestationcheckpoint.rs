@@ -132,3 +132,25 @@ pub async fn get_lowest_checkpoint_after(
         }
     }
 }
+
+pub async fn get_highest_checkpoint(
+    connection: &mut AsyncPgConnection,
+    chain_key: u64,
+) -> Result<Option<AttestationCheckpoint>> {
+    match attestation_checkpoint_table
+        .order(attestationcheckpoint::block_number.desc())
+        .filter(attestationcheckpoint::chain_key.eq(super::to_storage_type(chain_key)))
+        .select(AttestationCheckpoint::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}

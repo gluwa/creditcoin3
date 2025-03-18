@@ -74,6 +74,20 @@ pub async fn process(
                     query_id, last_height, query_height, retry_count, MAX_RETRIES, total_retry_delay/MAX_RETRIES
                 );
                 tokio::time::sleep(total_retry_delay / MAX_RETRIES).await;
+            },
+            Err(fragment::Error::FirstFragmentBlockMismatch(start_attestation, first_fragment_block, fetched_from_source)) => {
+                if fetched_from_source {
+                    panic!("First fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. Start attestation: {}, First fragment block: {}", start_attestation, first_fragment_block)
+                } else {
+                    panic!("Digests from first fragment block and start attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. Start attestation: {}, First fragment block: {}", start_attestation, first_fragment_block)
+                }
+            },
+            Err(fragment::Error::LastFragmentBlockMismatch(end_attestation, last_fragment_block, fetched_from_source)) => {
+                if fetched_from_source {
+                    panic!("Last fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. End attestation: {}, Last fragment block: {}", end_attestation, last_fragment_block)
+                } else {
+                    panic!("Digests from last fragment block and end attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. End attestation: {}, Last fragment block: {}", end_attestation, last_fragment_block)
+                }
             }
             Err(e) => return Err(e.into()),
         }

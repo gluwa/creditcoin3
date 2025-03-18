@@ -113,7 +113,7 @@ Now start the prover:
 ./target/release/prover \
   --cc3-key "//Alice" \
   --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
-  --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
+  --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations" \
   --name "devprover"
 ```
 

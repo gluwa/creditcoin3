@@ -121,7 +121,7 @@ impl Server {
         info!("Starting cache live sync");
         let sync_attestations_cache = attestations_cache.clone();
         let sync_cc3_client = cc3_client.clone();
-        tokio::spawn(async move {
+        let mut sync_cache_handle = tokio::spawn(async move {
             attestation::cache::sync_cache(
                 chain_key,
                 &sync_attestations_cache,
@@ -159,7 +159,7 @@ impl Server {
         let (queue, mut queries) = mpsc::unbounded_channel();
 
         let eth_cc3_client = self.cc3_client.clone();
-        tokio::spawn(async move {
+        let mut query_submission_handle = tokio::spawn(async move {
             loop {
                 info!("Starting query submission subscription...");
                 match contract::subscribe_query_submission(&eth_cc3_client, queue.clone()).await {
@@ -176,18 +176,30 @@ impl Server {
 
         info!("Listening for new queries...");
         // Wait for new queries and handle them
-        while let Some(query) = queries.recv().await {
-            info!("Processing query: {:?}", query);
-            if let Err(e) = self
-                .process_query(query.clone(), chain_attestation_interval)
-                .await
-            {
-                error!("Query processing failed, Error: {e:?}");
-                remove_query_id(&self.cc3_client, query.id()).await?;
+        loop {
+            tokio::select! {
+                maybe_query = queries.recv() => {
+                    if let Some(query) = maybe_query {
+                        info!("Processing query: {:?}", query);
+                        if let Err(e) = self
+                            .process_query(query.clone(), chain_attestation_interval)
+                            .await
+                        {
+                            error!("Query processing failed, Error: {e:?}");
+                            remove_query_id(&self.cc3_client, query.id()).await?;
+                        }
+                    } else {
+                        panic!("Queries processing channel dropped.")
+                    }
+                }
+                _ = &mut sync_cache_handle => {
+                    panic!("Sync cache thread aborted.")
+                },
+                _ = &mut query_submission_handle => {
+                    panic!("Query submission thread aborted.")
+                },
             }
         }
-
-        Ok(())
     }
 
     async fn process_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest, SignedAttestation};
 use hex::ToHex;
 use sp_core::H256;
@@ -14,7 +14,7 @@ use crate::{
         blockwithdigest,
         cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
         db::PgPool,
-        to_storage_type,
+        from_storage_type, to_storage_type,
     },
     AttestationCacheType, CcClientArc,
 };
@@ -96,7 +96,10 @@ where
 
     pub async fn insert_attestation(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
-        attestation::insert(&mut connection, attestation.into()).await?;
+        if let Err(e) = attestation::insert(&mut connection, attestation.into()).await {
+            error!("Error inserting attestation. In case of attestation with duplicate (chain_key, block_height), clean DB and run prover to resync. Error: {:?}", e);
+            return Err(e);
+        }
 
         Ok(())
     }
@@ -109,7 +112,10 @@ where
         let mut connection = self.pool.get().await?;
         let db_checkpoint = DbCheckpoint::from_on_chain(&checkpoint, chain_key);
         let checkpoint_block_number = db_checkpoint.block_number;
-        attestationcheckpoint::insert(&mut connection, db_checkpoint).await?;
+        if let Err(e) = attestationcheckpoint::insert(&mut connection, db_checkpoint).await {
+            error!("Error inserting checkpoint. In case of checkpoint with duplicate (chain_key, block_height), clean DB and run prover to resync. Error: {:?}", e);
+            return Err(e);
+        }
 
         // Checkpoints should be strictly from earlier block numbers than attestations. So
         // we remove all attestations older than this new checkpoint from storage.
@@ -213,6 +219,22 @@ where
         let mut connection = self.pool.get().await?;
         attestationcheckpoint::get_lowest_checkpoint_after(&mut connection, block_number, chain_key)
             .await
+    }
+
+    pub async fn get_highest_attestation(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<attestation::Attestation>> {
+        let mut connection = self.pool.get().await?;
+        attestation::get_highest_attestation(&mut connection, chain_key).await
+    }
+
+    pub async fn get_highest_checkpoint(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<DbCheckpoint>> {
+        let mut connection = self.pool.get().await?;
+        attestationcheckpoint::get_highest_checkpoint(&mut connection, chain_key).await
     }
 }
 
@@ -320,6 +342,30 @@ pub async fn build_historical_cache_for_chain(
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
 
     if let Some(digest) = last_digest {
+        // Check for invalid DB state. Any attestations or checkpoints with a higher block number
+        // than the latest on-chain block signal that the prover DB has bad state and should be reset.
+        let last_block_height = cc3_client
+            .get_attestation_by_digest(chain, digest)
+            .await?
+            .ok_or(anyhow!("Could not get last on-chain attestation"))?
+            .header_number();
+        if let Some(checkpoint) = attestations_cache
+            .get_highest_checkpoint(chain)
+            .await?
+        {
+            if from_storage_type(checkpoint.block_number) > last_block_height {
+                panic!("Prover DB contains invalid checkpoint state. Clean DB then run prover to resync.")
+            }
+        }
+        if let Some(attestation) = attestations_cache
+            .get_highest_attestation(chain)
+            .await?
+        {
+            if from_storage_type(attestation.header_number) > last_block_height {
+                panic!("Prover DB contains invalid attestation state. Clean DB then run prover to resync")
+            }
+        }
+
         info!("Starting to sync from: {}", digest);
         digest
     } else {
@@ -333,24 +379,24 @@ pub async fn build_historical_cache_for_chain(
     let attestations_handle = tokio::spawn(async move {
         info!("Spawned task for caching historical attestations",);
         if let Err(e) = cache_historical_attestations(client_clone, cache_clone, chain).await {
-            error!("Error caching historical attestations: {:?}", e);
+            panic!("Error caching historical attestations: {:?}", e);
         }
     });
 
     let checkpoints_handle = tokio::spawn(async move {
         info!("Spawned task for caching historical checkpoints",);
         if let Err(e) = cache_historical_checkpoints(cc3_client, attestations_cache, chain).await {
-            error!("Error caching historical checkpoints: {:?}", e);
+            panic!("Error caching historical checkpoints: {:?}", e);
         }
     });
 
     let (attestations_result, checkpoints_result) =
         tokio::join!(attestations_handle, checkpoints_handle);
     if let Err(e) = attestations_result {
-        info!("Caching historical attestations join error: {}", e);
+        panic!("Caching historical attestations join error: {}", e);
     }
     if let Err(e) = checkpoints_result {
-        info!("Caching historical checkpoints join error: {}", e);
+        panic!("Caching historical checkpoints join error: {}", e);
     }
 
     info!("Finished building historical cache for chain: {}", chain);

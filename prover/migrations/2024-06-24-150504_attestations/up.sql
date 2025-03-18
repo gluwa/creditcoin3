@@ -16,6 +16,7 @@ CREATE INDEX attestation_idx_chain_key ON Attestation (chain_key);
 CREATE INDEX attestation_idx_header_number ON Attestation (header_number);
 CREATE INDEX attestation_idx_digest ON Attestation (digest);
 CREATE UNIQUE INDEX attestation_idx_digest_and_prev on Attestation (digest, prev_digest);
+CREATE UNIQUE INDEX attestation_idx_chain_and_height on Attestation (chain_key, header_number);
 
 -- Create table for source chain blocks included in fragments
 CREATE TABLE BlockWithDigest (
@@ -42,6 +43,7 @@ CREATE TABLE AttestationCheckpoint (
 CREATE INDEX attestation_checkpoint_idx_chain_key ON AttestationCheckpoint (chain_key);
 CREATE INDEX attestation_checkpoint_idx_block_number ON AttestationCheckpoint (block_number);
 CREATE INDEX attestation_checkpoint_idx_digest ON AttestationCheckpoint (digest);
+CREATE UNIQUE INDEX attestation_checkpoint_idx_chain_and_height ON AttestationCheckpoint (chain_key, block_number);
 
 -- Create table storing the checkpoint we've successfully cached up to.
 -- All history before this checkpoint is locally stored.

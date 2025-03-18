@@ -196,6 +196,28 @@ pub async fn get_lowest_attestation_after(
     }
 }
 
+pub async fn get_highest_attestation(
+    connection: &mut AsyncPgConnection,
+    chain_key: u64,
+) -> Result<Option<Attestation>> {
+    match attestation_table
+        .order(attestation::header_number.desc())
+        .filter(attestation::chain_key.eq(super::to_storage_type(chain_key)))
+        .select(Attestation::as_select())
+        .first(connection)
+        .await
+    {
+        Ok(a) => Ok(Some(a)),
+        Err(e) => {
+            if e == DieselError::NotFound {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
 // Mapper from the signed attestation to the db type
 impl<H, A> From<SignedAttestation<H, A>> for Attestation
 where

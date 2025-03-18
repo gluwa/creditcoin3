@@ -37,12 +37,12 @@ pub enum Error {
     QueryTooRecent(u64, u64),
     #[error("Could not get first block of fragment.")]
     NoFirstBlockFound,
-    #[error("Start attestation digest does not match first fragment block digest, Start attestation: {0}, First fragment block: {1}")]
-    FirstFragmentBlockMismatch(String, String),
+    #[error("Start attestation digest does not match first fragment block digest, Start attestation: {0}, First fragment block: {1}, Fetched block from source chain: {2}")]
+    FirstFragmentBlockMismatch(String, String, bool),
     #[error("Could not get last block of fragment.")]
     NoLastBlockFound,
-    #[error("End attestation digest does not match last fragment block digest, End attestation: {0}, Last fragment block: {1}")]
-    LastFragmentBlockMismatch(String, String),
+    #[error("End attestation digest does not match last fragment block digest, End attestation: {0}, Last fragment block: {1}, Fetched block from source chain: {2}")]
+    LastFragmentBlockMismatch(String, String, bool),
     #[error("Error appending block to fragment: {0:?}")]
     ErrorAppendingBlock(#[from] AttestationFragmentError),
     #[error("Could not get the highest checkpoint before claim. Claim height: {0}")]
@@ -102,10 +102,22 @@ pub async fn get_for_claim(
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
     // If not all fragment blocks are in the cache, then add them.
-    let fragment_blocks = if db_fragment.len() as u64 == expected_fragment_size {
-        db_fragment
+    // We keep track of whether start and end blocks were fetched from the source chain.
+    // This information allows us to detect bad attestations and/or checkpoints in the prover DB.
+    let (fragment_blocks, fetched_start, fetched_end) = if db_fragment.len() as u64 == expected_fragment_size {
+        info!(
+            "All blocks for fragment found in cache, chain_key: {}, lower_bound: {}, upper_bound: {}",
+            chain_key, lower_endpoint.block_number, upper_endpoint.block_number
+        );
+        (db_fragment, false, false)
     } else {
-        construct_fragment(
+        let fetched_start_block = if let Some(first_frag_block) = db_fragment.first() {
+            if from_storage_type(first_frag_block.header_number) == lower_endpoint.block_number { false } else { true }
+        } else { true };
+        let fetched_end_block = if let Some(last_frag_block) = db_fragment.last() {
+            if from_storage_type(last_frag_block.header_number) == upper_endpoint.block_number { false } else { true }
+        } else { true };
+        let fragment = construct_fragment(
             db_fragment,
             eth_client,
             chain_key,
@@ -113,7 +125,8 @@ pub async fn get_for_claim(
             upper_endpoint.block_number,
         )
         .await
-        .map_err(|e| Error::Other(e.to_string()))?
+        .map_err(|e| Error::Other(e.to_string()))?;
+        (fragment, fetched_start_block, fetched_end_block)
     };
 
     // Sanity check that the start attestation digest matches the first block in the fragment
@@ -125,6 +138,7 @@ pub async fn get_for_claim(
         return Err(Error::FirstFragmentBlockMismatch(
             lower_endpoint.digest,
             first_fragment_block.digest.clone(),
+            fetched_start,
         ));
     };
 
@@ -137,6 +151,7 @@ pub async fn get_for_claim(
         return Err(Error::LastFragmentBlockMismatch(
             upper_endpoint.digest,
             last_fragment_block.digest.clone(),
+            fetched_end
         ));
     };
 
