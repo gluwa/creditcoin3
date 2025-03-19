@@ -5,7 +5,7 @@ import { initKeyring } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 
 export function makeRegisterAttestorCommand() {
-    const cmd = new Command('register-attestor');
+    const cmd = new Command('register');
     cmd.description('Register an attestor and bond funds from a stash account');
     cmd.addOption(proxyForOption);
     cmd.option('-a, --attestor [attestor]', 'Specify the attestor account to register');

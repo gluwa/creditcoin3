@@ -5,7 +5,7 @@ import { initKeyring } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 
 export function makeChillAttestorCommand() {
-    const cmd = new Command('chill-attestor');
+    const cmd = new Command('chill');
     cmd.description('Chill attestor');
     cmd.addOption(proxyForOption);
     cmd.option('-c, --chain [chain]', 'chain key');

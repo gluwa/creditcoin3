@@ -6,7 +6,7 @@ import { proxyForOption } from '../options';
 import { toCTCString } from '../../lib/balance';
 
 export function makeAttestorWithdrawUnbondedCommand() {
-    const cmd = new Command('withdraw-unbonded-attestor');
+    const cmd = new Command('withdraw-unbonded');
     cmd.description(
         'Withdraw unbonded funds from attestor account that become available after calling unregisterAttestor',
     );

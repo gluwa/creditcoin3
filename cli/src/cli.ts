@@ -18,16 +18,7 @@ import { makeConvertAddressCommand } from './commands/convertAddress';
 import { makeProxyCommands } from './commands/proxy/commands';
 import { noInputOption, urlOption } from './commands/options';
 
-import { makeChillAttestorCommand } from './commands/attestor/chill';
-import { makeClaimRewardsCommand } from './commands/attestor/claimRewards';
-import { makeRegisterAttestorCommand } from './commands/attestor/registerAttestor';
-import { setPayeeCommand } from './commands/attestor/setPayee';
-import { makeUnregisterAttestorCommand } from './commands/attestor/unregisterAttestor';
-import { makeAttestorWithdrawUnbondedCommand } from './commands/attestor/withdrawUnbonded';
-import { makeShowAttestorStatusCommand } from './commands/attestor/showAttestorStatus';
-import { showListAttestorsCommand } from './commands/attestor/showListAttestors';
-import { showClaimRewardsCommand } from './commands/attestor/showUnclaimedRewards';
-import { showAttestorBalanceActionCommand } from './commands/attestor/balance';
+import { makeAttestorCommand } from './commands/attestor';
 
 const program = new Command();
 
@@ -49,18 +40,6 @@ program
     .addCommand(makeWithdrawUnbondedCommand())
     .addCommand(makeWizardCommand());
 
-program
-    .addCommand(makeChillAttestorCommand())
-    .addCommand(makeClaimRewardsCommand())
-    .addCommand(makeRegisterAttestorCommand())
-    .addCommand(setPayeeCommand())
-    .addCommand(makeShowAttestorStatusCommand())
-    .addCommand(showListAttestorsCommand())
-    .addCommand(showClaimRewardsCommand())
-    .addCommand(makeUnregisterAttestorCommand())
-    .addCommand(makeAttestorWithdrawUnbondedCommand())
-    .addCommand(showAttestorBalanceActionCommand());
-
 program.commands.forEach((cmd) => {
     cmd.addOption(noInputOption);
     cmd.addOption(urlOption);
@@ -73,4 +52,5 @@ program.commands.forEach((cmd) => {
 // (I think the 2nd one) shadows the actual value specified on the command line
 program.addCommand(makeEvmCommand());
 program.addCommand(makeProxyCommands());
+program.addCommand(makeAttestorCommand());
 program.parse(process.argv);

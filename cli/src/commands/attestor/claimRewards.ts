@@ -6,7 +6,7 @@ import { proxyForOption } from '../options';
 import { toCTCString } from '../../lib/balance';
 
 export function makeClaimRewardsCommand() {
-    const cmd = new Command('claim-rewards-attestor');
+    const cmd = new Command('claim-rewards');
     cmd.description('Claim rewards the attestor has earned');
     cmd.addOption(proxyForOption);
     cmd.action(claimRewardsAction);
