@@ -2376,7 +2376,7 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
 
-      - name: Start Attestation Zombienet
+      - name: Start Attestation Zombienet for Alice - Anvil 1
         run: |
           chmod a+x ./target/release/attestor*
 
@@ -2384,12 +2384,17 @@ jobs:
           sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
 
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-alice
-          mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
 
           ./target/release/attestor_zombienet \
                 --cc3-key "//Alice" --supported-chain-key 2 \
                 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
+
+      - name: Start Attestation Zombienet for Bob - Anvil 2
+        if: false  # note: started explicitly within tests
+        run: |
+          mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
+
           ./target/release/attestor_zombienet \
                 --cc3-key "//Bob" --supported-chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
@@ -2421,7 +2426,7 @@ jobs:
           name: prover-for-testing-ci
           path: target/release
 
-      - name: Start Prover for Anvil-1
+      - name: Start Prover for Alice - Anvil-1
         env:
           RUST_LOG_STYLE: never
         run: |
@@ -2442,7 +2447,8 @@ jobs:
             --name "Test" \
             > /var/tmp/cc3-indexer-testing/prover-1.log 2>&1 &
 
-      - name: Start Prover for Anvil-2
+      - name: Start Prover for Bob - Anvil-2
+        if: false  # note: started explicitly within tests
         env:
           RUST_LOG_STYLE: never
         run: |
@@ -2534,10 +2540,3 @@ jobs:
           killall -9 prover
           docker compose -f prover/compose.yaml -p anvil-1 down
           docker compose -f prover/compose.yaml -p anvil-2 down
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: subql-node-test-logs
-          path: /var/tmp/subql-node-test-*.log
