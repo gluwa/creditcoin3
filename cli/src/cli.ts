@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from 'commander';
 import { makeStatusCommand } from './commands/status';
 import { makeNewSeedCommand } from './commands/newSeed';
