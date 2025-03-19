@@ -19,7 +19,7 @@ pub trait HostApi {
         {
             match command::run_verifier(proof, query, metadata) {
                 Ok((log, result_segments)) => {
-                    log::debug!("result of verifying proof: {:?}", r);
+                    log::debug!("result of verifying proof: {:?}", log);
                     (0, result_segments)
                 }
                 Err(e) => command::VerifierError::status_code(&e),
