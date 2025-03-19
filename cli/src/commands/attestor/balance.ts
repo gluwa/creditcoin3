@@ -5,8 +5,8 @@ import { getBalancesAll, toCTCString } from '../../lib/balance';
 import Table from 'cli-table3';
 
 export function showAttestorBalanceActionCommand() {
-    const cmd = new Command('show-attestor-balance');
-    cmd.description('Show balance of an attestor');
+    const cmd = new Command('show-attestor-stash-balance');
+    cmd.description('Show balance of the stash account for attestors');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.action(showAttestorBalanceAction);
     return cmd;
@@ -44,11 +44,8 @@ async function showAttestorBalanceAction(options: OptionValues) {
         }
     }
 
-    let unclaimedRewardsAttestorValue = 0;
     const unclaimedRewardsAttestor = await api.query.attestation.accumulatedRewards(address);
-    if (unclaimedRewardsAttestor.isSome) {
-        unclaimedRewardsAttestorValue = unclaimedRewardsAttestor.unwrap().toNumber();
-    }
+    const unclaimedRewardsAttestorValue = unclaimedRewardsAttestor.unwrapOrDefault();
 
     const table = new Table({});
 
@@ -56,8 +53,8 @@ async function showAttestorBalanceAction(options: OptionValues) {
         ['Transferable', toCTCString(balanceAll.availableBalance, 4)],
         ['Locked', toCTCString(balanceAll.lockedBalance, 4)],
         ['Total', toCTCString(balanceAll.freeBalance.add(balanceAll.reservedBalance), 4)],
-        ['AttestorTotalStake', toCTCString(totalStaked, 4)],
-        ['AttestorActiveStake', toCTCString(active, 4)],
+        ['TotalStake', toCTCString(totalStaked, 4)],
+        ['ActiveStake', toCTCString(active, 4)],
         ['Unbonding', toCTCString(new BN(unbondingAmount), 4)],
         ['CanWithdraw', toCTCString(new BN(canWithdraw), 4)],
         ['UnclaimedRewards', toCTCString(new BN(unclaimedRewardsAttestorValue), 4)],

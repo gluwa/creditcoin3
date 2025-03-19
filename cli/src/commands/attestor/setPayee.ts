@@ -17,8 +17,6 @@ export function setPayeeCommand() {
 async function setPayeeAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const payee = options.payee as string;
-
     const keyring = await initKeyring(options);
 
     const payeeDestination = parsePayeeDestination(

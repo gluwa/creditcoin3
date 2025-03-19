@@ -6,9 +6,9 @@ import { proxyForOption } from '../options';
 
 export function makeRegisterAttestorCommand() {
     const cmd = new Command('register-attestor');
-    cmd.description('Register attestor and bond funds from a stash account');
+    cmd.description('Register an attestor and bond funds from a stash account');
     cmd.addOption(proxyForOption);
-    cmd.option('-a, --attestor [attestor]', 'Specify attestor account to register');
+    cmd.option('-a, --attestor [attestor]', 'Specify the attestor account to register');
     cmd.option('-c, --chain [chain]', 'Specify chain key to register attestor for');
     cmd.action(registerAttestorAction);
     return cmd;
