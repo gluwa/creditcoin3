@@ -19,19 +19,19 @@ pub enum BlockError {
 pub struct Block {
     pub block_number: u64,
     pub root: Felt,
-    pub prev_digest: Felt,
+    //pub prev_digest: Felt,
     pub digest: Felt,
 }
 
 impl Block {
     pub fn new(block_number: u64, root: Felt) -> Self {
-        let prev_digest = Default::default();
-        let digest = Self::hash_payload(&block_number.into(), &root, &prev_digest);
+        //let prev_digest = Default::default();
+        let digest = Self::hash_payload(&block_number.into(), &root);
 
         Self {
             block_number,
             root,
-            prev_digest,
+            //prev_digest,
             digest,
         }
     }
@@ -66,20 +66,20 @@ impl Block {
         self.digest
     }
 
-    pub fn prev_digest(&self) -> Felt {
-        self.prev_digest
-    }
+    //pub fn prev_digest(&self) -> Felt {
+    //     self.prev_digest
+    // }
 
     pub fn try_from_previous(prev: &Self, block: Self) -> Result<Self, BlockError> {
         if block.block_number != prev.block_number + 1 {
             return Err(BlockError::BlockNumberMismatch(block.block_number));
         }
-        let digest = Self::hash_payload(&block.block_number.into(), &block.root, &prev.digest);
+        let digest = Self::hash_payload(&block.block_number.into(), &block.root);
 
         Ok(Self {
             block_number: block.block_number,
             root: block.root,
-            prev_digest: prev.digest,
+            //prev_digest: prev.digest,
             digest,
         })
     }
@@ -92,9 +92,9 @@ impl Block {
         }
     }
 
-    pub fn hash_payload(block_number: &Felt, root: &Felt, prev_digest: &Felt) -> Felt {
-        let d = starknet_crypto::pedersen_hash(block_number, root);
-        starknet_crypto::pedersen_hash(&d, prev_digest)
+    pub fn hash_payload(block_number: &Felt, root: &Felt) -> Felt {
+        starknet_crypto::pedersen_hash(block_number, root)
+        //starknet_crypto::pedersen_hash(&d, prev_digest)
     }
 }
 
@@ -108,7 +108,7 @@ impl MaybeCreatedFromEmpty for Block {
 pub struct BlockSerializable {
     block_number: u64,
     root: String,
-    prev_digest: String,
+    //prev_digest: String,
     digest: String,
 }
 
@@ -167,7 +167,7 @@ impl From<&Block> for BlockSerializable {
         Self {
             block_number: b.block_number,
             root: b.root.to_string(),
-            prev_digest: b.prev_digest.to_string(),
+            //prev_digest: b.prev_digest.to_string(),
             digest: b.digest.to_string(),
         }
     }
@@ -180,7 +180,7 @@ impl TryFrom<BlockSerializable> for Block {
         Ok(Self {
             block_number: block.block_number,
             root: Felt::from_dec_str(block.root.as_ref()).map_err(|_| ())?,
-            prev_digest: Felt::from_dec_str(block.prev_digest.as_ref()).map_err(|_| ())?,
+            //prev_digest: Felt::from_dec_str(block.prev_digest.as_ref()).map_err(|_| ())?,
             digest: Felt::from_dec_str(block.digest.as_ref()).map_err(|_| ())?,
         })
     }

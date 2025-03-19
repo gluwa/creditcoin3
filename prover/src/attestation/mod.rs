@@ -33,7 +33,7 @@ pub fn create_block_with_prev_digest(
     Ok(Block {
         block_number: attestation.header_number as u64,
         root,
-        prev_digest,
+        //prev_digest,
         digest,
     })
 }
@@ -47,8 +47,8 @@ impl From<postgres::attestation::Attestation> for Block {
         Block {
             block_number: attestation.header_number as u64,
             root: hex_to_felt(&attestation.merkle_root).unwrap(),
-            prev_digest: FieldElement::from_dec_str(&attestation.prev_digest.expect("Some"))
-                .unwrap(),
+            // prev_digest: FieldElement::from_dec_str(&attestation.prev_digest.expect("Some"))
+            //     .unwrap(),
             digest: FieldElement::from_dec_str(&attestation.digest).unwrap(),
         }
     }
@@ -83,10 +83,10 @@ fn test_from_attestation_to_block() {
         merkle_root: "1234".to_string(),
         digest: "712407950682829515725516432181193776679273327660415695581617124654780006662"
             .to_string(),
-        prev_digest: Some(
-            "2294326729661400123054252499768624109855664421347212272776906071729887468097"
-                .to_string(),
-        ),
+        // prev_digest: Some(
+        //     "2294326729661400123054252499768624109855664421347212272776906071729887468097"
+        //         .to_string(),
+        // ),
         signature: "1234".to_string(),
         attestors: vec![Some("1234".to_string())],
     };

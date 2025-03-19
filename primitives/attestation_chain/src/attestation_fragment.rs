@@ -83,14 +83,14 @@ impl AttestationFragment {
 
         let head_digest = self.head().map(|head| head.digest());
 
-        if head_digest == Some(block.prev_digest()) || head_digest.is_none() {
-            self.blocks.push(block);
-            Ok(self.head().expect("fragment not empty"))
-        } else {
-            Err(AttestationFragmentError::BlockDigestMismatch(Box::new(
-                block,
-            )))
-        }
+        //if head_digest == Some(block.prev_digest()) || head_digest.is_none() {
+        self.blocks.push(block);
+        Ok(self.head().expect("fragment not empty"))
+        // } else {
+        //     Err(AttestationFragmentError::BlockDigestMismatch(Box::new(
+        //         block,
+        //     )))
+        // }
     }
 
     pub fn blocks_serializable(

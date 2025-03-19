@@ -14,6 +14,6 @@ pub fn create(chain_key: ChainKey, new_block: &OrderedBlock) -> Attestation<H256
         header_hash: sp_core::H256(*new_block.hash().unwrap()),
         root: mt.root().0.to_bytes_be(),
         // We don't have a prev_digest yet, so we set it to None
-        prev_digest: None,
+        //prev_digest: None,
     }
 }
