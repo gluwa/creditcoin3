@@ -25,7 +25,7 @@ struct LayoutSegment {
 
 struct ResultSegment {
     uint256 offset; // potentially not need due to ordering i
-    bytes rlpBytes;
+    bytes abiBytes;
 }
 
 /// @title ProofVerifierContract interface

@@ -348,9 +348,10 @@ fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
         let right_segment = &sanitized[i + 1];
 
         // Immediately adjacent counts as overlapping for our purposes. Therefore `right_segment.offset - 1`
-        let overlapping = (left_segment.offset + left_segment.size) >= right_segment.offset - 1;
+        let overlapping = (left_segment.offset + left_segment.size - 1) >= right_segment.offset - 1;
         if overlapping {
-            let first_byte_index = left_segment.offset.min(right_segment.offset);
+            // Left segment offset guaranteed to be lesser due to sort
+            let first_byte_index = left_segment.offset;
             let last_byte_index = (left_segment.offset + left_segment.size)
                 .max(right_segment.offset + right_segment.size)
                 - 1;

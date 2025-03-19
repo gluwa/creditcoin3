@@ -7,6 +7,8 @@
 ## 0. Setup
 Get dependencies and build
 ```sh
+cd bridge-usage-example
+npm install
 forge build
 ```
 
