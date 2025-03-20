@@ -15,7 +15,10 @@ updates:
 
   # Maintain dependencies for Docker images
   - package-ecosystem: "docker"
-    directory: "/"
+    directories:
+      - "/"
+      - "/cc3-indexer"
+      - "/cc3-indexer/postgres"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5

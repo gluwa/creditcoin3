@@ -2,6 +2,8 @@ name: cc3-indexer
 on:
   pull_request:
 
+permissions: read-all
+
 jobs:
   unit-test:
     runs-on: ubuntu-24.04
