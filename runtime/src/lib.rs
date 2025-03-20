@@ -346,13 +346,13 @@ impl<T: frame_system::Config> WeightToFeePolynomial for WeightToCtcFee<T> {
         smallvec::smallvec![WeightToFeeCoefficient {
             degree: 1,
             negative: false,
-            coeff_frac: Perbill::from_rational(p % q, q),
-            coeff_integer: p / q,
+            coeff_frac: Perbill::from_rational(p % q, q) / 2,
+            coeff_integer: (p / q) / 2,
         }]
     }
 }
 
-pub const TRANSACTION_BYTE_FEE: Balance = 10 * CENTS / 1_000;
+pub const TRANSACTION_BYTE_FEE: Balance = 10 * CENTS / 1_000 / 2;
 
 parameter_types! {
     pub FeeMultiplier: Multiplier = Multiplier::one();
@@ -443,7 +443,7 @@ impl pallet_dynamic_fee::Config for Runtime {
 }
 
 parameter_types! {
-    pub DefaultBaseFeePerGas: U256 = U256::from(1_400_000_000_000_u128);
+    pub DefaultBaseFeePerGas: U256 = U256::from(777_238_095_238_u128);
     pub DefaultElasticity: Permill = Permill::from_parts(125_000);
 }
 

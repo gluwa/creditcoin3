@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "bip32",
  "clap",
@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-client-evm-tracing"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-rpc-primitives-debug",
  "ethereum-types",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-evm-tracer"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-primitives-ext",
  "ethereum-types",
@@ -1571,7 +1571,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1648,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-primitives-ext"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "ethereum-types",
  "evm-tracing-events",
@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-debug"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-types",
@@ -1673,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-trace"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-types",
@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-core-types"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "ethereum-types",
  "serde",
@@ -1695,7 +1695,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-debug"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-debug",
@@ -1726,7 +1726,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-primitives-debug"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "environmental",
  "ethereum",
@@ -1743,7 +1743,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-rpc-trace"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-client-evm-tracing",
  "creditcoin3-rpc-core-trace",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "creditcoin3-evm-tracer",
  "creditcoin3-rpc-primitives-debug",
@@ -2749,7 +2749,7 @@ dependencies = [
 
 [[package]]
 name = "evm-tracing-events"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "environmental",
  "ethereum",
@@ -3727,7 +3727,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.42.0"
+version = "3.43.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
