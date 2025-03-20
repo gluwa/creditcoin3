@@ -3618,7 +3618,13 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic';
     }
 
-    /** @name PalletProverError (419) */
+    /** @name PalletProverPrimitivesResultSegment (420) */
+    interface PalletProverPrimitivesResultSegment extends Struct {
+        readonly offset: u64;
+        readonly bytes: Bytes;
+    }
+
+    /** @name PalletProverError (422) */
     interface PalletProverError extends Enum {
         readonly isInvalidProofSubmitted: boolean;
         readonly isStarkProgramMetadataNotSet: boolean;
@@ -3632,6 +3638,7 @@ declare module '@polkadot/types/lookup' {
         readonly isQueryIdNotValidated: boolean;
         readonly isQueryOutOfBounds: boolean;
         readonly isQueryOffsetMismatch: boolean;
+        readonly isResultSegmentsExceedMaxSize: boolean;
         readonly type:
             | 'InvalidProofSubmitted'
             | 'StarkProgramMetadataNotSet'
@@ -3644,33 +3651,34 @@ declare module '@polkadot/types/lookup' {
             | 'VerifierProcessError'
             | 'QueryIdNotValidated'
             | 'QueryOutOfBounds'
-            | 'QueryOffsetMismatch';
+            | 'QueryOffsetMismatch'
+            | 'ResultSegmentsExceedMaxSize';
     }
 
-    /** @name PalletRandomnessError (420) */
+    /** @name PalletRandomnessError (423) */
     type PalletRandomnessError = Null;
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (423) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (426) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (424) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (427) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (425) */
+    /** @name FrameSystemExtensionsCheckTxVersion (428) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (426) */
+    /** @name FrameSystemExtensionsCheckGenesis (429) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (429) */
+    /** @name FrameSystemExtensionsCheckNonce (432) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (430) */
+    /** @name FrameSystemExtensionsCheckWeight (433) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (431) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (434) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (433) */
+    /** @name Creditcoin3RuntimeRuntime (436) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module

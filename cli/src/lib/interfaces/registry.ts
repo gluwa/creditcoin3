@@ -152,6 +152,7 @@ import type {
     PalletProverEvent,
     PalletProverPrimitivesLayoutSegment,
     PalletProverPrimitivesQuery,
+    PalletProverPrimitivesResultSegment,
     PalletProverPrimitivesVerifierExitStatus,
     PalletProxyAnnouncement,
     PalletProxyCall,
@@ -379,6 +380,7 @@ declare module '@polkadot/types/types/registry' {
         PalletProverEvent: PalletProverEvent;
         PalletProverPrimitivesLayoutSegment: PalletProverPrimitivesLayoutSegment;
         PalletProverPrimitivesQuery: PalletProverPrimitivesQuery;
+        PalletProverPrimitivesResultSegment: PalletProverPrimitivesResultSegment;
         PalletProverPrimitivesVerifierExitStatus: PalletProverPrimitivesVerifierExitStatus;
         PalletProxyAnnouncement: PalletProxyAnnouncement;
         PalletProxyCall: PalletProxyCall;
