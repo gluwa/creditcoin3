@@ -13,4 +13,6 @@ d103b6518efc18d8fcef9dd0bb211036fbec9543:chainspecs/devnetSpec.json:generic-api-
 81f8d5bc42884b00a5c70dba3c0fc8f2c47b733d:cli/src/test/attestation-tests/sanity.test.ts:generic-api-key:4
 078cc89ee408f47de8a4ab337530b69e6c2e7433:cli/src/test/attestation-tests/sanity.test.ts:generic-api-key:4
 8b35cb307581de42eb196f3827f186fbf843ecb3:cli/src/test/cc3-indexer-tests/handleEventAttestorRegistered.test.ts:generic-api-key:3
+da030b4bc98f859779fa8cf7e6db350b94b943f8:cli/src/test/cc3-indexer-tests/handleEventAttestorRegistered.test.ts:generic-api-key:3
 7b261e83fab8410a63c91d3cff10c1839220ed68:cli/src/test/cc3-indexer-tests/Attestors.test.ts:generic-api-key:2
+74cbdb795683da727e4743dfce5e85cbab625ddf:cli/src/test/cc3-indexer-tests/Attestors.test.ts:generic-api-key:2
