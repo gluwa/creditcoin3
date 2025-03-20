@@ -3,7 +3,7 @@ use crate::{
         Account::{Alice, Bob, Precompile},
         *,
     },
-    BoundedBytes, ConstU50MB
+    BoundedBytes, ConstU50MB,
 };
 
 use frame_support::assert_ok;
