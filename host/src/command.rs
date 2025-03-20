@@ -336,6 +336,9 @@ pub fn get_result_segments(
 }
 
 fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    // Segment count already minimal
+    if segments.len() <= 1 { return Vec::from(segments); }
+
     // Sort segments in order of least to greatest offset
     let mut sanitized = segments.to_vec();
     sanitized.sort_by(|seg_a, seg_b| seg_a.offset.cmp(&seg_b.offset));

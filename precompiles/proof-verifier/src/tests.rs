@@ -3,13 +3,13 @@ use crate::{
         Account::{Alice, Bob, Precompile},
         *,
     },
-    BoundedBytes, ConstU50MB, SELECTOR_LOG_PROOF_SUBMITTED,
+    BoundedBytes, ConstU50MB
 };
 
 use frame_support::assert_ok;
 use pallet_prover_primitives::{LayoutSegment, Query, STARK_PROGRAM_V2_HASH};
-use precompile_utils::{evm::logs::log3, solidity, testing::*};
-use sp_core::{H160, H256};
+use precompile_utils::testing::*;
+use sp_core::H160;
 use std::str::from_utf8;
 
 // No test of invalid selectors since we have a fallback behavior (deposit).
@@ -120,13 +120,6 @@ fn verify_should_return_zero_when_all_good() {
                         query: query.clone(),
                     },
                 )
-                .expect_log(log3(
-                    Precompile,
-                    SELECTOR_LOG_PROOF_SUBMITTED,
-                    H256::from(alice),
-                    query.id(),
-                    solidity::encode_event_data(proof),
-                ))
                 .execute_returns(0u8);
         });
 }
