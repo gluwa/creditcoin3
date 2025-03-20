@@ -18,3 +18,4 @@ https://portal.azure.com/#@gluwa.com/resource/subscriptions/3d91f14a-f591-496b-a
 https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE
 https://sepolia.etherscan.io/tx/0xa519add3d602460c2b30c7ff4b1215fd705f049bb87260c2a2fc8fe2c3ccce9a
 http://subquery-node:3000
+postgres://(.*)
