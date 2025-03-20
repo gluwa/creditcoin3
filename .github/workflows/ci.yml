@@ -1481,7 +1481,7 @@ jobs:
       - name: Start prover DBs
         working-directory: ./prover
         run: |
-          sed -ie '/ports/{N; d;}' compose.yaml
+          sed -ie '/ports/{N; d;}' docker-compose.yaml
           docker compose pull
           docker compose --project-name anvil-1 up -d
           docker compose --project-name anvil-2 up -d
@@ -1609,8 +1609,8 @@ jobs:
           killall -9 attestor
           killall -9 creditcoin3-node
           killall -9 prover
-          docker compose -f prover/compose.yaml -p anvil-1 down
-          docker compose -f prover/compose.yaml -p anvil-2 down
+          docker compose -f prover/docker-compose.yaml -p anvil-1 down
+          docker compose -f prover/docker-compose.yaml -p anvil-2 down
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
@@ -2408,7 +2408,7 @@ jobs:
       - name: Start prover DBs
         working-directory: ./prover
         run: |
-          sed -ie '/ports/{N; d;}' compose.yaml
+          sed -ie '/ports/{N; d;}' docker-compose.yaml
           docker compose pull
           docker compose --project-name anvil-1 up -d
           docker compose --project-name anvil-2 up -d
@@ -2532,11 +2532,11 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          docker compose -f cc3-indexer/docker-compose.yml down
+          docker compose -f cc3-indexer/docker-compose.yaml down
 
           killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
           killall -9 prover
-          docker compose -f prover/compose.yaml -p anvil-1 down
-          docker compose -f prover/compose.yaml -p anvil-2 down
+          docker compose -f prover/docker-compose.yaml -p anvil-1 down
+          docker compose -f prover/docker-compose.yaml -p anvil-2 down
