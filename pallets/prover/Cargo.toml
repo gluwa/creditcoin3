@@ -41,9 +41,11 @@ fp-account = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 env_logger = { workspace = true }
+pallet-attestation-poc = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-supported-chains = { workspace = true }
 prover-primitives = { workspace = true, default-features = false }
+sp-staking = { workspace = true }
 
 [features]
 default = ["std"]
@@ -74,4 +76,6 @@ std = [
     "proof-verifier/std",
     "pallet-prover-primitives/std",
     "precompile-utils/std",
+    "pallet-attestation-poc/std",
+    "sp-staking/std",
 ]

@@ -8560,6 +8560,7 @@ dependencies = [
  "frame-system",
  "hex",
  "log",
+ "pallet-attestation-poc",
  "pallet-balances",
  "pallet-prover-primitives",
  "pallet-supported-chains",
@@ -8572,6 +8573,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-staking",
  "sp-std",
  "supported-chains-primitives",
 ]

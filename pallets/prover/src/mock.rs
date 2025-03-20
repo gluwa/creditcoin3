@@ -19,6 +19,7 @@ frame_support::construct_runtime!(
         Balances: pallet_balances,
         ProverModule: prover_pallet,
         SupportedChains: pallet_supported_chains,
+        Attestation: pallet_attestation_poc,
     }
 );
 
@@ -90,6 +91,8 @@ impl prover_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = prover_pallet::weights::WeightInfo<Test>;
     type SupportedChains = SupportedChains;
+    type Checkpoints = Attestation;
+    type Attestations = Attestation;
     type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 
@@ -97,6 +100,39 @@ impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
     type EventListeners = ();
+}
+
+use attestor_primitives::BlsPublicKeyWrapper;
+use sp_staking::EraIndex;
+
+parameter_types! {
+    pub const DefaultAttestationsPerCheckpoint: u32 = 10;
+    pub const DefaultAttestationInterval: u64 = 10;
+    pub const DefaultTargetSampleSize: u32 = 3;
+    pub const DefaultMinBondRequirement: u64 = 10_000;
+    pub const MaxUnlockingChunks: u32 = 10;
+    pub const MaxAttestationsPerBlock: u32 = 10;
+    pub const BondingDuration: EraIndex = 3;
+}
+
+impl pallet_attestation_poc::Config for Test {
+    type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type DefaultAttestationInterval = DefaultAttestationInterval;
+    type DefaultTargetSampleSize = DefaultTargetSampleSize;
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Test>;
+    type MaxAttestationNodes = MaxAttestorsDefault;
+    type CommittmentInterval = CommittmentInterval;
+    type BlsSignature = [u8; 42];
+    type SupportedChains = SupportedChains;
+    type DefaultMinBondRequirement = DefaultMinBondRequirement;
+    type Currency = Balances;
+    type CurrencyBalance = Balance;
+    type MaxUnlockingChunks = MaxUnlockingChunks;
+    type BondingDuration = BondingDuration;
+    type Staking = ();
+    type Reward = ();
+    type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
 }
 
 // add more accounts when you need them

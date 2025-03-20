@@ -636,7 +636,7 @@ impl From<CcAttestation<H256>> for Attestation<Digest> {
             header_number: attestation.header_number,
             header_hash: sp_core::H256::from(attestation.header_hash.0),
             root: attestation.root,
-                        //prev_digest: attestation.prev_digest.map(Into::into),
+            prev_digest: attestation.prev_digest.map(Into::into),
         }
     }
 }
