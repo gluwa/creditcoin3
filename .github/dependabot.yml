@@ -28,6 +28,21 @@ updates:
         dependency-type: "production"
         applies-to: version-updates
 
+  # Maintain dependencies for docker-compose files
+  - package-ecosystem: "docker-compose"
+    directories:
+      - "/"
+      - "/cc3-indexer"
+      - "/prover"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
+    groups:
+      all-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+
   # Maintain dependencies for Rust
   # Note: Dependabot can't recursively search directories at the moment
   - package-ecosystem: "cargo"
