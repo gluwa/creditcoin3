@@ -23,7 +23,7 @@ Resulting line in `precompiles-creditcoin3-devnet.json` should look like:
 ## 4. Condense Source Code to Single Line
 
 ```sh
-jq -Rs '.' sol/proof_verifier.sol
+cat sol/proof_verifier.sol | jq -Rs '.'
 ```
 
 ## 5. Copy Resulting Text Into Final Json
@@ -31,4 +31,22 @@ jq -Rs '.' sol/proof_verifier.sol
 Resulting line in `precompiles-creditcoin3-devnet.json` should look like:
 ```json
 "source": "// SPDX-License-Identifier: GPL-3.0-only\npragma solidity >=0.8.3;
+```
+
+## 6. Check Json was Updated Successfully
+
+```sh
+cp .github/check-solidity-source-vs-metadata.sh .
+./check-solidity-source-vs-metadata.sh
+```
+
+## 7. Maybe remove extra newline if check fails
+
+There may be an extra newline at the end of your new `source` line. It would look like 
+```json
+"source": "// SPDX-License-Identifier: GPL-3.0-only...........external returns (ResultSegment[] memory);\n}\n"
+```
+If so, then remove the extra new line, resulting in
+```json
+"source": "// SPDX-License-Identifier: GPL-3.0-only...........external returns (ResultSegment[] memory);\n}"
 ```

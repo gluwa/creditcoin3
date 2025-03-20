@@ -171,10 +171,11 @@ contract CreditcoinPublicProver is Ownable {
             queries[queryId].state = QueryState.InvalidQuery;
         }
 
-        // Emit event with query ID, proof, and state
-        emit QueryProofVerified(queryId, proof, queries[queryId].state);
-
         ResultSegment[] memory resultSegments = verifier.get_result_segments(queryId);
+
+        // Emit event with query ID, proof, and state
+        emit QueryProofVerified(queryId, resultSegments, queries[queryId].state);
+
         return resultSegments;
     }
 
@@ -257,7 +258,7 @@ interface QueryVerifierContract {
 
 event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName);
 event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, ChainQuery chainQuery);
-event QueryProofVerified(QueryId indexed queryId, bytes proof, QueryState state);
+event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments, QueryState state);
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
 event CostPerByteUpdated(uint256 newCostPerByte);
