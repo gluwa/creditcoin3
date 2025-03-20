@@ -38,7 +38,7 @@ describe('handleEventAttestorRegistered()', () => {
         await api.disconnect();
     });
 
-    describe('when new attestor is registered()', () => {
+    describe('when new attestor is registered', () => {
         beforeAll(async () => {
             // NOTE: Bob is the STASH for a random attestor on the Anvil2 chain
             await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
