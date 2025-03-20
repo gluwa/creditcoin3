@@ -300,16 +300,6 @@ pub fn run_verifier(
 
     fs::remove_file(&temp_file_path)?;
 
-    // fn felt_to_h256(felt: Felt) -> H256 {
-    //     let bytes = felt.to_bytes_le();
-    //
-    //     let mut h256_bytes = [0u8; 32];
-    //     let start_idx = 32 - bytes.len();
-    //     h256_bytes[start_idx..].copy_from_slice(&bytes);
-    //
-    //     H256::from(h256_bytes)
-    // }
-
     if output.status.success() {
         // Return result segments along with message on success
         let claim_felts = cairo_verifier_output.claim_fields.clone();
@@ -317,13 +307,6 @@ pub fn run_verifier(
             get_result_segments(&claim_felts, &layout_segments);
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        println!(
-            "raw: {:?}, to_string: {}",
-            cairo_verifier_output
-                .continuity_checkpoint_digest
-                .to_bytes_be(),
-            cairo_verifier_output.continuity_checkpoint_digest
-        );
         Ok((
             stdout,
             cairo_verifier_output
