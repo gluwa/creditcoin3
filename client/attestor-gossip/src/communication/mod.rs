@@ -6,7 +6,7 @@ use thiserror::Error;
 use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use attestor_primitives::bls::{Bls, CryptoScheme};
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest, Round, PalletDigest,
+    Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest, PalletDigest, Round,
 };
 
 pub mod gossip;
