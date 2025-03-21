@@ -772,7 +772,7 @@ impl<T: Config> Pallet<T> {
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
 
-                Checkpoints::<T>::insert(chain_key, checkpoint.digest, removed.header_number());
+                Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             }
         }

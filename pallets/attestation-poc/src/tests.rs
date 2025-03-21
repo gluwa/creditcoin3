@@ -1970,7 +1970,7 @@ fn creating_checkpoint_works() {
         );
         assert_eq!(
             Attestation::checkpoints(SUPPORTED_CHAIN_KEY, resulting_checkpoint.digest),
-            Some(unwrapped_att.header_number())
+            Some(resulting_checkpoint.block_number)
         );
         assert_eq!(
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
