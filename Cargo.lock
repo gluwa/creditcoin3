@@ -8351,6 +8351,7 @@ dependencies = [
  "hex-literal",
  "libsecp256k1",
  "log",
+ "pallet-attestation-poc",
  "pallet-balances",
  "pallet-evm",
  "pallet-prover",
@@ -8365,6 +8366,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-staking",
  "sp-std",
 ]
 
@@ -8556,6 +8558,7 @@ dependencies = [
  "env_logger 0.11.6",
  "fp-account",
  "frame-benchmarking",
+ "frame-election-provider-support",
  "frame-support",
  "frame-system",
  "hex",
@@ -8563,6 +8566,8 @@ dependencies = [
  "pallet-attestation-poc",
  "pallet-balances",
  "pallet-prover-primitives",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
  "pallet-supported-chains",
  "parity-scale-codec",
  "precompile-utils",

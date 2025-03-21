@@ -1,4 +1,8 @@
 use crate::{self as prover_pallet};
+use frame_election_provider_support::{
+    bounds::{ElectionBounds, ElectionBoundsBuilder},
+    onchain, SequentialPhragmen,
+};
 use frame_support::{parameter_types, traits::ConstU32};
 use frame_system as system;
 use sp_core::H256;
@@ -20,6 +24,7 @@ frame_support::construct_runtime!(
         ProverModule: prover_pallet,
         SupportedChains: pallet_supported_chains,
         Attestation: pallet_attestation_poc,
+        Staking: pallet_staking,
     }
 );
 
@@ -130,9 +135,77 @@ impl pallet_attestation_poc::Config for Test {
     type CurrencyBalance = Balance;
     type MaxUnlockingChunks = MaxUnlockingChunks;
     type BondingDuration = BondingDuration;
-    type Staking = ();
+    type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
+}
+
+use sp_runtime::curve::PiecewiseLinear;
+use sp_runtime::Perbill;
+use sp_staking::SessionIndex;
+
+pallet_staking_reward_curve::build! {
+    const REWARD_CURVE: PiecewiseLinear<'static> = curve!(
+        min_inflation: 0_025_000u64,
+        max_inflation: 0_100_000,
+        ideal_stake: 0_500_000,
+        falloff: 0_050_000,
+        max_piece_count: 40,
+        test_precision: 0_005_000,
+    );
+}
+
+parameter_types! {
+    pub const SessionsPerEra: SessionIndex = 3;
+    pub const SlashDeferDuration: EraIndex = 0;
+    pub const RewardCurve: &'static PiecewiseLinear<'static> = &REWARD_CURVE;
+    pub const OffendingValidatorsThreshold: Perbill = Perbill::from_percent(16);
+    pub static ElectionsBounds: ElectionBounds = ElectionBoundsBuilder::default().build();
+}
+
+pub const SLASHING_DISABLING_FACTOR: usize = 3;
+use pallet_staking::FixedNominationsQuota;
+type DummyValidatorId = u64;
+
+pub struct OnChainSeqPhragmen;
+impl onchain::Config for OnChainSeqPhragmen {
+    type System = Test;
+    type Solver = SequentialPhragmen<DummyValidatorId, Perbill>;
+    type DataProvider = Staking;
+    type WeightInfo = ();
+    type MaxWinners = ConstU32<100>;
+    type Bounds = ElectionsBounds;
+}
+
+impl pallet_staking::Config for Test {
+    type RewardRemainder = ();
+    type CurrencyToVote = ();
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type CurrencyBalance = <Self as pallet_balances::Config>::Balance;
+    type Slash = ();
+    type Reward = ();
+    type SessionsPerEra = SessionsPerEra;
+    type BondingDuration = BondingDuration;
+    type SlashDeferDuration = SlashDeferDuration;
+    type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
+    type SessionInterface = Self;
+    type UnixTime = (); //pallet_timestamp::Pallet<Test>;
+    type EraPayout = pallet_staking::ConvertCurve<RewardCurve>;
+    type NextNewSession = (); //Session;
+    type MaxExposurePageSize = ConstU32<256>;
+    type ElectionProvider = onchain::OnChainExecution<OnChainSeqPhragmen>;
+    type GenesisElectionProvider = Self::ElectionProvider;
+    type VoterList = pallet_staking::UseNominatorsAndValidatorsMap<Self>;
+    type TargetList = pallet_staking::UseValidatorsMap<Self>;
+    type NominationsQuota = FixedNominationsQuota<16>;
+    type MaxUnlockingChunks = ConstU32<32>;
+    type HistoryDepth = ConstU32<84>;
+    type EventListeners = ();
+    type BenchmarkingConfig = pallet_staking::TestBenchmarkingConfig;
+    type WeightInfo = ();
+    type MaxControllersInDeprecationBatch = ConstU32<100>;
+    type DisablingStrategy = pallet_staking::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
 }
 
 // add more accounts when you need them

@@ -230,8 +230,8 @@ impl pallet_prover::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_prover::weights::WeightInfo<Runtime>;
     type SupportedChains = SupportedChains;
-    type Checkpoints = ();
-    type Attestations = ();
+    type Checkpoints = Attestation;
+    type Attestations = Attestation;
     type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 
@@ -239,6 +239,41 @@ impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
     type EventListeners = ();
+}
+
+use sp_staking::EraIndex;
+
+parameter_types! {
+    pub const MaxLocks: u32 = 50;
+    pub const MaxAttestorsDefault: u32 = 100;
+    pub const CommittmentInterval: u64 = 1000;
+    pub const DefaultAttestationsPerCheckpoint: u32 = 10;
+    pub const DefaultAttestationInterval: u64 = 10;
+    pub const DefaultTargetSampleSize: u32 = 3;
+    pub const DefaultMinBondRequirement: u64 = 10_000;
+    pub const MaxUnlockingChunks: u32 = 10;
+    pub const MaxAttestationsPerBlock: u32 = 10;
+    pub const BondingDuration: EraIndex = 3;
+}
+
+impl pallet_attestation_poc::Config for Runtime {
+    type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type DefaultAttestationInterval = DefaultAttestationInterval;
+    type DefaultTargetSampleSize = DefaultTargetSampleSize;
+    type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_attestation_poc::weights::WeightInfo<Runtime>;
+    type MaxAttestationNodes = MaxAttestorsDefault;
+    type CommittmentInterval = CommittmentInterval;
+    type BlsSignature = [u8; 42];
+    type SupportedChains = SupportedChains;
+    type DefaultMinBondRequirement = DefaultMinBondRequirement;
+    type Currency = Balances;
+    type CurrencyBalance = Balance;
+    type MaxUnlockingChunks = MaxUnlockingChunks;
+    type BondingDuration = BondingDuration;
+    type Staking = ();
+    type Reward = ();
+    type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
 }
 
 // Configure a mock runtime to test the pallet.
@@ -250,6 +285,7 @@ construct_runtime!(
         Timestamp: pallet_timestamp,
         ProverModule: pallet_prover,
         SupportedChains: pallet_supported_chains,
+        Attestation: pallet_attestation_poc,
     }
 );
 

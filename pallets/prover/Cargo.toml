@@ -41,8 +41,11 @@ fp-account = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 env_logger = { workspace = true }
+frame-election-provider-support = { workspace = true }
 pallet-attestation-poc = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-staking = { workspace = true }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-supported-chains = { workspace = true }
 prover-primitives = { workspace = true, default-features = false }
 sp-staking = { workspace = true }
@@ -78,4 +81,6 @@ std = [
     "precompile-utils/std",
     "pallet-attestation-poc/std",
     "sp-staking/std",
+    "pallet-staking/std",
+    "frame-election-provider-support/std",
 ]
