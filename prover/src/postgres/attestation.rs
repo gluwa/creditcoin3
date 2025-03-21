@@ -1,9 +1,11 @@
 use anyhow::Result;
-use diesel::dsl::exists as diesel_exists;
-use diesel::prelude::*;
-use diesel::result::Error as DieselError;
+use diesel::{
+    dsl::exists as diesel_exists, prelude::*, result::DatabaseErrorKind,
+    result::Error as DieselError,
+};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use attestor_primitives::SignedAttestation;
 
@@ -11,6 +13,14 @@ use super::schema::attestation::{
     self, digest as SchemaDigest, dsl::attestation as attestation_table,
     prev_digest as SchemaPrevDigest,
 };
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Attempted to insert an attestation with a different digest, but duplicate chain key and block number. Clean DB and run prover to resync.")]
+    DuplicateChainKeyAndBlockNumber,
+    #[error("[0]")]
+    Other(DieselError),
+}
 
 #[derive(Serialize, Deserialize, Debug, Insertable, Queryable, Selectable, Clone)]
 #[diesel(table_name = attestation)]
@@ -58,13 +68,24 @@ pub async fn exists_by_digest(connection: &mut AsyncPgConnection, digest: String
     .await?)
 }
 
-pub async fn insert(connection: &mut AsyncPgConnection, attestation: Attestation) -> Result<()> {
+pub async fn insert(
+    connection: &mut AsyncPgConnection,
+    attestation: Attestation,
+) -> Result<(), Error> {
     diesel::insert_into(attestation_table)
         .values(attestation)
         .on_conflict((SchemaDigest, SchemaPrevDigest))
         .do_nothing()
         .execute(connection)
-        .await?;
+        .await
+        .map_err(|e| {
+            if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
+                // Only conflicts on (chain_key, block_number) are left unhandled
+                Error::DuplicateChainKeyAndBlockNumber
+            } else {
+                Error::Other(e)
+            }
+        })?;
 
     Ok(())
 }

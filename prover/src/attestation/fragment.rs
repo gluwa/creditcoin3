@@ -101,29 +101,29 @@ pub async fn get_for_claim(
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    // If not all fragment blocks are in the cache, then add them.
     // We keep track of whether start and end blocks were fetched from the source chain.
-    // This information allows us to detect bad attestations and/or checkpoints in the prover DB.
-    let (fragment_blocks, fetched_start, fetched_end) = if db_fragment.len() as u64
-        == expected_fragment_size
-    {
+    // This lets us provide more information to the user when the prover crashes with a
+    // FirstFragmentBlockMismatch or LastFragmentBlockMismatch
+    let mut fetched_start = true;
+    let mut fetched_end = true;
+    if let Some(first_frag_block) = db_fragment.first() {
+        fetched_start =
+            from_storage_type(first_frag_block.header_number) != lower_endpoint.block_number;
+    };
+    if let Some(last_frag_block) = db_fragment.last() {
+        fetched_end =
+            from_storage_type(last_frag_block.header_number) != upper_endpoint.block_number;
+    };
+
+    // If not all fragment blocks are in the cache, then add them.
+    let fragment_blocks = if db_fragment.len() as u64 == expected_fragment_size {
         info!(
             "All blocks for fragment found in cache, chain_key: {}, lower_bound: {}, upper_bound: {}",
             chain_key, lower_endpoint.block_number, upper_endpoint.block_number
         );
-        (db_fragment, false, false)
+        db_fragment
     } else {
-        let fetched_start_block = if let Some(first_frag_block) = db_fragment.first() {
-            from_storage_type(first_frag_block.header_number) != lower_endpoint.block_number
-        } else {
-            true
-        };
-        let fetched_end_block = if let Some(last_frag_block) = db_fragment.last() {
-            from_storage_type(last_frag_block.header_number) != upper_endpoint.block_number
-        } else {
-            true
-        };
-        let fragment = construct_fragment(
+        construct_fragment(
             db_fragment,
             eth_client,
             chain_key,
@@ -131,8 +131,7 @@ pub async fn get_for_claim(
             upper_endpoint.block_number,
         )
         .await
-        .map_err(|e| Error::Other(e.to_string()))?;
-        (fragment, fetched_start_block, fetched_end_block)
+        .map_err(|e| Error::Other(e.to_string()))?
     };
 
     // Sanity check that the start attestation digest matches the first block in the fragment

@@ -1,16 +1,20 @@
 use anyhow::{anyhow, Result};
 use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest, SignedAttestation};
+use diesel_async::AsyncPgConnection;
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     cc3,
     postgres::{
-        self, attestation,
-        attestationcheckpoint::{self, AttestationCheckpoint as DbCheckpoint},
+        self,
+        attestation::{self, Error as DbAttestationError},
+        attestationcheckpoint::{
+            self, AttestationCheckpoint as DbCheckpoint, Error as DbCheckpointError,
+        },
         blockwithdigest,
         cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
         db::PgPool,
@@ -97,8 +101,14 @@ where
     pub async fn insert_attestation(&self, attestation: SignedAttestation<H, A>) -> Result<()> {
         let mut connection = self.pool.get().await?;
         if let Err(e) = attestation::insert(&mut connection, attestation.into()).await {
-            error!("Error inserting attestation. In case of attestation with duplicate (chain_key, block_height), clean DB and run prover to resync. Error: {:?}", e);
-            return Err(e);
+            match e {
+                DbAttestationError::DuplicateChainKeyAndBlockNumber => {
+                    return Err(anyhow!("Inserted attestation with duplicate (chain_key, block_height). Therefore DB contains bad state. Clean DB and run prover to resync. Error: {:?}", e));
+                }
+                DbAttestationError::Other(e) => {
+                    return Err(anyhow!("{:?}", e));
+                }
+            }
         }
 
         Ok(())
@@ -113,8 +123,14 @@ where
         let db_checkpoint = DbCheckpoint::from_on_chain(&checkpoint, chain_key);
         let checkpoint_block_number = db_checkpoint.block_number;
         if let Err(e) = attestationcheckpoint::insert(&mut connection, db_checkpoint).await {
-            error!("Error inserting checkpoint. In case of checkpoint with duplicate (chain_key, block_height), clean DB and run prover to resync. Error: {:?}", e);
-            return Err(e);
+            match e {
+                DbCheckpointError::DuplicateChainKeyAndBlockNumber => {
+                    return Err(anyhow!("Inserted attestation with duplicate (chain_key, block_height). Therefore DB contains bad state. Clean DB and run prover to resync. Error: {:?}", e));
+                }
+                DbCheckpointError::Other(e) => {
+                    return Err(anyhow!("{:?}", e));
+                }
+            }
         }
 
         // Checkpoints should be strictly from earlier block numbers than attestations. So
@@ -223,18 +239,18 @@ where
 
     pub async fn get_highest_attestation(
         &self,
+        connection: &mut AsyncPgConnection,
         chain_key: ChainKey,
     ) -> Result<Option<attestation::Attestation>> {
-        let mut connection = self.pool.get().await?;
-        attestation::get_highest_attestation(&mut connection, chain_key).await
+        attestation::get_highest_attestation(connection, chain_key).await
     }
 
     pub async fn get_highest_checkpoint(
         &self,
+        connection: &mut AsyncPgConnection,
         chain_key: ChainKey,
     ) -> Result<Option<DbCheckpoint>> {
-        let mut connection = self.pool.get().await?;
-        attestationcheckpoint::get_highest_checkpoint(&mut connection, chain_key).await
+        attestationcheckpoint::get_highest_checkpoint(connection, chain_key).await
     }
 }
 
@@ -349,13 +365,20 @@ pub async fn build_historical_cache_for_chain(
             .await?
             .ok_or(anyhow!("Could not get last on-chain attestation"))?
             .header_number();
-        if let Some(checkpoint) = attestations_cache.get_highest_checkpoint(chain).await? {
+        let mut connection = attestations_cache.pool.get().await?;
+        if let Some(checkpoint) = attestations_cache
+            .get_highest_checkpoint(&mut connection, chain)
+            .await?
+        {
             assert!(
                 (from_storage_type(checkpoint.block_number) <= last_block_height),
                 "Prover DB contains invalid checkpoint state. Clean DB then run prover to resync."
             );
         }
-        if let Some(attestation) = attestations_cache.get_highest_attestation(chain).await? {
+        if let Some(attestation) = attestations_cache
+            .get_highest_attestation(&mut connection, chain)
+            .await?
+        {
             assert!(
                 (from_storage_type(attestation.header_number) <= last_block_height),
                 "Prover DB contains invalid attestation state. Clean DB then run prover to resync"
