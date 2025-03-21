@@ -1,6 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { randomFundedAccount, waitBlocks } from '../integration-tests/helpers';
+import { forElapsedBlocks } from '../utils';
+import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
@@ -28,7 +29,7 @@ describe('handleEventBonded()', () => {
 
             // NOTE: registering the attestor will bond a fixed amount
             await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
-            await waitBlocks(3, api);
+            await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
         it('graphQL returns known Bonded entity', async () => {

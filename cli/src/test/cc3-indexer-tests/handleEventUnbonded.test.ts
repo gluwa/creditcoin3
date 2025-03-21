@@ -1,6 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { randomFundedAccount, waitBlocks } from '../integration-tests/helpers';
+import { forElapsedBlocks } from '../utils';
+import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
@@ -19,7 +20,7 @@ describe('handleEventUnbonded()', () => {
 
         // register here just so we can unregister a bit later
         await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
-        await waitBlocks(3, api);
+        await forElapsedBlocks(api, { minBlocks: 3 });
     }, 45_000);
 
     afterAll(async () => {
@@ -32,7 +33,7 @@ describe('handleEventUnbonded()', () => {
 
             // NOTE: unregistering the attestor will also unbond
             await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
-            await waitBlocks(3, api);
+            await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
         it('graphQL returns known Unbonded entity', async () => {

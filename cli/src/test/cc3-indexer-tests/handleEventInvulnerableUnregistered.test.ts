@@ -1,5 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
-import { waitBlocks } from '../integration-tests/helpers';
+import { forElapsedBlocks } from '../utils';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
@@ -18,7 +18,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
         await api.tx.sudo
             .sudo(api.tx.attestation.registerInvulnerable(chain_Anvil2_Key, attestor.address))
             .signAndSend(root);
-        await waitBlocks(3, api);
+        await forElapsedBlocks(api, { minBlocks: 3 });
     }, 30_000);
 
     afterAll(async () => {
@@ -56,7 +56,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
             await api.tx.sudo
                 .sudo(api.tx.attestation.unregisterInvulnerable(chain_Anvil2_Key, attestor.address))
                 .signAndSend(root);
-            await waitBlocks(3, api);
+            await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
         it('graphQL returns known InvulnerableUnregistered', async () => {

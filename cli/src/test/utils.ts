@@ -57,6 +57,7 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
 export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: number; maxRetries?: number }) => {
     const { maxRetries = 10, minBlocks = 2 } = opts ?? {};
     const initialCreditcoinBlockNumber = (await getChainStatus(api)).bestNumber;
+    const blockTime = api.consts.babe.expectedBlockTime.toNumber();
 
     let retriesCount = 0;
     let creditcoinBlockNumber = initialCreditcoinBlockNumber;
@@ -64,7 +65,7 @@ export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: num
     // wait a min amount of blocks since the initial call to give time to any pending
     // transactions, e.g. test setup to make it into a block
     while (retriesCount < maxRetries && creditcoinBlockNumber <= initialCreditcoinBlockNumber + minBlocks) {
-        await sleep(5000);
+        await sleep(blockTime);
         creditcoinBlockNumber = (await getChainStatus(api)).bestNumber;
         retriesCount++;
     }

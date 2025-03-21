@@ -31,11 +31,6 @@ export async function fundAddressesFromSudo(addresses: string[], amount: BN, url
     return tx;
 }
 
-export async function waitBlocks(blocks: number, api: ApiPromise) {
-    const blockTime = api.consts.babe.expectedBlockTime.toNumber();
-    await sleep(blockTime * blocks);
-}
-
 export async function waitEras(eras: number, api: ApiPromise) {
     let eraInfo = await api.derive.session.info();
     let currentEra = eraInfo.currentEra.toNumber();

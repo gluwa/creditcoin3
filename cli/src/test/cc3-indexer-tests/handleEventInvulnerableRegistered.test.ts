@@ -1,5 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
-import { waitBlocks } from '../integration-tests/helpers';
+import { forElapsedBlocks } from '../utils';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
@@ -39,7 +39,7 @@ describe('handleEventInvulnerableRegistered()', () => {
                 .signAndSend(root);
 
             // wait for txn to make it on chain & indexer to ingest the block
-            await waitBlocks(3, api);
+            await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
         it('graphQL returns known InvulnerableRegistered', async () => {
