@@ -142,11 +142,6 @@ contract CreditcoinPublicProver is Ownable {
         return verifier.verify(proof, queries[queryId].query);
     }
 
-    // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_get_result_segments(QueryId queryId) virtual internal returns (ResultSegment[] memory) {
-        return verifier.get_result_segments(queryId);
-    }
-
     // submitQueryProof is called by the prover when a query's proof is ready.
     function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (ResultSegment[] memory) {
         // Fist verify the proof
@@ -176,7 +171,7 @@ contract CreditcoinPublicProver is Ownable {
             queries[queryId].state = QueryState.InvalidQuery;
         }
 
-        ResultSegment[] memory resultSegments = _call_verifier_get_result_segments(queryId);
+        ResultSegment[] memory resultSegments = verifier.get_result_segments(queryId);
 
         // Emit event with query ID, proof, and state
         emit QueryProofVerified(queryId, resultSegments, queries[queryId].state);
@@ -242,7 +237,7 @@ contract CreditcoinPublicProver is Ownable {
         QueryState state = queries[queryId].state;
         require(state == QueryState.ResultAvailable, "Query result not available");
 
-        ResultSegment[] memory resultSegments = _call_verifier_get_result_segments(queryId);
+        ResultSegment[] memory resultSegments = verifier.get_result_segments(queryId);
 
         return resultSegments;
     }
