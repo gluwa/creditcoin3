@@ -1,4 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { getChainStatus } from '../../lib/chain/status';
 import { randomFundedAccount, waitBlocks } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
@@ -7,6 +8,7 @@ describe('handleEventBonded()', () => {
     let api: ApiPromise;
     let bob: KeyringPair;
     let attestor: any;
+    let startingBlock: number;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -22,6 +24,8 @@ describe('handleEventBonded()', () => {
 
     describe('when new attestor is registered', () => {
         beforeAll(async () => {
+            startingBlock = (await getChainStatus(api)).bestNumber;
+
             // NOTE: registering the attestor will bond a fixed amount
             await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
             await waitBlocks(3, api);
@@ -39,13 +43,15 @@ describe('handleEventBonded()', () => {
                 expect(BigInt(node.amount)).toBeGreaterThan(0);
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
-                // TODO: these are the same == bob
-                expect(node.whoId).not.toEqual(node.stashId);
-                // TODO: this will never match
-                if (node.stashId === attestor.address) {
+                expect(node.whoId).toEqual(node.stashId);
+                // WARNING: cannot match attestorId b/c this value isn't recorded
+                // best we can do is match stashId and look for record added in blocks
+                // *AFTER* this test has started
+                if (node.stashId === bob.address && node.blockNumber > startingBlock) {
                     foundMatch = true;
-                    expect(node.whoId).toEqual(bob.address);
                 }
+                // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
+                // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.blockNumber).toBeGreaterThan(0);
