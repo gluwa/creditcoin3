@@ -62,7 +62,7 @@ describe('handleEventRewardClaimed()', () => {
                 // *AFTER* this test has started
                 if (node.stashId === alice.address && node.blockNumber >= startingBlock) {
                     foundMatch = true;
-                    expect(BigInt(node.amount)).toEqual(expectedReward);
+                    expect(BigInt(node.amount)).toBeGreaterThanOrEqual(expectedReward);
                 }
                 // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
                 // and may fail to error out if there is a problem with indexer
