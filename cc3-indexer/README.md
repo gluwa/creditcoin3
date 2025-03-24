@@ -3,6 +3,7 @@
 cc3-indexer
 
 1. add into schema.graphql your database entity to store
+1a. If changing public prover contract, then run build.sh in common/eth/contracts
 2. yarn codegen
 3. yarn build
 4. project.ts -> new handler

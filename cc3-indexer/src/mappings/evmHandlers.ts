@@ -5,6 +5,7 @@ import { Prover, ChainQueries, Proof, EscrowPaymentReclaimed, ProceedsWithdrawn,
 import {
     QuerySubmittedEventObject,
     ChainQueryStructOutput,
+    ResultSegmentStructOutput,
     ProverDeployedEventObject,
     EscrowedPaymentReclaimedEventObject,
     ProceedsWithdrawnEventObject,
@@ -79,7 +80,7 @@ export async function handleQuerySubmitted(event: FrontierEvmEvent<QuerySubmitte
 }
 
 // event QueryProofVerified(QueryId indexed queryId, bytes proof);
-type QueryProofVerifiedArgs = [string, string, number] & QueryProofVerifiedEventObject;
+type QueryProofVerifiedArgs = [string, ResultSegmentStructOutput, number] & QueryProofVerifiedEventObject;
 
 export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProofVerifiedArgs>): Promise<void> {
     if (!event.args) {
@@ -87,14 +88,19 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
         return;
     }
 
-    const { queryId, proof, state } = event.args;
+    const { queryId, resultSegments, state } = event.args;
 
     logger.info(`Query proof verified for query ${queryId}, state: ${state}`);
 
     const proofEntity = Proof.create({
         id: `${event.blockNumber}-${event.transactionIndex}`,
         queryRef: queryId,
-        proof: proof.toString(),
+        resultSegments: resultSegments.map((segment) => {
+            return {
+                offset: segment.offset.toBigInt(),
+                bytes: segment.abiBytes.toString(),
+            };
+        }),
     });
 
     await proofEntity.save();

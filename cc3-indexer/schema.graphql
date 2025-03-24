@@ -541,12 +541,16 @@ type LayoutSegment @jsonField {
 
 type Proof @entity {
     """
-    Represents a proof with id, queryRef, and proof segments
+    Represents a proof with id, queryRef, and result segments
     """
     id: ID!
     queryRef: String!
+    resultSegments: [ResultSegment]
+}
 
-    proof: Bytes!
+type ResultSegment @jsonField {
+    offset: BigInt!
+    bytes: Bytes!
 }
 
 type EscrowPaymentReclaimed @entity {
