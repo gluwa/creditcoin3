@@ -1,17 +1,33 @@
 use super::*;
 
+use frame_election_provider_support::{
+    bounds::{ElectionBounds, ElectionBoundsBuilder},
+    onchain, SequentialPhragmen,
+};
+use frame_support::pallet_prelude::ConstU32;
+use frame_support::traits::{ConstU64, KeyOwnerProofSystem};
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
+use pallet_babe::AuthorityId;
 use pallet_evm::{
     EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider, IdentityAddressMapping,
 };
+use pallet_session::historical as pallet_session_historical;
+use pallet_session::Config;
+use pallet_staking::FixedNominationsQuota;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
+use sp_core::crypto::KeyTypeId;
 use sp_core::{H160, H256, U256};
+use sp_runtime::curve::PiecewiseLinear;
+use sp_runtime::traits::OpaqueKeys;
+use sp_runtime::Perbill;
 use sp_runtime::{
+    impl_opaque_keys,
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
+use sp_staking::SessionIndex;
 
 pub const PRECOMPILE_ADDRESS: u64 = 1;
 
@@ -240,6 +256,108 @@ impl pallet_supported_chains::Config for Runtime {
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
     type EventListeners = ();
 }
+pub const SLASHING_DISABLING_FACTOR: usize = 3;
+
+pallet_staking_reward_curve::build! {
+    const REWARD_CURVE: PiecewiseLinear<'static> = curve!(
+        min_inflation: 0_025_000u64,
+        max_inflation: 0_100_000,
+        ideal_stake: 0_500_000,
+        falloff: 0_050_000,
+        max_piece_count: 40,
+        test_precision: 0_005_000,
+    );
+}
+parameter_types! {
+    pub const SessionsPerEra: SessionIndex = 3;
+    pub const SlashDeferDuration: EraIndex = 0;
+    pub const RewardCurve: &'static PiecewiseLinear<'static> = &REWARD_CURVE;
+    pub const OffendingValidatorsThreshold: Perbill = Perbill::from_percent(16);
+    pub static ElectionsBounds: ElectionBounds = ElectionBoundsBuilder::default().build();
+}
+type DummyValidatorId = u64;
+
+pub struct OnChainSeqPhragmen;
+impl onchain::Config for OnChainSeqPhragmen {
+    type System = Runtime;
+    type Solver = SequentialPhragmen<AccountId, Perbill>;
+    type DataProvider = Staking;
+    type WeightInfo = ();
+    type MaxWinners = ConstU32<100>;
+    type Bounds = ElectionsBounds;
+}
+
+impl pallet_staking::Config for Runtime {
+    type RewardRemainder = ();
+    type CurrencyToVote = ();
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type CurrencyBalance = <Self as pallet_balances::Config>::Balance;
+    type Slash = ();
+    type Reward = ();
+    type SessionsPerEra = SessionsPerEra;
+    type BondingDuration = BondingDuration;
+    type SlashDeferDuration = SlashDeferDuration;
+    type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
+    type SessionInterface = Self;
+    type UnixTime = pallet_timestamp::Pallet<Runtime>;
+    type EraPayout = pallet_staking::ConvertCurve<RewardCurve>;
+    type NextNewSession = Session;
+    type MaxExposurePageSize = ConstU32<256>;
+    type ElectionProvider = onchain::OnChainExecution<OnChainSeqPhragmen>;
+    type GenesisElectionProvider = Self::ElectionProvider;
+    type VoterList = pallet_staking::UseNominatorsAndValidatorsMap<Self>;
+    type TargetList = pallet_staking::UseValidatorsMap<Self>;
+    type NominationsQuota = FixedNominationsQuota<16>;
+    type MaxUnlockingChunks = ConstU32<32>;
+    type HistoryDepth = ConstU32<84>;
+    type EventListeners = ();
+    type BenchmarkingConfig = pallet_staking::TestBenchmarkingConfig;
+    type WeightInfo = ();
+    type MaxControllersInDeprecationBatch = ConstU32<100>;
+    type DisablingStrategy = pallet_staking::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
+}
+
+impl_opaque_keys! {
+    pub struct MockSessionKeys {
+        pub babe_authority: pallet_babe::Pallet<Runtime>,
+    }
+}
+
+impl pallet_session::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type ValidatorId = <Self as frame_system::Config>::AccountId;
+    type ValidatorIdOf = pallet_staking::StashOf<Self>;
+    type ShouldEndSession = Babe;
+    type NextSessionRotation = Babe;
+    type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
+    type SessionHandler = <MockSessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+    type Keys = MockSessionKeys;
+    type WeightInfo = ();
+}
+
+parameter_types! {
+    pub const EpochDuration: u64 = 3;
+    pub const ReportLongevity: u64 =
+        BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+}
+
+impl pallet_babe::Config for Runtime {
+    type EpochDuration = EpochDuration;
+    type ExpectedBlockTime = ConstU64<1>;
+    type EpochChangeTrigger = pallet_babe::ExternalTrigger;
+    type DisabledValidators = Session;
+    type WeightInfo = ();
+    type MaxAuthorities = ConstU32<10>;
+    type MaxNominators = ConstU32<100>;
+    type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, AuthorityId)>>::Proof;
+    type EquivocationReportSystem = ();
+}
+
+impl pallet_session::historical::Config for Runtime {
+    type FullIdentification = pallet_staking::Exposure<Account, u128>;
+    type FullIdentificationOf = pallet_staking::ExposureOf<Self>;
+}
 
 use sp_staking::EraIndex;
 
@@ -271,14 +389,14 @@ impl pallet_attestation_poc::Config for Runtime {
     type CurrencyBalance = Balance;
     type MaxUnlockingChunks = MaxUnlockingChunks;
     type BondingDuration = BondingDuration;
-    type Staking = ();
+    type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
 }
 
 // Configure a mock runtime to test the pallet.
 construct_runtime!(
-    pub enum Runtime	{
+    pub enum Runtime {
         System: frame_system,
         Balances: pallet_balances,
         Evm: pallet_evm,
@@ -286,6 +404,10 @@ construct_runtime!(
         ProverModule: pallet_prover,
         SupportedChains: pallet_supported_chains,
         Attestation: pallet_attestation_poc,
+        Staking: pallet_staking,
+        Session: pallet_session,
+        Babe: pallet_babe,
+        Historical: pallet_session_historical,
     }
 );
 

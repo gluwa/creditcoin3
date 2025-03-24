@@ -43,10 +43,13 @@ assert_matches = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
 pallet-attestation-poc = { workspace = true }
+pallet-babe = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-supported-chains = { workspace = true }
+pallet-timestamp = { workspace = true }
 prover-primitives = { workspace = true, default-features = false }
 sp-staking = { workspace = true }
 
@@ -83,4 +86,7 @@ std = [
     "sp-staking/std",
     "pallet-staking/std",
     "frame-election-provider-support/std",
+    "pallet-timestamp/std",
+    "pallet-babe/std",
+    "pallet-session/std",
 ]

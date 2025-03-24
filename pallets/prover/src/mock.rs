@@ -3,13 +3,18 @@ use frame_election_provider_support::{
     bounds::{ElectionBounds, ElectionBoundsBuilder},
     onchain, SequentialPhragmen,
 };
+use frame_support::traits::{ConstU64, KeyOwnerProofSystem};
 use frame_support::{parameter_types, traits::ConstU32};
 use frame_system as system;
+use pallet_babe::AuthorityId;
+use pallet_session::historical as pallet_session_historical;
 use sp_core::H256;
 use sp_runtime::{
+    impl_opaque_keys,
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
+use sp_staking::EraIndex;
 
 type AccountId = u64;
 type Balance = u128;
@@ -22,11 +27,33 @@ frame_support::construct_runtime!(
         System: frame_system,
         Balances: pallet_balances,
         ProverModule: prover_pallet,
+        Historical: pallet_session_historical,
         SupportedChains: pallet_supported_chains,
         Attestation: pallet_attestation_poc,
         Staking: pallet_staking,
+        Timestamp: pallet_timestamp,
+        Babe: pallet_babe,
+        Session: pallet_session,
     }
 );
+
+impl_opaque_keys! {
+    pub struct MockSessionKeys {
+        pub babe_authority: pallet_babe::Pallet<Test>,
+    }
+}
+
+impl pallet_session::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type ValidatorId = <Self as frame_system::Config>::AccountId;
+    type ValidatorIdOf = pallet_staking::StashOf<Self>;
+    type ShouldEndSession = Babe;
+    type NextSessionRotation = Babe;
+    type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
+    type SessionHandler = <MockSessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+    type Keys = MockSessionKeys;
+    type WeightInfo = ();
+}
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
@@ -101,14 +128,41 @@ impl prover_pallet::Config for Test {
     type MaxSegmentsPerVerifierResult = MaxSegmentsPerVerifierResult;
 }
 
+parameter_types! {
+    pub const EpochDuration: u64 = 3;
+    pub const ReportLongevity: u64 =
+        BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+}
+
+impl pallet_babe::Config for Test {
+    type EpochDuration = EpochDuration;
+    type ExpectedBlockTime = ConstU64<1>;
+    type EpochChangeTrigger = pallet_babe::ExternalTrigger;
+    type DisabledValidators = (); //Session;
+    type WeightInfo = ();
+    type MaxAuthorities = ConstU32<10>;
+    type MaxNominators = ConstU32<100>;
+    type KeyOwnerProof = <Historical as KeyOwnerProofSystem<(KeyTypeId, AuthorityId)>>::Proof;
+    type EquivocationReportSystem = ();
+}
+
+impl pallet_session::historical::Config for Test {
+    type FullIdentification = pallet_staking::Exposure<u64, u128>;
+    type FullIdentificationOf = pallet_staking::ExposureOf<Self>;
+}
+
+impl pallet_timestamp::Config for Test {
+    type Moment = u64;
+    type OnTimestampSet = Babe;
+    type MinimumPeriod = ConstU64<1>;
+    type WeightInfo = ();
+}
+
 impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
     type EventListeners = ();
 }
-
-use attestor_primitives::BlsPublicKeyWrapper;
-use sp_staking::EraIndex;
 
 parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
@@ -165,6 +219,9 @@ parameter_types! {
 
 pub const SLASHING_DISABLING_FACTOR: usize = 3;
 use pallet_staking::FixedNominationsQuota;
+use sp_core::crypto::KeyTypeId;
+use sp_runtime::traits::OpaqueKeys;
+
 type DummyValidatorId = u64;
 
 pub struct OnChainSeqPhragmen;
@@ -190,7 +247,7 @@ impl pallet_staking::Config for Test {
     type SlashDeferDuration = SlashDeferDuration;
     type AdminOrigin = frame_system::EnsureRoot<Self::AccountId>;
     type SessionInterface = Self;
-    type UnixTime = (); //pallet_timestamp::Pallet<Test>;
+    type UnixTime = pallet_timestamp::Pallet<Test>;
     type EraPayout = pallet_staking::ConvertCurve<RewardCurve>;
     type NextNewSession = (); //Session;
     type MaxExposurePageSize = ConstU32<256>;

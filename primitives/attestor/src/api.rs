@@ -1,7 +1,7 @@
 use parity_scale_codec::{Codec, Decode};
 use sp_std::vec::Vec;
 
-use crate::{AttestorStatus, ChainKey, Digest, PalletDigest, SignedAttestation};
+use crate::{AttestorStatus, ChainKey, PalletDigest, SignedAttestation};
 
 use super::BlsPublicKey;
 

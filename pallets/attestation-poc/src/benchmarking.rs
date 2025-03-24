@@ -297,7 +297,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, chain_key, 1, None);
+        > = create_signed_attestation::<T>(attestors, chain_key, 1);
 
         #[extrinsic_call]
         _(
@@ -346,7 +346,7 @@ mod benchmarks {
         let prior_attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, None);
+        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 
