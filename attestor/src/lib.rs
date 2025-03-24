@@ -54,9 +54,7 @@ impl Server {
         let mut engine = engine::Engine::new(&self.config).await?;
 
         self.respond_to_new_events_and_attestations(&mut engine)
-            .await?;
-
-        Ok(())
+            .await
     }
 
     async fn respond_to_new_events_and_attestations(
@@ -77,7 +75,9 @@ impl Server {
                 biased;
                 // Enact on new events from the chain
                 // These have influence on the attestation engine
-                Some(event) = event_sub.next() => {
+                maybe_event = event_sub.next() => {
+                    let Some(event) = maybe_event else { break; };
+
                     match event {
                         // When randomness changes, re-evaluate the eligibility for the attestor
                         CcEvent::RandomnessChanged((epoch, randomness)) => {
@@ -109,7 +109,9 @@ impl Server {
                     }
                 },
                 // Poll the attestation engine for the next attestation
-                Some(attestation_to_submit) = engine.next() => {
+                maybe_attestation = engine.next() => {
+                    let Some(attestation_to_submit) = maybe_attestation else { break; };
+
                     let round = attestation_to_submit.round();
                     match self.handle_attestation(chain_key, engine.eth_client(), engine.cc_client(), attestation_to_submit).await {
                         Ok(attestation) => {
@@ -140,8 +142,14 @@ impl Server {
                     };
                     info!("Waiting for next attestation to come in...");
                 },
+                // Do nothing if the engine is not ready
+                else => {
+                    break;
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Check if we can sign the attestation, if we cannot sign it it means we are not selected

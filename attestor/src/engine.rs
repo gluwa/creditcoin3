@@ -22,8 +22,8 @@ pub struct Engine {
     eth_client: Client,
     cc3_client: cc3::Client,
     task: Option<JoinHandle<()>>,
-    sender: Sender<Option<AttestationPrimitive<H256>>>,
-    receiver: Receiver<Option<AttestationPrimitive<H256>>>,
+    sender: Sender<AttestationPrimitive<H256>>,
+    receiver: Receiver<AttestationPrimitive<H256>>,
 }
 
 #[derive(Error, Debug)]
@@ -186,7 +186,7 @@ impl Engine {
     }
 
     pub async fn next(&mut self) -> Option<AttestationPrimitive<H256>> {
-        self.receiver.recv().await.unwrap()
+        self.receiver.recv().await
     }
 
     /// Calculate the number of attestations between checkpoints
@@ -241,7 +241,7 @@ impl Engine {
 async fn subscribe_to_new_heads_task(
     cc3_client: cc3::Client,
     eth_client: eth::Client,
-    sender: Sender<Option<AttestationPrimitive<H256>>>,
+    sender: Sender<AttestationPrimitive<H256>>,
     attestation_interval: u64,
     start_block: Option<u64>,
 ) -> Result<()> {

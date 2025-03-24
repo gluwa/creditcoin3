@@ -23,7 +23,7 @@ polkadot.*
 
 # Zombienet bin
 attestor/zombie/zombienet-linux-x64
-attestor/zombie/zombienet-macos
+attestor/zombie/zombienet-macos*
 
 # Attestor Zombienet config
 attestor_zombienet/config.yaml

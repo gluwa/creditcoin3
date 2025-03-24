@@ -22,7 +22,7 @@ pub enum Error {
     #[error("Eth client error {0}")]
     EthClientError(#[from] eth::Error),
     #[error("Send error {0}")]
-    SendError(#[from] SendError<Option<Attestation<H256>>>),
+    SendError(#[from] SendError<Attestation<H256>>),
 }
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
@@ -30,7 +30,7 @@ pub enum Error {
 pub async fn attest_to_heads(
     eth_client: eth::Client,
     attestor: ActorRef<Attestor>,
-    sender: Sender<Option<Attestation<H256>>>,
+    sender: Sender<Attestation<H256>>,
     eth_start_block: u64,
     eth_target_block: u64,
     chain_key: ChainKey,
@@ -78,12 +78,13 @@ pub async fn attest_to_heads(
                     // Continuously await new blocks and notify the attestor
                     let attestation = attestor.send((chain_key, block)).await?;
 
-                    // Send an attestation back on the channel
-                    sender.send(attestation).await?;
+                    if let Some(a) = attestation {
+                        // Send an attestation back on the channel
+                        sender.send(a).await?;
 
-                    // Sleep at least for the duration of a ccnext block
-                    // TODO: make this parameter configurable
-                    thread::sleep(Duration::from_secs(CCNEXT_BLOCK_TIME));
+                        // Sleep for a bit to avoid spamming the chain
+                        thread::sleep(Duration::from_secs(CCNEXT_BLOCK_TIME));
+                    }
                 } else {
                     return Err(Error::FailedToSubscribe("No block received".to_string()));
                 }
