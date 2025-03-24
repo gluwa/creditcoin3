@@ -2,13 +2,13 @@ use anyhow::Result;
 use serde::Serialize;
 use sp_core::{
     sr25519::{self},
-    Pair, H256, U256,
+    Pair, U256,
 };
 use std::{str::FromStr, time::Duration};
-pub use subxt::utils::AccountId32;
+pub use subxt::utils::{AccountId32, H256};
 use subxt::{
     backend::rpc::{
-        reconnecting_rpc_client::{Client as UnstableReconnectionRpcClient, ExponentialBackoff},
+        reconnecting_rpc_client::{ExponentialBackoff, RpcClient as ReconnectionRpcClient},
         RpcParams,
     },
     config::DefaultExtrinsicParamsBuilder,
@@ -77,7 +77,7 @@ pub enum Error {
 pub struct Client {
     pair: sr25519::Pair,
     signing_keypair: Keypair,
-    rpc: UnstableReconnectionRpcClient,
+    rpc: ReconnectionRpcClient,
 }
 
 impl<'a> Client {
@@ -91,7 +91,7 @@ impl<'a> Client {
         let pair = sr25519::Pair::from_string(key, None)?;
 
         // Create a new client with with a reconnecting RPC client.
-        let rpc = UnstableReconnectionRpcClient::builder()
+        let rpc = ReconnectionRpcClient::builder()
             // Reconnect with exponential backoff
             //
             // This API is "iterator-like" and we use `take` to limit the number of retries.
@@ -206,7 +206,7 @@ impl<'a> Client {
             .fetch(&storage_query)
             .await?;
 
-        Ok(result)
+        Ok(result.map(|d| Digest::from(d.0)))
     }
 
     /// Check the clients membership in the attestor pallet
@@ -367,7 +367,9 @@ impl<'a> Client {
         chain_key: ChainKey,
         digest: Digest,
     ) -> Result<bool, Error> {
-        let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
             .api()
@@ -385,8 +387,10 @@ impl<'a> Client {
         &self,
         chain_key: ChainKey,
         digest: Digest,
-    ) -> Result<Option<SignedAttestation<H256, AccountId32>>, Error> {
-        let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
+    ) -> Result<Option<SignedAttestation<Digest, AccountId32>>, Error> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
             .api()
@@ -405,7 +409,9 @@ impl<'a> Client {
         chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<AttestationCheckpoint>> {
-        let storage_query = cc3::storage().attestation().checkpoints(chain_key, digest);
+        let storage_query = cc3::storage()
+            .attestation()
+            .checkpoints(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
             .api()
@@ -422,8 +428,8 @@ impl<'a> Client {
     pub async fn get_attestations_for_chain(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        let mut attestations = Vec::new();
+    ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>> {
+        let mut attestations: Vec<SignedAttestation<Digest, AccountId32>> = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Attestations double map,
@@ -444,7 +450,8 @@ impl<'a> Client {
         }
 
         attestations.sort_by(
-            |a: &SignedAttestation<H256, AccountId32>, b: &SignedAttestation<H256, AccountId32>| {
+            |a: &SignedAttestation<Digest, AccountId32>,
+             b: &SignedAttestation<Digest, AccountId32>| {
                 // Highest to lowest by comparing b to a
                 b.attestation
                     .header_number
@@ -581,11 +588,8 @@ impl<'a> Client {
     }
 }
 
-impl<H, A> From<CcSignedAttestation<H, A>> for SignedAttestation<H, A>
-where
-    H: Into<H256>,
-{
-    fn from(attestation: CcSignedAttestation<H, A>) -> Self {
+impl<A> From<CcSignedAttestation<H256, A>> for SignedAttestation<Digest, A> {
+    fn from(attestation: CcSignedAttestation<H256, A>) -> Self {
         SignedAttestation {
             attestation: attestation.attestation.into(),
             signature: attestation.signature,
@@ -594,17 +598,16 @@ where
     }
 }
 
-impl<H> From<CcAttestation<H>> for Attestation<H>
-where
-    H: Into<H256>,
-{
-    fn from(attestation: CcAttestation<H>) -> Self {
+impl From<CcAttestation<H256>> for Attestation<Digest> {
+    fn from(attestation: CcAttestation<H256>) -> Self {
         Attestation {
             chain_key: attestation.chain_key,
             header_number: attestation.header_number,
-            header_hash: attestation.header_hash,
+            header_hash: sp_core::H256::from(attestation.header_hash.0),
             root: attestation.root,
-            prev_digest: attestation.prev_digest.map(Into::into),
+            prev_digest: attestation
+                .prev_digest
+                .map(|digest| sp_core::H256::from(digest.0)),
         }
     }
 }
@@ -613,7 +616,7 @@ impl From<CcAttestationCheckpoint> for AttestationCheckpoint {
     fn from(checkpoint: CcAttestationCheckpoint) -> Self {
         AttestationCheckpoint {
             block_number: checkpoint.block_number,
-            digest: checkpoint.digest,
+            digest: sp_core::H256::from(checkpoint.digest.0),
         }
     }
 }

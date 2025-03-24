@@ -13,8 +13,8 @@ version.workspace = true
 anyhow = "1"
 rand = "0.8.5"
 serde_yaml = "0.9"
-subxt = "0.37"
-subxt-signer = "0.37"
+subxt = "0.40"
+subxt-signer = "0.40"
 tempfile = "3"
 tiny-bip39 = "1.0.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

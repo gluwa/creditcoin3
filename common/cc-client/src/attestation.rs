@@ -1,5 +1,4 @@
 use anyhow::Result;
-use sp_core::H256;
 use subxt::error::Error as SubxtError;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -8,7 +7,7 @@ use tracing::{debug, info};
 
 pub use subxt::utils::AccountId32;
 
-use attestor_primitives::{AttestationCheckpoint, ChainKey, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest, SignedAttestation};
 
 use crate::cc3::{
     attestation::events::{AttestationIntervalChanged, BlockAttested, CheckpointReached},
@@ -18,7 +17,7 @@ use crate::cc3::{
 use crate::{Client, Randomness};
 
 pub enum CcEvent {
-    BlockAttested(SignedAttestation<H256, AccountId32>),
+    BlockAttested(SignedAttestation<Digest, AccountId32>),
     RandomnessChanged((u64, Randomness)),
     CheckpointReached(AttestationCheckpoint, ChainKey),
     AttestationIntervalChanged(ChainKey, u64),
@@ -111,7 +110,7 @@ impl Client {
                                     continue;
                                 }
 
-                                let attestation: SignedAttestation<H256, AccountId32> =
+                                let attestation: SignedAttestation<Digest, AccountId32> =
                                     evt.1.into();
 
                                 debug!("attestation digest: {:?}", attestation.digest());
