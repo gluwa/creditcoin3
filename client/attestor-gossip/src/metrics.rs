@@ -28,6 +28,8 @@ pub struct VoterMetrics {
     pub attestor_imported_votes: Counter<U64>,
     /// Number of attestor votes received from RPC
     pub attestor_votes_from_rpc: Counter<U64>,
+    /// Number of attestor stale votes received
+    pub attestor_stale_votes: Counter<U64>,
 }
 
 impl PrometheusRegister for VoterMetrics {
@@ -94,6 +96,13 @@ impl PrometheusRegister for VoterMetrics {
                 Counter::new(
                     "attestor_votes_from_rpc",
                     "Number of attestor votes received from RPC",
+                )?,
+                registry,
+            )?,
+            attestor_stale_votes: register(
+                Counter::new(
+                    "attestor_stale_votes",
+                    "Number of attestor stale votes received",
                 )?,
                 registry,
             )?,

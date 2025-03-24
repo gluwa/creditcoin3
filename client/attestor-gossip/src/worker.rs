@@ -208,6 +208,7 @@ where
                         if let Err(err) = self.handle_finality_notification(&notif) {
                             break err;
                         }
+                        info!(target: LOG_TARGET, "📝 Finality notification processed");
                     } else {
                         break Error::FinalityStreamTerminated;
                     }
@@ -323,6 +324,8 @@ where
         // Add the attestation to the round
         let import_result = self.state.note_vote(attestation.clone())?;
 
+        let round = attestation.round();
+
         match import_result {
             VoteImportResult::DoubleVote => {
                 warn!(target: LOG_TARGET, "📝 Double vote detected");
@@ -336,9 +339,23 @@ where
                 );
                 info!(target: LOG_TARGET, "📝 Attestation added to round");
             }
+            VoteImportResult::Stale => {
+                warn!(target: LOG_TARGET, "📝 Stale vote detected");
+                metric_inc!(self.metrics, attestor_stale_votes);
+            }
             VoteImportResult::RoundConcluded => {
                 info!(target: LOG_TARGET, "📝 Round concluded");
-                self.try_submit_attestation(attestation)?;
+                // Submit attestation
+                match self.try_submit_attestation(attestation) {
+                    Ok(()) => {
+                        debug!(target: LOG_TARGET, "📝 Attestation submitted");
+                    }
+                    Err(e) => {
+                        error!(target: LOG_TARGET, "📝 Error submitting attestation: {:?}", e);
+                    }
+                }
+                // Flush memory
+                self.state.clear_votes(round.0, round.1);
             }
         }
         Ok(())
@@ -438,7 +455,7 @@ where
             attestors,
         };
 
-        let _ = match self.inherent_provider.0.lock() {
+        match self.inherent_provider.0.lock() {
             Ok(mut provider) => match provider.create(attestation) {
                 Ok(()) => {
                     debug!(target: LOG_TARGET, "📝 Inherent created");
@@ -453,10 +470,7 @@ where
                 error!("error acquiring lock, {:?}", e);
                 Ok(())
             }
-        };
-
-        // Flush memory
-        self.state.clear_votes(chain_key, header_number);
+        }?;
 
         Ok(())
     }
@@ -478,6 +492,8 @@ where
             warn!(target: LOG_TARGET, "📝 Node is syncing, skipping finality notifications");
             return Ok(());
         }
+
+        info!(target: LOG_TARGET, "📝 Handling finality notification");
 
         let header = &notif.header;
         debug!(
@@ -562,15 +578,15 @@ where
             runtime_api.attestation_checkpoint_interval(block_hash, chain_key)?;
 
         // Calculate one checkpoints in number of attestations
-        let two_checkpoints = attestation_interval * checkpoint_interval as u64 * 2;
+        let one_checkpoint = attestation_interval * checkpoint_interval as u64;
 
         // Have a sliding window of 2 checkpoints where attestations are valid
         info!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
         self.comms.gossip_validator.update_filter(
             chain_key,
-            current_block.saturating_sub(two_checkpoints),
+            current_block.saturating_sub(one_checkpoint),
             current_block
-                .checked_add(two_checkpoints)
+                .checked_add(one_checkpoint)
                 .ok_or(Error::Overflow)?,
             active_attestors,
         );

@@ -79,6 +79,7 @@ pub async fn attest_to_heads(
                     let attestation = attestor.send((chain_key, block)).await?;
 
                     if let Some(a) = attestation {
+                        debug!("Sending attestation: {:?}", a);
                         // Send an attestation back on the channel
                         sender.send(a).await?;
 

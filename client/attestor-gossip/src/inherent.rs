@@ -3,7 +3,7 @@ use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
 use log::{error, info};
 use parity_scale_codec::{Codec, Encode};
-use sc_client_api::Backend;
+use sc_client_api::{Backend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
 use sp_core::Decode;
 use sp_inherents::{Error, InherentData, InherentIdentifier};
@@ -41,7 +41,7 @@ where
         }
     }
 
-    // Create an attestation adds it to the queue
+    /// Create a new attestation
     pub fn create(
         &mut self,
         attestation: SignedAttestation<HashFor<B>, A>,
@@ -55,21 +55,41 @@ where
         Ok(())
     }
 
-    // Removes an attestation from the queue by digest
+    /// Remove an attestation from the queue by digest
     pub fn remove_by_digest(&mut self, digest: Digest) {
         self.attestation_queue
             .retain(|attestation| attestation.attestation.digest() != digest);
     }
 
-    pub fn pop_front_x(&mut self, x: usize) -> Vec<SignedAttestation<HashFor<B>, A>> {
-        let mut attestations: Vec<SignedAttestation<HashFor<B>, A>> = (0..x)
-            .filter_map(|_| self.attestation_queue.pop_front())
-            .collect();
+    /// Pop the first `x` valid attestations from the queue, skipping invalid ones
+    pub fn pop_valid_front_x(&mut self, x: usize) -> Vec<SignedAttestation<HashFor<B>, A>> {
+        let block_hash = self.backend.blockchain().info().best_hash;
+        let runtime = self.runtime_api.runtime_api();
+        let mut valid_attestations = Vec::new();
 
-        // Sort attestations by `block_number`
-        attestations.sort_by_key(|a| a.header_number());
+        while valid_attestations.len() < x {
+            match self.attestation_queue.pop_front() {
+                Some(att) => {
+                    let is_valid =
+                        match runtime.contains_digest(block_hash, att.chain_key(), att.digest()) {
+                            Ok(exists) => !exists,
+                            Err(_) => false, // Treat errors as invalid
+                        };
 
-        attestations
+                    if is_valid {
+                        valid_attestations.push(att);
+                    } else {
+                        info!(target: LOG_TARGET, "❌ Discarding invalid attestation: round({:?})", att.round());
+                    }
+                }
+                None => break, // Stop if the queue is empty
+            }
+        }
+
+        // Sort valid attestations by `block_number`
+        valid_attestations.sort_by_key(|a| a.header_number());
+
+        valid_attestations
     }
 }
 
@@ -116,7 +136,7 @@ where
         })?;
 
         // Get max 10 attestations from the provider
-        let attestations = provider.pop_front_x(ATTESTATIONS_PER_BLOCK);
+        let attestations = provider.pop_valid_front_x(ATTESTATIONS_PER_BLOCK);
         inherent_data.put_data(INHERENT_IDENTIFIER, &attestations)?;
 
         Ok(())

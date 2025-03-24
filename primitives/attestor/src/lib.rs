@@ -156,6 +156,10 @@ where
     pub fn digest(&self) -> Digest {
         self.attestation.digest()
     }
+
+    pub fn round(&self) -> Round {
+        self.attestation.round()
+    }
 }
 
 type ScaleFelt = [u8; 32];

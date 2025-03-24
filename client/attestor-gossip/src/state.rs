@@ -16,6 +16,7 @@ pub enum VoteImportResult {
     Ok,
     RoundConcluded,
     DoubleVote,
+    Stale,
 }
 
 pub type BlockNumber = u64;
@@ -111,7 +112,7 @@ pub struct State<H, AccountId> {
     /// Maps chain key to a map of block number to votes
     pub chain_head_votes: ChainVoteRound<H, AccountId>,
     // Concluded rounds
-    pub concluded_rounds: Vec<Round>,
+    pub best_round: BTreeMap<ChainKey, u64>,
     /// Round config per chain
     pub round_configs: BTreeMap<ChainKey, RoundConfig>,
 }
@@ -172,13 +173,13 @@ where
     ) -> Result<VoteImportResult, Error> {
         let round = attestation.round();
 
-        if self.concluded_rounds.contains(&round) {
-            return Err(Error::RoundAlreadyConcluded);
-        }
-
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number();
-        let attestor_id = attestation.attestor.clone();
+
+        // Check if the round is already concluded
+        if self.is_concluded(chain_key, header_number) {
+            return Ok(VoteImportResult::Stale);
+        }
 
         let round_config = self
             .round_configs
@@ -186,6 +187,7 @@ where
             .ok_or(Error::RoundConfigNotFound)?
             .clone();
 
+        let attestor_id = attestation.attestor.clone();
         // Check if the chain_key exists in the block_attestations
         if let Some(vote_round) = self.chain_head_votes.get_mut(&chain_key) {
             let old_vote = vote_round.add_vote(attestation, round_config.current_epoch);
@@ -199,20 +201,19 @@ where
             self.new_chain(attestation, round_config.current_epoch);
         }
 
+        // Check if we can conclude the round
         if self.check_round_state(round, &round_config)? {
             // Conclude the round
-            self.concluded_rounds.push(round);
+            self.best_round.insert(chain_key, header_number);
             return Ok(VoteImportResult::RoundConcluded);
         }
 
         Ok(VoteImportResult::Ok)
     }
 
-    pub fn check_round_state(
-        &self,
-        round: Round,
-        round_config: &RoundConfig,
-    ) -> Result<bool, Error> {
+    /// Check if the round can be concluded
+    /// This is done by checking if the threshold is reached based on the round config
+    fn check_round_state(&self, round: Round, round_config: &RoundConfig) -> Result<bool, Error> {
         let chain_key = round.0;
         let header_number = round.1;
 
@@ -252,13 +253,17 @@ where
     pub fn get_round_config(&mut self, chain_key: ChainKey) -> Option<&RoundConfig> {
         self.round_configs.get(&chain_key)
     }
+
+    fn is_concluded(&self, chain_key: ChainKey, header_number: u64) -> bool {
+        self.best_round.get(&chain_key) >= Some(&header_number)
+    }
 }
 
 impl<H, AccountId> Default for State<H, AccountId> {
     fn default() -> Self {
         State {
             chain_head_votes: BTreeMap::new(),
-            concluded_rounds: Vec::new(),
+            best_round: BTreeMap::new(),
             round_configs: BTreeMap::new(),
         }
     }
@@ -386,6 +391,27 @@ mod tests {
         let mut state = State::default();
 
         let attestor_1 = Attestor::new();
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation_1 = create_signed_attestation(&attestor_1, attestation_data.clone());
+
+        let round_config = RoundConfig {
+            committee_set_size: 1,
+            target_sample_size: 1,
+            threshold: 1,
+            current_epoch: 1,
+        };
+        state.add_round_config(1, round_config.clone());
+
+        let result = state.note_vote(attestation_1.clone()).unwrap();
+        assert_eq!(result, VoteImportResult::RoundConcluded);
+    }
+
+    #[test]
+    fn test_stale_vote() {
+        let mut state = State::default();
+
+        let attestor_1 = Attestor::new();
         let attestor_2 = Attestor::new();
 
         let attestation_data = simulate_attestation_data(1, 1);
@@ -400,12 +426,13 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation_1.clone()).unwrap();
+        let result = state.note_vote(attestation_1.clone()).unwrap();
+        assert_eq!(result, VoteImportResult::RoundConcluded);
 
         // Let attestor_2 vote on the same round
-        let result = state.note_vote(attestation_2.clone());
-
-        assert!(result.is_err(), "Double vote should not be allowed");
+        // Should resolve to Stale vote
+        let result = state.note_vote(attestation_2.clone()).unwrap();
+        assert_eq!(result, VoteImportResult::Stale);
     }
 
     #[test]
