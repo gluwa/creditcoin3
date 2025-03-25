@@ -30,6 +30,9 @@ pub struct Attestor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    //"ws://127.0.0.1:9944"
+    let x = cc_client::do_it("ws://127.0.0.1:9944").await;
+    panic!("This is a placeholder for the main function. It should be replaced with the actual main function.");
     let args = Attestor::parse();
 
     // enable tracing debug logs if verbose flag is set
