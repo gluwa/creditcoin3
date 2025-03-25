@@ -58,7 +58,7 @@ where
     /// Remove an attestation from the queue by digest
     pub fn remove_by_digest(&mut self, digest: Digest) {
         self.attestation_queue
-            .retain(|attestation| attestation.attestation.digest() != digest);
+            .retain(|attestation| attestation.attestation.digest() != digest.0);
     }
 
     /// Pop the first `x` valid attestations from the queue, skipping invalid ones
@@ -157,7 +157,7 @@ where
             info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping (in try handle error)", digest);
             // prune attestation with digest from provider data so it doesnt get resubmitted
             let mut provider = self.0.lock().unwrap();
-            provider.remove_by_digest(digest);
+            provider.remove_by_digest(sp_core::H256(digest));
         };
 
         error!(target: LOG_TARGET, "📝 Get inherent error: {:?}", error);

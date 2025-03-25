@@ -209,7 +209,7 @@ impl<'a> Client {
             .fetch(&storage_query)
             .await?;
 
-        Ok(result.map(|d| Digest::from(d.0)))
+        Ok(result.map(|d| d))
     }
 
     /// Check the clients membership in the attestor pallet
@@ -368,11 +368,9 @@ impl<'a> Client {
     pub async fn chain_attestation_exists(
         &self,
         chain_key: ChainKey,
-        digest: Digest,
+        digest: PalletDigest,
     ) -> Result<bool, Error> {
-        let storage_query = cc3::storage()
-            .attestation()
-            .attestations(chain_key, subxt::utils::H256::from(digest.0));
+        let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
             .api()
@@ -389,11 +387,9 @@ impl<'a> Client {
     pub async fn get_attestation_by_digest(
         &self,
         chain_key: ChainKey,
-        digest: Digest,
+        digest: PalletDigest,
     ) -> Result<Option<SignedAttestation<Digest, AccountId32>>, Error> {
-        let storage_query = cc3::storage()
-            .attestation()
-            .attestations(chain_key, subxt::utils::H256::from(digest.0));
+        let storage_query = cc3::storage().attestation().attestations(chain_key, digest);
 
         let result = self
             .api()
@@ -636,7 +632,6 @@ impl From<CcAttestation<H256>> for Attestation<Digest> {
             header_number: attestation.header_number,
             header_hash: sp_core::H256::from(attestation.header_hash.0),
             root: attestation.root,
-            prev_digest: attestation.prev_digest.map(Into::into),
         }
     }
 }

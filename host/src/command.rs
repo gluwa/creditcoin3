@@ -313,7 +313,7 @@ pub fn run_verifier(
                 .continuity_checkpoint_digest
                 .to_bytes_be(),
             cairo_verifier_output.continuity_proof_length,
-            result_segments
+            result_segments,
         ))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

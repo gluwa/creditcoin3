@@ -14,15 +14,20 @@ pub trait HostApi {
         proof: Vec<u8>,
         #[allow(unused)] query: Query,
         #[allow(unused)] metadata: Vec<(u8, H256)>,
-    ) -> (u8, Option<[u8; 32]>, Option<u64>, VerifierResponse) {
+    ) -> VerifierResponse {
         #[cfg(target_arch = "x86_64")]
         {
             match command::run_verifier(proof, query, metadata) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {:?}", r);
-                    (0, Some(r.1), Some(r.2), result_segments)
-                                }
-                Err(e) => (command::VerifierError::status_code(&e), None, None, Vec::new()),
+                    (0, r.3, Some(r.1), Some(r.2))
+                }
+                Err(e) => (
+                    command::VerifierError::status_code(&e),
+                    Vec::new(),
+                    None,
+                    None,
+                ),
             }
         }
 

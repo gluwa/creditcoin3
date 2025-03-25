@@ -58,7 +58,7 @@ pub struct ResultSegment {
 }
 
 // Exit status and result segments
-pub type VerifierResponse = (u8, Vec<ResultSegment>);
+pub type VerifierResponse = (u8, Vec<ResultSegment>, Option<[u8; 32]>, Option<u64>);
 
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash)]
 pub enum VerifierExitStatus {

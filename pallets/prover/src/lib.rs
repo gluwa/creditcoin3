@@ -19,9 +19,8 @@ pub mod pallet {
     use frame_support::{dispatch::DispatchResult, pallet_prelude::*, Blake2_128Concat};
     use frame_system::pallet_prelude::*;
     use pallet_prover_primitives::{
-        Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
-        STARK_PROGRAM_V3_HASH,
         Query, ResultSegment, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+        STARK_PROGRAM_V3_HASH,
     };
     use sp_core::H256;
     use sp_std::prelude::*;
@@ -127,9 +126,11 @@ pub mod pallet {
 
             ensure!(!metadata.is_empty(), Error::<T>::StarkProgramMetadataNotSet);
 
+            let query_id = query.id();
+
             #[cfg(not(feature = "runtime-benchmarks"))]
             {
-                let (status, checkpoint_digest, continuity_proof_len, result_segments) =
+                let (status, result_segments, checkpoint_digest, continuity_proof_len) =
                     proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
                 ensure!(
@@ -168,18 +169,16 @@ pub mod pallet {
                     13 => return Err(Error::<T>::QueryOffsetMismatch.into()),
                     _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
                 }
-            }
 
-            let query_id = query.id();
-
-            #[cfg(not(feature = "runtime-benchmarks"))]
-            {
-                let bounded_segments: BoundedVec<
-                    ResultSegment,
-                    <T as Config>::MaxSegmentsPerVerifierResult,
-                > = frame_support::BoundedVec::try_from(result_segments)
-                    .map_err(|_| Error::<T>::ResultSegmentsExceedMaxSize)?;
-                ResultSegmentsById::<T>::insert(query_id, bounded_segments);
+                #[cfg(not(feature = "runtime-benchmarks"))]
+                {
+                    let bounded_segments: BoundedVec<
+                        ResultSegment,
+                        <T as Config>::MaxSegmentsPerVerifierResult,
+                    > = frame_support::BoundedVec::try_from(result_segments)
+                        .map_err(|_| Error::<T>::ResultSegmentsExceedMaxSize)?;
+                    ResultSegmentsById::<T>::insert(query_id, bounded_segments);
+                }
             }
 
             #[cfg(feature = "runtime-benchmarks")]
