@@ -26,8 +26,9 @@ describe('handleEventProverDeployed()', () => {
                 expect(node.owner).toEqual(alith.address);
                 expect(node.proceedsAccount).toEqual(alith.address);
                 expect(node.contractAddress.startsWith('0x')).toEqual(true);
-                expect(BigInt(node.baseCostPerByte)).toBeGreaterThan(0);
-                expect(BigInt(node.baseFee)).toBeGreaterThan(0);
+                // default values or greater
+                expect(BigInt(node.baseCostPerByte)).toBeGreaterThanOrEqual(10n);
+                expect(BigInt(node.baseFee)).toBeGreaterThanOrEqual(1000n);
                 // we only have provers for Anvil 1
                 expect(parseInt(node.chainKey, 10)).toEqual(chain_Anvil1_Key);
                 // name from ci.yaml & other tests
