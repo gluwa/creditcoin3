@@ -57,7 +57,7 @@ describe('handleEventCheckpointReached()', () => {
             }
         });
 
-        it('graphQL returns updated AttestationChainData', async () => {
+        it('graphQL returns updated AttestationChainData entity', async () => {
             let foundMatch = false;
             const response = await graphQLQuery(
                 `query { attestationChainData(orderBy: CHAIN_KEY_ASC, last: 10) { nodes { id, chainKey, lastCheckpointHeaderNumber }}}`,

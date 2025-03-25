@@ -48,7 +48,7 @@ describe('handleEventAttestorRegistered()', () => {
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
-        it('graphQL returns known AttestorRegistered', async () => {
+        it('graphQL returns known AttestorRegistered entity', async () => {
             // note: ^^^ there could be entries for attestors which registered but
             // did not become active for example
             const response = await graphQLQuery(
@@ -89,7 +89,7 @@ describe('handleEventAttestorRegistered()', () => {
             expect(foundMatch).toBeTruthy();
         });
 
-        it('graphQL returns known Attestor', async () => {
+        it('graphQL returns known Attestor entity', async () => {
             const response = await graphQLQuery(
                 `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
             );

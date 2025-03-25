@@ -62,7 +62,7 @@ describe('handleEventAttestorUnregistered()', () => {
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
-        it('graphQL returns known AttestorUnregistered', async () => {
+        it('graphQL returns known AttestorUnregistered entity', async () => {
             const response = await graphQLQuery(
                 `query { attestorUnregistereds(orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, chainKey, blockNumber } } }`,
             );
@@ -90,7 +90,7 @@ describe('handleEventAttestorUnregistered()', () => {
             expect(foundMatch).toBeTruthy();
         });
 
-        it('graphQL returns known Attestor', async () => {
+        it('graphQL returns known Attestor entity', async () => {
             const response = await graphQLQuery(
                 `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
             );

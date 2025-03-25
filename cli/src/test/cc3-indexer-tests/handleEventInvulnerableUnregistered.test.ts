@@ -59,7 +59,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
-        it('graphQL returns known InvulnerableUnregistered', async () => {
+        it('graphQL returns known InvulnerableUnregistered entity', async () => {
             const response = await graphQLQuery(
                 `query { invulnerableUnregistereds(orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, whoId, chainKey, blockNumber } } }`,
             );
