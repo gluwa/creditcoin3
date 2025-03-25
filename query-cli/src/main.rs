@@ -127,12 +127,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     println!("Query submitted! Tx hash: {}\n", tx_hash);
 
-    println!("Waiting for proof...");
-    let proof = contract
+    println!("Waiting for result segments...");
+    let result_segments = contract
         .subscribe_proof_verification(&eth_client, query_id.0.into())
         .await?;
 
-    println!("\nProof received: proof len: {}", proof.len());
+    println!("\nResult segments received: {:?}", result_segments);
 
     Ok(())
 }

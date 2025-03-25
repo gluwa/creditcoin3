@@ -27,6 +27,13 @@ pub const GAS_LIMIT: u64 = 50_000_000;
 /// Prover contract proof
 pub type Proof = Vec<u8>;
 
+/// Result segment
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub struct ResultSegment {
+    pub offset: U256,
+    pub abi_bytes: Vec<u8>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
 pub struct GluwaPublicProverContract {
     pub address: Address,
@@ -219,7 +226,7 @@ impl GluwaPublicProverContract {
         &self,
         client: &Client,
         query_id: FixedBytes<32>,
-    ) -> Result<Proof> {
+    ) -> Result<Vec<ResultSegment>> {
         info!(
             "Subscribing to proof verification for query: {:?}",
             query_id
@@ -238,7 +245,14 @@ impl GluwaPublicProverContract {
             let (proof_verified, _log) = proof?;
 
             if proof_verified.queryId == query_id {
-                return Ok(proof_verified.proof.0.into());
+                return Ok(proof_verified
+                    .resultSegments
+                    .into_iter()
+                    .map(|r| ResultSegment {
+                        offset: r.offset,
+                        abi_bytes: r.abiBytes.into(),
+                    })
+                    .collect());
             }
         }
 
