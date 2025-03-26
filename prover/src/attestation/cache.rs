@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use diesel_async::AsyncPgConnection;
 use attestor_primitives::{
     AttestationCheckpoint, ChainKey, Digest, PalletDigest, SignedAttestation,
 };
+use diesel_async::AsyncPgConnection;
 use hex::ToHex;
 use sp_core::H256;
 use std::marker::PhantomData;
@@ -387,7 +387,7 @@ pub async fn build_historical_cache_for_chain(
             );
         }
 
-        info!("Starting to sync from: {}", digest);
+        info!("Starting to sync from: {:?}", digest);
         digest
     } else {
         warn!("No historical attestations found for chain: {}", chain);
