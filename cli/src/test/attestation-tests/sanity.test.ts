@@ -110,7 +110,7 @@ describe('BlockAttested events', (): void => {
             let checkpointsForGenesis = 0;
             const checkpoints = await api.query.attestation.checkpoints.entries(chain_Anvil1_Key);
             checkpoints.forEach(([_key, attestation]) => {
-                if (attestation.unwrap().blockNumber.toNumber() === 0) {
+                if (attestation.unwrap().toNumber() === 0) {
                     checkpointsForGenesis++;
                 }
             });

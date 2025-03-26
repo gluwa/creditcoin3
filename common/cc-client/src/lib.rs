@@ -426,10 +426,10 @@ impl<'a> Client {
             return Ok(None);
         }
 
-        return Ok(Some(AttestationCheckpoint {
+        Ok(Some(AttestationCheckpoint {
             block_number: result.unwrap(),
-            digest: digest,
-        }));
+            digest,
+        }))
     }
 
     pub async fn get_attestations_for_chain(
@@ -493,7 +493,7 @@ impl<'a> Client {
             let last_32: [u8; 32] = kv.key_bytes[kv.key_bytes.len() - 32..].try_into().unwrap();
             let digest = Digest::from(last_32);
             let checkpoint = AttestationCheckpoint {
-                block_number: kv.value.into(),
+                block_number: kv.value,
                 digest,
             };
             checkpoints.push(checkpoint);

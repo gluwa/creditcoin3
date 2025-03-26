@@ -159,10 +159,7 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64]>;
             checkpoints: AugmentedQuery<
                 ApiType,
-                (
-                    arg1: u64 | AnyNumber | Uint8Array,
-                    arg2: H256 | string | Uint8Array,
-                ) => Observable<Option<AttestorPrimitivesAttestationCheckpoint>>,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: H256 | string | Uint8Array) => Observable<Option<u64>>,
                 [u64, H256]
             > &
                 QueryableStorageEntry<ApiType, [u64, H256]>;
