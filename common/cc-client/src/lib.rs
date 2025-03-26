@@ -1,5 +1,4 @@
 use anyhow::Result;
-use parity_scale_codec::Decode;
 use serde::Serialize;
 use sp_core::{
     sr25519::{self},
@@ -29,7 +28,6 @@ use cc3::{
         Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
         SignedAttestation as CcSignedAttestation,
     },
-    staking::calls::types::validate,
 };
 
 use attestor_primitives::{
@@ -405,8 +403,7 @@ impl<'a> Client {
             .fetch(&storage_query)
             .await?;
 
-        // Ok(result.map(Into::into))
-        todo!();
+        Ok(result.map(Into::into))
     }
 
     pub async fn get_checkpoint_by_digest(
@@ -481,7 +478,7 @@ impl<'a> Client {
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Checkpoints double map,
         // a ChainKey.
-        let address = cc3::storage().attestation().checkpoints_iter();
+        let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
         let mut iter = self
             .api()
@@ -499,6 +496,7 @@ impl<'a> Client {
                 block_number: kv.value.into(),
                 digest,
             };
+            checkpoints.push(checkpoint);
         }
 
         checkpoints.sort_by(|a: &AttestationCheckpoint, b: &AttestationCheckpoint| {
