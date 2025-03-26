@@ -73,7 +73,7 @@ describe('handleEventUnbonded()', () => {
                 expect(response2.data.unbonded.date).toEqual(node.date);
                 expect(response2.data.unbonded.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

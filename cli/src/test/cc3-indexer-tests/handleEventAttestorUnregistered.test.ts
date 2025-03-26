@@ -41,7 +41,7 @@ describe('handleEventAttestorUnregistered()', () => {
                     expect(node.status).toEqual(1); // has just been registered
                 }
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
 
             // make sure this attestor is not reported as previously unregistered
             response = await graphQLQuery(
@@ -53,7 +53,7 @@ describe('handleEventAttestorUnregistered()', () => {
                     foundMatch = true;
                 }
             }
-            expect(foundMatch).toBeFalsy();
+            expect(foundMatch).toEqual(false);
 
             // NOTE: now remove it and observe GraphQL responses below
             await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
@@ -87,7 +87,7 @@ describe('handleEventAttestorUnregistered()', () => {
                 expect(response2.data.attestorUnregistered.attestorId).toEqual(node.attestorId);
                 expect(response2.data.attestorUnregistered.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
 
         it('graphQL returns known Attestor entity', async () => {
@@ -106,7 +106,7 @@ describe('handleEventAttestorUnregistered()', () => {
                     expect(node.status).toEqual(2); // was 1 before
                 }
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

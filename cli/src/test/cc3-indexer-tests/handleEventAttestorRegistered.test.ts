@@ -86,7 +86,7 @@ describe('handleEventAttestorRegistered()', () => {
                 expect(response2.data.attestorRegistered.stashId).toEqual(node.stashId);
                 expect(response2.data.attestorRegistered.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
 
         it('graphQL returns known Attestor entity', async () => {
@@ -136,7 +136,7 @@ describe('handleEventAttestorRegistered()', () => {
                 expect(response2.data.attestor.blsPublicKey).toEqual(node.blsPublicKey);
                 expect(response2.data.attestor.lastUpdateBlockNumber).toEqual(node.lastUpdateBlockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

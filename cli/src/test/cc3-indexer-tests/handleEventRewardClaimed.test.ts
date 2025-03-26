@@ -31,7 +31,7 @@ describe('handleEventRewardClaimed()', () => {
             }
         }
         // alice hasn't claimed any rewards until current block
-        expect(foundMatch).toBeFalsy();
+        expect(foundMatch).toEqual(false);
     }, 45_000);
 
     afterAll(async () => {
@@ -82,7 +82,7 @@ describe('handleEventRewardClaimed()', () => {
                 expect(response2.data.rewardClaimed.date).toEqual(node.date);
                 expect(response2.data.rewardClaimed.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

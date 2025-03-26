@@ -24,7 +24,7 @@ describe('handleEventInvulnerableRegistered()', () => {
                 foundMatch = true;
             }
         }
-        expect(foundMatch).toBeFalsy();
+        expect(foundMatch).toEqual(false);
     }, 30_000);
 
     afterAll(async () => {
@@ -69,7 +69,7 @@ describe('handleEventInvulnerableRegistered()', () => {
                 expect(response2.data.invulnerableRegistered.whoId).toEqual(node.whoId);
                 expect(response2.data.invulnerableRegistered.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

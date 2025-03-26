@@ -68,7 +68,7 @@ describe('handleEventCheckpointReached()', () => {
                     expect(node.lastCheckpointHeaderNumber).toEqual(lastBlockNumber);
                 }
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

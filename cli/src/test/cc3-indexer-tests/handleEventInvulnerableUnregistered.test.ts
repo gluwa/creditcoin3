@@ -38,7 +38,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
                     expect(node.whoId).toEqual(root.address);
                 }
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
 
             // make sure invulnerable is not reported as previously unregistered
             response = await graphQLQuery(
@@ -50,7 +50,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
                     foundMatch = true;
                 }
             }
-            expect(foundMatch).toBeFalsy();
+            expect(foundMatch).toEqual(false);
 
             // act and observe GraphQL responses below
             await api.tx.sudo
@@ -86,7 +86,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
                 expect(response2.data.invulnerableUnregistered.whoId).toEqual(node.whoId);
                 expect(response2.data.invulnerableUnregistered.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

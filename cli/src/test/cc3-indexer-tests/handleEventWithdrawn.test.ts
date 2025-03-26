@@ -80,7 +80,7 @@ describe('handleEventWithdrawn()', () => {
                 expect(response2.data.withdrawn.date).toEqual(node.date);
                 expect(response2.data.withdrawn.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });

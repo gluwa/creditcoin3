@@ -25,7 +25,7 @@ describe('handleEventProverDeployed()', () => {
                 // these are EVM style addresses
                 expect(node.owner).toEqual(alith.address);
                 expect(node.proceedsAccount).toEqual(alith.address);
-                expect(node.contractAddress.startsWith('0x')).toBeTruthy();
+                expect(node.contractAddress.startsWith('0x')).toEqual(true);
                 expect(BigInt(node.baseCostPerByte)).toBeGreaterThan(0);
                 expect(BigInt(node.baseFee)).toBeGreaterThan(0);
                 // we only have provers for Anvil 1

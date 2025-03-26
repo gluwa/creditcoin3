@@ -69,7 +69,7 @@ describe('handleEventBonded()', () => {
                 expect(response2.data.bonded.date).toEqual(node.date);
                 expect(response2.data.bonded.blockNumber).toEqual(node.blockNumber);
             }
-            expect(foundMatch).toBeTruthy();
+            expect(foundMatch).toEqual(true);
         });
     });
 });
