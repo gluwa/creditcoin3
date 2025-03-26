@@ -345,6 +345,12 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
       - name: Install creditcoin-cli
         working-directory: ./cli
         run: |
@@ -801,6 +807,12 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
       - name: Configure testing environment
         id: test-env
         working-directory: ./cli
@@ -887,6 +899,12 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
 
       - name: Execute tests
         working-directory: ./cli
@@ -1554,6 +1572,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install solc
 
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
         run: |
@@ -1729,6 +1753,12 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
@@ -1903,6 +1933,12 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
         run: |
@@ -1982,6 +2018,12 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
 
       - name: Install creditcoin-cli dependencies
         working-directory: ./cli
@@ -2086,6 +2128,15 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+          # explicitly format auto-generated files so they don't trigger the check below
+          yarn format typechain-types/ cache/
 
       - name: Run tools
         working-directory: ${{ matrix.directory }}
@@ -2451,7 +2502,7 @@ jobs:
             --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
             --eth-rpc-url http://127.0.0.1:8141 \
             --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
-            --name "Prover-1-for-Alice" \
+            --name "Prover-for-Alice-num-1" \
             > /var/tmp/cc3-indexer-testing/prover-1.log 2>&1 &
 
       - name: Start Prover for Bob - Anvil-2
@@ -2473,13 +2524,19 @@ jobs:
             --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
             --eth-rpc-url http://127.0.0.1:8242 \
             --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
-            --name "Prover-1-for-Bob" \
+            --name "Prover-for-Bob-num-1" \
             > /var/tmp/cc3-indexer-testing/prover-2.log 2>&1 &
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
 
       - name: Setup cc3-indexer
         working-directory: ./cc3-indexer

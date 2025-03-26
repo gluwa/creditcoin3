@@ -30,8 +30,8 @@ describe('handleEventProverDeployed()', () => {
                 expect(BigInt(node.baseFee)).toBeGreaterThan(0);
                 // we only have provers for Anvil 1
                 expect(parseInt(node.chainKey, 10)).toEqual(chain_Anvil1_Key);
-                // this is hard-coded in ci.yaml
-                expect(node.name).toEqual('Prover-1-for-Alice');
+                // name from ci.yaml & other tests
+                expect(node.name.startsWith('Prover-for-')).toEqual(true);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(

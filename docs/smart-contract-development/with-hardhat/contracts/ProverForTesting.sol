@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
 import 'hardhat/console.sol';
@@ -31,7 +32,7 @@ contract ProverForTesting is CreditcoinPublicProver {
         uint256 _baseFee,
         uint64 _chainKey,
         string memory _displayName,
-	    uint64 _timeoutBlocks
+        uint64 _timeoutBlocks
     ) CreditcoinPublicProver(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeoutBlocks) {}
 
     function getTotalEscrowBalance() public view returns (Balance) {
@@ -48,5 +49,16 @@ contract ProverForTesting is CreditcoinPublicProver {
 
     function mock_drainBalance(uint256 howMuch) public onlyOwner {
         payable(0).transfer(howMuch);
+    }
+
+    function mock_drainTotalEscrowBalance(uint256 howMuch) public onlyOwner {
+        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - howMuch);
+    }
+
+    function mock_submitQueryWithState(ChainQuery calldata query, address principal, QueryState newState) public payable {
+        QueryId queryId = computeQueryId(query);
+
+        submitQuery(query, principal);
+        mock_setQueryState(queryId, newState);
     }
 }

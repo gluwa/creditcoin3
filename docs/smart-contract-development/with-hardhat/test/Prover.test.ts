@@ -112,6 +112,30 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
+    describe('mock_submitQueryWithState()', function () {
+        it('emits an event and updates with new state', async function () {
+            // doesn't revert
+            const receipt = await (
+                await prover.connect(owner).mock_submitQueryWithState(
+                    sampleQuery,
+                    await user.getAddress(),
+                    3, // QueryState.InvalidQuery
+                    { value: queryCost },
+                )
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            const event = receipt?.logs[0];
+            // @ts-ignore
+            expect(event?.fragment.name).to.equal('QuerySubmitted');
+
+            // and the state is what we've specified above
+            const queryDetails = await prover.queries(queryId);
+            expect(queryDetails.state).to.equal(3);
+        });
+    });
+
     describe('submitQuery()', function () {
         it('Should accept query with sufficient payment', async function () {
             const escrowBeforeSubmit = await prover.getTotalEscrowBalance();

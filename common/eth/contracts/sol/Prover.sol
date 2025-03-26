@@ -67,11 +67,13 @@ contract CreditcoinPublicProver is Ownable {
         emit BaseFeeUpdated(_newBaseFee);
     }
 
+    function computeQueryId(ChainQuery calldata query) internal pure returns (QueryId) {
+        return QueryId.wrap(keccak256(abi.encode(query)));
+    }
+
     function submitQuery(ChainQuery calldata query, address principal) public payable {
         require (query.chainId == chainKey, "Chain not supported");
-        // Guards
-        // QueryId may be computed differently if you'd like.
-        QueryId queryId = QueryId.wrap(keccak256(abi.encode(query)));
+        QueryId queryId = computeQueryId(query);
         // require(queries[queryId].principal == address(0));
         // Need a more complex guard for the queries that allows replay attack protection.
 

@@ -32,6 +32,7 @@ const evmPrivateKey = (who: 'alice' | 'bob'): string => {
 };
 
 const setup = () => {
+    (global as any).ANVIL1_URL = 'http://127.0.0.1:8141';
     (global as any).CREDITCOIN_API_URL = 'ws://127.0.0.1:9944';
     (global as any).GRAPHQL_URL = 'http://127.0.0.1:3000';
 
