@@ -816,20 +816,6 @@ pub mod pallet {
 
             Ok(())
         }
-
-        #[pallet::call_index(18)]
-        #[pallet::weight(<T as Config>::WeightInfo::claim_rewards())]
-        pub fn add_checkpoints(origin: OriginFor<T>, chain_key: ChainKey, data: u8) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            Checkpoints::<T>::insert(
-                chain_key,
-                Digest::from([data; 32]),
-                0,
-            );
-
-            Ok(())
-        }
     }
 
     #[pallet::inherent]

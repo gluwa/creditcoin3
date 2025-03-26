@@ -24,10 +24,13 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use cc3::{runtime_types::attestor_primitives::{
-    Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
-    SignedAttestation as CcSignedAttestation,
-}, staking::calls::types::validate};
+use cc3::{
+    runtime_types::attestor_primitives::{
+        Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
+        SignedAttestation as CcSignedAttestation,
+    },
+    staking::calls::types::validate,
+};
 
 use attestor_primitives::{
     Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainKey, Digest,
@@ -79,194 +82,6 @@ pub struct Client {
     pair: sr25519::Pair,
     signing_keypair: Keypair,
     rpc: ReconnectionRpcClient,
-}
-
-pub async fn do_it(url: impl Into<String> + Clone){
-
-    let rpc = UnstableReconnectionRpcClient::builder()
-        // Reconnect with exponential backoff
-        //
-        // This API is "iterator-like" and we use `take` to limit the number of retries.
-        .retry_policy(
-            ExponentialBackoff::from_millis(100)
-                .max_delay(Duration::from_secs(10))
-                .take(3),
-        )
-        // There are other configurations as well that can be found at [`reconnecting_rpc_client::ClientBuilder`].
-        .build(url.into())
-        .await.unwrap();
-
-    let address = cc3::storage().attestation().checkpoints_iter1(2);
-    // let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
-    // let address1 = cc3::storage().system().account_iter();
-    // let x = self.api().await?.storage().at_latest().await?.iter(&address).await?;
-
-    // while let Some(Ok(kv)) = x.next().await {
-    //     // let rrr: u64 = kv.keys.into();
-    //     // let x = kv.keys;
-    //     // println!("Keys decoded: {:?}", kv.keys);
-    //     // println!("Key: 0x{}", hex::encode(&kv.key_bytes));
-    //     // let v = kv.value;
-    //     // println!("Value: {:?}", kv.value);
-    // }
-    // let address = cc3::attestation::storage::types::checkpoints::
-
-    let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await.unwrap();
-
-    let mut iter = api
-        .storage()
-        .at_latest()
-        .await.unwrap()
-        .iter(address)
-        .await.unwrap();
-
-    use subxt::storage::StorageClient;
-    let storage: StorageClient<_, _> = api.storage();
-
-    // storage
-    // .fetch_keys::<polkadot::xcm_pallet::storage::VersionNotifiers>(10, None, None)
-    //     .await;
-
-    while let Some(Ok(kv)) = iter.next().await {
-        // let k = kv.key_bytes.clone();
-        // // let x : AccountId32 = Decode::decode(&mut kv.key_bytes.as_slice()).unwrap();
-        // let key = kv.key_bytes.clone();
-        // let account_bytes = key[40..].to_vec();
-        
-        // let aa = AccountId32::from_str("5G6RmJVeBzwtztZzxhrFvqSuxj5Tm8wN34njvD1vYJwSDtRK").unwrap();
-        // let bytes = aa.0;
-        // println!("bytes: {:?}", bytes);
-        let last_32: [u8; 32] = kv.key_bytes[kv.key_bytes.len() - 32..].try_into().unwrap();
-        let d = Digest::from(last_32);
-        println!("bytes: {:?}", d);
-        println!("Keys decoded: {:?}", kv);
-
-        let value = kv.value.clone();
-
-        // let k = kv.key_bytes;
-        // let Ok(chain_key) = k.0.decoded() else{
-        //     continue;
-        // };
-        // if chain_key != chain_key {
-        //     continue;
-        // }
-
-        // let Ok(digest) = k.1.decoded() else{
-        //     continue;
-        // };
-        // let block_number: u64 = kv.value.into();
-        // checkpoints.push(AttestationCheckpoint {
-        //     block_number: kv.value.into(),
-        //     digest: digest,
-        // });
-
-        /*
-
-        bytes: [178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6]
-        Keys decoded: StorageKeyValuePair { key_bytes: [99, 16, 254, 212, 115, 25, 182, 88, 249, 184, 178, 80, 78, 13, 114, 236, 103, 7, 208, 157, 220, 216, 233, 82, 152, 161, 95, 57, 132, 103, 135, 133, 176, 45, 232, 68, 64, 62, 199, 234, 2, 0, 0, 0, 0, 0, 0, 0, 49, 0, 14, 177, 10, 132, 52, 229, 139, 228, 240, 129, 227, 77, 72, 159, 178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6], keys: StaticStorageKey { bytes: Static(Encoded([2, 0, 0, 0, 0, 0, 0, 0])), _marker: PhantomData<u64> }, value: Attestor { bls_public_key: None, status: Idle, stash: AccountId32([212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159, 214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125]) } }
-        bytes: [178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6]
-        Keys decoded: StorageKeyValuePair { key_bytes: [99, 16, 254, 212, 115, 25, 182, 88, 249, 184, 178, 80, 78, 13, 114, 236, 103, 7, 208, 157, 220, 216, 233, 82, 152, 161, 95, 57, 132, 103, 135, 133, 176, 45, 232, 68, 64, 62, 199, 234, 2, 0, 0, 0, 0, 0, 0, 0, 88, 21, 20, 23, 238, 32, 234, 86, 239, 160, 22, 100, 132, 234, 86, 79, 52, 167, 54, 14, 238, 14, 215, 189, 90, 12, 22, 56, 144, 239, 131, 13, 166, 134, 152, 214, 173, 180, 174, 181, 17, 191, 216, 105, 66, 143, 3, 25], keys: StaticStorageKey { bytes: Static(Encoded([2, 0, 0, 0, 0, 0, 0, 0])), _marker: PhantomData<u64> }, value: Attestor { bls_public_key: None, status: Idle, stash: AccountId32([212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159, 214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125]) } }
-        bytes: [178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6]
-        Keys decoded: StorageKeyValuePair { key_bytes: [99, 16, 254, 212, 115, 25, 182, 88, 249, 184, 178, 80, 78, 13, 114, 236, 103, 7, 208, 157, 220, 216, 233, 82, 152, 161, 95, 57, 132, 103, 135, 133, 176, 45, 232, 68, 64, 62, 199, 234, 2, 0, 0, 0, 0, 0, 0, 0, 129, 3, 189, 4, 27, 49, 17, 233, 56, 208, 176, 74, 125, 36, 159, 195, 140, 157, 30, 146, 82, 250, 21, 73, 61, 2, 145, 184, 205, 91, 160, 0, 227, 59, 150, 169, 139, 67, 187, 42, 19, 130, 161, 0, 11, 166, 162, 115], keys: StaticStorageKey { bytes: Static(Encoded([2, 0, 0, 0, 0, 0, 0, 0])), _marker: PhantomData<u64> }, value: Attestor { bls_public_key: None, status: Idle, stash: AccountId32([212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159, 214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125]) } }
-        
-         */
-    }
-
-}
-
-pub async fn do_it_2(url: impl Into<String> + Clone){
-
-    let rpc = UnstableReconnectionRpcClient::builder()
-        // Reconnect with exponential backoff
-        //
-        // This API is "iterator-like" and we use `take` to limit the number of retries.
-        .retry_policy(
-            ExponentialBackoff::from_millis(100)
-                .max_delay(Duration::from_secs(10))
-                .take(3),
-        )
-        // There are other configurations as well that can be found at [`reconnecting_rpc_client::ClientBuilder`].
-        .build(url.into())
-        .await.unwrap();
-
-    let address = cc3::storage().attestation().attestors_iter1(2);
-    // let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
-    // let address1 = cc3::storage().system().account_iter();
-    // let x = self.api().await?.storage().at_latest().await?.iter(&address).await?;
-
-    // while let Some(Ok(kv)) = x.next().await {
-    //     // let rrr: u64 = kv.keys.into();
-    //     // let x = kv.keys;
-    //     // println!("Keys decoded: {:?}", kv.keys);
-    //     // println!("Key: 0x{}", hex::encode(&kv.key_bytes));
-    //     // let v = kv.value;
-    //     // println!("Value: {:?}", kv.value);
-    // }
-    // let address = cc3::attestation::storage::types::checkpoints::
-
-    let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await.unwrap();
-
-    let mut iter = api
-        .storage()
-        .at_latest()
-        .await.unwrap()
-        .iter(address)
-        .await.unwrap();
-
-    use subxt::storage::StorageClient;
-    let storage: StorageClient<_, _> = api.storage();
-
-    // storage
-    // .fetch_keys::<polkadot::xcm_pallet::storage::VersionNotifiers>(10, None, None)
-    //     .await;
-
-    while let Some(Ok(kv)) = iter.next().await {
-        let k = kv.key_bytes.clone();
-        // let x : AccountId32 = Decode::decode(&mut kv.key_bytes.as_slice()).unwrap();
-        let key = kv.key_bytes.clone();
-        let account_bytes = key[40..].to_vec();
-        // println!("Keys decoded: {:?}", key);
-        // let array_u8: [u8; 32] = account_bytes.as_slice().try_into().unwrap();
-        // let account = AccountId32::from(array_u8);
-        //take last 32 bytes from kv key_bytes
-        // let last_32 = &kv.key_bytes[kv.key_bytes.len() - 32..];
-        // println!("bytes: {:?}", last_32);
-        let aa = AccountId32::from_str("5G6RmJVeBzwtztZzxhrFvqSuxj5Tm8wN34njvD1vYJwSDtRK").unwrap();
-        let bytes = aa.0;
-        println!("bytes: {:?}", bytes);
-        // println!("Keys decoded: {:?}", account);
-        // println!("Keys decoded data: {:?}", x);
-        println!("Keys decoded: {:?}", kv);
-
-        // let k = kv.key_bytes;
-        // let Ok(chain_key) = k.0.decoded() else{
-        //     continue;
-        // };
-        // if chain_key != chain_key {
-        //     continue;
-        // }
-
-        // let Ok(digest) = k.1.decoded() else{
-        //     continue;
-        // };
-        // let block_number: u64 = kv.value.into();
-        // checkpoints.push(AttestationCheckpoint {
-        //     block_number: kv.value.into(),
-        //     digest: digest,
-        // });
-
-        /*
-
-        bytes: [178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6]
-        Keys decoded: StorageKeyValuePair { key_bytes: [99, 16, 254, 212, 115, 25, 182, 88, 249, 184, 178, 80, 78, 13, 114, 236, 103, 7, 208, 157, 220, 216, 233, 82, 152, 161, 95, 57, 132, 103, 135, 133, 176, 45, 232, 68, 64, 62, 199, 234, 2, 0, 0, 0, 0, 0, 0, 0, 49, 0, 14, 177, 10, 132, 52, 229, 139, 228, 240, 129, 227, 77, 72, 159, 178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6], keys: StaticStorageKey { bytes: Static(Encoded([2, 0, 0, 0, 0, 0, 0, 0])), _marker: PhantomData<u64> }, value: Attestor { bls_public_key: None, status: Idle, stash: AccountId32([212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159, 214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125]) } }
-        bytes: [178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6]
-        Keys decoded: StorageKeyValuePair { key_bytes: [99, 16, 254, 212, 115, 25, 182, 88, 249, 184, 178, 80, 78, 13, 114, 236, 103, 7, 208, 157, 220, 216, 233, 82, 152, 161, 95, 57, 132, 103, 135, 133, 176, 45, 232, 68, 64, 62, 199, 234, 2, 0, 0, 0, 0, 0, 0, 0, 88, 21, 20, 23, 238, 32, 234, 86, 239, 160, 22, 100, 132, 234, 86, 79, 52, 167, 54, 14, 238, 14, 215, 189, 90, 12, 22, 56, 144, 239, 131, 13, 166, 134, 152, 214, 173, 180, 174, 181, 17, 191, 216, 105, 66, 143, 3, 25], keys: StaticStorageKey { bytes: Static(Encoded([2, 0, 0, 0, 0, 0, 0, 0])), _marker: PhantomData<u64> }, value: Attestor { bls_public_key: None, status: Idle, stash: AccountId32([212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159, 214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125]) } }
-        bytes: [178, 65, 64, 154, 173, 194, 163, 129, 188, 117, 13, 189, 246, 144, 72, 219, 101, 214, 138, 83, 171, 162, 100, 19, 176, 19, 80, 34, 78, 9, 250, 6]
-        Keys decoded: StorageKeyValuePair { key_bytes: [99, 16, 254, 212, 115, 25, 182, 88, 249, 184, 178, 80, 78, 13, 114, 236, 103, 7, 208, 157, 220, 216, 233, 82, 152, 161, 95, 57, 132, 103, 135, 133, 176, 45, 232, 68, 64, 62, 199, 234, 2, 0, 0, 0, 0, 0, 0, 0, 129, 3, 189, 4, 27, 49, 17, 233, 56, 208, 176, 74, 125, 36, 159, 195, 140, 157, 30, 146, 82, 250, 21, 73, 61, 2, 145, 184, 205, 91, 160, 0, 227, 59, 150, 169, 139, 67, 187, 42, 19, 130, 161, 0, 11, 166, 162, 115], keys: StaticStorageKey { bytes: Static(Encoded([2, 0, 0, 0, 0, 0, 0, 0])), _marker: PhantomData<u64> }, value: Attestor { bls_public_key: None, status: Idle, stash: AccountId32([212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159, 214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125]) } }
-        
-         */
-    }
-
 }
 
 impl<'a> Client {
@@ -599,22 +414,25 @@ impl<'a> Client {
         chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<AttestationCheckpoint>> {
-        // let storage_query = cc3::storage().attestation().checkpoints(chain_key, digest);
+        let storage_query = cc3::storage().attestation().checkpoints(chain_key, digest);
 
-        // let result = self
-        //     .api()
-        //     .await?
-        //     .storage()
-        //     .at_latest()
-        //     .await?
-        //     .fetch(&storage_query)
-        //     .await?;
+        let result = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
 
-        // Ok(Some(AttestationCheckpoint {
-        //     block_number: result.into(),
-        //     digest: digest,
-        // }))
-        todo!();
+        if result.is_none() {
+            return Ok(None);
+        }
+
+        Ok(Some(AttestationCheckpoint {
+            block_number: result.unwrap(),
+            digest: digest,
+        }))
     }
 
     pub async fn get_attestations_for_chain(
@@ -663,27 +481,7 @@ impl<'a> Client {
         // Address to the root of a storage entry that we'd like to iterate over
         // concatenated with the encoded first key to the Checkpoints double map,
         // a ChainKey.
-        // let address = cc3::storage().attestation().checkpoints_iter();
-        // let storage: StorageClient<_> = self.rpc.storage();
-        // let mut iter = storage
-        //     .iter::<cc3::attestation::storage::Checkpoints>(None)
-        //     .await?;
-        // let address = cc3::storage().attestation().checkpointing_queues_iter();
-
         let address = cc3::storage().attestation().checkpoints_iter();
-        // let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
-        // let address1 = cc3::storage().system().account_iter();
-        // let x = self.api().await?.storage().at_latest().await?.iter(&address).await?;
-
-        // while let Some(Ok(kv)) = x.next().await {
-        //     // let rrr: u64 = kv.keys.into();
-        //     // let x = kv.keys;
-        //     // println!("Keys decoded: {:?}", kv.keys);
-        //     // println!("Key: 0x{}", hex::encode(&kv.key_bytes));
-        //     // let v = kv.value;
-        //     // println!("Value: {:?}", kv.value);
-        // }
-        // let address = cc3::attestation::storage::types::checkpoints::
 
         let mut iter = self
             .api()
@@ -695,25 +493,12 @@ impl<'a> Client {
             .await?;
 
         while let Some(Ok(kv)) = iter.next().await {
-            let k = kv.key_bytes;
-            println!("Keys decoded: {:?}", kv.keys);
-
-            // let k = kv.key_bytes;
-            // let Ok(chain_key) = k.0.decoded() else{
-            //     continue;
-            // };
-            // if chain_key != chain_key {
-            //     continue;
-            // }
-
-            // let Ok(digest) = k.1.decoded() else{
-            //     continue;
-            // };
-            let block_number: u64 = kv.value.into();
-            // checkpoints.push(AttestationCheckpoint {
-            //     block_number: kv.value.into(),
-            //     digest: digest,
-            // });
+            let last_32: [u8; 32] = kv.key_bytes[kv.key_bytes.len() - 32..].try_into().unwrap();
+            let digest = Digest::from(last_32);
+            let checkpoint = AttestationCheckpoint {
+                block_number: kv.value.into(),
+                digest,
+            };
         }
 
         checkpoints.sort_by(|a: &AttestationCheckpoint, b: &AttestationCheckpoint| {
