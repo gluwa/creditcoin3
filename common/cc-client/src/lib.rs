@@ -490,13 +490,28 @@ impl<'a> Client {
             .await?;
 
         while let Some(Ok(kv)) = iter.next().await {
-            let last_32: [u8; 32] = kv.key_bytes[kv.key_bytes.len() - 32..].try_into().unwrap();
-            let digest = Digest::from(last_32);
-            let checkpoint = AttestationCheckpoint {
-                block_number: kv.value,
-                digest,
-            };
-            checkpoints.push(checkpoint);
+            if kv.key_bytes.len() < 32 {
+                error!(
+                    "Storage key for chainkey {} is less than 32 bytes, checkpoint: {:?}",
+                    chain_key, kv
+                );
+                continue;
+            }
+            let last_32: Result<[u8; 32], _> = kv.key_bytes[kv.key_bytes.len() - 32..].try_into();
+            if let Ok(digest_bytes) = last_32 {
+                let digest = Digest::from(digest_bytes);
+                let checkpoint = AttestationCheckpoint {
+                    block_number: kv.value,
+                    digest,
+                };
+                checkpoints.push(checkpoint);
+            } else {
+                error!(
+                    "Failed to get last 32 bytes of storage key for chainkey {}, checkpoint: {:?}",
+                    chain_key, kv
+                );
+                continue;
+            }
         }
 
         checkpoints.sort_by(|a: &AttestationCheckpoint, b: &AttestationCheckpoint| {
