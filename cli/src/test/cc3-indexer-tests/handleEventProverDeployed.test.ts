@@ -2,7 +2,7 @@ import { WebSocketProvider, ethers } from 'ethers';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
-describe('handleEventProverDeployed)', () => {
+describe('handleEventProverDeployed()', () => {
     let alith: any;
 
     beforeAll(() => {
