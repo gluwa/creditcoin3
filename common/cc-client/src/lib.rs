@@ -23,11 +23,9 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use cc3::{
-    runtime_types::attestor_primitives::{
-        Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
-        SignedAttestation as CcSignedAttestation,
-    },
+use cc3::runtime_types::attestor_primitives::{
+    Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
+    SignedAttestation as CcSignedAttestation,
 };
 
 use attestor_primitives::{
@@ -411,7 +409,9 @@ impl<'a> Client {
         chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<AttestationCheckpoint>> {
-        let storage_query = cc3::storage().attestation().checkpoints(chain_key, digest);
+        let storage_query = cc3::storage()
+            .attestation()
+            .checkpoints(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
             .api()
@@ -426,10 +426,10 @@ impl<'a> Client {
             return Ok(None);
         }
 
-        Ok(Some(AttestationCheckpoint {
+        return Ok(Some(AttestationCheckpoint {
             block_number: result.unwrap(),
             digest: digest,
-        }))
+        }));
     }
 
     pub async fn get_attestations_for_chain(
