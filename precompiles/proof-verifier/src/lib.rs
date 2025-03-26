@@ -66,7 +66,8 @@ where
             );
 
             // Instead of erroring out, we propagate status codes to the prover smart contract
-            // and let it deal with them. 1 indicating `LayoutMismatch`, 2 - `ProofInvalid`, etc.
+            // and let it deal with them.
+            // 0. Success, 1. ProofInvalid, 2. LayoutMismatch, 3. OutOfBounds
             match result {
                 Ok(_) => {
                     log3(
@@ -88,25 +89,25 @@ where
                             match error {
                                 [0, 0, 0, 0] => {
                                     error!("Invalid proof submitted: {:?}", e);
+                                    Ok(1)
+                                }
+                                [11, 0, 0, 0] => {
+                                    error!("Query layout mismatch: {:?}", e);
                                     Ok(2)
                                 }
                                 [10, 0, 0, 0] => {
                                     error!("Query out of bounds: {:?}", e);
                                     Ok(3)
                                 }
-                                [11, 0, 0, 0] => {
-                                    error!("Query layout mismatch: {:?}", e);
-                                    Ok(1)
-                                }
                                 _ => {
                                     error!("Failed to dispatch submit_proof: {:?}", e);
-                                    Ok(4)
+                                    Ok(1)
                                 }
                             }
                         }
                         _ => {
                             error!("Failed to dispatch submit_proof: {:?}", e);
-                            Ok(4)
+                            Ok(3)
                         }
                     },
                 },

@@ -21,6 +21,7 @@ pub async fn deploy(
     base_fee: u64,
     chain_key: ChainKey,
     display_name: String,
+    timeout: u64,
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
@@ -36,6 +37,7 @@ pub async fn deploy(
             base_fee,
             chain_key,
             display_name,
+            timeout,
         )
         .await?;
         artifacts::create_deployment_artifact(chain_id, contract.clone()).await?;

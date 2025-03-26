@@ -48,6 +48,7 @@ pub async fn deploy(
     base_fee: u64,
     chain_key: ChainKey,
     display_name: String,
+    timeout: u64,
 ) -> Result<GluwaPublicProverContract> {
     let provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(client.get_signer()?))
@@ -64,6 +65,7 @@ pub async fn deploy(
         U256::from(base_fee),
         chain_key,
         display_name,
+        timeout,
     )
     .await?;
 

@@ -79,7 +79,7 @@ fn verify_should_revert_when_proof_is_empty() {
                         query,
                     },
                 )
-                .execute_returns(2u8);
+                .execute_returns(1u8);
         });
 }
 

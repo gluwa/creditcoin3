@@ -16,13 +16,15 @@ contract CreditcoinPublicProver is Ownable {
     uint256 public baseFee;
     uint64 chainKey;
     string public displayName;
+    uint64 timeout = 100;
 
     constructor(
         address _proceedsAccount,
         uint256 _costPerByte,
         uint256 _baseFee,
         uint64 _chainKey,
-        string memory _displayName
+        string memory _displayName,
+        uint64 _timeout
     ) Ownable() {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
@@ -31,8 +33,9 @@ contract CreditcoinPublicProver is Ownable {
         baseFee = _baseFee;
         chainKey = _chainKey;
         displayName = _displayName;
+        timeout = _timeout;
 
-        emit ProverDeployed(address(this), msg.sender, _proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName);
+        emit ProverDeployed(address(this), msg.sender, _proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeout);
     }
 
     function computeQueryCost(ChainQuery calldata query) public view returns (uint256) {
@@ -77,7 +80,8 @@ contract CreditcoinPublicProver is Ownable {
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
-        if (queries[queryId].state != QueryState.Uninitialized) {
+        // Allow resubmission of queries that have timed out or have default state (Uninitialized)
+        if (!(queries[queryId].state == QueryState.Uninitialized || isQueryTimedOut(queryId))) {
             revert("Query already exists");
         }
 
@@ -99,32 +103,26 @@ contract CreditcoinPublicProver is Ownable {
         // .estimatedCost
         queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
         // .timestamp
-        queries[queryId].timestamp = block.number;
+        queries[queryId].timestamp = block.timestamp;
 
         // Add to unprocessed queries
         queryIds.push(queryId);
-
 
         // Emit event
         emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
     }
 
     function reclaimEscrowedPayment(QueryId queryId) public {
-        // requires guards for correct query state and timeout
-        // -- the timeout criteria may need a more complex helper function
-        //    to compute the "deadline".
-        //    it may be a function of the distance between the target height
-        //    (using some conversion factor in the chain registry) and the current
-        //    block number plus the expected compute delay for the
-        //    proof generation.
-        // allows the dApp to reclaim the escrowed payment if the prover fails
-        // to submit a proof or fails otherwise
-        // the escrowed payment is transferred to the principal specified
-        // in the submitQuery call
         require(queries[queryId].principal == msg.sender, 'Sender different from query.principal');
 
         QueryState state = queries[queryId].state;
-        require(state == QueryState.TimedOut || state == QueryState.InvalidQuery, 'Query state does not allow reclaim');
+        // Explicitly revert if the state is ResultAvailable
+        require(state != QueryState.ResultAvailable, "Cannot reclaim: query result is available");
+
+        // Allow reclaim if timeout has passed OR if the query is invalid
+        bool isInvalidQuery = (state == QueryState.InvalidQuery);
+
+        require(isInvalidQuery ||isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met");
 
         uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
 
@@ -149,6 +147,11 @@ contract CreditcoinPublicProver is Ownable {
 
     // submitQueryProof is called by the prover when a query's proof is ready.
     function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (ResultSegment[] memory) {
+        // Check if timeout has occurred
+        if (isQueryTimedOut(queryId)) {
+            revert("Query has timed out");
+        }
+
         // Fist verify the proof
         uint64 result = _call_verifier_verify(queryId, proof);
 
@@ -164,14 +167,9 @@ contract CreditcoinPublicProver is Ownable {
         queries[queryId].escrowedAmount = Balance.wrap(0);
 
         // Check the result of the proof verification
+        // 0 == success, 1, 2, 3 == failure
         if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
-        } else if (result == 1) {
-            queries[queryId].state = QueryState.InvalidQuery;
-        } else if (result == 2) {
-            queries[queryId].state = QueryState.TimedOut;
-        } else if (result == 3) {
-            queries[queryId].state = QueryState.InvalidQuery;
         } else {
             queries[queryId].state = QueryState.InvalidQuery;
         }
@@ -246,6 +244,10 @@ contract CreditcoinPublicProver is Ownable {
 
         return resultSegments;
     }
+
+    function isQueryTimedOut(QueryId queryId) public view returns (bool) {
+        return block.timestamp > queries[queryId].timestamp + timeout;
+    }
 }
 
 /// @title QueryVerifierContract interface
@@ -261,7 +263,7 @@ interface QueryVerifierContract {
     ) external returns (ResultSegment[] memory);
 }
 
-event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName);
+event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName, uint64 timeout);
 event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, ChainQuery chainQuery);
 event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments, QueryState state);
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);

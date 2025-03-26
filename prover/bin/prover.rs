@@ -43,6 +43,14 @@ pub struct Prover {
 
     #[arg(long, required = true)]
     name: String,
+
+    #[arg(
+        short,
+        long,
+        default_value_t = 1800,
+        help = "Timeout in seconds for the prover to submit the query proof back to the contract, default value = 30 minutes (1800 seconds)"
+    )]
+    timeout: u64,
 }
 
 #[tokio::main]
@@ -86,6 +94,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         prover_be_socket_addr: args.prover_be_socket_addr,
         be_api_key: args.be_api_key,
         name: args.name,
+        timeout: args.timeout,
     };
 
     let mut server = Server::new(config).await?;

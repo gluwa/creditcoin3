@@ -22,4 +22,5 @@ pub struct Config {
     pub prover_be_socket_addr: Option<String>,
     pub be_api_key: Option<String>,
     pub name: String,
+    pub timeout: u64,
 }

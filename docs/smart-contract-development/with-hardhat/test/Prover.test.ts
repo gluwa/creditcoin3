@@ -2,6 +2,10 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer, parseEther } from 'ethers';
 import { ProverForTesting } from '../typechain-types';
+import { progressBlocks } from './helpers';
+import { time } from '@nomicfoundation/hardhat-toolbox/network-helpers';
+
+const BLOCKTIME = 1; // 1 second per block
 
 describe('CreditcoinPublicProver', function () {
     let prover: ProverForTesting;
@@ -18,6 +22,7 @@ describe('CreditcoinPublicProver', function () {
             { offset: 32, size: 64 },
         ],
     };
+    const TIMEOUT_BLOCKS = 10;
 
     // WARNING: using a high-level beforeEach() instead of before() b/c we want contract
     // to be redeployed for every test scenario so that each scenario starts in a fresh state!
@@ -34,6 +39,7 @@ describe('CreditcoinPublicProver', function () {
             1000n,
             sampleQuery.chainId,
             'testing',
+            TIMEOUT_BLOCKS * BLOCKTIME,
         );
         await prover.waitForDeployment();
 
@@ -160,8 +166,7 @@ describe('CreditcoinPublicProver', function () {
         const queryStates = [
             { name: 'QueryState.Submitted', value: 1 },
             { name: 'QueryState.ResultAvailable', value: 2 },
-            { name: 'QueryState.TimedOut', value: 3 },
-            { name: 'QueryState.InvalidQuery', value: 4 },
+            { name: 'QueryState.InvalidQuery', value: 3 },
         ];
         queryStates.forEach(({ name, value }) => {
             it(`Should revert when ${name} query is submitted again`, async function () {
@@ -186,11 +191,12 @@ describe('CreditcoinPublicProver', function () {
 
     describe('reclaimEscrowedPayment()', function () {
         const queryStates = [
-            { name: 'QueryState.TimedOut', value: 3 },
-            { name: 'QueryState.InvalidQuery', value: 4 },
+            { name: 'QueryState.InvalidQuery', value: 3, timeout: 0 },
+            { name: 'QueryState.InvalidQuery', value: 3, timeout: TIMEOUT_BLOCKS + 1 },
+            { name: 'QueryState.Submitted', value: 1, timeout: TIMEOUT_BLOCKS + 1 },
         ];
 
-        queryStates.forEach(({ name, value }) => {
+        queryStates.forEach(({ name, value, timeout }) => {
             it(`Should allow principal to reclaim escrow when ${name}`, async function () {
                 const willingToPay = queryCost + 1n;
                 const tx = await prover
@@ -211,6 +217,9 @@ describe('CreditcoinPublicProver', function () {
                 // this is held in escrow for now
                 const escrowBeforeReclaim = await prover.getTotalEscrowBalance();
                 expect(escrowBeforeReclaim).to.equal(willingToPay);
+
+                // Progress blocks
+                await progressBlocks(timeout, BLOCKTIME);
 
                 const reclaimReceipt = await (await prover.connect(user).reclaimEscrowedPayment(queryId)).wait();
                 const escrowAfterReclaim = await prover.getTotalEscrowBalance();
@@ -248,7 +257,46 @@ describe('CreditcoinPublicProver', function () {
             await prover.connect(owner).mock_setQueryState(queryId, 0);
 
             await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
-                'Query state does not allow reclaim',
+                'Cannot reclaim: neither timeout nor invalid query state met',
+            );
+        });
+
+        it(`Should not allow principal to reclaim escrow when query.state is ResultAvailable but timed out`, async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // QueryState.ResultAvailable
+            await prover.connect(owner).mock_setQueryState(queryId, 2);
+
+            // Progress blocks
+            await progressBlocks(TIMEOUT_BLOCKS, BLOCKTIME);
+
+            await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
+                'Cannot reclaim: query result is available',
+            );
+        });
+
+        it(`Should not allow principal to reclaim escrow when query isn't timed out`, async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // QueryState.Submitted
+            await prover.connect(owner).mock_setQueryState(queryId, 1);
+
+            const after = await time.latest();
+            console.log(`after: ${after}`);
+
+            await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
+                'Cannot reclaim: neither timeout nor invalid query state met',
             );
         });
 
@@ -266,7 +314,7 @@ describe('CreditcoinPublicProver', function () {
             );
         });
 
-        it('Should revert when escrowedAmount transfer fails', async function () {
+        it('Should allow principal to reclaim escrow when query has timed out', async function () {
             const receipt = await (
                 await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost })
             ).wait();
@@ -276,7 +324,7 @@ describe('CreditcoinPublicProver', function () {
             const balanceBefore = await ethers.provider.getBalance(await user.getAddress());
             const escrowBeforeReclaim = await prover.getTotalEscrowBalance();
 
-            // set state to QueryState.TimedOut
+            // set state to QueryState.InvalidQuery
             await prover.connect(owner).mock_setQueryState(queryId, 3);
             // drain contract balance to cause a failure later
             await prover.connect(owner).mock_drainBalance(queryCost);
@@ -298,10 +346,10 @@ describe('CreditcoinPublicProver', function () {
     describe('submitQueryProof()', function () {
         const verificationResult = [
             { result: 0, expectedState: 2, stateName: 'QueryState.ResultAvailable' },
-            { result: 1, expectedState: 4, stateName: 'QueryState.InvalidQuery' },
-            { result: 2, expectedState: 3, stateName: 'QueryState.TimedOut' },
-            { result: 3, expectedState: 4, stateName: 'QueryState.InvalidQuery' },
-            { result: 4, expectedState: 4, stateName: 'QueryState.InvalidQuery' },
+            { result: 1, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
+            { result: 2, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
+            { result: 3, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
+            { result: 4, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
         ];
 
         verificationResult.forEach(({ result, expectedState, stateName }) => {
@@ -367,6 +415,22 @@ describe('CreditcoinPublicProver', function () {
             // explicitly check again that query.state did not change
             queryDetails = await prover.queries(queryId);
             expect(queryDetails.state).to.equal(1); // QueryState.Submitted
+        });
+
+        it('Should revert when query is timed out', async function () {
+            const receipt = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // Progress 10 seconds
+            await progressBlocks(TIMEOUT_BLOCKS, BLOCKTIME);
+
+            const proof = new Uint8Array(32);
+            await expect(prover.connect(owner).submitQueryProof(queryId, proof)).to.be.revertedWith(
+                'Query has timed out',
+            );
         });
     });
 
@@ -581,6 +645,7 @@ describe('CreditcoinPublicProver', function () {
                 1000n,
                 sampleQuery.chainId,
                 'testing',
+                TIMEOUT_BLOCKS * BLOCKTIME,
             );
             await contract.waitForDeployment();
 

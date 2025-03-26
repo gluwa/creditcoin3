@@ -508,6 +508,8 @@ type Prover @entity {
     baseCostPerByte: BigInt!
 
     baseFee: BigInt!
+
+    timeout: BigInt!
 }
 
 type ChainQueries @entity {

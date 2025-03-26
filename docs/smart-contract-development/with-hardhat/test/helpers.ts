@@ -1,4 +1,4 @@
-import { time } from '@nomicfoundation/hardhat-toolbox/network-helpers';
+import { mine, time } from '@nomicfoundation/hardhat-toolbox/network-helpers';
 
 export async function skipIfNotCreditcoin() {
     try {
@@ -21,4 +21,9 @@ export async function skipIfNotHardhat() {
         // @ts-ignore
         this.skip();
     }
+}
+
+// Progress the blockchain by `num` blocks with a blocktime of `blocktime` seconds
+export async function progressBlocks(num: number, blocktime: number) {
+    await mine(num, { interval: blocktime });
 }

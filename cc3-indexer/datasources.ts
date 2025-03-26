@@ -220,7 +220,7 @@ export const proverDatasource: FrontierEvmDatasource = {
                 kind: "substrate/FrontierEvmEvent",
                 filter: {
                     topics: [
-                        "ProverDeployed(address indexed contractAddress,address indexed owner,address proceedsAccount,uint256 costPerByte,uint256 baseFee,uint64 chainKey,string displayName)",
+                        "ProverDeployed(address indexed contractAddress,address indexed owner,address proceedsAccount,uint256 costPerByte,uint256 baseFee,uint64 chainKey,string displayName,uint64 timeout)",
                     ],
                 },
             },

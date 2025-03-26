@@ -15,7 +15,7 @@ import {
 } from '../types/chain/ProverAbi';
 
 // event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount);
-type ProverDeployedArgs = [string, string, string, bigint, bigint, bigint, string] & ProverDeployedEventObject;
+type ProverDeployedArgs = [string, string, string, bigint, bigint, bigint, string, bigint] & ProverDeployedEventObject;
 
 export async function handleProverDeployed(event: FrontierEvmEvent<ProverDeployedArgs>): Promise<void> {
     if (!event.args) {
@@ -23,7 +23,7 @@ export async function handleProverDeployed(event: FrontierEvmEvent<ProverDeploye
         return;
     }
 
-    const [contractAddress, owner, proceedsAccount, baseCostPerByte, baseFee, chainKey, name] = event.args;
+    const [contractAddress, owner, proceedsAccount, baseCostPerByte, baseFee, chainKey, name, timeout] = event.args;
 
     const id = `${event.blockNumber} - ${event.transactionIndex}`;
 
@@ -40,6 +40,7 @@ export async function handleProverDeployed(event: FrontierEvmEvent<ProverDeploye
         baseFee: BigInt(baseFee.toString()),
         chainKey: BigInt(chainKey.toString()),
         name,
+        timeout: BigInt(timeout.toString()),
     });
 
     await prover.save();
@@ -125,9 +126,6 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
             query.state = QueryStatus.ResultAvailable;
             break;
         case 3:
-            query.state = QueryStatus.TimedOut;
-            break;
-        case 4:
             query.state = QueryStatus.InvalidQuery;
             break;
         default:

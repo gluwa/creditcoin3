@@ -13,6 +13,7 @@ contract ProverWhereVerifierGetResultSegmentsFails is ProverForTesting {
         uint256 _costPerByte,
         uint256 _baseFee,
         uint64 _chainKey,
-        string memory _displayName
-    ) ProverForTesting(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName) {}
+        string memory _displayName,
+        uint64 _timeoutBlocks
+    ) ProverForTesting(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeoutBlocks) {}
 }

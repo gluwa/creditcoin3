@@ -30,8 +30,9 @@ contract ProverForTesting is CreditcoinPublicProver {
         uint256 _costPerByte,
         uint256 _baseFee,
         uint64 _chainKey,
-        string memory _displayName
-    ) CreditcoinPublicProver(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName) {}
+        string memory _displayName,
+	    uint64 _timeoutBlocks
+    ) CreditcoinPublicProver(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeoutBlocks) {}
 
     function getTotalEscrowBalance() public view returns (Balance) {
         return totalEscrowBalance;

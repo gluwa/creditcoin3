@@ -43,8 +43,6 @@ enum QueryState {
     Submitted,
     // ChainQuery is verified and the result is available
     ResultAvailable,
-    // Prover failed to submit proof in time
-    TimedOut,
     // ChainQuery targeted a transaction outside of the containing
     // range or the query's layout is impossible given the t
     InvalidQuery

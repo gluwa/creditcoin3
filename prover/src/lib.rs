@@ -77,6 +77,7 @@ impl Server {
             config.base_fee,
             chain_key,
             config.name.clone(),
+            config.timeout,
         )
         .await?;
         info!("Deployed prover contract");
