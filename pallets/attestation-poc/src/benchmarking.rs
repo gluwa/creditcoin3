@@ -11,8 +11,8 @@ use sp_std::vec;
 use sp_std::vec::Vec;
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
-    ChainAttestationIntervalType, ChainKey, SignedAttestation,
+    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
+    ChainKey, SignedAttestation,
 };
 
 const DEV_CHAIN_KEY: ChainKey = 1;
