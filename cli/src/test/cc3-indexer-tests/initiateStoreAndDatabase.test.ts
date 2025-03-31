@@ -1,0 +1,76 @@
+import { Option, U32, U64, U128 } from '@polkadot/types-codec';
+import { SupportedChainsPrimitivesSupportedChain } from '@polkadot/types/lookup';
+import { newApi, ApiPromise } from '../../lib';
+import { graphQLQuery } from './common';
+
+describe('initiateStoreAndDatabase()', () => {
+    let api: ApiPromise;
+
+    beforeAll(async () => {
+        ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
+    }, 30_000);
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    describe('when indexer is running', () => {
+        it('graphQL returns AttestationChainData which matches the Creditcoin3 chain storage', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    attestationChainData(orderBy: CHAIN_KEY_ASC, last: 10) {
+                        nodes {
+                            id,
+                            chainKey,
+                            attestationInterval,
+                            checkpointInterval,
+                            chainReward,
+                            maxSetSize,
+                            targetSampleSize,
+                            minBondRequirement
+                        }
+                    }
+                }`,
+            );
+            expect(response.data.attestationChainData.nodes).toBeTruthy();
+            expect(response.data.attestationChainData.nodes.length).toBeGreaterThan(0);
+
+            for (const node of response.data.attestationChainData.nodes) {
+                // such source chain exists
+                const sourceChain = (
+                    (await api.query.supportedChains.supportedChains(
+                        node.chainKey,
+                    )) as Option<SupportedChainsPrimitivesSupportedChain>
+                ).unwrap();
+                expect(sourceChain.chainId.toBigInt()).toBeGreaterThan(0n);
+
+                const attestationInterval = (
+                    (await api.query.attestation.chainAttestationInterval(node.chainKey)) as U64
+                ).toNumber();
+                expect(node.attestationInterval).toEqual(attestationInterval);
+
+                const checkpointInterval = (
+                    (await api.query.attestation.attestationCheckpointInterval(node.chainKey)) as U32
+                ).toNumber();
+                expect(node.checkpointInterval).toEqual(checkpointInterval);
+
+                const chainReward = ((await api.query.attestation.chainReward(node.chainKey)) as Option<U128>)
+                    .unwrap()
+                    .toBigInt();
+                expect(BigInt(node.chainReward)).toEqual(chainReward);
+
+                const maxAttestors = ((await api.query.attestation.maxAttestors(node.chainKey)) as U32).toNumber();
+                expect(node.maxSetSize).toEqual(maxAttestors);
+
+                const targetSampleSize = (
+                    (await api.query.attestation.targetSampleSize(node.chainKey)) as U32
+                ).toNumber();
+                expect(node.targetSampleSize).toEqual(targetSampleSize);
+
+                // note: this is not per-chain for now
+                const minBondRequirement = (await api.query.attestation.minBondRequirement()).toBigInt();
+                expect(BigInt(node.minBondRequirement)).toEqual(minBondRequirement);
+            }
+        }, 15_000);
+    });
+});
