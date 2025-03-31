@@ -126,3 +126,7 @@ export async function expectIsFinalizing() {
     // which causes the calling beforeEach() to timeout after the 8th .test.ts file is executed
     await api.disconnect();
 }
+
+export function randomIntBetween(min: number, max: number) {
+    return min + Math.floor(Math.random() * (max - min));
+}

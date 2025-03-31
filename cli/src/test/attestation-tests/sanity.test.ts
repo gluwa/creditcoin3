@@ -2,10 +2,7 @@ import { U64 } from '@polkadot/types-codec';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-
-function randomIntBetween(min: number, max: number) {
-    return min + Math.floor(Math.random() * (max - min));
-}
+import { randomIntBetween } from '../utils';
 
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
