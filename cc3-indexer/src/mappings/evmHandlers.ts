@@ -68,8 +68,8 @@ export async function handleQuerySubmitted(event: FrontierEvmEvent<QuerySubmitte
         index: chainQuery.index.toBigInt(),
         layoutSegments: chainQuery.layoutSegments.map((segment) => {
             return {
-                offset: segment.offset.toBigInt(),
-                size: segment.size.toBigInt(),
+                offset: segment.offset.toString(),
+                size: segment.size.toString(),
             };
         }),
         state: QueryStatus.Submitted,
@@ -98,7 +98,7 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
         queryRef: queryId,
         resultSegments: resultSegments.map((segment) => {
             return {
-                offset: segment.offset.toBigInt(),
+                offset: segment.offset.toString(),
                 bytes: segment.abiBytes.toString(),
             };
         }),

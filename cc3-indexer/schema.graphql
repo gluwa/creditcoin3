@@ -537,8 +537,8 @@ enum QueryStatus {
 }
 
 type LayoutSegment @jsonField {
-    offset: BigInt!
-    size: BigInt!
+    offset: String!
+    size: String!
 }
 
 type Proof @entity {
@@ -551,8 +551,8 @@ type Proof @entity {
 }
 
 type ResultSegment @jsonField {
-    offset: BigInt!
-    bytes: Bytes!
+    offset: String!
+    bytes: String!
 }
 
 type EscrowPaymentReclaimed @entity {
