@@ -1,5 +1,5 @@
 import { newApi, ApiPromise } from '../../lib';
-import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { chain_Anvil1_Key, chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
 describe('handleEventBlockAttested()', () => {
@@ -45,7 +45,7 @@ describe('handleEventBlockAttested()', () => {
             let lastDigest = '';
             for (const node of response.data.attestations.nodes) {
                 expect(node.id).toBeTruthy();
-                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
+                expect([chain_Anvil1_Key.toString(), chain_Anvil3_Key.toString()]).toContain(node.chainKey);
                 expect(BigInt(node.headerNumber)).toBeGreaterThanOrEqual(0n);
                 lastHeaderNumber = BigInt(node.headerNumber);
 

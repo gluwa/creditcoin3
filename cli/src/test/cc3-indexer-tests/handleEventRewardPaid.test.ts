@@ -22,13 +22,17 @@ describe('handleEventRewardPaid()', () => {
     describe('when there are accumulated rewards', () => {
         it('graphQL returns known RewardPaid entities', async () => {
             const response = await graphQLQuery(
-                `query { rewardPaids (orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, amount, stashId, whoId, chainKey, date, blockNumber }}}`,
+                `query { rewardPaids (
+                    orderBy: BLOCK_NUMBER_ASC,
+                    last: 10,
+                    filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }},
+                ) { nodes { id, amount, stashId, whoId, chainKey, date, blockNumber }}}`,
             );
             expect(response.data.rewardPaids.nodes).toBeTruthy();
             expect(response.data.rewardPaids.nodes.length).toBeGreaterThanOrEqual(1);
 
             for (const node of response.data.rewardPaids.nodes) {
-                // we don't have active attestors for Anvil 2
+                // we only have active attestors for Anvil 1
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(BigInt(node.amount)).toBeGreaterThan(0);
                 expect(node.stashId).toBeTruthy();

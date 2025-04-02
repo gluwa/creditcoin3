@@ -1,7 +1,11 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
-import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import {
+    chain_Anvil1_Key,
+    chain_Anvil2_Key,
+    chain_Anvil3_Key,
+} from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
 describe('handleEventAttestorRegistered()', () => {
@@ -64,7 +68,11 @@ describe('handleEventAttestorRegistered()', () => {
 
             let foundMatch = false;
             for (const node of response.data.attestorRegistereds.nodes) {
-                expect([chain_Anvil1_Key.toString(), chain_Anvil2_Key.toString()]).toContain(node.chainKey);
+                expect([
+                    chain_Anvil1_Key.toString(),
+                    chain_Anvil2_Key.toString(),
+                    chain_Anvil3_Key.toString(),
+                ]).toContain(node.chainKey);
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
                 expect(node.attestorId).toBeTruthy();
                 // match what's registered on-chain
@@ -103,7 +111,11 @@ describe('handleEventAttestorRegistered()', () => {
 
             let foundMatch = false;
             for (const node of response.data.attestors.nodes) {
-                expect([chain_Anvil1_Key.toString(), chain_Anvil2_Key.toString()]).toContain(node.chainKey);
+                expect([
+                    chain_Anvil1_Key.toString(),
+                    chain_Anvil2_Key.toString(),
+                    chain_Anvil3_Key.toString(),
+                ]).toContain(node.chainKey);
                 expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(0n);
                 expect(node.status).toBeGreaterThan(0);
                 expect(node.attestorId).toBeTruthy();

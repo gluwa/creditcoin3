@@ -1,5 +1,5 @@
 import { newApi, ApiPromise } from '../../lib';
-import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { chain_Anvil1_Key, chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
 describe('handleEventCheckpointReached()', () => {
@@ -29,8 +29,7 @@ describe('handleEventCheckpointReached()', () => {
             let onChainBlockNumber = 0n;
             let checkpointBlockNumber = 0n;
             for (const node of response.data.checkpoints.nodes) {
-                // we only have active attestors for Anvil 1
-                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
+                expect([chain_Anvil1_Key.toString(), chain_Anvil3_Key.toString()]).toContain(node.chainKey);
                 // commit_attestation() contains ensure_none(origin)?;
                 // whoId is Origin::none()
                 expect(node.whoId).toBeTruthy();
