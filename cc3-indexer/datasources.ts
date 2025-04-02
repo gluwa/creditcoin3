@@ -247,7 +247,7 @@ export const proverDatasource: FrontierEvmDatasource = {
                 kind: "substrate/FrontierEvmEvent",
                 filter: {
                     topics: [
-                        "EscrowedPaymentReclaimed(QueryId indexed queryId,uint256 escrowedAmount)",
+                        "EscrowedPaymentReclaimed(bytes32,uint256)",
                     ],
                 }
             },
