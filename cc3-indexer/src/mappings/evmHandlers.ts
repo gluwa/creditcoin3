@@ -158,6 +158,17 @@ export async function handleEscrowedPaymentReclaimed(
         amount: escrowedAmount.toBigInt(),
     });
 
+    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
+    if (queries.length === 0) {
+        logger.error(`Query with ID ${queryId} not found`);
+        return;
+    }
+    const query = queries[0];
+
+    query.escrowedAmount = escrowedAmount.toBigInt();
+
+    await query.save();
+
     await reclaimedPayment.save();
 }
 
