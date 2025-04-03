@@ -3,6 +3,8 @@ use parity_scale_codec::{Codec, Decode};
 
 pub trait CheckpointProvider {
     fn get_checkpoint(chain_key: ChainKey, digest: PalletDigest) -> Option<AttestationCheckpoint>;
+
+    fn get_checkpoint_interval(chain_key: ChainKey) -> u32;
 }
 
 pub trait AttestationProvider<H, AccountId>
@@ -14,4 +16,6 @@ where
         chain_key: ChainKey,
         digest: PalletDigest,
     ) -> Option<SignedAttestation<H, AccountId>>;
+
+    fn get_attestation_interval(chain_key: ChainKey) -> u64;
 }

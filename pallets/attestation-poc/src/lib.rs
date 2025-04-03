@@ -891,6 +891,10 @@ pub mod pallet {
         ) -> Option<AttestationCheckpoint> {
             Checkpoints::<T>::get(chain_key, sp_core::H256(digest))
         }
+
+        fn get_checkpoint_interval(chain_key: ChainKey) -> u32 {
+            AttestationCheckpointInterval::<T>::get(chain_key)
+        }
     }
 
     impl<T: Config> AttestationProvider<T::Hash, T::AccountId> for Pallet<T> {
@@ -899,6 +903,10 @@ pub mod pallet {
             digest: PalletDigest,
         ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
             Attestations::<T>::get(chain_key, digest)
+        }
+
+        fn get_attestation_interval(chain_key: ChainKey) -> u64 {
+            ChainAttestationInterval::<T>::get(chain_key)
         }
     }
 }

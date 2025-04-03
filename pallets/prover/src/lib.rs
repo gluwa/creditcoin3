@@ -138,6 +138,20 @@ pub mod pallet {
                     Error::<T>::QueryCheckpointMismatch
                 );
 
+                let checkpoint_block_number = query.height + continuity_proof_len.unwrap() - 1;
+
+                let attestation_interval =
+                    T::Attestations::get_attestation_interval(query.chain_id);
+
+                let expected_checkpoint_number = attestation_interval
+                    * (query.height / attestation_interval
+                        + (query.height % attestation_interval != 0) as u64);
+
+                ensure!(
+                    checkpoint_block_number == expected_checkpoint_number,
+                    Error::<T>::QueryBlockNumberMismatch
+                );
+
                 let checkpoint = T::Attestations::get_attestation(
                     query.chain_id,
                     checkpoint_digest.unwrap().into(),
