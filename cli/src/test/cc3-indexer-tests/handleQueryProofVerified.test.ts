@@ -43,9 +43,21 @@ describe('handleQueryProofVerified()', () => {
         // add variability so we don't trigger 'Query already exists' error from Prover.sol
         const provider_Anvil1 = new JsonRpcProvider((global as any).ANVIL1_URL);
         sampleQuery.height = await provider_Anvil1.getBlockNumber();
+        const queryCost: bigint = await contract.computeQueryCost(sampleQuery);
 
-        const queryCost = await contract.computeQueryCost(sampleQuery);
+        // submit 1 query which will just stay in storage
+        await (
+            await contract.mock_submitQueryWithState(
+                sampleQuery,
+                alith.address,
+                3, // QueryState.InvalidQuery
+                { value: queryCost + 4444n },
+            )
+        ).wait();
+        await forElapsedBlocks(api, { minBlocks: 2 });
 
+        // add variability so we don't trigger 'Query already exists' error from Prover.sol
+        sampleQuery.height = await provider_Anvil1.getBlockNumber();
         // submit query as InvalidQuery so it doesn't get picked up by Prover
         const receipt = await (
             await contract.mock_submitQueryWithState(
@@ -72,9 +84,11 @@ describe('handleQueryProofVerified()', () => {
         expect(foundMatch).toEqual(false);
 
         await forElapsedBlocks(api, { minBlocks: 1 });
-    }, 60_000);
+    }, 70_000);
 
     describe('when a new proof is submitted', () => {
+        let queryDetailsOnChain: any;
+
         beforeAll(async () => {
             // verifier precompile result already defaults to 0 in the contract
             // await (await contract.mock_setVerifierResult(0)).wait();
@@ -87,11 +101,11 @@ describe('handleQueryProofVerified()', () => {
             await (await contract.submitQueryProof(queryId, proof)).wait();
 
             // make sure submitQueryProof() worked
-            const queryDetails = await contract.queries(queryId);
+            queryDetailsOnChain = await contract.queries(queryId);
             // QueryState.ResultAvailable, was submitted as 3 initially
-            expect(queryDetails.state).toEqual(2n);
+            expect(queryDetailsOnChain.state).toEqual(2n);
             // submitQueryProof() will zero this before emitting event
-            expect(queryDetails.escrowedAmount).toEqual(0n);
+            expect(queryDetailsOnChain.escrowedAmount).toEqual(0n);
 
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 45_000);
@@ -119,30 +133,33 @@ describe('handleQueryProofVerified()', () => {
             expect(foundMatch).toEqual(true);
         });
 
-        it('graphQL returns updated ChainQueries entity', async () => {
+        it('ChainQueries entity matches on-chain details', async () => {
             const response = await graphQLQuery(
-                `query { chainQueries(orderBy: ID_ASC, last: 10) { nodes { id, chainQueryId, chainKey, height, index, state }}}`,
+                `query {
+                    chainQueries(
+                        orderBy: ID_ASC,
+                        last: 1,
+                        filter: { chainQueryId: { equalTo: "${queryId}" }},
+                    ) {
+                        nodes { id, chainQueryId, chainKey, height, index, state, escrowedAmount }
+                    }
+                }`,
             );
             expect(response.data.chainQueries.nodes).toBeTruthy();
-            expect(response.data.chainQueries.nodes.length).toBeGreaterThan(0);
+            expect(response.data.chainQueries.nodes.length).toEqual(1);
 
-            let foundMatch = false;
             for (const node of response.data.chainQueries.nodes) {
                 expect(node.id).toBeTruthy();
-                expect(node.chainQueryId).toBeTruthy();
-                expect(node.chainQueryId.startsWith('0x')).toEqual(true);
+                expect(node.chainQueryId).toEqual(queryId);
                 expect(node.chainKey).toEqual(chain_Anvil1_Key);
 
-                if (node.chainQueryId === queryId) {
-                    expect(BigInt(node.height)).toEqual(BigInt(sampleQuery.height));
-                    expect(BigInt(node.index)).toEqual(BigInt(sampleQuery.index));
+                expect(BigInt(node.height)).toEqual(BigInt(sampleQuery.height));
+                expect(BigInt(node.index)).toEqual(BigInt(sampleQuery.index));
 
-                    // starts with state === 'Submitted'
-                    expect(node.state).toEqual('ResultAvailable');
-                    foundMatch = true;
-                }
+                // starts with state === 'Submitted'
+                expect(node.state).toEqual('ResultAvailable');
+                expect(BigInt(node.escrowedAmount)).toEqual(queryDetailsOnChain.escrowedAmount);
             }
-            expect(foundMatch).toEqual(true);
         });
     });
 });

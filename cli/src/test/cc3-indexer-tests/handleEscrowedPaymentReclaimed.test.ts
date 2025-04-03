@@ -45,7 +45,7 @@ describe('handleEscrowedPaymentReclaimed()', () => {
     describe('when an escrow payment is reclaimed', () => {
         let queryCost = 0n;
         let queryId = '';
-        let queryDetailsOnChain;
+        let queryDetailsOnChain: any;
         let startingBlock: number;
 
         beforeAll(async () => {
@@ -105,6 +105,29 @@ describe('handleEscrowedPaymentReclaimed()', () => {
                 }
             }
             expect(foundMatch).toEqual(true);
+        });
+
+        it('ChainQueries entity matches on-chain details', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    chainQueries(
+                        orderBy: ID_ASC,
+                        last: 1,
+                        filter: { chainQueryId: { equalTo: "${queryId}" }},
+                    ) {
+                        nodes { id, chainQueryId, chainKey, state, escrowedAmount }
+                    }
+                }`,
+            );
+            expect(response.data.chainQueries.nodes).toBeTruthy();
+            expect(response.data.chainQueries.nodes.length).toEqual(1);
+
+            for (const node of response.data.chainQueries.nodes) {
+                expect(node.chainQueryId).toEqual(queryId);
+                expect(BigInt(node.escrowedAmount)).toEqual(queryDetailsOnChain.escrowedAmount);
+                // 3 == QueryState.InvalidQuery
+                expect(node.state).toEqual('InvalidQuery');
+            }
         });
     });
 });
