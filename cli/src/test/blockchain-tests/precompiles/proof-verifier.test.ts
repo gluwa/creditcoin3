@@ -75,5 +75,5 @@ describe('Precompile: verify()', (): void => {
 
         const txHash = result?.hash;
         expect(txHash).toBeDefined();
-    });
+    }, 300_000);
 });
