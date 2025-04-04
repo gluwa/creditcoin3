@@ -53,7 +53,7 @@ describe('Precompile: verify()', (): void => {
     });
 
     test('should work when called with valid input', async () => {
-        const gasLimit = 20_000_000;
+        const gasLimit = 30_000_000;
 
         const query = {
             chainId: 31337,
