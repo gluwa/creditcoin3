@@ -130,13 +130,8 @@ pub mod pallet {
 
             #[cfg(not(feature = "runtime-benchmarks"))]
             {
-                let (status, result_segments, checkpoint_digest, continuity_proof_len) =
+                let (status, result_segments, continuity_proof_len) =
                     proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
-
-                ensure!(
-                    checkpoint_digest.is_some(),
-                    Error::<T>::QueryCheckpointMismatch
-                );
 
                 let checkpoint_block_number = query.height + continuity_proof_len.unwrap() - 1;
 
@@ -149,25 +144,6 @@ pub mod pallet {
 
                 ensure!(
                     checkpoint_block_number == expected_checkpoint_number,
-                    Error::<T>::QueryBlockNumberMismatch
-                );
-
-                let checkpoint = T::Attestations::get_attestation(
-                    query.chain_id,
-                    checkpoint_digest.unwrap().into(),
-                );
-
-                ensure!(checkpoint.is_some(), Error::<T>::QueryCheckpointMismatch);
-
-                let checkpoint_block_number = checkpoint.unwrap().attestation.header_number;
-
-                ensure!(
-                    continuity_proof_len.is_some(),
-                    Error::<T>::QueryBlockNumberMismatch
-                );
-
-                ensure!(
-                    checkpoint_block_number - continuity_proof_len.unwrap() + 1 == query.height,
                     Error::<T>::QueryBlockNumberMismatch
                 );
 

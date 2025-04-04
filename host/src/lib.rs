@@ -20,14 +20,9 @@ pub trait HostApi {
             match command::run_verifier(proof, query, metadata) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {:?}", r);
-                    (0, r.3, Some(r.1), Some(r.2))
+                    (0, r.2, Some(r.1))
                 }
-                Err(e) => (
-                    command::VerifierError::status_code(&e),
-                    Vec::new(),
-                    None,
-                    None,
-                ),
+                Err(e) => (command::VerifierError::status_code(&e), Vec::new(), None),
             }
         }
 
