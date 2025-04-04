@@ -114,7 +114,8 @@ describe('handleEventAttestorActivated()', () => {
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(node.lastUpdateBlockNumber).toBeGreaterThan(startingBlock);
-                expect(node.status).toEqual(4);
+                // 4 - Activated; 3 - Elected (if epoch changed meanwhile)
+                expect([3, 4]).toContain(node.status);
                 expect(node.blsPublicKey.startsWith('0x')).toEqual(true);
             }
         });
