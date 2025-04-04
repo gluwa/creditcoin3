@@ -25,7 +25,7 @@ pub mod pallet {
         provider::{AttestationProvider, CheckpointProvider},
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, BlsPublicKey,
         BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType, ChainKey, Digest,
-        InherentError, PalletDigest, SignedAttestation, INHERENT_IDENTIFIER,
+        InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use frame_support::{
         pallet_prelude::{OptionQuery, *},
@@ -196,7 +196,7 @@ pub mod pallet {
         Blake2_128Concat,
         ChainKey,
         Blake2_128Concat,
-        PalletDigest,
+        Digest,
         SignedAttestation<T::Hash, T::AccountId>,
         OptionQuery,
     >;
@@ -217,8 +217,7 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn last_attestation_digest)]
-    pub type LastDigest<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, PalletDigest, OptionQuery>;
+    pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, Digest, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
@@ -885,11 +884,8 @@ pub mod pallet {
     }
 
     impl<T: Config> CheckpointProvider for Pallet<T> {
-        fn get_checkpoint(
-            chain_key: ChainKey,
-            digest: PalletDigest,
-        ) -> Option<AttestationCheckpoint> {
-            Checkpoints::<T>::get(chain_key, sp_core::H256(digest))
+        fn get_checkpoint(chain_key: ChainKey, digest: Digest) -> Option<AttestationCheckpoint> {
+            Checkpoints::<T>::get(chain_key, digest)
         }
 
         fn get_checkpoint_interval(chain_key: ChainKey) -> u32 {
@@ -900,7 +896,7 @@ pub mod pallet {
     impl<T: Config> AttestationProvider<T::Hash, T::AccountId> for Pallet<T> {
         fn get_attestation(
             chain_key: ChainKey,
-            digest: PalletDigest,
+            digest: Digest,
         ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
             Attestations::<T>::get(chain_key, digest)
         }

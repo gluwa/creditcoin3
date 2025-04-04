@@ -128,8 +128,7 @@ where
         + std::hash::Hash
         + Default
         + std::fmt::Debug
-        + Copy
-        + From<[u8; 32]>,
+        + Copy,
     AccountId: Clone + PartialEq + Eq + std::hash::Hash + Into<[u8; 32]> + std::fmt::Debug,
 {
     pub fn new_chain(&mut self, attestation: Attestation<H, AccountId>, epoch_index: u64) {
@@ -227,7 +226,7 @@ where
         // TODO: Can we do this in a more efficient way / place?
         let attestations = block_attestations
             .iter()
-            .filter(|(_, attestation)| attestation.digest() == &major_digest.into()[..])
+            .filter(|(_, attestation)| attestation.digest() == major_digest.into())
             .collect::<Vec<_>>();
 
         // Get calculated threshold for the round
@@ -273,15 +272,7 @@ impl<H, AccountId> Default for State<H, AccountId> {
 /// Function to find the most frequently occurring digest
 fn find_major_digest<H, AccountId>(attestations: &Votes<H, AccountId>) -> (H, usize)
 where
-    H: Clone
-        + PartialEq
-        + Eq
-        + std::hash::Hash
-        + Default
-        + AsRef<[u8]>
-        + From<H256>
-        + Copy
-        + From<[u8; 32]>,
+    H: Clone + PartialEq + Eq + std::hash::Hash + Default + AsRef<[u8]> + From<H256> + Copy,
     AccountId: Into<[u8; 32]> + Clone,
 {
     let mut digest_count: HashMap<H, usize> = HashMap::new();

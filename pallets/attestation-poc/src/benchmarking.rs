@@ -74,12 +74,14 @@ fn create_signed_attestation<T: frame_system::Config>(
     attestors: Vec<Attestor<T>>,
     chain_key: ChainKey,
     header_number: u64,
+    prev_digest: Option<H256>,
 ) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
     let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
         chain_key,
         header_number,
         header_hash: <T as frame_system::Config>::Hash::default(),
         root: [0; 32],
+        prev_digest,
     };
 
     let mut signatures = Vec::new();
@@ -297,7 +299,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, chain_key, 1);
+        > = create_signed_attestation::<T>(attestors, chain_key, 1, None);
 
         #[extrinsic_call]
         _(
@@ -346,7 +348,7 @@ mod benchmarks {
         let prior_attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1);
+        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 
@@ -359,7 +361,12 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, DEV_CHAIN_KEY, 11_u64);
+        > = create_signed_attestation::<T>(
+            attestors,
+            DEV_CHAIN_KEY,
+            11_u64,
+            Some(prior_attestation.digest()),
+        );
 
         #[extrinsic_call]
         _(
@@ -524,7 +531,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(vec![attestor.clone()], DEV_CHAIN_KEY, 1);
+        > = create_signed_attestation::<T>(vec![attestor.clone()], DEV_CHAIN_KEY, 1, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 

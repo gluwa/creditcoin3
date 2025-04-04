@@ -4,7 +4,6 @@ use frame_support::{
     transactional,
 };
 use log::debug;
-use sp_core::H256;
 use sp_runtime::{
     traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
     ArithmeticError,
@@ -16,7 +15,7 @@ use sp_std::vec::Vec;
 
 use attestor_primitives::{
     AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainKey, Digest,
-    InherentError, PalletDigest, SignedAttestation,
+    InherentError, SignedAttestation,
 };
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
@@ -200,7 +199,7 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::<T>::BlockAttested(
             chain_key,
             attestation.clone(),
-            H256(digest),
+            digest,
         ));
 
         match previous_digest {
@@ -209,7 +208,7 @@ impl<T: Config> Pallet<T> {
                 // even though it doesn't condense any prior attestations.
                 let checkpoint = AttestationCheckpoint {
                     block_number: header_number,
-                    digest: H256(digest),
+                    digest,
                 };
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
@@ -222,7 +221,7 @@ impl<T: Config> Pallet<T> {
             Some(_prev_digest) => {
                 // Add to checkpointing queue
                 let mut queue = CheckpointingQueues::<T>::get(chain_key);
-                queue.push_back(H256(digest));
+                queue.push_back(digest);
 
                 // Make checkpoint if necessary.
                 // The extrinsic didn't fail even if checkpointing failed. We want
@@ -255,18 +254,14 @@ impl<T: Config> Pallet<T> {
         Self::payout_attestors(chain_key, &attestation.attestors)?;
 
         // Emit event
-        Self::deposit_event(Event::<T>::BlockAttested(
-            chain_key,
-            attestation,
-            H256(digest),
-        ));
+        Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
 
         if Checkpoints::<T>::iter_prefix(chain_key).next().is_none() {
             // Very first attestation should have a corresponding checkpoint
             // even though it doesn't condense any prior attestations.
             let checkpoint = AttestationCheckpoint {
                 block_number: header_number,
-                digest: H256(digest),
+                digest,
             };
 
             Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
@@ -280,7 +275,7 @@ impl<T: Config> Pallet<T> {
 
         // Add to checkpointing queue
         let mut queue = CheckpointingQueues::<T>::get(chain_key);
-        queue.push_back(H256(digest));
+        queue.push_back(digest);
 
         // Make checkpoint if necessary.
         // The extrinsic didn't fail even if checkpointing failed. We want
@@ -634,11 +629,11 @@ impl<T: Config> Pallet<T> {
         Attestors::<T>::contains_key(chain_key, address)
     }
 
-    pub fn last_digest(chain_key: ChainKey) -> Option<PalletDigest> {
+    pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {
         LastDigest::<T>::get(chain_key)
     }
 
-    pub fn contains_digest(chain_key: ChainKey, digest: PalletDigest) -> bool {
+    pub fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
         Attestations::<T>::contains_key(chain_key, digest)
     }
 
@@ -660,7 +655,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn get(
         chain_key: ChainKey,
-        digest: PalletDigest,
+        digest: Digest,
     ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
         Attestations::<T>::get(chain_key, digest)
     }
@@ -761,7 +756,7 @@ impl<T: Config> Pallet<T> {
             checkpointing_rollback.push(to_be_removed);
 
             // Until then, removing attestations from storage breaks proving.
-            let removed = match Attestations::<T>::take(chain_key, to_be_removed.0) {
+            let removed = match Attestations::<T>::take(chain_key, to_be_removed) {
                 Some(attestation) => attestation,
                 None => {
                     for digest in checkpointing_rollback {
@@ -774,7 +769,7 @@ impl<T: Config> Pallet<T> {
             if i == num_to_condense - 1 {
                 let checkpoint = AttestationCheckpoint {
                     block_number: removed.header_number(),
-                    digest: H256(removed.digest()),
+                    digest: removed.digest(),
                 };
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
