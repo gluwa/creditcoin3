@@ -81,7 +81,7 @@ impl AttestationFragment {
             .map(|head| Block::try_from_previous(head, block.clone()))
             .unwrap_or(Ok(block))?;
 
-        let _head_digest = self.head().map(|head| head.digest());
+        let head_digest = self.head().map(|head| head.digest());
 
         if head_digest == Some(block.prev_digest()) || head_digest.is_none() {
             self.blocks.push(block);

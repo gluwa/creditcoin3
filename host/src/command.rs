@@ -487,7 +487,7 @@ pub mod tests {
         NULL_RLP,
     };
     use pallet_prover_primitives::{
-        LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+        LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH, STARK_PROGRAM_V3_HASH,
     };
     use prover_primitives::{
         stark_program_auth::StarkProgramAuthError,
@@ -506,15 +506,15 @@ pub mod tests {
 
         let query = Query {
             chain_id: 31337,
-            height: 1,
+            height: 4,
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 418,
+                size: 681,
             }],
         };
 
-        let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
+        let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
         let result = super::run_verifier(proof_example, query, metadata);
 
@@ -595,7 +595,7 @@ pub mod tests {
             VerifierError::StarkProgramAuthError(e) => {
                 assert_eq!(
                     e,
-                    StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V2_HASH)
+                    StarkProgramAuthError::AuthenticationFailure(STARK_PROGRAM_V3_HASH)
                 );
             }
             _ => panic!("unexpected error"),
@@ -628,15 +628,15 @@ pub mod tests {
 
         let mut query = Query {
             chain_id: 31337,
-            height: 1,
+            height: 4,
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 500, // size not in accordance with the proof
+                size: 1000, // size not in accordance with the proof
             }],
         };
 
-        let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
+        let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
         let result = super::run_verifier(proof_example, query.clone(), metadata);
 
@@ -689,11 +689,11 @@ pub mod tests {
     fn validate_query_against_proof_with_valid_proof_should_return_ok() {
         let query = Query {
             chain_id: 31337,
-            height: 1,
+            height: 4,
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 418,
+                size: 681,
             }],
         };
         let cairo_verifier_output =

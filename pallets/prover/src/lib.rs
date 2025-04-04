@@ -133,22 +133,24 @@ pub mod pallet {
                 let (status, result_segments, continuity_proof_len) =
                     proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
-                let checkpoint_block_number = query.height + continuity_proof_len.unwrap() - 1;
-
-                let attestation_interval =
-                    T::Attestations::get_attestation_interval(query.chain_id);
-
-                let expected_checkpoint_number = attestation_interval
-                    * (query.height / attestation_interval
-                        + (query.height % attestation_interval != 0) as u64);
-
-                ensure!(
-                    checkpoint_block_number == expected_checkpoint_number,
-                    Error::<T>::QueryBlockNumberMismatch
-                );
-
                 match status {
-                    0 => (),
+                    0 => {
+                        let checkpoint_block_number =
+                            query.height + continuity_proof_len.unwrap() - 2;
+
+                        let attestation_interval =
+                            T::Attestations::get_attestation_interval(query.chain_id);
+
+                        let expected_checkpoint_number = attestation_interval
+                            * (query.height / attestation_interval
+                                + (query.height % attestation_interval != 0) as u64);
+
+                        ensure!(
+                            checkpoint_block_number == expected_checkpoint_number,
+                            Error::<T>::QueryBlockNumberMismatch
+                        );
+                        ()
+                    }
                     1..=5 => return Err(Error::<T>::FileError.into()),
                     6 | 7 => return Err(Error::<T>::ProofParseError.into()),
                     8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),

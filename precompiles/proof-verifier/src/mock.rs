@@ -12,7 +12,6 @@ use pallet_evm::{
     EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider, IdentityAddressMapping,
 };
 use pallet_session::historical as pallet_session_historical;
-use pallet_session::Config;
 use pallet_staking::FixedNominationsQuota;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
@@ -275,7 +274,6 @@ parameter_types! {
     pub const OffendingValidatorsThreshold: Perbill = Perbill::from_percent(16);
     pub static ElectionsBounds: ElectionBounds = ElectionBoundsBuilder::default().build();
 }
-type DummyValidatorId = u64;
 
 pub struct OnChainSeqPhragmen;
 impl onchain::Config for OnChainSeqPhragmen {

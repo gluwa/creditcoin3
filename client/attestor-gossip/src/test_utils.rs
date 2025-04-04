@@ -42,7 +42,7 @@ pub fn simulate_attestation_data(chain_key: u64, header_number: u64) -> Attestat
         chain_key,
         header_hash: H256::random(),
         header_number,
-        //prev_digest: None,
+        prev_digest: None,
         root: H256::random().0,
     }
 }

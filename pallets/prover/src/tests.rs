@@ -3,6 +3,7 @@ use self::mock::PROVER_3;
 use super::*;
 use pallet_prover_primitives::{
     LayoutSegment, Query, VerifierExitStatus, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+    STARK_PROGRAM_V3_HASH,
 };
 
 use frame_support::{assert_err, assert_noop, assert_ok};
@@ -89,8 +90,8 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            2,
-            STARK_PROGRAM_V2_HASH
+            3,
+            STARK_PROGRAM_V3_HASH
         ));
 
         let proof = std::fs::read("../../cairo/stone-verifier/proof_example.json")
@@ -99,11 +100,11 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
         // create a correct query
         let query = Query {
             chain_id: 1,
-            height: 1,
+            height: 4,
             index: 0,
             layout_segments: vec![LayoutSegment {
                 offset: 0,
-                size: 418,
+                size: 681,
             }],
         };
 
@@ -190,7 +191,7 @@ fn set_stark_program_metadata_should_error_when_not_signed() {
             ProverModule::set_stark_program_metadata(
                 RuntimeOrigin::none(),
                 2,
-                STARK_PROGRAM_V2_HASH,
+                STARK_PROGRAM_V3_HASH,
             ),
             BadOrigin
         );
@@ -205,8 +206,8 @@ fn set_stark_program_metadata_should_error_when_not_signed_by_root() {
         assert_noop!(
             ProverModule::set_stark_program_metadata(
                 RuntimeOrigin::signed(4),
-                2,
-                STARK_PROGRAM_V2_HASH
+                3,
+                STARK_PROGRAM_V3_HASH
             ),
             BadOrigin
         );
@@ -220,16 +221,16 @@ fn set_stark_program_metadata_should_error_when_program_version_already_set() {
 
         assert_ok!(ProverModule::set_stark_program_metadata(
             RuntimeOrigin::root(),
-            2,
-            STARK_PROGRAM_V2_HASH
+            3,
+            STARK_PROGRAM_V3_HASH
         ));
 
         // already set above, can't set it twice
         assert_noop!(
             ProverModule::set_stark_program_metadata(
                 RuntimeOrigin::root(),
-                2,
-                STARK_PROGRAM_V2_HASH
+                3,
+                STARK_PROGRAM_V3_HASH
             ),
             Error::<Test>::StarkProgramMetadataAlreadySet
         );
