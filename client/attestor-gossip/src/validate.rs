@@ -107,7 +107,8 @@ where
             let block: Block = Block::try_from(serializable)
                 .map_err(|_| Error::InvalidAttestationContinuityProof)?;
 
-            let computed_digest = Block::hash_payload(&block.block_number.into(), &block.root);
+            let computed_digest =
+                Block::hash_payload(&block.block_number.into(), &block.root, &block.prev_digest);
 
             if computed_digest != block.digest {
                 return Err(Error::InvalidAttestationContinuityProof);
@@ -115,7 +116,7 @@ where
 
             // Check continuity
             match last_block_digest {
-                Some(last_digest) /*if last_digest == block.prev_digest */ => {
+                Some(last_digest) if last_digest == block.prev_digest => {
                     last_block_digest = Some(block.digest);
                 }
                 Some(_) => return Err(Error::InvalidAttestationContinuityProof),
