@@ -888,8 +888,12 @@ pub mod pallet {
             Checkpoints::<T>::get(chain_key, digest)
         }
 
-        fn get_checkpoint_interval(chain_key: ChainKey) -> u32 {
-            AttestationCheckpointInterval::<T>::get(chain_key)
+        fn get_checkpoint_interval(chain_key: ChainKey) -> u64 {
+            AttestationCheckpointInterval::<T>::get(chain_key).into()
+        }
+
+        fn get_last_checkpoint_number(chain_key: ChainKey) -> Option<u64> {
+            LastCheckpoint::<T>::get(chain_key).map(|checkpoint| checkpoint.block_number)
         }
     }
 

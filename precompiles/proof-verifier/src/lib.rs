@@ -105,6 +105,10 @@ where
                                     error!("Query out of bounds: {:?}", e);
                                     Ok(3)
                                 }
+                                [13, 0, 0, 0] => {
+                                    error!("Checkpoint block number mismatch: {:?}", e);
+                                    Ok(4)
+                                }
                                 _ => {
                                     error!("Failed to dispatch submit_proof: {:?}", e);
                                     Ok(1)

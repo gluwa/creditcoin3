@@ -10,7 +10,7 @@ use std::{
 use tempfile::{NamedTempFile, PersistError};
 use thiserror::Error;
 
-use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
+use pallet_prover_primitives::{ContinuityProofLength, LayoutSegment, Query, ResultSegment};
 use prover_primitives::claim::ClaimValidationError;
 use prover_primitives::claim::ClaimValidationError::*;
 use prover_primitives::stark_program_auth::{
@@ -233,7 +233,7 @@ pub fn run_verifier(
     proof: Vec<u8>,
     query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
-) -> Result<(String, u64, Vec<ResultSegment>), VerifierError> {
+) -> Result<(String, Vec<ResultSegment>, ContinuityProofLength), VerifierError> {
     log::debug!("current dir: {:?}", env::current_dir()?.as_os_str());
 
     // Write proof to a temporary JSON file
@@ -309,8 +309,8 @@ pub fn run_verifier(
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok((
             stdout,
-            cairo_verifier_output.continuity_proof_length,
             result_segments,
+            cairo_verifier_output.continuity_proof_length,
         ))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

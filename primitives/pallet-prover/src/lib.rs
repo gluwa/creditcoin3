@@ -57,8 +57,10 @@ pub struct ResultSegment {
     pub bytes: Vec<u8>,
 }
 
-// Exit status and result segments
-pub type VerifierResponse = (u8, Vec<ResultSegment>, Option<u64>);
+pub type ContinuityProofLength = u64;
+
+// Exit status, result segments, and continuity proof length
+pub type VerifierResponse = (u8, Vec<ResultSegment>, Option<ContinuityProofLength>);
 
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash)]
 pub enum VerifierExitStatus {

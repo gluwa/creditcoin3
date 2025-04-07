@@ -135,18 +135,52 @@ pub mod pallet {
 
                 match status {
                     0 => {
+                        // the continuity chain contains blocks from query.height - 1 to the checkpoint/attestation included,
+                        // this means that the `continuity_proof_len` includes both of the borders, so we need to subtract 1
+                        // to get to the starting point, which is query.height - 1, and then subtract additional 1 not to
+                        // count both of the borders.
+                        // example: query.height = 6, checkpoint/attestation = 10,
+                        // continuity_proof_len = len(5..10) = 6 (both borders included),
+                        // checkpoint number generated from the proof = 6 - 1 + 6 - 1 = 10
                         let checkpoint_block_number =
-                            query.height + continuity_proof_len.unwrap() - 2;
+                            query.height - 1 + continuity_proof_len.unwrap() - 1;
+
+                        let checkpoint_interval =
+                            T::Checkpoints::get_checkpoint_interval(query.chain_id);
 
                         let attestation_interval =
                             T::Attestations::get_attestation_interval(query.chain_id);
 
-                        let expected_checkpoint_number = attestation_interval
-                            * (query.height / attestation_interval
-                                + (query.height % attestation_interval != 0) as u64);
+                        let expected_block_number = if let Some(last_checkpoint_number) =
+                            T::Checkpoints::get_last_checkpoint_number(query.chain_id)
+                        {
+                            if last_checkpoint_number
+                                > query.height + checkpoint_interval * attestation_interval
+                            {
+                                // number of blocks per checkpoint = checkpoint_interval * attestation_interval
+                                // N of the checkpoint that will include the query =
+                                // ceil(query.height / (checkpoint_interval * attestation_interval))
+                                checkpoint_interval
+                                    * attestation_interval
+                                    * (query.height / (checkpoint_interval * attestation_interval)
+                                        + (query.height
+                                            % (checkpoint_interval * attestation_interval)
+                                            != 0) as u64)
+                            } else {
+                                // if we cant rely on a checkpoint, use the same formula as above
+                                // but with attestation interval which is expressed in blocks
+                                attestation_interval
+                                    * (query.height / attestation_interval
+                                        + (query.height % attestation_interval != 0) as u64)
+                            }
+                        } else {
+                            attestation_interval
+                                * (query.height / attestation_interval
+                                    + (query.height % attestation_interval != 0) as u64)
+                        };
 
                         ensure!(
-                            checkpoint_block_number == expected_checkpoint_number,
+                            checkpoint_block_number == expected_block_number,
                             Error::<T>::QueryBlockNumberMismatch
                         );
                         ()
