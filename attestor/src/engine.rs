@@ -281,7 +281,7 @@ impl Engine {
     /// A fragment is created for the attestation to prove continuity
     async fn prepare_attestation(
         &self,
-        attestation: AttestationPrimitive<H256>,
+        mut attestation: AttestationPrimitive<H256>,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number;
@@ -292,23 +292,23 @@ impl Engine {
             return Err(Error::DoubleVote);
         }
 
-        let mut signed_attestation = self.cc3_client.sign_attestation(attestation).await?;
-        debug!("Attestor selected for block({})", header_number);
+        // Eligiblity check
+        let vrf_output = self.cc3_client.sign_vrf(header_number).await?;
 
         let fragment_manager =
             fragment::Manager::new(chain_key, self.attestation_interval(), &self.eth_client);
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
-        let fragment = fragment_manager
-            .async_retry_create(&signed_attestation)
-            .await?;
-
-        // Set the continuity proof
-        signed_attestation.continuity_proof = fragment.0;
-        // Set the previous digest
-        signed_attestation.attestation_data.prev_digest = fragment.1;
-
+        let fragment = fragment_manager.async_retry_create(&attestation).await?;
         debug!("Completed fragment creation for block({})", header_number);
+
+        // Set the previous digest
+        attestation.prev_digest = fragment.prev_digest;
+        let signed_attestation =
+            self.cc3_client
+                .sign_attestation(attestation, fragment.continuity_proof, vrf_output);
+
+        debug!("Attestor selected for block({})", header_number);
 
         Ok(signed_attestation)
     }

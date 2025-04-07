@@ -184,10 +184,12 @@ impl<'a> Client {
             .await
     }
 
-    pub async fn sign_attestation<H>(
+    pub fn sign_attestation<H>(
         &self,
         attestation: AttestationPrimitive<H>,
-    ) -> Result<Attestation<H, AttestorId>, Error>
+        continuity_proof: AttestationFragmentSerializable,
+        vrf_output: ProofOfInclusion,
+    ) -> Attestation<H, AttestorId>
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
@@ -198,19 +200,15 @@ impl<'a> Client {
         // sign attestation data with bls key
         let signature_bls = self.bls_keypair.sign(msg);
 
-        // Sign the VRF output
-        let vrf_output = self.sign_vrf(attestation.header_number).await?;
-
         // Create final attestation object
-        Ok(Attestation {
+        Attestation {
             attestation_data: attestation,
             attestor: self.inner.get_attestor_id(),
             proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
-            // Default continuity proof until we create a fragment later
-            continuity_proof: AttestationFragmentSerializable::default(),
-        })
+            continuity_proof,
+        }
     }
 
     pub async fn sign_vrf(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {

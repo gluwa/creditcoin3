@@ -6,8 +6,7 @@ use attestation_chain::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
     block::Block as FragmentBlock,
 };
-use attestor_primitives::{AttestorId, ChainId};
-use creditcoin3_attestor_gossip::communication::Attestation;
+use attestor_primitives::{Attestation as AttestationPrimitive, ChainId};
 use eth::Client;
 use utils::Felt;
 
@@ -20,7 +19,10 @@ pub struct Manager<'a> {
     eth_client: &'a Client,
 }
 
-type CreateResult = (AttestationFragmentSerializable, Option<H256>);
+pub struct CreateResult {
+    pub continuity_proof: AttestationFragmentSerializable,
+    pub prev_digest: Option<H256>,
+}
 
 impl<'a> Manager<'a> {
     pub fn new(chain_key: ChainId, attestation_interval: u64, eth_client: &'a Client) -> Self {
@@ -33,7 +35,7 @@ impl<'a> Manager<'a> {
 
     pub async fn async_retry_create(
         &self,
-        signed_attestation: &Attestation<H256, AttestorId>,
+        signed_attestation: &AttestationPrimitive<H256>,
     ) -> Result<CreateResult, cc3::Error> {
         let fragment: CreateResult = crate::retry::ret(
             || async { self.create(signed_attestation).await },
@@ -48,15 +50,18 @@ impl<'a> Manager<'a> {
 
     pub async fn create(
         &self,
-        signed_attestation: &Attestation<H256, AttestorId>,
+        signed_attestation: &AttestationPrimitive<H256>,
     ) -> Result<CreateResult, cc3::Error> {
-        let attestation_header_number = signed_attestation.attestation_data.header_number;
+        let attestation_header_number = signed_attestation.header_number;
         // Only for genesis block we don't need to build a fragment
         if attestation_header_number == 0 {
             info!("No need to build full fragment for genesis block");
             let serializeable_frament =
                 AttestationFragmentSerializable::from(&AttestationFragment::new(0));
-            return Ok((serializeable_frament, None));
+            return Ok(CreateResult {
+                continuity_proof: serializeable_frament,
+                prev_digest: None,
+            });
         }
 
         // Start block is the block number of the attestation header minus the attestation interval
@@ -120,6 +125,9 @@ impl<'a> Manager<'a> {
         // Serialize the fragment to be sent over the wire
         let serialized_fragment = AttestationFragmentSerializable::from(&fragment);
 
-        Ok((serialized_fragment, prev_digest))
+        Ok(CreateResult {
+            continuity_proof: serialized_fragment,
+            prev_digest,
+        })
     }
 }
