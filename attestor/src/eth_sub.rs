@@ -1,35 +1,29 @@
 use anyhow::Result;
 use attestor_primitives::{Attestation, ChainKey};
 use eth::{self, subscription::SubscriptionConfig};
-use kameo::actor::ActorRef;
 use sp_core::H256;
-use std::{thread, time::Duration};
+use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::mpsc::{error::SendError, Sender};
+use tokio::{
+    sync::mpsc::{error::SendError, Sender},
+    time::sleep,
+};
 use tracing::{debug, error, info};
-
-use crate::attestation::{self, Attestor};
-use eth::OrderedBlock;
-
-pub const CCNEXT_BLOCK_TIME: u64 = 6;
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Failed to subscribe {0}")]
     FailedToSubscribe(String),
-    #[error("Actor send error {0}")]
-    AttestationError(#[from] kameo::error::SendError<(ChainKey, OrderedBlock), attestation::Error>),
     #[error("Eth client error {0}")]
-    EthClientError(#[from] eth::Error),
+    EthClient(#[from] eth::Error),
     #[error("Send error {0}")]
-    SendError(#[from] SendError<Attestation<H256>>),
+    Send(#[from] SendError<Attestation<H256>>),
 }
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
 /// where we can send the new block to in order to start the attestation cycle
 pub async fn attest_to_heads(
     eth_client: eth::Client,
-    attestor: ActorRef<Attestor>,
     sender: Sender<Attestation<H256>>,
     eth_start_block: u64,
     eth_target_block: u64,
@@ -76,16 +70,14 @@ pub async fn attest_to_heads(
             Ok(next) => {
                 if let Some(block) = next {
                     // Continuously await new blocks and notify the attestor
-                    let attestation = attestor.send((chain_key, block)).await?;
+                    let attestation = crate::attestation::create(chain_key, &block);
 
-                    if let Some(a) = attestation {
-                        debug!("Sending attestation: {:?}", a);
-                        // Send an attestation back on the channel
-                        sender.send(a).await?;
+                    debug!("Sending attestation: {:?}", attestation.round());
+                    // Send an attestation back on the channel
+                    sender.send(attestation).await?;
 
-                        // Sleep for a bit to avoid spamming the chain
-                        thread::sleep(Duration::from_secs(CCNEXT_BLOCK_TIME));
-                    }
+                    // Sleep for a bit to avoid spamming the chain
+                    sleep(Duration::from_millis(100)).await;
                 } else {
                     return Err(Error::FailedToSubscribe("No block received".to_string()));
                 }

@@ -1475,7 +1475,6 @@ dependencies = [
  "eth",
  "futures 0.3.31",
  "hex",
- "kameo",
  "mmr",
  "serde",
  "serde_json",
@@ -6183,32 +6182,6 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2 0.10.8",
-]
-
-[[package]]
-name = "kameo"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbf8c8ef4d93e0937e95846af0f18977fb1a8f6038987bf4b9d9d13c5a8904e3"
-dependencies = [
- "dyn-clone",
- "futures 0.3.31",
- "kameo_macros",
- "num_cpus",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "kameo_macros"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba8335fe3bb1d672051bf2c5ccfc37eadb1927b56faa114076458fa66a984f58"
-dependencies = [
- "heck 0.5.0",
- "proc-macro2",
- "quote",
- "syn 2.0.98",
 ]
 
 [[package]]
@@ -14616,9 +14589,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.43.0"
+version = "1.44.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
+checksum = "f382da615b842244d4b8738c82ed1275e6c5dd90c459a30941cd07080b06c91a"
 dependencies = [
  "backtrace",
  "bytes",

@@ -26,6 +26,9 @@ pub struct Attestor {
 
     #[arg(short, long, help = "Turn on verbose logging")]
     verbose: bool,
+
+    #[arg(long, default_value = "0", help = "Start block for the source chain")]
+    start_block: u64,
 }
 
 #[tokio::main]
@@ -49,6 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config = Config {
         eth_rpc_url: args.eth_rpc_url,
+        eth_start_block: args.start_block,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
     };

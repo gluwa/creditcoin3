@@ -210,12 +210,27 @@ where
         // Serialize tx_root
         bytes.extend_from_slice(&self.root);
 
+        // Serialize prev_digest if it exists
+        if let Some(prev_digest) = &self.prev_digest {
+            bytes.extend_from_slice(prev_digest.as_ref());
+        }
+
         bytes
     }
 
-    /// Blake2 256 hash from attestation data
+    /// Digest for the attestation is the pedersen hash of the header number and the root
+    /// and the previous digest if it exists
     pub fn digest(&self) -> Digest {
-        H256::from(&sp_io::hashing::blake2_256(&self.serialize()))
+        let mut digest = starknet_crypto::pedersen_hash(
+            &self.header_number.into(),
+            &Felt::from_bytes_be(&self.root),
+        );
+
+        if let Some(prev_digest) = self.prev_digest {
+            digest = starknet_crypto::pedersen_hash(&digest, &Felt::from_bytes_be(&prev_digest.0));
+        }
+
+        H256::from(digest.to_bytes_be())
     }
 
     pub fn round(&self) -> Round {

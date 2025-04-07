@@ -18,13 +18,13 @@ missing_panics_doc = "allow"
 no_effect_underscore_binding = "allow"
 pedantic = "warn"
 redundant_slicing = "allow"
+too_many_lines = "allow"
 
 [package.metadata.release]
 release = false
 
 [dependencies]
 anyhow = "1.0"
-kameo = { version = "0.8" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Creditcoin deps

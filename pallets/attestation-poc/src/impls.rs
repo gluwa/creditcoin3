@@ -508,6 +508,7 @@ impl<T: Config> Pallet<T> {
 
         for chain_key in supported_chains {
             let prefix = Attestors::<T>::iter_prefix(chain_key);
+            let prefix_len = Attestors::<T>::iter_prefix(chain_key).count();
 
             let attestors = prefix
                 .filter_map(|(account, attestor)| {
@@ -519,7 +520,8 @@ impl<T: Config> Pallet<T> {
                 })
                 .collect::<Vec<_>>();
 
-            if attestors.is_empty() {
+            // We still need an event if the number of attestors went from non-zero to zero
+            if attestors.is_empty() && prefix_len == 0 {
                 debug!("No active attestors for chain {}", chain_key);
                 continue;
             }
@@ -791,7 +793,7 @@ impl<T: Config> Pallet<T> {
 
         // Get last checkpoint
         if let Some(checkpoint) = LastCheckpoint::<T>::get(attestation.attestation.chain_key) {
-            if checkpoint.block_number == attestation.header_number() {
+            if attestation.header_number() <= checkpoint.block_number {
                 log::error!(
                     "Attestation with block number: {:?} is duplicate",
                     attestation.header_number()

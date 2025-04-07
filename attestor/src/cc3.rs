@@ -15,8 +15,6 @@ use attestor_primitives::{
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
 
-pub type Randomness = [u8; 32];
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Invalid BLS key")]
@@ -28,34 +26,17 @@ pub enum Error {
     #[error("Failed to get attestation interval")]
     FailedToGetAttestationInterval,
     #[error("Client error: {0}")]
-    CclientError(#[from] cc_client::Error),
+    Cclient(#[from] cc_client::Error),
     #[error("Ethereum error: {0}")]
-    EthError(#[from] eth::Error),
+    Eth(#[from] eth::Error),
     #[error("Attestation fragment error: {0}")]
-    FragmentError(#[from] attestation_chain::attestation_fragment::AttestationFragmentError),
+    Fragment(#[from] attestation_chain::attestation_fragment::AttestationFragmentError),
     #[error("Attestation fragment block error: {0}")]
-    FragmentBlockError(#[from] attestation_chain::block::BlockError),
+    FragmentBlock(#[from] attestation_chain::block::BlockError),
     #[error("Failed to cast attestation_interval to usize: attestation_interval: {0}")]
     InvalidFragmentLength(u64),
     #[error("Trying to submit duplicate attestation")]
     DuplicateSubmission,
-}
-
-impl Error {
-    #[must_use]
-    pub fn is_not_selected_error(&self) -> bool {
-        matches!(
-            self,
-            Error::CclientError(cc_client::Error::FailedToCreateProofOfInclusion(
-                vrf::Error::NotSelected
-            ))
-        )
-    }
-
-    #[must_use]
-    pub fn is_duplicate_submission(&self) -> bool {
-        matches!(self, Error::DuplicateSubmission)
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,7 +51,7 @@ struct SourceChainConfig {
 /// - `cc_client`: Creditcoin3 client
 /// - `bls_keypair`: BLS keypair
 pub struct Client {
-    pub cc_client: CcClient,
+    pub inner: CcClient,
     pub bls_keypair: PrivateKey,
     chain_config: SourceChainConfig,
 }
@@ -149,7 +130,7 @@ impl<'a> Client {
         };
 
         Ok(Self {
-            cc_client,
+            inner: cc_client,
             bls_keypair,
             chain_config,
         })
@@ -158,7 +139,7 @@ impl<'a> Client {
     /// Init the client, this bootstraps registration if not registered already
     pub async fn init(&self) -> Result<()> {
         let is_attestor_member = self
-            .cc_client
+            .inner
             .check_attestors_membership(self.get_chain_key())
             .await?;
 
@@ -186,7 +167,7 @@ impl<'a> Client {
     }
 
     pub async fn can_attest(&self) -> Result<bool> {
-        self.cc_client
+        self.inner
             .check_attestors_membership(self.get_chain_key())
             .await
     }
@@ -194,7 +175,7 @@ impl<'a> Client {
     /// Register to the attestation pallet
     pub async fn start_attesting(&self) -> Result<()> {
         info!("Signaling intention to start attesting...");
-        self.cc_client
+        self.inner
             .start_attesting(
                 self.get_chain_key(),
                 self.get_bls_pubkey()?,
@@ -212,7 +193,7 @@ impl<'a> Client {
     {
         let msg = attestation.serialize();
         // Sign the attestation data
-        let signature = self.cc_client.sign(&msg);
+        let signature = self.inner.sign(&msg);
 
         // sign attestation data with bls key
         let signature_bls = self.bls_keypair.sign(msg);
@@ -223,7 +204,7 @@ impl<'a> Client {
         // Create final attestation object
         Ok(Attestation {
             attestation_data: attestation,
-            attestor: self.cc_client.get_attestor_id(),
+            attestor: self.inner.get_attestor_id(),
             proof_of_inclusion: vrf_output,
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
@@ -233,11 +214,10 @@ impl<'a> Client {
     }
 
     pub async fn sign_vrf(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
-        let (randomness, epoch_index) =
-            self.cc_client.fetch_babe_randomness_two_epoch_ego().await?;
+        let (randomness, epoch_index) = self.inner.fetch_babe_randomness_two_epoch_ego().await?;
 
         Ok(self
-            .cc_client
+            .inner
             .sign_babe_vrf(self.get_chain_key(), header_number, randomness, epoch_index)
             .await?)
     }
@@ -246,10 +226,10 @@ impl<'a> Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>, Error> {
-        let last_digest = self.cc_client.fetch_last_digest(chain_key).await?;
+        let last_digest = self.inner.fetch_last_digest(chain_key).await?;
         if let Some(digest) = last_digest {
             Ok(self
-                .cc_client
+                .inner
                 .get_attestation_by_digest(chain_key, digest)
                 .await?)
         } else {
@@ -258,12 +238,12 @@ impl<'a> Client {
     }
 
     pub async fn get_checkpoint_interval(&self) -> Result<u32, Error> {
-        self.cc_client
+        self.inner
             .chain_checkpoint_interval(self.get_chain_key())
             .await?
-            .ok_or(Error::CclientError(
-                cc_client::Error::NoCheckpointIntervalSet(self.get_chain_key()),
-            ))
+            .ok_or(Error::Cclient(cc_client::Error::NoCheckpointIntervalSet(
+                self.get_chain_key(),
+            )))
     }
 
     pub async fn submit_attestation<H>(
@@ -273,7 +253,7 @@ impl<'a> Client {
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
     {
-        Ok(self.cc_client.submit_attestation(attestation).await?)
+        Ok(self.inner.submit_attestation(attestation).await?)
     }
 
     pub fn change_attestation_interval(&mut self, new_interval: u64) {
