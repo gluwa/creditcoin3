@@ -1460,22 +1460,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "attestation-db"
-version = "3.31.0"
-dependencies = [
- "anyhow",
- "attestation-chain",
- "clap",
- "ethereum-types",
- "lazy_static",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "tokio",
- "utils",
-]
-
-[[package]]
 name = "attestor"
 version = "0.1.0"
 dependencies = [
@@ -1849,16 +1833,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array 0.14.7",
-]
-
-[[package]]
-name = "block-cache"
-version = "0.0.0"
-dependencies = [
- "alloy",
- "anyhow",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -9187,15 +9161,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "953ec861398dccce10c670dfeaf3ec4911ca479e9c02154b3a215178c5f566f2"
 
 [[package]]
-name = "poc-config"
-version = "3.31.0"
-dependencies = [
- "anyhow",
- "serde",
- "utils",
-]
-
-[[package]]
 name = "polkavm"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9644,9 +9609,7 @@ version = "3.31.0"
 dependencies = [
  "anyhow",
  "attestation-chain",
- "attestation-db",
  "attestor-primitives",
- "block-cache",
  "colored",
  "either",
  "eth",
@@ -9654,10 +9617,8 @@ dependencies = [
  "ethereum-types",
  "fs2",
  "futures 0.3.31",
- "hashbrown 0.14.5",
  "mmr",
  "pallet-attestation-poc",
- "poc-config",
  "prover-primitives",
  "rlp",
  "serde",
