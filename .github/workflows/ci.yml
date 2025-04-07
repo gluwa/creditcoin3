@@ -1915,6 +1915,7 @@ jobs:
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --ethapi=debug,trace,txpool \
+            --log debug \
             --base-path ./alice-data >/var/tmp/integration-test-blockchain/creditcoin3-node.log 2>&1 &
 
       - name: Wait for node(s)s to start

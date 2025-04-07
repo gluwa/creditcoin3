@@ -69,7 +69,9 @@ describe('Precompile: verify()', (): void => {
         // this needs to be a bytes array
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
 
+        console.log('**** DEBUG: before calling verify()');
         const result = await contract.verify(proof, query, { gasPrice, gasLimit });
+        console.log('**** DEBUG: after calling verify(), before calling result.wait(): txn=', result);
         const receipt = await result.wait();
         expect(receipt).toBeDefined();
 
