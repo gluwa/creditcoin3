@@ -884,7 +884,7 @@ pub mod pallet {
     }
 
     impl<T: Config> CheckpointProvider for Pallet<T> {
-        fn get_checkpoint(chain_key: ChainKey, digest: Digest) -> Option<AttestationCheckpoint> {
+        fn get_checkpoint(chain_key: ChainKey, digest: Digest) -> Option<u64> {
             Checkpoints::<T>::get(chain_key, digest)
         }
 
