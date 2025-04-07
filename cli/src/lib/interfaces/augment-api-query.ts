@@ -109,11 +109,11 @@ declare module '@polkadot/api-base/types/storage' {
                 ApiType,
                 (
                     arg1: u64 | AnyNumber | Uint8Array,
-                    arg2: U8aFixed | string | Uint8Array,
+                    arg2: H256 | string | Uint8Array,
                 ) => Observable<Option<AttestorPrimitivesSignedAttestation>>,
-                [u64, U8aFixed]
+                [u64, H256]
             > &
-                QueryableStorageEntry<ApiType, [u64, U8aFixed]>;
+                QueryableStorageEntry<ApiType, [u64, H256]>;
             attestors: AugmentedQuery<
                 ApiType,
                 (
@@ -180,7 +180,7 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64]>;
             lastDigest: AugmentedQuery<
                 ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<U8aFixed>>,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H256>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
