@@ -13,9 +13,9 @@ benchmarks! {
 
         let query = Query {
             chain_id: 31337,
-            height: 1,
+            height: 4,
             index: 0,
-            layout_segments: vec![LayoutSegment { offset: 0, size: 418 }],
+            layout_segments: vec![LayoutSegment { offset: 0, size: 681 }],
         };
         let query_id = query.id();
 

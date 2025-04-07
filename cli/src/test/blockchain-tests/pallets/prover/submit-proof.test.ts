@@ -25,12 +25,12 @@ describe('SubmitProof', (): void => {
     it('fee is min 0.01 CTC', async (): Promise<void> => {
         const query = {
             chainId: 0,
-            height: 0,
+            height: 4,
             index: 0,
             layoutSegments: [
                 {
                     offset: 0,
-                    size: 418,
+                    size: 681,
                 },
             ],
         };
