@@ -52,10 +52,10 @@ describe('handleEventBlockAttested()', () => {
                 expect(node.headerHash.startsWith('0x')).toEqual(true);
                 // next 2 fields are essentially empty
                 expect(node.root).toEqual('0x0000000000000000000000000000000000000000000000000000000000000000');
-                expect(node.prevDigest).toEqual('');
 
                 expect(node.signature.startsWith('0x')).toEqual(true);
                 expect(node.digest.startsWith('0x')).toEqual(true);
+                expect(node.prevDigest.startsWith('0x')).toEqual(true);
                 lastDigest = node.digest;
 
                 // for each Attestation entity there is at least 1 entry in MapAttestationAttestor
