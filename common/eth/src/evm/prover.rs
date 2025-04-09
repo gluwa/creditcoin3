@@ -8,7 +8,6 @@ use pallet_prover_primitives::{LayoutSegment, Query};
 use sp_core::H256;
 
 use crate::Client;
-use alloy::providers::WalletProvider;
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
