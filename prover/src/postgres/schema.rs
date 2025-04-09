@@ -35,8 +35,6 @@ diesel::table! {
         chain_key -> Int8,
         header_number -> Int8,
         #[max_length = 64]
-        header_hash -> Varchar,
-        #[max_length = 64]
         merkle_root -> Varchar,
         #[max_length = 64]
         digest -> Varchar,

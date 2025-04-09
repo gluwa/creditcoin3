@@ -4,6 +4,7 @@ use diesel::{
     result::Error as DieselError,
 };
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use hex::ToHex;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -251,8 +252,8 @@ where
             header_number: super::to_storage_type(value.attestation.header_number),
             header_hash: hex::encode(value.attestation.header_hash),
             merkle_root: hex::encode(value.attestation.root),
-            digest: hex::encode(value.digest()),
-            prev_digest: value.attestation.prev_digest.map(hex::encode),
+            digest: value.digest().encode_hex(),
+            prev_digest: value.attestation.prev_digest.map(|d| d.encode_hex()),
             signature: hex::encode(value.signature),
             attestors: value
                 .attestors

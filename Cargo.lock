@@ -1446,6 +1446,7 @@ name = "attestation-chain"
 version = "3.31.0"
 dependencies = [
  "anyhow",
+ "attestor-primitives",
  "eth",
  "futures 0.3.31",
  "mmr",
@@ -1454,8 +1455,10 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
+ "sp-core",
  "starknet-crypto",
  "thiserror 1.0.69",
+ "tracing",
  "utils",
 ]
 

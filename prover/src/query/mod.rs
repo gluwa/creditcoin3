@@ -75,17 +75,6 @@ pub async fn process(
                 );
                 tokio::time::sleep(total_retry_delay / MAX_RETRIES).await;
             }
-            Err(fragment::Error::FirstFragmentBlockMismatch(
-                start_attestation,
-                first_fragment_block,
-                fetched_from_source,
-            )) => {
-                if fetched_from_source {
-                    panic!("First fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. Start attestation: {start_attestation}, First fragment block: {first_fragment_block}")
-                } else {
-                    panic!("Digests from first fragment block and start attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. Start attestation: {start_attestation}, First fragment block: {first_fragment_block}")
-                }
-            }
             Err(fragment::Error::LastFragmentBlockMismatch(
                 end_attestation,
                 last_fragment_block,

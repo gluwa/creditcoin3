@@ -9,7 +9,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey};
+use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest};
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
 
@@ -39,7 +39,7 @@ pub struct Engine {
     sender: Sender<AttestationPrimitive<H256>>,
     receiver: Receiver<AttestationPrimitive<H256>>,
     // Keeps track off all the blocks voted for
-    voted_for: BTreeSet<u64>,
+    voted_for: BTreeSet<(u64, Digest)>,
     // Keeps track of the last finalized attestation
     last_finalized_attestation_header: u64,
     // Keeps track of the current epoch
@@ -283,11 +283,11 @@ impl Engine {
         &self,
         mut attestation: AttestationPrimitive<H256>,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
-        let chain_key = attestation.chain_key();
         let header_number = attestation.header_number;
+        let digest = attestation.digest();
 
         // Exit early if the attestation has already been submitted
-        if self.voted_for.contains(&header_number) {
+        if self.voted_for.contains(&(header_number, digest)) {
             warn!("Attestation already voted for: {}", header_number);
             return Err(Error::DoubleVote);
         }
@@ -295,11 +295,16 @@ impl Engine {
         // Eligiblity check
         let vrf_output = self.cc3_client.sign_vrf(header_number).await?;
 
-        let fragment_manager =
-            fragment::Manager::new(chain_key, self.attestation_interval(), &self.eth_client);
+        let last_voted_for_digest = self.voted_for.last().copied().unwrap_or_default().1;
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
-        let fragment = fragment_manager.async_retry_create(&attestation).await?;
+        let fragment = fragment::async_retry_create(
+            attestation.header_number,
+            self.attestation_interval(),
+            &self.eth_client,
+            last_voted_for_digest,
+        )
+        .await?;
         debug!("Completed fragment creation for block({})", header_number);
 
         // Set the previous digest
@@ -326,7 +331,8 @@ impl Engine {
         let attestation = self.prepare_attestation(attestation).await?;
 
         // Note voted for the header number
-        self.voted_for.insert(attestation.header_number());
+        self.voted_for
+            .insert((attestation.header_number(), attestation.digest()));
 
         info!(
             "Submitted attestation for block({}), digest: {:?}, epoch: {}",
@@ -353,24 +359,24 @@ impl Engine {
     async fn evaluate_voting_position(&mut self) -> Result<()> {
         debug!("Evaluating voting position...");
 
-        let last_voted_for = self.voted_for.last().copied().unwrap_or(0);
+        let last_voted_for_block = self.voted_for.last().copied().unwrap_or_default().0;
         let last_finalized = self.last_finalized_attestation_header;
         info!(
             "Last voted for: {:}, last finalized attestation: {:}",
-            last_voted_for, last_finalized
+            last_voted_for_block, last_finalized
         );
 
-        if last_voted_for == 0 || last_finalized == 0 {
+        if last_voted_for_block == 0 || last_finalized == 0 {
             debug!("No attestations voted for or finalized, skipping evaluation");
             return Ok(());
         }
 
-        let diff = last_voted_for.saturating_sub(last_finalized);
+        let diff = last_voted_for_block.saturating_sub(last_finalized);
         // If the difference is greater than the allowed drift, we need to restart the engine
         let drifted = diff > (self.checkpoint_blocks().await? * ATTESTATION_CHECKPOINT_WINDOW);
 
         // If we are voting for a block that is behind the last finalized attestation, we need to catch up
-        if last_voted_for < last_finalized {
+        if last_voted_for_block < last_finalized {
             // Drain the engine until we are caught up
             while let Some(attestation) = self.next().await {
                 if attestation.header_number >= last_finalized {
@@ -382,10 +388,10 @@ impl Engine {
                 }
             }
         } else if drifted {
-            warn!("Attestation was finalized, but we are ahead with voting. Last voted for: {:}, last finalized attestation: {:}", last_voted_for, last_finalized);
+            warn!("Attestation was finalized, but we are ahead with voting. Last voted for: {:}, last finalized attestation: {:}", last_voted_for_block, last_finalized);
             info!(
                 "Stopping the engine at last block voted for: {:}",
-                last_voted_for
+                last_voted_for_block
             );
 
             self.state = State::Halted(self.current_epoch);
@@ -422,7 +428,7 @@ impl Engine {
         let needs_restart = self.cc3_client.get_attestation_interval() != new_interval;
         if needs_restart {
             self.cc3_client.change_attestation_interval(new_interval);
-            let start_block = self.voted_for.last().copied().unwrap_or(0);
+            let start_block = self.voted_for.last().copied().unwrap_or_default().0;
             self.restart(start_block).await?;
         }
 
@@ -434,7 +440,7 @@ impl Engine {
     async fn note_last_attested_header(&mut self, header: u64) -> Result<(), Error> {
         self.last_finalized_attestation_header = header;
 
-        let last_voted_for = self.voted_for.last().copied().unwrap_or(0);
+        let last_voted_for = self.voted_for.last().copied().unwrap_or_default().0;
 
         info!(
             "Last finalized attestation: {:}, last voted for: {:}",

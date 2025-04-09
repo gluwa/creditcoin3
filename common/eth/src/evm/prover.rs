@@ -8,10 +8,11 @@ use pallet_prover_primitives::{LayoutSegment, Query};
 use sp_core::H256;
 
 use crate::Client;
+use alloy::providers::WalletProvider;
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
-    providers::ProviderBuilder,
+    providers::{Provider, ProviderBuilder},
     sol,
 };
 use attestor_primitives::ChainKey;
@@ -136,11 +137,20 @@ impl GluwaPublicProverContract {
             .wallet(EthereumWallet::from(client.get_signer()?))
             .on_http(client.get_url());
 
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
-        let builder = contract.submitQueryProof(query_id, proof.into());
+        let tx_request = contract
+            .submitQueryProof(query_id, proof.into())
+            .into_transaction_request()
+            .gas_limit(self.gas_limit)
+            .max_fee_per_gas(5_000_000_000u128)
+            .max_priority_fee_per_gas(3_000_000_000u128);
 
-        let result = builder.send().await?.get_receipt().await?;
+        let result = provider
+            .send_transaction(tx_request)
+            .await?
+            .get_receipt()
+            .await?;
 
         Ok(result.transaction_hash.to_string())
     }

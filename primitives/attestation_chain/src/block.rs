@@ -36,6 +36,28 @@ impl Block {
         }
     }
 
+    pub fn new_from_prev(block_number: u64, root: Felt, prev_digest: Felt) -> Self {
+        let digest = Self::hash_payload(&block_number.into(), &root, &prev_digest);
+
+        Self {
+            block_number,
+            root,
+            prev_digest,
+            digest,
+        }
+    }
+
+    pub fn new_with_digest(block_number: u64, root: Felt, digest: Felt) -> Self {
+        let prev_digest = Default::default();
+
+        Self {
+            block_number,
+            root,
+            prev_digest,
+            digest,
+        }
+    }
+
     pub fn n(&self) -> u64 {
         self.block_number
     }

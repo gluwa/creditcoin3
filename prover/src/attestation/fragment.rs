@@ -1,13 +1,15 @@
+use std::str::FromStr;
+
 use anyhow::Result;
+use attestation_chain::block::Block;
 use hex::ToHex;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::info;
 
 use attestation_chain::attestation_fragment::{AttestationFragment, AttestationFragmentError};
-use attestor_primitives::Attestation as AttestationPrimitive;
+use attestation_chain::continuity_chain::Manager as FragmentManager;
 use eth::Client;
-use mmr::traits::MerkleTreeTrait;
 use pallet_prover_primitives::Query;
 
 use crate::attestation::create_block_with_prev_digest;
@@ -26,7 +28,7 @@ enum FragmentType {
 #[derive(Debug, Clone)]
 struct IntervalEndpoint {
     block_number: u64,
-    digest: String,
+    digest: H256,
 }
 
 #[derive(Debug, Error)]
@@ -35,14 +37,10 @@ pub enum Error {
     NoAttestationsSynced,
     #[error("Cannot prove queries more recent than latest attestation: Last attestation: {0}, claim height: {1}")]
     QueryTooRecent(u64, u64),
-    #[error("Could not get first block of fragment.")]
-    NoFirstBlockFound,
-    #[error("Start attestation digest does not match first fragment block digest, Start attestation: {0}, First fragment block: {1}, Fetched block from source chain: {2}")]
-    FirstFragmentBlockMismatch(String, String, bool),
     #[error("Could not get last block of fragment.")]
     NoLastBlockFound,
     #[error("End attestation digest does not match last fragment block digest, End attestation: {0}, Last fragment block: {1}, Fetched block from source chain: {2}")]
-    LastFragmentBlockMismatch(String, String, bool),
+    LastFragmentBlockMismatch(H256, String, bool),
     #[error("Error appending block to fragment: {0:?}")]
     ErrorAppendingBlock(#[from] AttestationFragmentError),
     #[error("Could not get the highest checkpoint before claim. Claim height: {0}")]
@@ -57,6 +55,8 @@ pub enum Error {
     ProverDBError(String),
     #[error("{0}")]
     Other(String),
+    #[error("Failed to parse fragment digest")]
+    InvalidFragmentDigest,
 }
 
 // Get the attestation fragment for a claim
@@ -89,7 +89,7 @@ pub async fn get_for_claim(
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    let expected_fragment_size = upper_endpoint.block_number - lower_endpoint.block_number + 1;
+    let expected_fragment_size = upper_endpoint.block_number - lower_endpoint.block_number;
 
     // Get fragment from cache
     let db_fragment = attestation_cache
@@ -101,15 +101,9 @@ pub async fn get_for_claim(
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    // We keep track of whether start and end blocks were fetched from the source chain.
-    // This lets us provide more information to the user when the prover crashes with a
-    // FirstFragmentBlockMismatch or LastFragmentBlockMismatch
-    let mut fetched_start = true;
+    // We keep track of whether the end block was fetched from the source chain.
+    // This lets us provide more information to the user when the prover crashes with a LastFragmentBlockMismatch
     let mut fetched_end = true;
-    if let Some(first_frag_block) = db_fragment.first() {
-        fetched_start =
-            from_storage_type(first_frag_block.header_number) != lower_endpoint.block_number;
-    };
     if let Some(last_frag_block) = db_fragment.last() {
         fetched_end =
             from_storage_type(last_frag_block.header_number) != upper_endpoint.block_number;
@@ -124,27 +118,14 @@ pub async fn get_for_claim(
         db_fragment
     } else {
         construct_fragment(
-            db_fragment,
+            // db_fragment,
             eth_client,
             chain_key,
-            lower_endpoint.block_number,
-            upper_endpoint.block_number,
+            &lower_endpoint,
+            &upper_endpoint,
         )
         .await
         .map_err(|e| Error::Other(e.to_string()))?
-    };
-
-    // Sanity check that the start attestation digest matches the first block in the fragment
-    let first_fragment_block = fragment_blocks
-        .first()
-        .ok_or_else(|| Error::NoFirstBlockFound)?;
-
-    if lower_endpoint.digest.as_bytes() != first_fragment_block.digest.as_bytes() {
-        return Err(Error::FirstFragmentBlockMismatch(
-            lower_endpoint.digest,
-            first_fragment_block.digest.clone(),
-            fetched_start,
-        ));
     };
 
     // Sanity check that the end attestation digest matches the last fragment block digest
@@ -152,7 +133,9 @@ pub async fn get_for_claim(
         .last()
         .ok_or_else(|| Error::NoLastBlockFound)?;
 
-    if upper_endpoint.digest.as_bytes() != last_fragment_block.digest.as_bytes() {
+    if upper_endpoint.digest
+        != H256::from_str(&last_fragment_block.digest).map_err(|_| Error::InvalidFragmentDigest)?
+    {
         return Err(Error::LastFragmentBlockMismatch(
             upper_endpoint.digest,
             last_fragment_block.digest.clone(),
@@ -193,71 +176,54 @@ pub async fn get_for_claim(
 // the source chain for the blocks in the interval and then generate digests for those
 // blocks. They are mapped to the database model and returned.
 async fn construct_fragment(
-    already_in_cache: Vec<BlockWithDigest>,
     eth_client: &Client,
     chain_key: u64,
-    lower_bound: u64,
-    upper_bound: u64,
+    lower_endpoint: &IntervalEndpoint,
+    upper_endpoint: &IntervalEndpoint,
 ) -> Result<Vec<BlockWithDigest>> {
     info!(
         "Not all blocks of attestation fragment found in cache, creating fragment for chain_key: {}, lower_bound: {}, upper_bound: {}",
-        chain_key, lower_bound, upper_bound
+        chain_key, lower_endpoint.block_number, upper_endpoint.block_number
     );
 
-    let mut fragment_blocks = vec![];
-    // Get every block from upper_bound to lower_bound from eth client
-    // TODO: This should be done in parallel
-    let mut prev_digest = None;
-    for block_number in lower_bound..=upper_bound {
-        if let Some(block) = already_in_cache
-            .iter()
-            .find(|block| postgres::from_storage_type(block.header_number) == block_number)
-        {
-            fragment_blocks.push(block.clone());
-            continue;
-        }
-        let block = eth_client.get_block(block_number).await?;
+    let fragment_manager = FragmentManager::new(
+        lower_endpoint.block_number + 1,
+        upper_endpoint.block_number,
+        eth_client,
+    );
 
-        // Generate the pedersen mmr
-        let mt = eth::starknet_pedersen_mmr(&block);
+    info!("Providing lower endpoint: {:?}", lower_endpoint);
+    let fragment = fragment_manager.create(lower_endpoint.digest).await?;
 
-        // Create the primitive to generate a digest after
-        let attestation_primitive = AttestationPrimitive {
-            chain_key,
-            header_hash: block.hash().unwrap(),
-            header_number: block_number,
-            prev_digest,
-            root: mt.root().0.to_bytes_be(),
-        };
+    // Transform the fragment into a list of blocks
+    let fragment_result = fragment
+        .continuity_proof
+        .get_blocks_ref()
+        .iter()
+        .map(|block| {
+            let block: Block = block.clone().try_into().expect("Failed to convert block");
 
-        // Get the digest of the source chain block
-        let digest = attestation_primitive.digest();
-        debug!(
-            "Block with digest for chain_key: {}, header_number: {}, digest: {}",
-            chain_key, attestation_primitive.header_number, digest
-        );
+            let hash = H256::from(block.digest().to_bytes_be());
 
-        // Update the prev_digest
-        prev_digest = Some(digest);
+            BlockWithDigest {
+                chain_key: chain_key as i64,
+                digest: hash.encode_hex(),
+                header_number: block.block_number as i64,
+                merkle_root: hex::encode(block.root.to_bytes_be()),
+            }
+        })
+        .collect::<Vec<_>>();
 
-        // Convert each block to type including digest
-        let block_with_digest = BlockWithDigest {
-            chain_key: chain_key as i64,
-            header_number: attestation_primitive.header_number as i64,
-            digest: hex::encode(digest.as_bytes()),
-            header_hash: attestation_primitive
-                .header_hash
-                .to_string()
-                .strip_prefix("0x")
-                .unwrap()
-                .to_string(),
-            merkle_root: hex::encode(mt.root().0.to_bytes_be()),
-        };
+    // Join 2 lists
+    let mut previous_block_with_digest = vec![BlockWithDigest {
+        chain_key: chain_key as i64,
+        digest: lower_endpoint.digest.encode_hex(),
+        header_number: lower_endpoint.block_number as i64,
+        merkle_root: hex::encode(fragment.previous_fragment_block.root.to_bytes_be()),
+    }];
+    previous_block_with_digest.extend(fragment_result);
 
-        fragment_blocks.push(block_with_digest);
-    }
-
-    Ok(fragment_blocks)
+    Ok(previous_block_with_digest)
 }
 
 async fn get_endpoints_for_claim(
@@ -317,7 +283,7 @@ async fn fetch_interval_ends(
                 .ok_or(Error::FailedToGetHighestCheckpointBefore(query.height))?;
             let start = IntervalEndpoint {
                 block_number: from_storage_type(checkpoint.block_number),
-                digest: checkpoint.digest,
+                digest: H256::from_str(&checkpoint.digest)?,
             };
             let checkpoint = attestation_cache
                 .get_lowest_checkpoint_after(query.height, query.chain_id)
@@ -325,7 +291,7 @@ async fn fetch_interval_ends(
                 .ok_or(Error::FailedToGetLowestCheckpointAfter(query.height))?;
             let end = IntervalEndpoint {
                 block_number: from_storage_type(checkpoint.block_number),
-                digest: checkpoint.digest,
+                digest: H256::from_str(&checkpoint.digest)?,
             };
 
             Ok((start, end))
@@ -337,7 +303,7 @@ async fn fetch_interval_ends(
             {
                 IntervalEndpoint {
                     block_number: from_storage_type(start_attestation.header_number),
-                    digest: start_attestation.digest,
+                    digest: H256::from_str(&start_attestation.digest)?,
                 }
             } else {
                 // Corner case can result in first attestation being removed before its corresponding checkpoint is
@@ -348,7 +314,7 @@ async fn fetch_interval_ends(
                     .ok_or(Error::FailedToGetHighestAttestationBefore(query.height))?;
                 IntervalEndpoint {
                     block_number: from_storage_type(start_checkpoint.block_number),
-                    digest: start_checkpoint.digest,
+                    digest: H256::from_str(&start_checkpoint.digest)?,
                 }
             };
 
@@ -358,7 +324,7 @@ async fn fetch_interval_ends(
                 .ok_or(Error::FailedToGetLowestAttestationAfter(query.height))?;
             let end = IntervalEndpoint {
                 block_number: from_storage_type(end_attestation.header_number),
-                digest: end_attestation.digest,
+                digest: H256::from_str(&end_attestation.digest)?,
             };
 
             Ok((start, end))

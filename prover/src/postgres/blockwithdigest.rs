@@ -23,7 +23,6 @@ use super::schema::blockwithdigest::{self, dsl::blockwithdigest as blocks_table}
 pub struct BlockWithDigest {
     pub chain_key: i64,
     pub header_number: i64,
-    pub header_hash: String,
     pub merkle_root: String,
     pub digest: String,
 }

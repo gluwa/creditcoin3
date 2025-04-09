@@ -9,7 +9,6 @@ version.workspace = true
 
 [dependencies]
 anyhow = "1"
-eth-common = { path = "../../common/eth", package = "eth" }
 futures = "0.3.30"
 mmr = { path = "../../common/mmr" }
 num = "0.4.0"
@@ -20,3 +19,8 @@ serde_json = { version = "1.0.108", features = ["alloc"] }
 starknet-crypto = { workspace = true }
 thiserror = "1.0"
 utils = { path = "../../common/utils" }
+
+attestor-primitives = { workspace = true }
+eth = { workspace = true }
+sp-core = { workspace = true }
+tracing = { workspace = true }

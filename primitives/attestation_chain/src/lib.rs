@@ -4,6 +4,7 @@ pub mod attestation_checkpoints;
 pub mod attestation_checkpoints_for_dev;
 pub mod attestation_fragment;
 pub mod block;
+pub mod continuity_chain;
 pub mod utils;
 
 use crate::attestation_checkpoints::AttestationInterval;

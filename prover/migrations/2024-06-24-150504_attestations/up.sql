@@ -23,7 +23,6 @@ CREATE TABLE BlockWithDigest (
     ID SERIAL PRIMARY KEY,
     chain_key BIGINT NOT NULL,
     header_number BIGINT NOT NULL,
-    header_hash VARCHAR(64) NOT NULL,
     merkle_root VARCHAR(64) NOT NULL,
     digest VARCHAR(64) NOT NULL UNIQUE
 );
@@ -48,6 +47,6 @@ CREATE UNIQUE INDEX attestation_checkpoint_idx_chain_and_height ON AttestationCh
 -- Create table storing the checkpoint we've successfully cached up to.
 -- All history before this checkpoint is locally stored.
 CREATE TABLE CachedUpTo (
-   chain_key BIGINT PRIMARY KEY, 
+   chain_key BIGINT PRIMARY KEY,
    digest VARCHAR(64) NOT NULL UNIQUE
 );

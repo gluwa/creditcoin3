@@ -1,4 +1,4 @@
-use eth_common::Client;
+use eth::Client;
 use mmr::traits::MerkleTreeTrait;
 use utils::{Felt, StarknetPedersenMerkleTree};
 
@@ -9,7 +9,7 @@ pub async fn retrieve_and_compute_merkle_tree(
     let eth_client = Client::new(url, None).await?;
     let block = eth_client.get_block(block_number).await?;
 
-    Ok(eth_common::starknet_pedersen_mmr(&block))
+    Ok(eth::starknet_pedersen_mmr(&block))
 }
 
 pub async fn retrieve_and_compute_merkle_root(
