@@ -51,6 +51,13 @@ done
 SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
+# explicitly upgrade before doing anything else to prevent accidental restarts
+until ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/apply-ubuntu-upgrades.sh; do
+  echo "DEBUG: retrying ssh connection ..."
+  sleep 30
+done
+
 until ssh -i ~/.ssh/id_rsa \
   -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/install-docker-engine-from-upstream.sh; do
   echo "DEBUG: retrying ssh connection ..."
