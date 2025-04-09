@@ -582,3 +582,48 @@ type ProceedsWithdrawn @entity {
 
     amount: BigInt!
 }
+
+type SupportedChains @entity {
+    id: ID!
+    # Chain key
+    chainKey: Int! @index
+    # Chain id
+    chainId: Int! @index
+    # Chain name
+    chainName: String!
+
+    lastUpdateBlockNumber: Int!
+    """
+    1 - Registred, 0 Removed
+    """
+    status: Int!
+}
+
+type ChainRegistered @entity {
+    id: ID!
+    # Chain key
+    chainKey: Int! @index
+    # Chain id
+    chainId: Int! @index
+    # Chain name
+    chainName: String!
+
+    lastUpdateBlockNumber: Int!
+    # account that registered chain
+    who: Account!
+}
+
+type ChainRemoved @entity {
+    id: ID!
+    # Chain key
+    chainKey: Int! @index
+    # Chain id
+    chainId: Int! @index
+    # Chain name
+    chainName: String!
+
+    lastUpdateBlockNumber: Int!
+    # account that removed chain
+    who: Account!
+}
+

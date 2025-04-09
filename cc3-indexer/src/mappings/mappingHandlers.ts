@@ -25,6 +25,9 @@ import {
     Attestations,
     MapAttestationAttestor,
     CheckpointIntervalChanged,
+    ChainRegistered,
+    SupportedChains,
+    ChainRemoved,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, updateAllChainsMinBondRequirement } from './initStore';
@@ -82,6 +85,98 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
             `An error occurred while saving attestorsElected at block: ${event.block.block.header.number.toString()}`,
         );
     }
+}
+
+export async function handleSupportedChainRegistered(event: SubstrateEvent): Promise<void> {
+    logger.info(`New Supported Chain Registered event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, chainId, chainName],
+        },
+    } = event;
+
+    const from = event.extrinsic?.extrinsic.signer;
+    assert(from, 'Signer is missing');
+
+    const blockNumber: number = event.block.block.header.number.toNumber();
+
+    const chainKeyStr = chainKey.toString();
+    const chainKeyNumber = parseInt(chainKeyStr, 10);
+
+    const chainRegistered = ChainRegistered.create({
+        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        lastUpdateBlockNumber: blockNumber,
+        chainKey: chainKeyNumber,
+        chainName: chainName.toString(),
+        chainId: parseInt(chainId.toString(), 10),
+        whoId: from.toString(),
+    });
+
+    const suportedChain = SupportedChains.create({
+        id: chainKeyNumber.toString(),
+        lastUpdateBlockNumber: blockNumber,
+        chainKey: chainKeyNumber,
+        chainName: chainName.toString(),
+        chainId: parseInt(chainId.toString(), 10),
+        status: 1,
+    });
+
+    logger.info(`New Supported Chain event created at block ${event.block.block.header.number.toString()}`);
+
+    await Promise.all([chainRegistered.save(), suportedChain.save()]);
+}
+
+export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
+    logger.info(`New Supported Chain Registered event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, chainId, chainName],
+        },
+    } = event;
+
+    const from = event.extrinsic?.extrinsic.signer;
+    assert(from, 'Signer is missing');
+
+    const blockNumber: number = event.block.block.header.number.toNumber();
+
+    const chainKeyStr = chainKey.toString();
+    const chainKeyNumber = parseInt(chainKeyStr, 10);
+
+    const chainRegistered = ChainRemoved.create({
+        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        lastUpdateBlockNumber: blockNumber,
+        chainKey: chainKeyNumber,
+        chainName: chainName.toString(),
+        chainId: parseInt(chainId.toString(), 10),
+        whoId: from.toString(),
+    });
+    const updateList = [chainRegistered.save()];
+
+    const attestor = await SupportedChains.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
+    if (isEmpty(attestor)) {
+        logger.error(
+            `Supported Chains : ${chainKeyStr} not found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain  will be created with status 0 now.`,
+        );
+        const suportedChain = SupportedChains.create({
+            id: chainKeyNumber.toString(),
+            lastUpdateBlockNumber: blockNumber,
+            chainKey: chainKeyNumber,
+            chainName: chainName.toString(),
+            chainId: parseInt(chainId.toString(), 10),
+            status: 0,
+        });
+        updateList.push(suportedChain.save());
+    } else {
+        logger.info(
+            `Supported Chains : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain will be updated with status 0 now.`,
+        );
+        attestor[0].status = 0;
+        attestor[0].lastUpdateBlockNumber = blockNumber;
+        updateList.push(attestor[0].save());
+    }
+    await Promise.all(updateList);
 }
 
 export async function handleEventAttestorRegistered(event: SubstrateEvent): Promise<void> {

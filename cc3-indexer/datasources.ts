@@ -196,6 +196,23 @@ export const attestationDatasources: SubstrateRuntimeDatasource =
                     module: 'attestation',
                     method: 'CheckpointIntervalChanged',
                 },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleSupportedChainRegistered',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'ChainRegistered',
+                },
+            }
+            ,
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleSupportedChainRemoved',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'ChainRemoved',
+                },
             }
         ],
     },
