@@ -28,7 +28,8 @@ jobs:
   docker-build:
     needs:
       - deploy-runner-docker-build
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-build"]
+    runs-on:
+      [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-build"]
     steps:
       - uses: actions/checkout@v4
 
@@ -265,8 +266,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
+          cache: "pip"
       - run: pip install -r prover/requirements.txt
 
       - name: Compile all Cairo programs available in source code
@@ -285,8 +286,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
+          cache: "pip"
       - run: pip install -r prover/requirements.txt
 
       - name: setup Cairo program used for testing
@@ -411,7 +412,6 @@ jobs:
         run: |
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
-
 
   fmt:
     name: Rustfmt
@@ -915,7 +915,8 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing
       - deploy-runner-smart-contract
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
+    runs-on:
+      [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
     steps:
       - uses: actions/checkout@v4
 
@@ -1726,11 +1727,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing
       - deploy-runner-attestator-network
-    runs-on:
-      [
-        self-hosted,
-        "proxy-attestator-network",
-      ]
+    runs-on: [self-hosted, "proxy-attestator-network"]
     steps:
       - uses: actions/checkout@v4
 
@@ -1808,8 +1805,8 @@ jobs:
       - name: Set up Python for Cairo/Prover
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
+          cache: "pip"
       - run: pip install -r prover/requirements.txt
 
       - name: Download prover binary
@@ -2298,11 +2295,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing
       - deploy-runner-blockchain
-    runs-on:
-      [
-        self-hosted,
-        "proxy-blockchain",
-      ]
+    runs-on: [self-hosted, "proxy-blockchain"]
     steps:
       - uses: actions/checkout@v4
 
@@ -2524,7 +2517,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        directory: [cc3-indexer, cli, docs/smart-contract-development/with-hardhat]
+        directory:
+          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat]
         command: [lint, typecheck, check-format]
 
     steps:
@@ -2901,12 +2895,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing
       - deploy-runner-cc3-indexer
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-cc3-indexer",
-      ]
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-cc3-indexer"]
     steps:
       - uses: actions/checkout@v4
 
@@ -2966,7 +2955,7 @@ jobs:
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
 
       - name: Start Attestation Zombienet for Bob - Anvil 2
-        if: false  # note: started explicitly within tests
+        if: false # note: started explicitly within tests
         run: |
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
 
@@ -2991,8 +2980,8 @@ jobs:
       - name: Set up Python for Cairo/Prover
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
+          cache: "pip"
       - run: pip install -r prover/requirements.txt
 
       - name: Download prover binary
@@ -3023,7 +3012,7 @@ jobs:
             > /var/tmp/cc3-indexer-testing/prover-1.log 2>&1 &
 
       - name: Start Prover for Bob - Anvil-2
-        if: false  # note: started explicitly within tests
+        if: false # note: started explicitly within tests
         env:
           RUST_LOG_STYLE: never
         run: |
