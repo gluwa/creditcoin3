@@ -1,4 +1,5 @@
 {
+  "__inputs": null,
   "annotations": {
     "list": [
       {
@@ -16,7 +17,7 @@
     ]
   },
   "description": "attestor votes from rpc",
-  "editable": true,
+  "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": 1,
@@ -32,7 +33,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -79,6 +80,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_best_block",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -99,7 +101,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -146,6 +148,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_votes_sent",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -166,7 +169,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -213,6 +216,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_best_voted",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -233,7 +237,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -306,7 +310,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -353,6 +357,7 @@
           "editorMode": "builder",
           "expr": "attestor_imported_votes",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -373,7 +378,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -418,6 +423,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_invalid_votes",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -438,7 +444,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -485,6 +491,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_successful_handled_votes",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -505,7 +512,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -550,6 +557,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_no_authority_found_in_store",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -570,7 +578,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
+          "mappings": null,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -617,6 +625,7 @@
           "editorMode": "builder",
           "expr": "substrate_attestor_equivocation_votes",
           "fullMetaSearch": false,
+          "hide": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
           "range": true,
@@ -633,7 +642,7 @@
   "schemaVersion": 40,
   "tags": [],
   "templating": {
-    "list": []
+    "list": null
   },
   "time": {
     "from": "now-15m",
