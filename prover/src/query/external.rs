@@ -204,10 +204,10 @@ async fn prepare_proof_order_form(
     }
 
     // Convert query_id into UUID expected by StoneProverBE
-    let uuid_string: String = sp_core::twox_128(query_id.as_bytes()).encode_hex();
-    info!("Posting work order with query_id: {}", uuid_string);
+    let query_id_string: String = query_id.encode_hex();
+    info!("Posting work order with query_id: {}", query_id_string);
 
     // Add query id to the form
-    form = form.text("queryId", uuid_string);
+    form = form.text("queryId", query_id_string);
     Ok(form)
 }
