@@ -203,7 +203,6 @@ async fn prepare_proof_order_form(
         );
     }
 
-    // Convert query_id into UUID expected by StoneProverBE
     let query_id_string: String = query_id.encode_hex();
     info!("Posting work order with query_id: {}", query_id_string);
 
