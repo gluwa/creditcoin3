@@ -231,6 +231,10 @@ jobs:
         with:
           lfs: true
 
+      - name: Check JSON files
+        run: |
+          .github/check-json.sh
+
       - name: Check for parity between extrinsics, benchmarks and weights
         run: |
           echo "INFO: active pallets are"
