@@ -3,7 +3,7 @@ use crate::{
         Account::{Alice, Bob, Precompile},
         *,
     },
-    BoundedBytes, ConstU50MB,
+    BoundedBytes, ConstU50MB, ResultSegmentsById,
 };
 
 use frame_support::assert_ok;
@@ -161,5 +161,86 @@ fn verify_should_return_zero_when_all_good() {
                     },
                 )
                 .execute_returns(0u8);
+        });
+}
+
+#[test]
+fn get_result_segments_should_error_for_unknown_query_id() {
+    let alice: H160 = Alice.into();
+
+    // note: not submitted on-chain therefore
+    // no ResultSegments available for this query.id()
+    let query = Query {
+        chain_id: 31337,
+        height: 4,
+        index: 0,
+        layout_segments: vec![LayoutSegment {
+            offset: 0,
+            size: 681, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
+        }],
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_result_segments {
+                        query_id: query.id(),
+                    },
+                )
+                .execute_reverts(|output| {
+                    from_utf8(output)
+                        .unwrap()
+                        .contains("Result segments not found for query")
+                });
+        });
+}
+
+#[test]
+#[cfg(all(test, target_arch = "x86_64"))]
+fn get_result_segments_should_work_for_known_query_id() {
+    let alice: H160 = Alice.into();
+
+    let query = Query {
+        chain_id: 31337,
+        height: 4,
+        index: 0,
+        layout_segments: vec![LayoutSegment {
+            offset: 0,
+            size: 681, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
+        }],
+    };
+    let query_id = query.id();
+    let proof_json = std::fs::read("../../cairo/stone-verifier/proof_example.json")
+        .expect("Proof example not found");
+    let proof: BoundedBytes<ConstU50MB> = proof_json.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            assert_ok!(ProverModule::set_stark_program_metadata(
+                RuntimeOrigin::root(),
+                3,
+                STARK_PROGRAM_V3_HASH
+            ));
+
+            assert_ok!(ProverModule::submit_proof(
+                RuntimeOrigin::signed(Alice),
+                proof.into(),
+                query
+            ));
+
+            // read the expected value from chain storage
+            let result_segments: Option<_> = ResultSegmentsById::<Runtime>::get(query_id);
+            let expected_segments = Vec::from(result_segments.unwrap());
+
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_result_segments { query_id })
+                .execute_returns(expected_segments);
         });
 }
