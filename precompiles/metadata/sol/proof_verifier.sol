@@ -43,5 +43,5 @@ interface QueryVerifierContract {
     /// @param queryId, the id of the query for which we are retrieving result segments
     function get_result_segments(
         QueryId queryId
-    ) external returns (ResultSegment[] memory);
+    ) external view returns (ResultSegment[] memory);
 }

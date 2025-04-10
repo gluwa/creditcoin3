@@ -143,7 +143,7 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_get_result_segments(QueryId queryId) virtual internal returns (ResultSegment[] memory) {
+    function _call_verifier_get_result_segments(QueryId queryId) virtual internal view returns (ResultSegment[] memory) {
         return verifier.get_result_segments(queryId);
     }
 
@@ -238,7 +238,7 @@ contract CreditcoinPublicProver is Ownable {
         }
     }
 
-    function getQueryResultSegments(QueryId queryId) public returns (ResultSegment[] memory) {
+    function getQueryResultSegments(QueryId queryId) public view returns (ResultSegment[] memory) {
         QueryState state = queries[queryId].state;
         require(state == QueryState.ResultAvailable, "Query result not available");
 
@@ -262,7 +262,7 @@ interface QueryVerifierContract {
 
     function get_result_segments(
         QueryId queryId
-    ) external returns (ResultSegment[] memory);
+    ) external view returns (ResultSegment[] memory);
 }
 
 event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName, uint64 timeout);

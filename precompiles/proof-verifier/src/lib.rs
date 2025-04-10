@@ -121,6 +121,7 @@ where
         }
     }
 
+    #[precompile::view]
     #[precompile::public("get_result_segments(bytes32)")]
     fn get_result_segments(
         _handle: &mut impl PrecompileHandle,
