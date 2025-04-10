@@ -89,7 +89,7 @@ pub async fn get_for_claim(
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    let expected_fragment_size = upper_endpoint.block_number - lower_endpoint.block_number;
+    let expected_fragment_size = upper_endpoint.block_number - lower_endpoint.block_number + 1;
 
     // Get fragment from cache
     let db_fragment = attestation_cache
