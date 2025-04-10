@@ -231,7 +231,7 @@ In light mode you must also provide a UUID api key for requests sent to the prov
 --cc3-key "//Alice" \
 --cc3-evm-private-key "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --name "test-prover1" \
---prover-be-socket-addr "https://ccnextstoneproverbeapi-ckapandqcjdpghg6.westus2-01.azurewebsites.net" \
+--prover-be-socket-addr "https://cc-prover-api-dev-api.lemonpond-57fd618e.westus3.azurecontainerapps.io" \
 --be-api-key "f40677cb-8aa5-4a8e-bb99-2933b12b473c" \
 --postgres-uri "postgres://prover:prover@127.0.0.1:5432/attestations"
 ```
