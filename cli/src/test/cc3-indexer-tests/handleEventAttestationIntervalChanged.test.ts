@@ -1,6 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { waitEras } from '../integration-tests/helpers';
 import { forElapsedBlocks, randomIntBetween } from '../utils';
 import { graphQLQuery } from './common';
@@ -9,14 +8,34 @@ describe('handleEventAttestationIntervalChanged()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: number;
-    const newInterval = randomIntBetween(7, 21);
+    // avoid the default of 10
+    const newInterval = randomIntBetween(11, 21);
+    // unique integer to serve as chain id during testing
+    const newChainId = Date.now();
+    const newChainName = `Test Chain ${newChainId}`;
+    let newChainKey = 0;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
-    }, 30_000);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        // will fail if the query returns None
+        newChainKey = (await api.query.supportedChains.chainIdAndNameToUniqKey(newChainId, newChainName))
+            .unwrap()
+            .toNumber();
+        expect(newChainKey).toBeGreaterThan(0);
+    }, 45_000);
 
     afterAll(async () => {
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.removeChain(newChainKey, true))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+
         await api.disconnect();
     });
 
@@ -27,7 +46,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
 
             // NOTE: by defauilt it is 10
             await api.tx.sudo
-                .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
+                .sudo(api.tx.attestation.setChainAttestationInterval(newChainKey, newInterval))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             // wait for the pending change to take effect
             await waitEras(1, api);
@@ -49,7 +68,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
                 expect(node.blockNumber).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(node.chainKey).toEqual(chain_Anvil2_Key);
+                expect(node.chainKey).toEqual(newChainKey);
                 expect(node.interval).toEqual(newInterval);
             }
         });
@@ -60,7 +79,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
                     attestationChainData(
                         orderBy: CHAIN_KEY_ASC,
                         last: 1,
-                        filter: { chainKey: { equalTo: ${chain_Anvil2_Key} }},
+                        filter: { chainKey: { equalTo: ${newChainKey} }},
                     ) {
                         nodes { id, attestationInterval }
                     }
