@@ -89,6 +89,7 @@
         }
       ],
       "title": "Attestor best block",
+      "description": "The best block that the attestor has seen",
       "type": "stat"
     },
     {
@@ -157,6 +158,7 @@
         }
       ],
       "title": "Attestor votes sent",
+      "description": "The number of votes sent by the attestor",
       "type": "stat"
     },
     {
@@ -225,6 +227,7 @@
         }
       ],
       "title": "Attestor best voted for",
+      "description": "The best voted for block by the attestor",
       "type": "stat"
     },
     {
@@ -298,6 +301,7 @@
         }
       ],
       "title": "Received Votes from RPC",
+      "description": "The number of votes received from RPC",
       "type": "stat"
     },
     {
@@ -366,6 +370,7 @@
         }
       ],
       "title": "Imported votes count",
+      "description": "The number of votes imported from RPC",
       "type": "stat"
     },
     {
@@ -432,6 +437,7 @@
         }
       ],
       "title": "Invalid votes count",
+      "description": "The number of invalid votes",
       "type": "gauge"
     },
     {
@@ -500,6 +506,7 @@
         }
       ],
       "title": "Attestor good votes processed",
+      "description": "The number of good votes processed by the attestor",
       "type": "stat"
     },
     {
@@ -566,6 +573,7 @@
         }
       ],
       "title": "Attestor no authority",
+      "description": "The number of votes that have no authority found in the store",
       "type": "gauge"
     },
     {
@@ -634,6 +642,7 @@
         }
       ],
       "title": "Attestor equivocation votes",
+      "description": "The number of equivocation votes",
       "type": "stat"
     }
   ],
