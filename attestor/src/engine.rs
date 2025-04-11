@@ -1,4 +1,5 @@
 use anyhow::Result;
+use attestation_chain::continuity_chain::CreateResult;
 use eth::Client;
 use sp_core::H256;
 use std::collections::BTreeSet;
@@ -72,6 +73,8 @@ pub enum Error {
     DoubleVote,
     #[error("Engine is not running")]
     NotRunning,
+    #[error("Failed to create fragment")]
+    FailedToCreateFragment,
     #[error("Cc3 error: {0}")]
     Cc3Error(#[from] cc3::Error),
     #[error("cclient error: {0}")]
@@ -295,23 +298,16 @@ impl Engine {
         // Eligiblity check
         let vrf_output = self.cc3_client.sign_vrf(header_number).await?;
 
-        let last_voted_for_digest = self.voted_for.last().copied().unwrap_or_default().1;
-        // Create the fragment for the signed attestation
-        // This is the continuity proof of this signed attestation
-        let fragment = fragment::async_retry_create(
-            attestation.header_number,
-            self.attestation_interval(),
-            &self.eth_client,
-            last_voted_for_digest,
-        )
-        .await?;
-        debug!("Completed fragment creation for block({})", header_number);
+        // Create continuity fragment
+        let continuity_fragment = self.create_continuity_proof(header_number).await?;
 
         // Set the previous digest
-        attestation.prev_digest = fragment.prev_digest;
-        let signed_attestation =
-            self.cc3_client
-                .sign_attestation(attestation, fragment.continuity_proof, vrf_output);
+        attestation.prev_digest = continuity_fragment.prev_digest;
+        let signed_attestation = self.cc3_client.sign_attestation(
+            attestation,
+            continuity_fragment.continuity_proof,
+            vrf_output,
+        );
 
         debug!("Attestor selected for block({})", header_number);
 
@@ -366,7 +362,7 @@ impl Engine {
             last_voted_for_block, last_finalized
         );
 
-        if last_voted_for_block == 0 || last_finalized == 0 {
+        if last_finalized == 0 {
             debug!("No attestations voted for or finalized, skipping evaluation");
             return Ok(());
         }
@@ -400,6 +396,68 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    pub async fn create_continuity_proof(
+        &self,
+        attestation_header_number: u64,
+    ) -> Result<CreateResult, Error> {
+        // We need the last voted digest to create a fragment for the new attestation vote.
+        // Otherwise we cannot construct the continuity proof.
+        let last_digest_header_number = if let Some(last_voted_for) = self.voted_for.last().copied()
+        {
+            last_voted_for
+        } else {
+            // Get last finalized attestation
+            let last_attestation = self
+                .cc_client()
+                .get_last_attestation(self.chain_key())
+                .await?;
+            if let Some(last_attestation) = last_attestation {
+                warn!(
+                    "No last voted for attestation, using last finalized attestation from chain: {}",
+                    last_attestation.header_number()
+                );
+                (last_attestation.header_number(), last_attestation.digest())
+            } else {
+                warn!("No last attestation found, using zero digest");
+                (0, H256::zero())
+            }
+        };
+
+        // Calculate fragment length based on the attestation header number and the last voted for header number
+        let fragment_length = attestation_header_number.saturating_sub(last_digest_header_number.0);
+
+        // If fragment length is 0 and we are not attesting for the genesis block,
+        // return an error
+        if fragment_length == 0 && attestation_header_number != 0 {
+            error!(
+                "Fragment length is 0, this means we are trying to create a fragment for the same block"
+            );
+            return Err(Error::FailedToCreateFragment);
+        }
+
+        debug!(
+            "Creating continuity proof for block({}), last voted for: {}, fragment_length: {}",
+            attestation_header_number, last_digest_header_number.0, fragment_length
+        );
+
+        // Create the fragment for the signed attestation
+        // This is the continuity proof of this signed attestation
+        let fragment = fragment::async_retry_create(
+            &self.eth_client,
+            attestation_header_number,
+            fragment_length,
+            last_digest_header_number.1,
+        )
+        .await?;
+
+        debug!(
+            "Completed fragment creation for block({})",
+            attestation_header_number
+        );
+
+        Ok(fragment)
     }
 
     /// Note a cc event
@@ -461,6 +519,10 @@ impl Engine {
             let start_at = last_voted_for + self.attestation_interval();
             self.start(start_at).await?;
         }
+
+        // Prune old last voted for state
+        self.voted_for
+            .retain(|(header_number, _)| *header_number > header);
 
         Ok(())
     }
