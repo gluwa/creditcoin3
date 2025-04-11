@@ -654,11 +654,16 @@ describe('CreditcoinPublicProver', function () {
 
             // explicitly set the state: QueryState.ResultAvailable
             await prover.connect(owner).mock_setQueryState(queryId, 2);
-            await prover.connect(owner).mock_pushQueryResultSegment({ offset: 1n, abiBytes: new Uint8Array(32) });
+            const expectedSegment = { offset: 1n, abiBytes: new Uint8Array(32) };
+            await prover.connect(owner).mock_pushQueryResultSegment(expectedSegment);
 
             // doesn't crash
-            await prover.connect(user).getQueryResultSegments(queryId);
-            // WARNING: not asserting on the result b/c it's what we've mocked above
+            const result = await prover.connect(user).getQueryResultSegments(queryId);
+            expect(result).to.have.lengthOf(1);
+
+            const [offset, abiBytes] = result[0];
+            expect(offset).to.equal(expectedSegment.offset);
+            expect(abiBytes).to.equal('0x0000000000000000000000000000000000000000000000000000000000000000');
         });
 
         it('Should revert when verifier.get_query_result_segments() fails', async function () {
