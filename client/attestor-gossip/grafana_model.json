@@ -594,7 +594,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "red"
               },
               {
                 "color": "red",
@@ -607,8 +607,8 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 4,
-        "x": 15,
+        "w": 3,
+        "x": 12,
         "y": 17
       },
       "id": 4,
