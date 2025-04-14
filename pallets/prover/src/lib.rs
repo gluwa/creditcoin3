@@ -110,6 +110,7 @@ pub mod pallet {
         QueryCheckpointMismatch,
         QueryBlockNumberMismatch,
         ResultSegmentsExceedMaxSize,
+        MissingContinuityProof,
     }
 
     #[pallet::call]
@@ -142,6 +143,12 @@ pub mod pallet {
                         // example: query.height = 6, checkpoint/attestation = 10,
                         // continuity_proof_len = len(5..10) = 6 (both borders included),
                         // checkpoint number generated from the proof = 6 - 1 + 6 - 1 = 10
+
+                        ensure!(
+                            continuity_proof_len.is_some(),
+                            Error::<T>::MissingContinuityProof
+                        );
+
                         let checkpoint_block_number =
                             query.height - 1 + continuity_proof_len.unwrap() - 1;
 
