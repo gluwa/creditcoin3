@@ -652,9 +652,6 @@
   "refresh": "",
   "schemaVersion": 40,
   "tags": [],
-  "templating": {
-    "list": null
-  },
   "time": {
     "from": "now-15m",
     "to": "now"
@@ -665,8 +662,22 @@
   "uid": "bee77k569dv5sf",
   "version": 33,
   "weekStart": "",
-  "datasource": {
-    "type": "grafana",
-    "uid": "-- Grafana --"
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "default",
+          "value": "default"
+        },
+        "hide": 0,
+        "label": "Data Source",
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
   }
 }
