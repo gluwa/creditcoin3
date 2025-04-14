@@ -9,6 +9,7 @@ version = "0.1.0"
 release = false
 
 [dependencies]
+alloy = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -20,3 +21,4 @@ eth = { workspace = true }
 anyhow.workspace = true
 pallet-prover-primitives = { workspace = true }
 utils = { path = "../common/utils" }
+ccnext-query-builder = { version = "0.1" }

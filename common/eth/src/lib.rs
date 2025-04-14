@@ -123,115 +123,11 @@ impl TypedTransaction {
     }
 }
 
-impl TryFrom<Transaction> for TypedTransaction {
-    type Error = ConversionError;
-
-    fn try_from(tx: Transaction) -> std::result::Result<Self, Self::Error> {
-        let tx_hash = tx.tx_hash();
-
-        Ok(match tx.transaction_type() {
-            None | Some(0) => Self::Legacy(tx.try_into()?, tx_hash),
-            Some(1) => Self::Type1(tx.try_into()?, tx_hash),
-            Some(2) => Self::Type2(tx.try_into()?, tx_hash),
-            Some(3) => Self::Type3(tx.try_into()?, tx_hash),
-            t => unimplemented!("transaction type not supported: {}", t.unwrap()),
-        })
-    }
-}
-
-impl Encodable for TypedTransaction {
-    fn encode(&self, out: &mut dyn BufMut) {
-        match self {
-            Self::Legacy(tx, _) => {
-                tx.tx().nonce.encode(out);
-                tx.tx().gas_price.encode(out);
-                tx.tx().gas_limit.encode(out);
-                tx.tx().to.encode(out);
-                tx.tx().value.encode(out);
-                tx.tx().input.0.encode(out);
-                tx.signature().write_rlp_rs(out);
-                tx.tx().signature_hash().encode(out);
-            }
-
-            Self::Type1(tx, _) => {
-                tx.tx().chain_id.encode(out);
-                tx.tx().nonce.encode(out);
-                tx.tx().gas_price.encode(out);
-                tx.tx().gas_limit.encode(out);
-                tx.tx().to.encode(out);
-                tx.tx().value.encode(out);
-                tx.tx().input.0.encode(out);
-                tx.tx().access_list.encode(out);
-                tx.signature().write_rlp_rs(out);
-                tx.tx().signature_hash().encode(out);
-            }
-
-            Self::Type2(tx, _) => {
-                tx.tx().chain_id.encode(out);
-                tx.tx().nonce.encode(out);
-                tx.tx().max_fee_per_gas.encode(out);
-                tx.tx().max_priority_fee_per_gas.encode(out);
-                tx.tx().gas_limit.encode(out);
-                tx.tx().to.encode(out);
-                tx.tx().value.encode(out);
-                tx.tx().input.0.encode(out);
-                tx.tx().access_list.encode(out);
-                tx.signature().write_rlp_rs(out);
-                tx.tx().signature_hash().encode(out);
-            }
-            Self::Type3(tx, _) => {
-                tx.tx().chain_id.encode(out);
-                tx.tx().nonce.encode(out);
-                tx.tx().gas_limit.encode(out);
-                tx.tx().max_fee_per_gas.encode(out);
-                tx.tx().max_priority_fee_per_gas.encode(out);
-                tx.tx().to.encode(out);
-                tx.tx().value.encode(out);
-                tx.tx().input.0.encode(out);
-                tx.tx().access_list.encode(out);
-                tx.tx().blob_versioned_hashes.encode(out);
-                tx.tx().max_fee_per_blob_gas.encode(out);
-                tx.signature().write_rlp_rs(out);
-                tx.tx().signature_hash().encode(out);
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct TxRx {
     id: BlockItemIdentifier,
-    tx: TypedTransaction,
+    tx: Transaction,
     rx: ReceiptWithBloom<Receipt>,
-}
-
-impl Encodable for TxRx {
-    fn encode(&self, out: &mut dyn BufMut) {
-        let payload_length = self.payload_len();
-
-        alloy::rlp::Header {
-            list: true,
-            payload_length,
-        }
-        .encode(out);
-        self.tx.encode(out);
-
-        let (r, bloom) = self.rx.clone().into_components();
-        r.status_or_post_state().encode(out);
-        r.cumulative_gas_used.encode(out);
-        r.with_bloom().encode(out);
-        bloom.encode(out);
-    }
-
-    fn length(&self) -> usize {
-        let payload_length = self.payload_len();
-        alloy::rlp::Header {
-            list: true,
-            payload_length,
-        }
-        .length()
-            + payload_length
-    }
 }
 
 impl TxRx {
@@ -242,14 +138,14 @@ impl TxRx {
     ) -> Result<Self, ConversionError> {
         Ok(Self {
             id,
-            tx: tx.try_into()?,
+            tx: tx,
             rx: Self::transform_rx(rx).ok_or(ConversionError::Custom(
                 "Receipt to ReceiptWithBloom conversion failed".to_owned(),
             ))?,
         })
     }
 
-    pub fn tx(&self) -> &TypedTransaction {
+    pub fn tx(&self) -> &Transaction {
         &self.tx
     }
 
@@ -257,18 +153,8 @@ impl TxRx {
         &self.rx
     }
 
-    pub fn tx_hash(&self) -> &BlockHash {
+    pub fn tx_hash(&self) -> BlockHash {
         self.tx.tx_hash()
-    }
-
-    fn payload_len(&self) -> usize {
-        let tx_fields_len = self.tx.fields_len();
-        let rx_fields_len = self
-            .rx
-            .receipt
-            .rlp_encoded_fields_length_with_bloom(&self.rx.logs_bloom);
-
-        tx_fields_len + rx_fields_len
     }
 
     fn transform_rx(rx: TransactionReceipt) -> Option<ReceiptWithBloom<Receipt>> {

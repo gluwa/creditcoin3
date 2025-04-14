@@ -8,6 +8,8 @@ use eth::{evm, Client};
 use pallet_prover_primitives::{LayoutSegment, Query};
 use utils::block_item_traits::BlockItem;
 
+mod query_builder;
+
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
 pub struct QueryCli {
@@ -75,8 +77,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .expect("Transaction not found in block");
 
     let tx_rx = &block.items()[tx_index];
+
+    // TODO: Replace payload_bytes rlp encoding with new abi encoding David created
     let data = tx_rx.payload_bytes();
 
+    // TODO: Replace this with call of get_erc20_transfer_segments(Transaction, TransactionReceipt)
     let layout_segments = if !prompt.offset_end_ranges.is_empty() {
         prompt
             .offset_end_ranges
