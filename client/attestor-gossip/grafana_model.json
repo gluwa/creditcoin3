@@ -634,7 +634,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_equivocation_votes",
+          "expr": "substrate_attestor_no_authority_found_in_store",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
