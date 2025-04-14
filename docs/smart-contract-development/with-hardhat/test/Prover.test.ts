@@ -687,4 +687,59 @@ describe('CreditcoinPublicProver', function () {
             );
         });
     });
+
+    describe('withdrawProceeds()', function () {
+        it('Does not allow calls from non-owner', async function () {
+            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
+        });
+
+        it('Does not update balance when contract balance is zero', async function () {
+            // drain contract balance to cause a failure later
+            let contractBalance = await ethers.provider.getBalance(await prover.getAddress());
+            await prover.connect(owner).mock_drainBalance(contractBalance);
+            contractBalance = await ethers.provider.getBalance(await prover.getAddress());
+            expect(contractBalance).to.equal(0);
+
+            const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
+            const proceedsBalanceBefore = await ethers.provider.getBalance(await proceedsAccount.getAddress());
+
+            await expect(prover.connect(owner).withdrawProceeds()).to.be.revertedWith(
+                'No withdrawable proceeds available',
+            );
+
+            const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
+            const proceedsBalanceAfter = await ethers.provider.getBalance(await proceedsAccount.getAddress());
+
+            expect(ownerBalanceAfter).to.be.below(ownerBalanceBefore); // b/c of gas fees
+            expect(proceedsBalanceAfter).to.equal(proceedsBalanceBefore);
+        });
+
+        it('Updates proceedsAccount balance when contract balance greater than zero', async function () {
+            // setup
+            const howMuch = parseEther('0.001');
+            await prover.connect(user).mock_addBalance({
+                value: howMuch,
+            });
+            const contractBalanceBefore = await ethers.provider.getBalance(await prover.getAddress());
+            expect(contractBalanceBefore).to.be.above(0);
+
+            const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
+            const proceedsBalanceBefore = await ethers.provider.getBalance(await proceedsAccount.getAddress());
+
+            // call FUT
+            await expect(prover.connect(owner).withdrawProceeds())
+                .to.emit(prover, 'ProceedsWithdrawn')
+                .withArgs(await proceedsAccount.getAddress(), howMuch);
+
+            const contractBalanceAfter = await ethers.provider.getBalance(await prover.getAddress());
+            expect(contractBalanceAfter).to.equal(0);
+
+            const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
+            const proceedsBalanceAfter = await ethers.provider.getBalance(await proceedsAccount.getAddress());
+
+            expect(ownerBalanceAfter).to.be.below(ownerBalanceBefore); // b/c of gas fees
+            expect(proceedsBalanceAfter).to.be.above(proceedsBalanceBefore);
+            expect(proceedsBalanceAfter).to.equal(proceedsBalanceBefore + contractBalanceBefore);
+        });
+    });
 });

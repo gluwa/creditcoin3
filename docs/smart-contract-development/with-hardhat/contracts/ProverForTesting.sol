@@ -51,6 +51,10 @@ contract ProverForTesting is CreditcoinPublicProver {
         payable(0).transfer(howMuch);
     }
 
+    function mock_addBalance() public payable {
+        // calling this will automatically accumulate balance on the contract
+    }
+
     function mock_drainTotalEscrowBalance(uint256 howMuch) public onlyOwner {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - howMuch);
     }
