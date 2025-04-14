@@ -4,9 +4,10 @@ pragma solidity ^0.8.0;
 import 'hardhat/console.sol';
 import './ProverForTesting.sol';
 
-contract ProverWhereVerifierGetResultSegmentsFails is ProverForTesting {
+contract ProverWhereVerifierGetResultSegmentsErrors is ProverForTesting {
     function _call_verifier_get_result_segments(QueryId) internal override pure returns (ResultSegment[] memory) {
-        revert('Failed on purpose');
+        require(true == false, "Errored on purpose");
+        return new ResultSegment[](0);
     }
 
     constructor(

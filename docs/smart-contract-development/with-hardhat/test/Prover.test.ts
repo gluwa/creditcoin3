@@ -666,8 +666,8 @@ describe('CreditcoinPublicProver', function () {
             expect(abiBytes).to.equal('0x0000000000000000000000000000000000000000000000000000000000000000');
         });
 
-        it('Should revert when verifier.get_query_result_segments() fails', async function () {
-            const factory = await ethers.getContractFactory('ProverWhereVerifierGetResultSegmentsFails');
+        it('Should revert when verifier.get_query_result_segments() reverts', async function () {
+            const factory = await ethers.getContractFactory('ProverWhereVerifierGetResultSegmentsReverts');
             const contract = await factory.deploy(
                 await proceedsAccount.getAddress(),
                 10n,
@@ -688,7 +688,33 @@ describe('CreditcoinPublicProver', function () {
             await contract.connect(owner).mock_setQueryState(queryId, 2);
 
             await expect(contract.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
-                'Failed on purpose',
+                'Reverted on purpose',
+            );
+        });
+
+        it('Should revert when verifier.get_query_result_segments() errors', async function () {
+            const factory = await ethers.getContractFactory('ProverWhereVerifierGetResultSegmentsErrors');
+            const contract = await factory.deploy(
+                await proceedsAccount.getAddress(),
+                10n,
+                1000n,
+                sampleQuery.chainId,
+                'testing',
+                TIMEOUT_BLOCKS * BLOCKTIME,
+            );
+            await contract.waitForDeployment();
+
+            const receipt = await (
+                await contract.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // explicitly set the state: QueryState.ResultAvailable
+            await contract.connect(owner).mock_setQueryState(queryId, 2);
+
+            await expect(contract.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
+                'Errored on purpose',
             );
         });
     });
