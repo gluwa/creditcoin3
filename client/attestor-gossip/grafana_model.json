@@ -525,7 +525,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red"
+                "color": "green"
               },
               {
                 "color": "red",
@@ -538,11 +538,11 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 3,
-        "x": 12,
+        "w": 4,
+        "x": 15,
         "y": 17
       },
-      "id": 6,
+      "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -565,7 +565,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_no_authority_found_in_store",
+          "expr": "substrate_attestor_equivocation_votes",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -575,7 +575,7 @@
           "useBackend": false
         }
       ],
-      "title": "Attestor no authority",
+      "title": "Attestor no authority111",
       "description": "The number of votes that have no authority found in the store",
       "type": "gauge"
     },
