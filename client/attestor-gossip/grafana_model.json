@@ -575,9 +575,9 @@
           "useBackend": false
         }
       ],
-      "title": "Attestor no authority111",
-      "description": "The number of votes that have no authority found in the store",
-      "type": "gauge"
+      "title": "Attestor equivocation votes",
+      "description": "The number of equivocation votes",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -644,7 +644,7 @@
           "useBackend": false
         }
       ],
-      "title": "Attestor equivocation votes",
+      "title": "Attestor no authority111",
       "description": "The number of equivocation votes",
       "type": "stat"
     }
