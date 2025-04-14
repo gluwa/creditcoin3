@@ -85,9 +85,9 @@ describe('Precompile: get_result_segments()', (): void => {
         expect(abiBytes).toBeDefined();
     }, 30_000);
 
-    test('should revert when called with invalid query id', async () => {
+    test('should error when called with invalid query id', async () => {
         await expect(contract.get_result_segments(new Uint8Array(32))).rejects.toThrow(
-            /Result segments not found for query/,
+            /missing revert data.*code=CALL_EXCEPTION/,
         );
     }, 30_000);
 });

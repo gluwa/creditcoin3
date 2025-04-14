@@ -179,24 +179,17 @@ fn get_result_segments_should_error_for_unknown_query_id() {
             size: 681, // 418 / 31 + 418 % 31 != 0 = 14 (31 being `utils::utils::U248_BYTE_COUNT`)
         }],
     };
+    let query_id = query.id();
 
     ExtBuilder::default()
         .with_balances(vec![(alice.into(), 300)])
         .build()
         .execute_with(|| {
             precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::get_result_segments {
-                        query_id: query.id(),
-                    },
-                )
-                .execute_reverts(|output| {
-                    from_utf8(output)
-                        .unwrap()
-                        .contains("Result segments not found for query")
-                });
+                .prepare_test(alice, Precompile, PCall::get_result_segments { query_id })
+                .execute_error(fp_evm::ExitError::Other(sp_std::borrow::Cow::Owned(
+                    format!("Result segments not found for query: {:?}", query_id),
+                )));
         });
 }
 
