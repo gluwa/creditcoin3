@@ -586,6 +586,7 @@
       },
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
           "color": {
             "mode": "thresholds"
           },
@@ -608,10 +609,10 @@
       "gridPos": {
         "h": 7,
         "w": 3,
-        "x": 12,
+        "x": 3,
         "y": 17
       },
-      "id": 4,
+      "id": 6,
       "options": {
         "minVizHeight": 75,
         "minVizWidth": 75,
@@ -643,8 +644,8 @@
         }
       ],
       "title": "Attestor no authority",
-      "description": "The number of votes that have no authority found in the store",
-      "type": "stat"
+      "description": "The number of votes with no authority found in store",
+      "type": "gauge"
     }
   ],
   "preload": false,
