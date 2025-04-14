@@ -622,7 +622,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "substrate_attestor_equivocation_votes",
+          "fields": "substrate_attestor_no_authority_found_in_store",
           "values": false
         },
         "showPercentChange": false,
