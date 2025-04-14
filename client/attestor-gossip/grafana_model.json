@@ -611,7 +611,7 @@
         "x": 12,
         "y": 17
       },
-      "id": 4,
+      "id": 6,
       "options": {
         "minVizHeight": 75,
         "minVizWidth": 75,
@@ -642,9 +642,9 @@
           "useBackend": false
         }
       ],
-      "title": "Attestor no authority111",
-      "description": "The number of equivocation votes",
-      "type": "stat"
+      "title": "Attestor no authority",
+      "description": "The number of votes that have no authority found in the store",
+      "type": "gauge"
     }
   ],
   "preload": false,
