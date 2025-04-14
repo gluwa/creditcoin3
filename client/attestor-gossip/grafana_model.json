@@ -661,8 +661,12 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "attestor votes from rpc",
+  "title": "attestor votes from rpc title",
   "uid": "bee77k569dv5sf",
   "version": 33,
-  "weekStart": ""
+  "weekStart": "",
+  "datasource": {
+    "type": "grafana",
+    "uid": "-- Grafana --"
+  }
 }
