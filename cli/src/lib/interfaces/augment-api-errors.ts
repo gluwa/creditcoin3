@@ -583,6 +583,7 @@ declare module '@polkadot/api-base/types/errors' {
         prover: {
             FileError: AugmentedError<ApiType>;
             InvalidProofSubmitted: AugmentedError<ApiType>;
+            MissingContinuityProof: AugmentedError<ApiType>;
             ProofParseError: AugmentedError<ApiType>;
             QueryBlockNumberMismatch: AugmentedError<ApiType>;
             QueryCheckpointMismatch: AugmentedError<ApiType>;

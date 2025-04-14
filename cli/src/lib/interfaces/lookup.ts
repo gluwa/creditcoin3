@@ -3118,6 +3118,7 @@ export default {
             'QueryCheckpointMismatch',
             'QueryBlockNumberMismatch',
             'ResultSegmentsExceedMaxSize',
+            'MissingContinuityProof',
         ],
     },
     /**

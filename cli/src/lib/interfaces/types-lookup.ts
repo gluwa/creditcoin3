@@ -3641,6 +3641,7 @@ declare module '@polkadot/types/lookup' {
         readonly isQueryCheckpointMismatch: boolean;
         readonly isQueryBlockNumberMismatch: boolean;
         readonly isResultSegmentsExceedMaxSize: boolean;
+        readonly isMissingContinuityProof: boolean;
         readonly type:
             | 'InvalidProofSubmitted'
             | 'StarkProgramMetadataNotSet'
@@ -3656,7 +3657,8 @@ declare module '@polkadot/types/lookup' {
             | 'QueryOffsetMismatch'
             | 'QueryCheckpointMismatch'
             | 'QueryBlockNumberMismatch'
-            | 'ResultSegmentsExceedMaxSize';
+            | 'ResultSegmentsExceedMaxSize'
+            | 'MissingContinuityProof';
     }
 
     /** @name PalletRandomnessError (423) */
