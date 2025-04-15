@@ -78,7 +78,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_best_block{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_best_block{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -147,7 +147,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_votes_sent{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_votes_sent{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -216,7 +216,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_best_voted{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_best_voted{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -289,7 +289,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "attestor_votes_from_rpc{job=\"$job\", instance=\"$instance\"}",
+          "expr": "attestor_votes_from_rpc{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -359,7 +359,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "attestor_imported_votes{job=\"$job\", instance=\"$instance\"}",
+          "expr": "attestor_imported_votes{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -427,7 +427,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_invalid_votes{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_invalid_votes{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -496,7 +496,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_successful_handled_votes{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_successful_handled_votes{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -565,7 +565,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_equivocation_votes{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_equivocation_votes{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -633,7 +633,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_no_authority_found_in_store{job=\"$job\", instance=\"$instance\"}",
+          "expr": "substrate_attestor_no_authority_found_in_store{job=~\"$job\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
@@ -677,6 +677,24 @@
         "refresh": 1,
         "regex": "",
         "type": "datasource"
+      },
+      {
+        "name": "job",
+        "label": "job",
+        "datasource": "$datasource",
+        "type": "query",
+        "query": "query_result(up{})",
+        "multi": true,
+        "allValue": ".+"
+      },
+      {
+        "name": "instance",
+        "label": "instance",
+        "datasource": "$datasource",
+        "type": "query",
+        "query": "query_result(up{})",
+        "multi": true,
+        "allValue": ".+"
       }
     ]
   }
