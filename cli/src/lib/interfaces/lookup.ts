@@ -1601,6 +1601,11 @@ export default {
                 maybeTotal: 'Option<u128>',
                 maybeUnlocking: 'Option<Vec<PalletStakingUnlockChunk>>',
             },
+            __Unused30: 'Null',
+            __Unused31: 'Null',
+            withdraw_overstake: {
+                stash: 'AccountId32',
+            },
         },
     },
     /**
