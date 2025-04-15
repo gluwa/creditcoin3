@@ -693,7 +693,7 @@
         "label": "instance",
         "datasource": "$datasource",
         "type": "query",
-        "refresh": 3,
+        "refresh": 2,
         "query": "query_result(up{})",
         "multi": true,
         "allValue": ".+"
