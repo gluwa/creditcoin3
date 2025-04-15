@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use query_builder::get_erc20_transfer_segments;
 use std::error::Error;
 use std::io::{self, Write};
 use tracing::debug;
@@ -78,12 +79,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let tx_rx = &block.items()[tx_index];
 
-    // TODO: Replace payload_bytes rlp encoding with new abi encoding David created
     let data = tx_rx.payload_bytes();
 
     // TODO: Replace this with call of get_erc20_transfer_segments(Transaction, TransactionReceipt)
-    let layout_segments = if !prompt.offset_end_ranges.is_empty() {
-        prompt
+    let layout_segments = match prompt.selected_data {
+        DataSelectionChoice::AllData => {
+            vec![LayoutSegment {
+                offset: 0,
+                size: data.len() as u64,
+            }]
+        },
+        DataSelectionChoice::RangeOfData => {
+            prompt
             .offset_end_ranges
             .iter()
             .map(|(offset, size)| LayoutSegment {
@@ -91,11 +98,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 size: *offset + *size,
             })
             .collect()
-    } else {
-        vec![LayoutSegment {
-            offset: 0,
-            size: data.len() as u64,
-        }]
+        },
+        DataSelectionChoice::Erc20TransferData => {
+            get_erc20_transfer_segments(tx_rx.tx().clone(), tx_rx.rx().clone()).await?
+        }
     };
 
     let query = Query {
@@ -221,7 +227,15 @@ struct PromptOutput {
     pub network: Network,
     pub height: u64,
     pub tx_hash: String,
+    pub selected_data: DataSelectionChoice,
     pub offset_end_ranges: Vec<(u64, u64)>,
+}
+
+#[derive(Debug)]
+enum DataSelectionChoice {
+    AllData,
+    RangeOfData,
+    Erc20TransferData,
 }
 
 fn prompt() -> Result<PromptOutput> {
@@ -271,10 +285,11 @@ fn prompt() -> Result<PromptOutput> {
         .expect("Failed to read input");
 
     // Prompt the user for all data or a range of data
-    println!("Do you want all data or a range of data?");
+    println!("Which data do you want represented in your proof results?");
     println!("1. All data");
     println!("2. Range of data");
-    print!("Enter your choice (1 or 2): ");
+    println!("3. ERC20 transfer data");
+    print!("Enter your choice (1, 2, or 3): ");
     io::stdout().flush().unwrap();
 
     let mut data_choice = String::new();
@@ -282,12 +297,12 @@ fn prompt() -> Result<PromptOutput> {
         .read_line(&mut data_choice)
         .expect("Failed to read input");
 
-    let mut all_data = false;
+    let mut selected_data = DataSelectionChoice::RangeOfData;
     let mut offset_end_ranges: Vec<(u64, u64)> = Vec::new();
 
     match data_choice.trim() {
         "1" => {
-            all_data = true;
+            selected_data = DataSelectionChoice::AllData;
         }
         "2" => loop {
             print!("Enter the offset: ");
@@ -333,9 +348,12 @@ fn prompt() -> Result<PromptOutput> {
                 break;
             }
         },
+        "3" => {
+            selected_data = DataSelectionChoice::Erc20TransferData;
+        }
         _ => {
             println!("Invalid choice. Defaulting to all data.");
-            all_data = true;
+            selected_data = DataSelectionChoice::AllData;
         }
     }
 
@@ -344,16 +362,17 @@ fn prompt() -> Result<PromptOutput> {
     println!("Network: {:?}", network);
     println!("Block Height: {}", height);
     println!("Transaction Hash: {}", tx_hash.trim());
-    if all_data {
-        println!("Data: All data\n");
-    } else {
-        println!("Data: Range (offset & end: {:?})\n", offset_end_ranges);
-    }
+    match selected_data {
+        DataSelectionChoice::AllData => println!("Data: All data\n"),
+        DataSelectionChoice::RangeOfData => println!("Data: Range (offset & end: {:?})\n", offset_end_ranges),
+        DataSelectionChoice::Erc20TransferData => println!("Data: ERC 20 Transfer Data)\n"),
+    };
 
     Ok(PromptOutput {
         height,
         network,
         tx_hash: tx_hash.trim().to_string(),
+        selected_data,
         offset_end_ranges,
     })
 }

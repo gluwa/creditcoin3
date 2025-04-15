@@ -18,8 +18,6 @@ use std::sync::Arc;
 /// Event - from (address sending ERC20)
 /// Event - to (address receiving ERC20)
 /// Event - value (sent amount)
-/// Call - Function signature
-/// Call - value sent
 pub async fn get_erc20_transfer_segments(
     tx: Transaction,
     rx: TransactionReceipt,
@@ -32,13 +30,13 @@ pub async fn get_erc20_transfer_segments(
 
     query_builder
         .add_static_field(QueryableFields::RxStatus)
-        .expect("Should work to add from field");
+        .map_err(|e| anyhow!("Adding status field failed: {:?}", e))?;
     query_builder
         .add_static_field(QueryableFields::TxFrom)
-        .expect("Should work to add from field");
+        .map_err(|e| anyhow!("Adding from field failed: {:?}", e))?;
     query_builder
         .add_static_field(QueryableFields::TxTo)
-        .expect("Should work to add from field");
+        .map_err(|e| anyhow!("Adding to field failed: {:?}", e))?;
 
     // Get fields from the transfer event
     query_builder
@@ -58,15 +56,7 @@ pub async fn get_erc20_transfer_segments(
             },
         )
         .await
-        .expect("should have matched an event and constructed offsets");
-
-    query_builder
-        .function_builder("burn".into(), |b| {
-            b.add_signature()?.add_argument("value".into())?;
-            Ok(())
-        })
-        .await
-        .expect("should be able to query some calldata segments");
+        .map_err(|e| anyhow!("Adding event fields failed: {:?}", e))?;
 
     let layout_segments = query_builder
         .get_selected_offsets()
@@ -76,6 +66,12 @@ pub async fn get_erc20_transfer_segments(
             size: *size as u64,
         })
         .collect::<Vec<LayoutSegment>>();
+
+    // TODO:: We may need to account for the block item identifier which was being encoded as a part of TxRx.
+    // If we can avoid having it encoded along with the transactions and receipts, then that will save us some
+    // complexity.
+    // But if we do have to encode it. Then we need to account for it by adding its length to the offsets of the
+    // layout segments created by our query builder. We would make those adjustments here or in a helper fn.
     
     Ok(layout_segments)
 }

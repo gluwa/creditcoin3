@@ -1,9 +1,5 @@
 use alloy::{
-    consensus::{
-        Receipt, ReceiptWithBloom, SignableTransaction, Signed, TxEip1559, TxEip2930, TxEip4844,
-        TxLegacy, TxReceipt,
-    },
-    core::primitives::Log,
+    consensus::TxEnvelope,
     network::Ethereum,
     primitives::BlockHash,
     providers::{
@@ -11,7 +7,6 @@ use alloy::{
         network::TransactionResponse,
         Identity, Provider, ProviderBuilder, RootProvider,
     },
-    rlp::{BufMut, Encodable},
     rpc::{
         client::WsConnect,
         types::{
@@ -71,63 +66,10 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub enum TypedTransaction {
-    Legacy(Signed<TxLegacy>, BlockHash),
-    Type1(Signed<TxEip2930>, BlockHash),
-    Type2(Signed<TxEip1559>, BlockHash),
-    Type3(Signed<TxEip4844>, BlockHash),
-}
-
-impl TypedTransaction {
-    pub fn tx_type(&self) -> Option<u8> {
-        match self {
-            Self::Legacy(_, _) => None,
-            Self::Type1(_, _) => Some(1),
-            Self::Type2(_, _) => Some(2),
-            Self::Type3(_, _) => Some(3),
-        }
-    }
-
-    pub fn tx_hash(&self) -> &BlockHash {
-        match self {
-            Self::Legacy(_, h) => h,
-            Self::Type1(_, h) => h,
-            Self::Type2(_, h) => h,
-            Self::Type3(_, h) => h,
-        }
-    }
-
-    fn fields_len(&self) -> usize {
-        match self {
-            Self::Legacy(tx, _) => {
-                tx.tx().length()
-                    + tx.signature().as_bytes().len()
-                    + tx.tx().signature_hash().length()
-            }
-            Self::Type1(tx, _) => {
-                tx.tx().length()
-                    + tx.signature().as_bytes().len()
-                    + tx.tx().signature_hash().length()
-            }
-            Self::Type2(tx, _) => {
-                tx.tx().length()
-                    + tx.signature().as_bytes().len()
-                    + tx.tx().signature_hash().length()
-            }
-            Self::Type3(tx, _) => {
-                tx.tx().length()
-                    + tx.signature().as_bytes().len()
-                    + tx.tx().signature_hash().length()
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct TxRx {
     id: BlockItemIdentifier,
     tx: Transaction,
-    rx: ReceiptWithBloom<Receipt>,
+    rx: TransactionReceipt,
 }
 
 impl TxRx {
@@ -139,9 +81,7 @@ impl TxRx {
         Ok(Self {
             id,
             tx: tx,
-            rx: Self::transform_rx(rx).ok_or(ConversionError::Custom(
-                "Receipt to ReceiptWithBloom conversion failed".to_owned(),
-            ))?,
+            rx: rx,
         })
     }
 
@@ -149,36 +89,26 @@ impl TxRx {
         &self.tx
     }
 
-    pub fn rx(&self) -> &ReceiptWithBloom<Receipt> {
+    pub fn rx(&self) -> &TransactionReceipt {
         &self.rx
     }
 
     pub fn tx_hash(&self) -> BlockHash {
         self.tx.tx_hash()
     }
-
-    fn transform_rx(rx: TransactionReceipt) -> Option<ReceiptWithBloom<Receipt>> {
-        let rwb = rx.inner.as_receipt_with_bloom()?;
-        rwb.receipt
-            .logs
-            .iter()
-            .map(|l| Log::new(l.address(), l.topics().to_vec(), l.data().data.clone()))
-            .collect::<Option<Vec<Log>>>()
-            .map(|logs| {
-                let new_receipt = alloy::consensus::Receipt {
-                    cumulative_gas_used: rwb.receipt.cumulative_gas_used,
-                    status: rwb.receipt.status,
-                    logs,
-                };
-
-                ReceiptWithBloom::new(new_receipt, rwb.logs_bloom)
-            })
-    }
 }
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        alloy::rlp::encode(self)
+        // TODO: Figure out whether we need the block item identifier and rx bloom here.
+        // I suspect that the item identifier isn't necessary here, as it is referenced in the cairo program.
+        // But we need to account for it when building our layout segments. We would have to add its length
+        // to the offsets of the layout segments created by our query builder.
+        // I also suspect that bloom isn't necessary, since we aren't trying to use the bloom to
+        // optimize searching blocks for logs like intended.
+        ccnext_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone())
+            .expect("Transaction and receipt should be encodable.")
+            .abi
     }
 
     fn id(&self) -> &BlockItemIdentifier {
@@ -186,7 +116,13 @@ impl BlockItem for TxRx {
     }
 
     fn tx_type(&self) -> Option<u8> {
-        self.tx.tx_type()
+        match self.tx.inner.clone() {
+            TxEnvelope::Legacy(_) => None,
+            TxEnvelope::Eip2930(_) => Some(1),
+            TxEnvelope::Eip1559(_) => Some(2),
+            TxEnvelope::Eip4844(_) => Some(3),
+            TxEnvelope::Eip7702(_) => Some(4),
+        }
     }
 }
 

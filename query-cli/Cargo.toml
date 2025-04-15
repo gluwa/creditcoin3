@@ -21,4 +21,4 @@ eth = { workspace = true }
 anyhow.workspace = true
 pallet-prover-primitives = { workspace = true }
 utils = { path = "../common/utils" }
-ccnext-query-builder = { version = "0.1" }
+ccnext-query-builder = { workspace = true }
