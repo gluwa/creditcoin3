@@ -683,6 +683,7 @@
         "label": "job",
         "datasource": "$datasource",
         "type": "query",
+        "refresh": 2,
         "query": "query_result(up{})",
         "multi": true,
         "allValue": ".+"
@@ -692,6 +693,7 @@
         "label": "instance",
         "datasource": "$datasource",
         "type": "query",
+        "refresh": 3,
         "query": "query_result(up{})",
         "multi": true,
         "allValue": ".+"
