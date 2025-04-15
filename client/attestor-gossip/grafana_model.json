@@ -670,7 +670,7 @@
           "value": "default"
         },
         "hide": 0,
-        "label": "Data Source",
+        "label": "Prometheus data source",
         "name": "datasource",
         "options": [],
         "query": "prometheus",
@@ -680,7 +680,7 @@
       },
       {
         "name": "job",
-        "label": "job",
+        "label": "Job",
         "datasource": "$datasource",
         "type": "query",
         "refresh": 2,
@@ -690,7 +690,7 @@
       },
       {
         "name": "instance",
-        "label": "instance",
+        "label": "Instance",
         "datasource": "$datasource",
         "type": "query",
         "refresh": 2,
