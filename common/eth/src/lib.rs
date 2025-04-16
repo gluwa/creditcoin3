@@ -96,12 +96,6 @@ impl TxRx {
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        // TODO: Figure out whether we need the block item identifier and rx bloom here.
-        // I suspect that the item identifier isn't necessary here, as it is referenced in the cairo program.
-        // But we need to account for it when building our layout segments. We would have to add its length
-        // to the offsets of the layout segments created by our query builder.
-        // I also suspect that bloom isn't necessary, since we aren't trying to use the bloom to
-        // optimize searching blocks for logs like intended.
         ccnext_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone())
             .expect("Transaction and receipt should be encodable.")
             .abi
