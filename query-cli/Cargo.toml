@@ -10,7 +10,9 @@ release = false
 
 [dependencies]
 alloy = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = "0.1"
@@ -21,4 +23,5 @@ eth = { workspace = true }
 anyhow.workspace = true
 pallet-prover-primitives = { workspace = true }
 utils = { path = "../common/utils" }
+ccnext-abi-encoding = { workspace = true }
 ccnext-query-builder = { workspace = true }

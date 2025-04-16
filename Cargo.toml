@@ -60,6 +60,7 @@ parity-scale-codec = { version = "3.6", default-features = false, features = [
 parking_lot = "0.12.1"
 paste = "1.0.14"
 primitive-types = "0.12.1"
+reqwest = { version = "0.12", features = ["multipart"] }
 scale-info = { version = "2.11", default-features = false, features = [
     "derive",
 ] }
@@ -213,7 +214,7 @@ precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "s
 
 # Gluwa
 ccnext-abi-encoding = { version = "0.1" }
-ccnext-query-builder = { version = "0.1 " }
+ccnext-query-builder = { version = "0.2.1" }
 creditcoin3-runtime = { path = "runtime", default-features = false }
 pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }

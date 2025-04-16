@@ -10,6 +10,8 @@ use pallet_prover_primitives::{LayoutSegment, Query};
 use utils::block_item_traits::BlockItem;
 
 mod query_builder;
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
@@ -81,7 +83,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let data = tx_rx.payload_bytes();
 
-    // TODO: Replace this with call of get_erc20_transfer_segments(Transaction, TransactionReceipt)
     let layout_segments = match prompt.selected_data {
         DataSelectionChoice::AllData => {
             vec![LayoutSegment {
@@ -100,7 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .collect()
         },
         DataSelectionChoice::Erc20TransferData => {
-            get_erc20_transfer_segments(tx_rx.tx().clone(), tx_rx.rx().clone()).await?
+            get_erc20_transfer_segments(prompt.network.clone(), tx_rx.tx().clone(), tx_rx.rx().clone()).await?
         }
     };
 
@@ -197,7 +198,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Network {
     Sepolia,
     Ethereum,
