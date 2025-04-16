@@ -351,9 +351,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate ABI from source code
         working-directory: ./precompiles/metadata
@@ -388,9 +386,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate ABI from source code
         working-directory: ./precompiles/metadata
@@ -962,9 +958,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
@@ -1055,9 +1049,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
@@ -1882,9 +1874,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -2126,9 +2116,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
@@ -2352,9 +2340,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
@@ -2438,9 +2424,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
@@ -2549,9 +2533,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
@@ -3082,9 +3064,7 @@ jobs:
 
       - name: Install Solidity compiler
         run: |
-          sudo add-apt-repository ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install solc
+          sudo .github/install-solidity-compiler.sh
 
       - name: Generate ABI from source code
         working-directory: ./precompiles/metadata

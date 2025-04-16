@@ -20,13 +20,13 @@ WORKDIR /creditcoin-node
 FROM runtime-base AS devel-base
 USER 0
 # NOTE: only devel releated dependencies here
-RUN apt-get install -y --no-install-recommends software-properties-common && \
-    add-apt-repository ppa:ethereum/ethereum && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    gcc libgmp-dev libpq-dev make python3.10-dev python3-virtualenv solc
-USER creditcoin
+RUN apt-get install -y --no-install-recommends \
+    software-properties-common \
+    gcc libgmp-dev libpq-dev make python3.10-dev python3-virtualenv
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
+RUN .github/install-solidity-compiler.sh
+
+USER creditcoin
 ENV PATH=/creditcoin-node/venv/bin:${PATH} \
     VIRTUAL_ENV=/creditcoin-node/venv
 RUN virtualenv --python /usr/bin/python3.10 /creditcoin-node/venv
