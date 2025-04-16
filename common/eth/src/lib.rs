@@ -78,11 +78,7 @@ impl TxRx {
         tx: Transaction,
         rx: TransactionReceipt,
     ) -> Result<Self, ConversionError> {
-        Ok(Self {
-            id,
-            tx: tx,
-            rx: rx,
-        })
+        Ok(Self { id, tx, rx })
     }
 
     pub fn tx(&self) -> &Transaction {

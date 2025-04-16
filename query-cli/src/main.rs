@@ -84,24 +84,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let data = tx_rx.payload_bytes();
 
     let layout_segments = match prompt.selected_data {
-        DataSelectionChoice::AllData => {
+        SelectedData::All => {
             vec![LayoutSegment {
                 offset: 0,
                 size: data.len() as u64,
             }]
-        },
-        DataSelectionChoice::RangeOfData => {
-            prompt
+        }
+        SelectedData::RangeOfData => prompt
             .offset_end_ranges
             .iter()
             .map(|(offset, size)| LayoutSegment {
                 offset: *offset,
                 size: *offset + *size,
             })
-            .collect()
-        },
-        DataSelectionChoice::Erc20TransferData => {
-            get_erc20_transfer_segments(prompt.network.clone(), tx_rx.tx().clone(), tx_rx.rx().clone()).await?
+            .collect(),
+        SelectedData::Erc20TransferData => {
+            get_erc20_transfer_segments(
+                prompt.network.clone(),
+                tx_rx.tx().clone(),
+                tx_rx.rx().clone(),
+            )
+            .await?
         }
     };
 
@@ -228,13 +231,13 @@ struct PromptOutput {
     pub network: Network,
     pub height: u64,
     pub tx_hash: String,
-    pub selected_data: DataSelectionChoice,
+    pub selected_data: SelectedData,
     pub offset_end_ranges: Vec<(u64, u64)>,
 }
 
 #[derive(Debug)]
-enum DataSelectionChoice {
-    AllData,
+enum SelectedData {
+    All,
     RangeOfData,
     Erc20TransferData,
 }
@@ -298,12 +301,12 @@ fn prompt() -> Result<PromptOutput> {
         .read_line(&mut data_choice)
         .expect("Failed to read input");
 
-    let mut selected_data = DataSelectionChoice::RangeOfData;
+    let mut selected_data = SelectedData::RangeOfData;
     let mut offset_end_ranges: Vec<(u64, u64)> = Vec::new();
 
     match data_choice.trim() {
         "1" => {
-            selected_data = DataSelectionChoice::AllData;
+            selected_data = SelectedData::All;
         }
         "2" => loop {
             print!("Enter the offset: ");
@@ -350,11 +353,11 @@ fn prompt() -> Result<PromptOutput> {
             }
         },
         "3" => {
-            selected_data = DataSelectionChoice::Erc20TransferData;
+            selected_data = SelectedData::Erc20TransferData;
         }
         _ => {
             println!("Invalid choice. Defaulting to all data.");
-            selected_data = DataSelectionChoice::AllData;
+            selected_data = SelectedData::All;
         }
     }
 
@@ -364,9 +367,11 @@ fn prompt() -> Result<PromptOutput> {
     println!("Block Height: {}", height);
     println!("Transaction Hash: {}", tx_hash.trim());
     match selected_data {
-        DataSelectionChoice::AllData => println!("Data: All data\n"),
-        DataSelectionChoice::RangeOfData => println!("Data: Range (offset & end: {:?})\n", offset_end_ranges),
-        DataSelectionChoice::Erc20TransferData => println!("Data: ERC 20 Transfer Data)\n"),
+        SelectedData::All => println!("Data: All data\n"),
+        SelectedData::RangeOfData => {
+            println!("Data: Range (offset & end: {:?})\n", offset_end_ranges)
+        }
+        SelectedData::Erc20TransferData => println!("Data: ERC 20 Transfer Data)\n"),
     };
 
     Ok(PromptOutput {
