@@ -353,7 +353,7 @@ jobs:
         run: |
           sudo add-apt-repository ppa:ethereum/ethereum
           sudo apt-get update
-          sudo apt-get install colordiff solc
+          sudo apt-get install solc
 
       - name: Generate ABI from source code
         working-directory: ./precompiles/metadata
@@ -390,7 +390,7 @@ jobs:
         run: |
           sudo add-apt-repository ppa:ethereum/ethereum
           sudo apt-get update
-          sudo apt-get install colordiff solc
+          sudo apt-get install solc
 
       - name: Generate ABI from source code
         working-directory: ./precompiles/metadata
@@ -425,6 +425,8 @@ jobs:
 
       - name: Check
         run: |
+          sudo apt-get install colordiff
+
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
 
