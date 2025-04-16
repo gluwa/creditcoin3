@@ -4,6 +4,6 @@
 
 set -euo pipefail
 
-add-apt-repository ppa:ethereum/ethereum
-apt-get update
-apt-get install solc
+curl -L https://github.com/ethereum/solidity/releases/download/v0.8.29/solc-static-linux > /usr/bin/solc
+
+chmod a+x /usr/bin/solc
