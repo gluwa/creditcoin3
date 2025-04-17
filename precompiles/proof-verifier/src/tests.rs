@@ -1,3 +1,5 @@
+#[cfg(all(test, target_arch = "x86_64"))]
+use crate::ResultSegmentsById;
 use crate::{
     mock::{
         Account::{Alice, Bob, Precompile},
@@ -5,8 +7,6 @@ use crate::{
     },
     BoundedBytes, ConstU50MB,
 };
-#[cfg(all(test, target_arch = "x86_64"))]
-use crate::ResultSegmentsById;
 
 use frame_support::assert_ok;
 use pallet_prover_primitives::{LayoutSegment, Query, STARK_PROGRAM_V3_HASH};
