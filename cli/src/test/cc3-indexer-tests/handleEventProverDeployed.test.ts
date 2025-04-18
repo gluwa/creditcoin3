@@ -14,9 +14,13 @@ describe('handleEventProverDeployed()', () => {
     }, 30_000);
 
     describe('when there are provers running', () => {
-        it('graphQL returns known Prover entity', async () => {
+        it('graphQL returns known Prover entities', async () => {
             const response = await graphQLQuery(
-                `query { provers(orderBy: ID_ASC, last: 10) { nodes { id, owner, proceedsAccount, contractAddress, baseCostPerByte, baseFee, chainKey, name }}}`,
+                `query { provers(
+                    orderBy: ID_ASC,
+                    last: 10,
+                    filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }},
+                ) { nodes { id, owner, proceedsAccount, contractAddress, baseCostPerByte, baseFee, chainKey, name }}}`,
             );
             expect(response.data.provers.nodes).toBeTruthy();
             expect(response.data.provers.nodes.length).toBeGreaterThanOrEqual(1);

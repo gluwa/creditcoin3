@@ -31,11 +31,16 @@ describe('handleQuerySubmitted()', () => {
 
         // NOTE: chain starts with prover for Anvil 1 already running
         let response = await graphQLQuery(
-            `query { provers(orderBy: ID_ASC, last: 10) { nodes { id, owner, chainKey, contractAddress }}}`,
+            `query { provers(
+                orderBy: ID_ASC,
+                last: 10,
+                filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }},
+            ) { nodes { id, owner, chainKey, contractAddress }}}`,
         );
         for (const node of response.data.provers.nodes) {
-            if (node.owner === alith.address && parseInt(node.chainKey, 10) === chain_Anvil1_Key) {
+            if (node.owner === alith.address) {
                 contractAddress = node.contractAddress;
+                // NOTE: will operate on contract for last prover deployed for this source chain
             }
         }
         expect(contractAddress.startsWith('0x')).toEqual(true);
