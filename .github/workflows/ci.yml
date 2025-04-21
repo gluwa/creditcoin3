@@ -379,7 +379,7 @@ jobs:
           creditcoin help
           creditcoin wizard --help
 
-  sanity-test-precompiles:
+  sanity-test-solidity:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -388,13 +388,13 @@ jobs:
         run: |
           sudo .github/install-solidity-compiler.sh
 
-      - name: Generate ABI from source code
+      - name: Generate precompiles ABI from source code
         working-directory: ./precompiles/metadata
         run: |
           solc --version
           ./abi-creator.sh
 
-      - name: Upload generated ABI
+      - name: Upload generated precompiles ABI
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -419,12 +419,34 @@ jobs:
         run: |
           echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
 
-      - name: Check
+      - name: Check precompiles
         run: |
           sudo apt-get install colordiff
 
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
+
+      - name: Rebuild ABI for Prover.sol
+        working-directory: ./common/eth/contracts/
+        run: |
+          ./build.sh
+
+      - name: Check if prover.json is in sync with Prover.sol
+        working-directory: ./common/eth/contracts/
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff
+          echo "======================================="
+
+          # shellcheck disable=SC2143
+          if [ -n "$(git status --short --untracked-files=no)" ]; then
+              echo "FAIL: changes detected. prover.json NOT in sync with Prover.sol, see above."
+              exit 1
+          else
+              echo "PASS: No changes detected. All good."
+              exit 0
+          fi
 
   fmt:
     name: Rustfmt

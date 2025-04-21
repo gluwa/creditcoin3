@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Define the input and output file names
 input_file="artifact.json"
 output_file="prover.json"
