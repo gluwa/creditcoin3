@@ -5,6 +5,8 @@
 # Running the POC
 
 ## 0. Setup
+Install Foundry: See https://book.getfoundry.sh/getting-started/installation 
+
 Get dependencies and build
 ```sh
 cd bridge-usage-example

@@ -265,7 +265,7 @@ fn deserialize_and_compact_ranges<'de, D: serde::Deserializer<'de>>(
 //impl JsonSerializable for ClaimSerializable {}
 //impl JsonSerializable for Vec<ClaimSerializable> {}
 
-fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+pub fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     // Sort segments in order of least to greatest offset
     let mut sanitized = ranges;
     sanitized.sort_by(|range_a, range_b| range_a.start.cmp(&range_b.start));

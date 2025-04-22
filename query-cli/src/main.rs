@@ -91,11 +91,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }]
         }
         SelectedData::RangeOfData => prompt
-            .offset_end_ranges
+            .offsets_and_sizes
             .iter()
             .map(|(offset, size)| LayoutSegment {
                 offset: *offset,
-                size: *offset + *size,
+                size: *size,
             })
             .collect(),
         SelectedData::Erc20TransferData => {
@@ -232,7 +232,7 @@ struct PromptOutput {
     pub height: u64,
     pub tx_hash: String,
     pub selected_data: SelectedData,
-    pub offset_end_ranges: Vec<(u64, u64)>,
+    pub offsets_and_sizes: Vec<(u64, u64)>,
 }
 
 #[derive(Debug)]
@@ -302,7 +302,7 @@ fn prompt() -> Result<PromptOutput> {
         .expect("Failed to read input");
 
     let mut selected_data = SelectedData::RangeOfData;
-    let mut offset_end_ranges: Vec<(u64, u64)> = Vec::new();
+    let mut offsets_and_sizes: Vec<(u64, u64)> = Vec::new();
 
     match data_choice.trim() {
         "1" => {
@@ -321,7 +321,7 @@ fn prompt() -> Result<PromptOutput> {
                 .parse()
                 .expect("Please enter a valid number");
 
-            print!("Enter the end: ");
+            print!("Enter the size: ");
             io::stdout().flush().unwrap();
 
             let mut end_input = String::new();
@@ -333,12 +333,8 @@ fn prompt() -> Result<PromptOutput> {
                 .parse()
                 .expect("Please enter a valid number");
 
-            if offset < end {
-                offset_end_ranges.push((offset, end));
-            } else {
-                println!("Invalid range: offset should be less than end. Please try again.");
-                continue;
-            }
+            offsets_and_sizes.push((offset, end));
+            
 
             print!("Do you want to add another range? (y/n): ");
             io::stdout().flush().unwrap();
@@ -369,7 +365,7 @@ fn prompt() -> Result<PromptOutput> {
     match selected_data {
         SelectedData::All => println!("Data: All data\n"),
         SelectedData::RangeOfData => {
-            println!("Data: Range (offset & end: {:?})\n", offset_end_ranges)
+            println!("Data: Range (offset & end: {:?})\n", offsets_and_sizes)
         }
         SelectedData::Erc20TransferData => println!("Data: ERC 20 Transfer Data)\n"),
     };
@@ -379,6 +375,6 @@ fn prompt() -> Result<PromptOutput> {
         network,
         tx_hash: tx_hash.trim().to_string(),
         selected_data,
-        offset_end_ranges,
+        offsets_and_sizes,
     })
 }
