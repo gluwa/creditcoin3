@@ -3097,6 +3097,9 @@ jobs:
         run: |
           .github/check-logs-for-error.sh /var/tmp/cc3-indexer-testing/indexer-compose.log
 
+          sudo apt-get install colordiff
+          .github/check-cc3-indexer-handlers.sh /var/tmp/cc3-indexer-testing/.monitor/app-fileA.txt
+
       - name: Sanity check Int vs BigInt data types
         if: always()
         run: |
