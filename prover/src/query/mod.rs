@@ -156,22 +156,24 @@ pub async fn process(
 
 fn get_serializable(query: &Query) -> ClaimSerializable {
     // Convert byte ranges into felt ranges expected by Cairo program
-    let byte_ranges = query
+    let felt_ranges = query
         .layout_segments
         .iter()
-        .map(|layout| Range {
-            start: usize::try_from(layout.offset).expect("layout offset is too large"),
-            end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+        .map(|layout| {
+            let byte_range = Range {
+                start: usize::try_from(layout.offset).expect("layout offset is too large"),
+                end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+            };
+            // Convert bytes into felts of length 248 bits
+            (byte_range.start / U248_BYTE_COUNT)
+                ..(byte_range.end / U248_BYTE_COUNT
+                    + usize::from(byte_range.end % U248_BYTE_COUNT != 0))
         })
         .collect::<Vec<_>>();
-    let felt_ranges = byte_ranges.into_iter().map(|range| {
-            (range.start / U248_BYTE_COUNT)
-                ..(range.end / U248_BYTE_COUNT + usize::from(range.end % U248_BYTE_COUNT != 0))
-    }).collect::<Vec<_>>();
-    
+
     ClaimSerializable {
         id: ClaimIdentifier::new(query.height, query.index),
         // Ranges should already come to us compacted and sorted, but we enforce this here
-        felt_ranges: prover_primitives::claim::compact_and_sort_ranges(felt_ranges)
+        felt_ranges: prover_primitives::claim::compact_and_sort_ranges(felt_ranges),
     }
 }

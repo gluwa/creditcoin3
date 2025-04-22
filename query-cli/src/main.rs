@@ -334,7 +334,6 @@ fn prompt() -> Result<PromptOutput> {
                 .expect("Please enter a valid number");
 
             offsets_and_sizes.push((offset, end));
-            
 
             print!("Do you want to add another range? (y/n): ");
             io::stdout().flush().unwrap();
