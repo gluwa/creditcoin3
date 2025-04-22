@@ -3090,6 +3090,7 @@ jobs:
         working-directory: ./cc3-indexer
         run: |
           docker compose logs --no-color > /var/tmp/cc3-indexer-testing/indexer-compose.log
+          docker cp cc3-indexer-subquery-node-1:/.monitor /var/tmp/cc3-indexer-testing/
 
       - name: Check cc3-indexer logs for errors
         if: always()

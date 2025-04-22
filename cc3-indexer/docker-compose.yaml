@@ -40,6 +40,7 @@ services:
             - --workers=4
             - --batch-size=30
             - --unfinalized-blocks=true
+            - --monitor-file-size="100"
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://subquery-node:3000/ready']
             interval: 3s
