@@ -56,13 +56,13 @@ describe('Precompile: verify()', (): void => {
         const gasLimit = 30_000_000;
 
         const query = {
-            chainId: 31337,
-            height: 1,
+            chainId: 0,
+            height: 4,
             index: 0,
             layout: [
                 {
                     offset: 0,
-                    size: 418,
+                    size: 681,
                 },
             ],
         };
