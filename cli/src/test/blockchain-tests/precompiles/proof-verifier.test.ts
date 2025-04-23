@@ -1,6 +1,7 @@
 import { WebSocketProvider, ethers } from 'ethers';
 import contractABIJSON = require('../artifacts/proof_verifier.json');
 import validProof = require('../artifacts/valid_proof.json');
+import { validQuery } from '../helpers';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { u8aToHex } from '../../../lib/common';
 import { fundFromSudo } from '../../integration-tests/helpers';
@@ -55,21 +56,10 @@ describe('Precompile: verify()', (): void => {
     test('should work when called with valid input', async () => {
         const gasLimit = 30_000_000;
 
-        const query = {
-            chainId: 0,
-            height: 4,
-            index: 0,
-            layout: [
-                {
-                    offset: 0,
-                    size: 681,
-                },
-            ],
-        };
         // this needs to be a bytes array
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
 
-        const result = await contract.verify(proof, query, { gasPrice, gasLimit });
+        const result = await contract.verify(proof, validQuery, { gasPrice, gasLimit });
         const receipt = await result.wait();
         expect(receipt).toBeDefined();
 

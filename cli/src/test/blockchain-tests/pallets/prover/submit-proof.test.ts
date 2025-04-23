@@ -3,6 +3,7 @@ import { u8aToHex } from '../../../../lib/common';
 import { extractFee } from '../../../utils';
 import { starkProgramHash, starkProgramVersion } from './consts';
 import validProof = require('../../artifacts/valid_proof.json');
+import { validQuery } from '../../helpers';
 
 describe('SubmitProof', (): void => {
     let api: ApiPromise;
@@ -23,23 +24,12 @@ describe('SubmitProof', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
-        const query = {
-            chainId: 0,
-            height: 4,
-            index: 0,
-            layoutSegments: [
-                {
-                    offset: 0,
-                    size: 681,
-                },
-            ],
-        };
         // this is a hex encoded bytes array
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
 
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.prover
-                .submitProof(proof, query)
+                .submitProof(proof, validQuery)
                 .signAndSend(signer, { nonce: -1 }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })

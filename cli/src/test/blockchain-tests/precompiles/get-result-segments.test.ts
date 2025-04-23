@@ -1,6 +1,7 @@
 import { WebSocketProvider, ethers } from 'ethers';
 import contractABIJSON = require('../artifacts/proof_verifier.json');
 import validProof = require('../artifacts/valid_proof.json');
+import { validQuery } from '../helpers';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { expectNoEventError, expectNoDispatchError } from '../../../lib';
 import { u8aToHex } from '../../../lib/common';
@@ -24,20 +25,9 @@ describe('Precompile: get_result_segments()', (): void => {
             .signAndSend(root);
 
         const alice = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
-        const query = {
-            chainId: 0,
-            height: 4,
-            index: 0,
-            layoutSegments: [
-                {
-                    offset: 0,
-                    size: 681,
-                },
-            ],
-        };
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
         await api.tx.prover
-            .submitProof(proof, query)
+            .submitProof(proof, validQuery)
             .signAndSend(alice, { nonce: -1 }, ({ dispatchError, events, status }) => {
                 expectNoDispatchError(api, dispatchError);
                 if (events) events.forEach((event) => expectNoEventError(api, event));

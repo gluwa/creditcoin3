@@ -2,6 +2,19 @@ import { ethers } from 'ethers';
 import { readFile } from 'fs/promises';
 import path from 'path';
 
+// matches artifacts/valid_proof.json
+export const validQuery = {
+    chainId: 31337, // not checked by Cairo
+    height: 4,
+    index: 0,
+    layoutSegments: [
+        {
+            offset: 0,
+            size: 681,
+        },
+    ],
+};
+
 export const deployContract = async (
     contractName: string,
     // deno-lint-ignore no-explicit-any
