@@ -47,8 +47,6 @@ where
         proof: BoundedBytes<ConstU50MB>,
         query: Query,
     ) -> EvmResult<u64> {
-        log::info!("START of verify()");
-
         handle.record_log_costs_manual(3, 32)?;
 
         let query_id = query.id();
@@ -56,8 +54,6 @@ where
         // Build call with origin.
         {
             let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
-
-            log::info!("BEFORE submit_proof() call");
 
             let result = RuntimeHelper::<Runtime>::try_dispatch(
                 handle,
@@ -68,8 +64,6 @@ where
                 },
                 0,
             );
-
-            log::info!("AFTER submit_proof(), result={:?}", result);
 
             // Instead of erroring out, we propagate status codes to the prover smart contract
             // and let it deal with them.
