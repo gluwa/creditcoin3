@@ -59,7 +59,13 @@ describe('Precompile: verify()', (): void => {
         // this needs to be a bytes array
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
 
-        const result = await contract.verify(proof, validQuery, { gasPrice, gasLimit });
+        // when passing this to the verify() precompile it expects the field to be called `layout`
+        // while the extrinsic expects this as `layoutSegments`
+        const query = {};
+        // @ts-ignore
+        delete Object.assign(query, validQuery, { ['layout']: validQuery.layoutSegments }).layoutSegments;
+
+        const result = await contract.verify(proof, query, { gasPrice, gasLimit });
         const receipt = await result.wait();
         expect(receipt).toBeDefined();
 

@@ -7,6 +7,7 @@ export const validQuery = {
     chainId: 31337, // not checked by Cairo
     height: 4,
     index: 0,
+    // note: must be `layout` when sending to verify() precompile
     layoutSegments: [
         {
             offset: 0,
