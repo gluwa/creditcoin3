@@ -84,12 +84,4 @@ impl Query {
         let query = self.clone();
         H256::from(keccak_256(&encode_arguments(query)))
     }
-
-    pub fn transform_to_felt_offsets(&mut self) {
-        for segment in &mut self.layout_segments {
-            segment.offset /= U248_BYTE_COUNT;
-            segment.size =
-                segment.size / U248_BYTE_COUNT + (segment.size % U248_BYTE_COUNT != 0) as u64;
-        }
-    }
 }

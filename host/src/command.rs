@@ -161,7 +161,7 @@ fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
 }
 
 pub fn validate_query_against_proof(
-    mut query: Query,
+    query: Query,
     cairo_verifier_output: &CairoVerifierOutput,
 ) -> Result<(), ClaimValidationError> {
     match query.index.cmp(&cairo_verifier_output.claim_index) {
@@ -171,7 +171,16 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.claim_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                query.transform_to_felt_offsets();
+                // Sanitize incoming layout segments
+                let sanitized = sanitize(&query.layout_segments);
+                // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
+                let felt_segments = convert_segments_to_felt_segments(&sanitized);
+                let query = Query {
+                    layout_segments: felt_segments,
+                    ..query
+                };
+                log::debug!("Verifying layout segments hash. Sanitized felt segments: {:?}", query.layout_segments);
+                
                 let local_offset_hash = match hash_layout_segments(&query) {
                     Ok(hash) => hash,
                     Err(e) => {
@@ -282,8 +291,10 @@ pub fn run_verifier(
         })?;
 
     // Save layout segments for later composition of ResultSegments
-    let layout_segments = query.layout_segments.clone();
+    let unsanitized_layout_segments = query.layout_segments.clone();
 
+    // Sanitized layout segments are used to generate the layout segments hash in 
+    // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
     match validate_query_against_proof(query, &cairo_verifier_output) {
         Ok(_) => log::debug!("Query validated successfully"),
         Err(e) => return Err(VerifierError::QueryValidationError(e)),
@@ -304,7 +315,7 @@ pub fn run_verifier(
         // Return result segments along with message on success
         let claim_felts = cairo_verifier_output.claim_fields.clone();
         let result_segments: Vec<ResultSegment> =
-            get_result_segments(&claim_felts, &layout_segments);
+            get_result_segments(&claim_felts, &unsanitized_layout_segments);
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok((
@@ -326,7 +337,7 @@ pub fn get_result_segments(
     let sanitized = sanitize(layout_segments);
 
     // 2. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-    let felt_segments = convert_ranges_to_felt_ranges(&sanitized);
+    let felt_segments = convert_segments_to_felt_segments(&sanitized);
 
     // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
     let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &felt_segments);
@@ -381,19 +392,15 @@ fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
     sanitized
 }
 
-fn convert_ranges_to_felt_ranges(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
     let mut felt_ranges = Vec::with_capacity(segments.len());
-    for seg in segments {
-        // Inclusive last byte index of the segment
-        let last_byte_index = seg.offset + seg.size - 1;
-        // Felt index at start and end of the segment
-        let felt_offset = seg.offset / U248_BYTE_COUNT as u64;
-        let felt_end = last_byte_index / U248_BYTE_COUNT as u64;
-        // Number of 31-byte felts needed to cover this segment
-        let felt_count = felt_end - felt_offset + 1;
+    for segment in segments {
+        let offset = segment.offset / U248_BYTE_COUNT as u64;
+        let size = segment.size / U248_BYTE_COUNT as u64 + (segment.size % U248_BYTE_COUNT as u64 != 0) as u64;
+
         felt_ranges.push(LayoutSegment {
-            offset: felt_offset,
-            size: felt_count,
+            offset,
+            size,
         });
     }
     felt_ranges
@@ -644,7 +651,11 @@ pub mod tests {
 
         let error = result.err().unwrap();
 
-        query.transform_to_felt_offsets();
+        // Transform segments to use felt offsets
+        let query = Query {
+            layout_segments: convert_segments_to_felt_segments(&query.layout_segments),
+            ..query
+        };
         let local_offset_hash = hash_layout_segments(&query).unwrap();
 
         match error {
