@@ -1719,6 +1719,10 @@ declare module '@polkadot/types/lookup' {
             readonly maybeTotal: Option<u128>;
             readonly maybeUnlocking: Option<Vec<PalletStakingUnlockChunk>>;
         } & Struct;
+        readonly isWithdrawOverstake: boolean;
+        readonly asWithdrawOverstake: {
+            readonly stash: AccountId32;
+        } & Struct;
         readonly type:
             | 'Bond'
             | 'BondExtra'
@@ -1749,7 +1753,8 @@ declare module '@polkadot/types/lookup' {
             | 'PayoutStakersByPage'
             | 'UpdatePayee'
             | 'DeprecateControllerBatch'
-            | 'RestoreLedger';
+            | 'RestoreLedger'
+            | 'WithdrawOverstake';
     }
 
     /** @name PalletStakingPalletConfigOpU128 (191) */
