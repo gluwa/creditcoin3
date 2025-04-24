@@ -171,6 +171,9 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.claim_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
+                 // Sanitized layout segments are used to generate the layout segments hash in
+                // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
+
                 // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
                 let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
                 // Sanitize incoming layout segments
@@ -843,13 +846,14 @@ mod arch_independent_tests {
                 },
             ],
         };
+        // This process used on the prover side
         let ranges = get_ranges(&query);
+        // This process used on verifier side
         let segments = get_segments(&query);
 
         check_ranges_against_segments(&ranges, &segments);
     }
 
-    // This process used on the prover side
     fn get_ranges(query: &Query) -> Vec<Range<usize>> {
         // Convert byte ranges into felt ranges expected by Cairo program
         let felt_ranges =
@@ -859,7 +863,6 @@ mod arch_independent_tests {
         prover_primitives::claim::compact_and_sort_ranges(felt_ranges)
     }
 
-    // This process used on verifier side
     fn get_segments(query: &Query) -> Vec<LayoutSegment> {
         // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
         let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
