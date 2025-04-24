@@ -2718,6 +2718,18 @@ declare module '@polkadot/api-base/types/submittable' {
                 [PalletStakingValidatorPrefs]
             >;
             /**
+             * Adjusts the staking ledger by withdrawing any excess staked amount.
+             *
+             * This function corrects cases where a user's recorded stake in the ledger
+             * exceeds their actual staked funds. This situation can arise due to cases such as
+             * external slashing by another pallet, leading to an inconsistency between the ledger
+             * and the actual stake.
+             **/
+            withdrawOverstake: AugmentedSubmittable<
+                (stash: AccountId32 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [AccountId32]
+            >;
+            /**
              * Remove any unlocked chunks from the `unlocking` queue from our management.
              *
              * This essentially frees up that balance to be used by the stash account to do whatever
