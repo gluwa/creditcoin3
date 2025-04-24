@@ -171,7 +171,7 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.claim_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                 // Sanitized layout segments are used to generate the layout segments hash in
+                // Sanitized layout segments are used to generate the layout segments hash in
                 // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
 
                 // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
