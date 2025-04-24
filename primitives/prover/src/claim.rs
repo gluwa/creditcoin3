@@ -1,6 +1,7 @@
 use crate::claim_query::{ClaimQuery, ClaimQueryFieldError};
 use crate::types::StoneProofPublicInput;
 use core::ops::Range;
+use pallet_prover_primitives::LayoutSegment;
 use rlp::Rlp;
 use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
@@ -264,6 +265,22 @@ fn deserialize_and_compact_ranges<'de, D: serde::Deserializer<'de>>(
 
 //impl JsonSerializable for ClaimSerializable {}
 //impl JsonSerializable for Vec<ClaimSerializable> {}
+
+pub fn byte_segments_into_felt_ranges(layout_segments: &[LayoutSegment]) -> Vec<Range<usize>> {
+    layout_segments
+        .iter()
+        .map(|layout| {
+            let byte_range = Range {
+                start: usize::try_from(layout.offset).expect("layout offset is too large"),
+                end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
+            };
+            // Convert bytes into felts of length 248 bits
+            (byte_range.start / U248_BYTE_COUNT)
+                ..(byte_range.end / U248_BYTE_COUNT
+                    + usize::from(byte_range.end % U248_BYTE_COUNT != 0))
+        })
+        .collect::<Vec<_>>()
+}
 
 pub fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     // Sort segments in order of least to greatest offset

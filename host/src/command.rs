@@ -171,16 +171,19 @@ pub fn validate_query_against_proof(
             if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.claim_fields {
                 Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
             } else {
-                // Sanitize incoming layout segments
-                let sanitized = sanitize(&query.layout_segments);
                 // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-                let felt_segments = convert_segments_to_felt_segments(&sanitized);
+                let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
+                // Sanitize incoming layout segments
+                let sanitized = sanitize(&felt_segments);
                 let query = Query {
-                    layout_segments: felt_segments,
+                    layout_segments: sanitized,
                     ..query
                 };
-                log::debug!("Verifying layout segments hash. Sanitized felt segments: {:?}", query.layout_segments);
-                
+                log::debug!(
+                    "Verifying layout segments hash. Sanitized felt segments: {:?}",
+                    query.layout_segments
+                );
+
                 let local_offset_hash = match hash_layout_segments(&query) {
                     Ok(hash) => hash,
                     Err(e) => {
@@ -293,7 +296,7 @@ pub fn run_verifier(
     // Save layout segments for later composition of ResultSegments
     let unsanitized_layout_segments = query.layout_segments.clone();
 
-    // Sanitized layout segments are used to generate the layout segments hash in 
+    // Sanitized layout segments are used to generate the layout segments hash in
     // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
     match validate_query_against_proof(query, &cairo_verifier_output) {
         Ok(_) => log::debug!("Query validated successfully"),
@@ -333,11 +336,11 @@ pub fn get_result_segments(
     claim_felts: &[Felt],
     layout_segments: &[LayoutSegment],
 ) -> Vec<ResultSegment> {
-    // 1. Sanitize incoming layout segments
-    let sanitized = sanitize(layout_segments);
+    // 1. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
+    let felt_segments = convert_segments_to_felt_segments(layout_segments);
 
-    // 2. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-    let felt_segments = convert_segments_to_felt_segments(&sanitized);
+    // 2. Sanitize incoming layout segments
+    let sanitized = sanitize(&felt_segments);
 
     // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
     let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &felt_segments);
@@ -393,17 +396,21 @@ fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
 }
 
 fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
-    let mut felt_ranges = Vec::with_capacity(segments.len());
-    for segment in segments {
-        let offset = segment.offset / U248_BYTE_COUNT as u64;
-        let size = segment.size / U248_BYTE_COUNT as u64 + (segment.size % U248_BYTE_COUNT as u64 != 0) as u64;
-
-        felt_ranges.push(LayoutSegment {
-            offset,
-            size,
+    let mut felt_segments = Vec::with_capacity(segments.len());
+    for seg in segments {
+        // Inclusive last byte index of the segment
+        let last_byte_index = seg.offset + seg.size - 1;
+        // Felt index at start and end of the segment
+        let felt_offset = seg.offset / U248_BYTE_COUNT as u64;
+        let felt_end = last_byte_index / U248_BYTE_COUNT as u64;
+        // Number of 31-byte felts needed to cover this segment
+        let felt_count = felt_end - felt_offset + 1;
+        felt_segments.push(LayoutSegment {
+            offset: felt_offset,
+            size: felt_count,
         });
     }
-    felt_ranges
+    felt_segments
 }
 
 fn extract_felt_ranges_from_felt_array(
@@ -789,5 +796,84 @@ pub mod tests {
             cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod arch_independent_tests {
+    use super::*;
+    #[test]
+    fn prover_and_verifier_segment_conversions_match() {
+        let query = Query {
+            chain_id: 31337,
+            height: 1,
+            index: 0,
+            layout_segments: vec![
+                LayoutSegment {
+                    offset: 448,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 192,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 224,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 800,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 928,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 960,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 992,
+                    size: 32,
+                },
+                LayoutSegment {
+                    offset: 1056,
+                    size: 32,
+                },
+            ],
+        };
+        let ranges = get_ranges(&query);
+        let segments = get_segments(&query);
+
+        check_ranges_against_segments(&ranges, &segments);
+    }
+
+    // This process used on the prover side
+    fn get_ranges(query: &Query) -> Vec<Range<usize>> {
+        // Convert byte ranges into felt ranges expected by Cairo program
+        let felt_ranges =
+            prover_primitives::claim::byte_segments_into_felt_ranges(&query.layout_segments);
+
+        // Ranges should already come to us compacted and sorted, but we enforce this here
+        prover_primitives::claim::compact_and_sort_ranges(felt_ranges)
+    }
+
+    // This process used on verifier side
+    fn get_segments(query: &Query) -> Vec<LayoutSegment> {
+        // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
+        let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
+
+        // Sanitize incoming layout segments
+        sanitize(&felt_segments)
+    }
+
+    fn check_ranges_against_segments(ranges: &[Range<usize>], segments: &[LayoutSegment]) {
+        assert_eq!(ranges.len(), segments.len());
+        for (range, segment) in ranges.iter().zip(segments) {
+            assert_eq!(range.start, segment.offset as usize);
+            let segment_end = segment.offset + segment.size;
+            assert_eq!(range.end, segment_end as usize);
+        }
     }
 }

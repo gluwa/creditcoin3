@@ -1,13 +1,12 @@
 use anyhow::Result;
 use either::Either;
 use sp_core::H256;
-use std::{ops::Range, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::{error, info, warn};
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
-use utils::utils::U248_BYTE_COUNT;
 
 use crate::{attestation::fragment, AttestationCacheType, EthClientArc};
 
@@ -155,21 +154,9 @@ pub async fn process(
 }
 
 fn get_serializable(query: &Query) -> ClaimSerializable {
-    // Convert byte ranges into felt ranges expected by Cairo program
-    let felt_ranges = query
-        .layout_segments
-        .iter()
-        .map(|layout| {
-            let byte_range = Range {
-                start: usize::try_from(layout.offset).expect("layout offset is too large"),
-                end: usize::try_from(layout.offset + layout.size).expect("layout end is too large"),
-            };
-            // Convert bytes into felts of length 248 bits
-            (byte_range.start / U248_BYTE_COUNT)
-                ..(byte_range.end / U248_BYTE_COUNT
-                    + usize::from(byte_range.end % U248_BYTE_COUNT != 0))
-        })
-        .collect::<Vec<_>>();
+    // Convert byte segments into felt ranges expected by Cairo program
+    let felt_ranges =
+        prover_primitives::claim::byte_segments_into_felt_ranges(&query.layout_segments);
 
     ClaimSerializable {
         id: ClaimIdentifier::new(query.height, query.index),
