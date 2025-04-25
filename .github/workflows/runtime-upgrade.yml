@@ -375,6 +375,7 @@ jobs:
 
           ./target/release/creditcoin3-node --version
           ./target/release/creditcoin3-node --chain ./creditcoin-fork.json --validator --alice --pruning archive \
+                            --unsafe-force-node-key-generation \
                             --base-path /mnt/fork-data >creditcoin3-node-with-forked-chain.log 2>&1 &
 
       - name: Wait for blockchain to start
