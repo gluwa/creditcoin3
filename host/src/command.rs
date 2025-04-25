@@ -402,7 +402,7 @@ fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSe
     let mut felt_segments = Vec::with_capacity(segments.len());
     for seg in segments {
         // Inclusive last byte index of the segment
-        let last_byte_index = seg.offset + seg.size - 1;
+        let last_byte_index = seg.offset.saturating_add(seg.size) - 1;
         // Felt index at start and end of the segment
         let felt_offset = seg.offset / U248_BYTE_COUNT as u64;
         let felt_end = last_byte_index / U248_BYTE_COUNT as u64;
@@ -500,8 +500,8 @@ fn extract_original_byte_ranges_from_sanitized(
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
     use crate::command::{
-        felts_from_bytes, hash_layout_segments, validate_query_against_proof, VerifierError,
-        NULL_ABI,
+        convert_segments_to_felt_segments, felts_from_bytes, hash_layout_segments,
+        validate_query_against_proof, VerifierError, NULL_ABI,
     };
     use pallet_prover_primitives::{
         LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH, STARK_PROGRAM_V3_HASH,
@@ -643,7 +643,7 @@ pub mod tests {
             })
             .expect("Unable to convert StoneProof to CairoVerifierOutput");
 
-        let mut query = Query {
+        let query = Query {
             chain_id: 31337,
             height: 4,
             index: 0,
