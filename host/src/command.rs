@@ -422,14 +422,15 @@ fn extract_felt_ranges_from_felt_array(
 ) -> Vec<Vec<Felt>> {
     let mut extracted_felt_segments = Vec::with_capacity(felt_ranges.len());
 
+    let mut felts_position: usize = 0;
+    // Cairo program returns a felt_array containing only felts which are part of our ranges rather than all felts.
     for range in felt_ranges {
-        let start_index = range.offset as usize;
         let count = range.size as usize;
-        let end_index = start_index + count;
+        let end_idx = felts_position + count;
 
-        // Collect the felt chunks covering this range
-        let segment_felts = felt_array[start_index..end_index].to_vec();
+        let segment_felts = felt_array[felts_position..end_idx].to_vec();
         extracted_felt_segments.push(segment_felts);
+        felts_position = end_idx;
     }
 
     extracted_felt_segments
@@ -807,7 +808,78 @@ mod arch_independent_tests {
     use super::*;
     #[test]
     fn prover_and_verifier_segment_conversions_match() {
-        let query = Query {
+        let query = get_test_query();
+        // This process used on the prover side
+        let ranges = get_ranges(&query);
+        // This process used on verifier side
+        let segments = get_segments(&query);
+
+        check_ranges_against_segments(&ranges, &segments);
+    }
+
+    #[test]
+    fn get_segments_from_output_felts_works() {
+        let query = get_test_query();
+        let segments = get_segments(&query);
+        let sizes_sum = segments
+            .iter()
+            .fold(0, |acc, segment| acc + segment.size as u8);
+        // We expect the felts output from verify_merkle_proof.cairo to have the same number of felts
+        // as the sum of the sizes of our layout segments. This property is enforced so long as
+        // prover and verifier layout segment conversions match.
+        let mut dummy_felts = Vec::new();
+        for i in 0..sizes_sum {
+            dummy_felts.push(Felt::from_bytes_be_slice(&[i]));
+        }
+
+        let result_segments = extract_felt_ranges_from_felt_array(&dummy_felts, &segments);
+
+        check_dummy_result_segments_against_layout(&result_segments, &segments);
+    }
+
+    fn get_ranges(query: &Query) -> Vec<Range<usize>> {
+        // Convert byte ranges into felt ranges expected by Cairo program
+        let felt_ranges =
+            prover_primitives::claim::byte_segments_into_felt_ranges(&query.layout_segments);
+
+        // Ranges should already come to us compacted and sorted, but we enforce this here
+        prover_primitives::claim::compact_and_sort_ranges(felt_ranges)
+    }
+
+    fn get_segments(query: &Query) -> Vec<LayoutSegment> {
+        // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
+        let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
+
+        // Sanitize incoming layout segments
+        sanitize(&felt_segments)
+    }
+
+    fn check_ranges_against_segments(ranges: &[Range<usize>], segments: &[LayoutSegment]) {
+        assert_eq!(ranges.len(), segments.len());
+        for (range, segment) in ranges.iter().zip(segments) {
+            assert_eq!(range.start, segment.offset as usize);
+            let segment_end = segment.offset + segment.size;
+            assert_eq!(range.end, segment_end as usize);
+        }
+    }
+
+    fn check_dummy_result_segments_against_layout(
+        result_segments: &[Vec<Felt>],
+        layout_segments: &[LayoutSegment],
+    ) {
+        assert_eq!(result_segments.len(), layout_segments.len());
+        let mut dummy_value_counter: u8 = 0;
+        for (result, layout) in result_segments.iter().zip(layout_segments) {
+            assert_eq!(result.len(), layout.size as usize);
+            for felt in result {
+                assert_eq!(*felt, Felt::from_bytes_be_slice(&[dummy_value_counter]));
+                dummy_value_counter += 1;
+            }
+        }
+    }
+
+    fn get_test_query() -> Query {
+        Query {
             chain_id: 31337,
             height: 1,
             index: 0,
@@ -845,38 +917,6 @@ mod arch_independent_tests {
                     size: 32,
                 },
             ],
-        };
-        // This process used on the prover side
-        let ranges = get_ranges(&query);
-        // This process used on verifier side
-        let segments = get_segments(&query);
-
-        check_ranges_against_segments(&ranges, &segments);
-    }
-
-    fn get_ranges(query: &Query) -> Vec<Range<usize>> {
-        // Convert byte ranges into felt ranges expected by Cairo program
-        let felt_ranges =
-            prover_primitives::claim::byte_segments_into_felt_ranges(&query.layout_segments);
-
-        // Ranges should already come to us compacted and sorted, but we enforce this here
-        prover_primitives::claim::compact_and_sort_ranges(felt_ranges)
-    }
-
-    fn get_segments(query: &Query) -> Vec<LayoutSegment> {
-        // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-        let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
-
-        // Sanitize incoming layout segments
-        sanitize(&felt_segments)
-    }
-
-    fn check_ranges_against_segments(ranges: &[Range<usize>], segments: &[LayoutSegment]) {
-        assert_eq!(ranges.len(), segments.len());
-        for (range, segment) in ranges.iter().zip(segments) {
-            assert_eq!(range.start, segment.offset as usize);
-            let segment_end = segment.offset + segment.size;
-            assert_eq!(range.end, segment_end as usize);
         }
     }
 }
