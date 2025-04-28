@@ -796,7 +796,8 @@ mod arch_independent_tests {
     fn prover_and_verifier_segment_conversions_match() {
         let query = get_test_query();
         // This process used on the prover side
-        let ranges = prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
+        let ranges =
+            prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
         // This process used on verifier side
         let segments = get_segments(&query);
 
@@ -812,7 +813,8 @@ mod arch_independent_tests {
             layout_segments: vec![],
         };
         // This process used on the prover side
-        let ranges = prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
+        let ranges =
+            prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
         // This process used on verifier side
         let segments = get_segments(&query);
 
