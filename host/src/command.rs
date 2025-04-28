@@ -173,13 +173,11 @@ pub fn validate_query_against_proof(
             } else {
                 // Sanitized layout segments are used to generate the layout segments hash in
                 // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
-
                 // Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-                let felt_segments = convert_segments_to_felt_segments(&query.layout_segments);
-                // Sanitize incoming layout segments
-                let sanitized = sanitize(&felt_segments);
+                // then sanitize them
+                let sanitized_felts = convert_to_felts_then_sanitize(&query.layout_segments);
                 let query = Query {
-                    layout_segments: sanitized,
+                    layout_segments: sanitized_felts,
                     ..query
                 };
                 log::debug!(
