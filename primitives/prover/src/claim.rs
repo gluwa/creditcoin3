@@ -266,6 +266,13 @@ fn deserialize_and_compact_ranges<'de, D: serde::Deserializer<'de>>(
 //impl JsonSerializable for ClaimSerializable {}
 //impl JsonSerializable for Vec<ClaimSerializable> {}
 
+pub fn prepare_query_segments_for_prover(layout_segments: &[LayoutSegment]) -> Vec<Range<usize>> {
+    // Convert byte segments into felt ranges expected by Cairo program
+    let felt_ranges = byte_segments_into_felt_ranges(layout_segments);
+    // Ranges should already come to us compacted and sorted, but we enforce this here
+    compact_and_sort_ranges(felt_ranges)
+}
+
 pub fn byte_segments_into_felt_ranges(layout_segments: &[LayoutSegment]) -> Vec<Range<usize>> {
     layout_segments
         .iter()
@@ -283,6 +290,9 @@ pub fn byte_segments_into_felt_ranges(layout_segments: &[LayoutSegment]) -> Vec<
 }
 
 pub fn compact_and_sort_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    if ranges.len() <= 1 {
+        return ranges;
+    }
     // Sort segments in order of least to greatest offset
     let mut sanitized = ranges;
     sanitized.sort_by(|range_a, range_b| range_a.start.cmp(&range_b.start));

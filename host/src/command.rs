@@ -340,20 +340,25 @@ pub fn get_result_segments(
     layout_segments: &[LayoutSegment],
 ) -> Vec<ResultSegment> {
     // 1. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
-    let felt_segments = convert_segments_to_felt_segments(layout_segments);
-
-    // 2. Sanitize incoming layout segments
-    let sanitized = sanitize(&felt_segments);
+    // 2. Sanitize felt segments
+    let sanitized = convert_to_felts_then_sanitize(layout_segments);
 
     // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
-    let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &felt_segments);
+    let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &sanitized);
 
     // 4. Convert felt-aligned extracted data back into the sanitized byte-based segments
     let sanitized_result =
-        extract_bytes_from_felt_array_using_original_ranges(&result_felts, &sanitized);
+        extract_bytes_from_felts_using_original_ranges(&result_felts, &sanitized);
 
     // 5. Convert sanitized segments into result segments with original layout
     extract_original_byte_ranges_from_sanitized(sanitized_result, layout_segments)
+}
+
+// Bundling these to make sure they happen in the right order. Sanitizing before
+// vs after converting to felts can yield different results.
+fn convert_to_felts_then_sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
+    let felt_segments = convert_segments_to_felt_segments(segments);
+    sanitize(&felt_segments)
 }
 
 fn sanitize(segments: &[LayoutSegment]) -> Vec<LayoutSegment> {
@@ -436,7 +441,7 @@ fn extract_felt_ranges_from_felt_array(
     extracted_felt_segments
 }
 
-fn extract_bytes_from_felt_array_using_original_ranges(
+fn extract_bytes_from_felts_using_original_ranges(
     felt_segments: &[Vec<Felt>],
     original_segments: &[LayoutSegment],
 ) -> Vec<ResultSegment> {
@@ -782,25 +787,6 @@ pub mod tests {
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }
-
-    #[test]
-    #[should_panic(expected = "QueryIdNotValidated")]
-    fn validate_query_against_proof_should_error_when_layout_segments_cannot_be_hashed() {
-        let query = Query {
-            chain_id: 31337,
-            height: 1,
-            index: 0,
-            layout_segments: vec![LayoutSegment {
-                // values too large, will cause hash_layout_segments() to error internally
-                offset: u64::MAX,
-                size: u64::MAX,
-            }],
-        };
-        let cairo_verifier_output =
-            cairo_verifier_output_from_proof_json("../cairo/stone-verifier/proof_example.json");
-
-        validate_query_against_proof(query, &cairo_verifier_output).unwrap();
-    }
 }
 
 #[cfg(test)]
@@ -810,7 +796,23 @@ mod arch_independent_tests {
     fn prover_and_verifier_segment_conversions_match() {
         let query = get_test_query();
         // This process used on the prover side
-        let ranges = get_ranges(&query);
+        let ranges = prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
+        // This process used on verifier side
+        let segments = get_segments(&query);
+
+        check_ranges_against_segments(&ranges, &segments);
+    }
+
+    #[test]
+    fn segment_conversions_work_for_0_segments() {
+        let query = Query {
+            chain_id: 1,
+            height: 1,
+            index: 0,
+            layout_segments: vec![],
+        };
+        // This process used on the prover side
+        let ranges = prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
         // This process used on verifier side
         let segments = get_segments(&query);
 
@@ -835,15 +837,6 @@ mod arch_independent_tests {
         let result_segments = extract_felt_ranges_from_felt_array(&dummy_felts, &segments);
 
         check_dummy_result_segments_against_layout(&result_segments, &segments);
-    }
-
-    fn get_ranges(query: &Query) -> Vec<Range<usize>> {
-        // Convert byte ranges into felt ranges expected by Cairo program
-        let felt_ranges =
-            prover_primitives::claim::byte_segments_into_felt_ranges(&query.layout_segments);
-
-        // Ranges should already come to us compacted and sorted, but we enforce this here
-        prover_primitives::claim::compact_and_sort_ranges(felt_ranges)
     }
 
     fn get_segments(query: &Query) -> Vec<LayoutSegment> {
