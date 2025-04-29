@@ -84,7 +84,7 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
     type Error = String;
 
     fn try_from(ss: &[&str]) -> Result<Self, Self::Error> {
-        let rlp_len = Self::parse_field(ss.last(), try_parse_usize, "rlp_len")?;
+        let abi_len = Self::parse_field(ss.last(), try_parse_usize, "rlp_len")?;
 
         let mut it = ss.iter();
 
@@ -95,7 +95,7 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
         let continuity_proof_length =
             Self::parse_field(it.next(), try_parse_u64, "continuity_proof_length")?;
         let query_hash = Self::parse_field(it.next(), try_parse_felt, "query_hash")?;
-        it.take(rlp_len)
+        it.take(abi_len)
             .enumerate()
             .map(|(i, s)| Self::parse_field(Some(s), try_parse_felt, &format!("felt[{i}]")))
             .collect::<Result<Vec<_>, _>>()
@@ -208,14 +208,14 @@ impl StoneProofPublicInput {
     const NUMBER_OF_STATIC_FIELDS: usize = 4;
     pub fn size(public_input: &PublicInput) -> Result<usize, String> {
         let public_memory = &public_input.public_memory.0;
-        let rlp_len = public_memory
+        let abi_len = public_memory
             .last()
             .ok_or("proof public input is empty".to_owned())
             .map(PublicMemoryItem::value)
             .and_then(|s| {
                 try_parse_usize(s).map_err(|err| format!("failed to parse 'rlp_len': {err:?}"))
             })?;
-        Ok(rlp_len + Self::NUMBER_OF_STATIC_FIELDS + 1)
+        Ok(abi_len + Self::NUMBER_OF_STATIC_FIELDS + 1)
     }
 }
 

@@ -101,7 +101,7 @@ impl ClaimProver {
     fn new(
         block_number: u64,
         merkle_proof: StarknetPedersenMerkleProof,
-        rlp: Vec<u8>,
+        abi: Vec<u8>,
         claim: ClaimSerializable,
         claim_digest_root: ClaimDigestRoot,
         attestation_chain: FragmentContinuityBlocksSerializable,
@@ -109,7 +109,7 @@ impl ClaimProver {
     ) -> Self {
         Self {
             block_number,
-            merkle_proof: (merkle_proof, rlp).into(),
+            merkle_proof: (merkle_proof, abi).into(),
             claim,
             claim_digest_root,
             continuity_chain: attestation_chain,

@@ -315,7 +315,7 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     %}
 
     assert digest_root_to_match_to_claim_root = proof_root;
-    // hash (index || rlp felts)
+    // hash (index || abi felts)
     let hashed_claim_subject = pedersen_array(prefixed_subject_felts, array_len=prefixed_subject_felts_len);
 
     let (claim_index_from_path, zero_height_hamming_distance) = verify_merkle_path(
@@ -336,7 +336,7 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     let assert_claim_index_for_dev = (1 - out_of_bounds_flag) * (claim_index - claim_index_from_path);
     assert assert_claim_index_for_dev = 0;
 
-    let rlp_felts = prefixed_subject_felts + PADDING_SIZE + INDEX_SIZE;
+    let abi_felts = prefixed_subject_felts + PADDING_SIZE + INDEX_SIZE;
     // the entire statement must equal to 0
     // statement breakdown:
     // in case prover set out_of_bounds_flag == 1:
@@ -344,7 +344,7 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     //  the last leaf and so, zero_height_hamming_distance == height
     let out_of_bounds_null_leaf_expr = NULL_LEAF_HASH - claim_leaf_hash;
 
-    // assert hashed rlp-encoded (raw) subject equals to leaf felt unless it's a NULL leaf
+    // assert hashed abi-encoded (raw) subject equals to leaf felt unless it's a NULL leaf
     let claim_leaf_hash_assertion_expr = out_of_bounds_null_leaf_expr * (claim_leaf_hash - hashed_claim_subject);
     assert claim_leaf_hash_assertion_expr = 0;
 
@@ -393,8 +393,8 @@ func main{output_ptr, pedersen_ptr: HashBuiltin*, range_check_ptr, bitwise_ptr}(
     assert [output_ptr] = query_hash;
     let output_ptr = output_ptr + 1;
 
-    // output rlp fields, if out_of_bounds_flag output nothing
-    output_array_at_offsets(rlp_felts, query_offsets, query_offsets_len);
+    // output abi fields, if out_of_bounds_flag output nothing
+    output_array_at_offsets(abi_felts, query_offsets, query_offsets_len);
     
     return ();
 }

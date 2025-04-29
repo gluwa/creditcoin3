@@ -385,12 +385,12 @@ impl Client {
 }
 
 pub fn starknet_pedersen_mmr(block: &OrderedBlock) -> StarknetPedersenMerkleTree {
-    // Create rlp's for all transactions
-    let rlps = block
+    // Create abi's for all transactions
+    let abis = block
         .items()
         .iter()
         .map(BlockItem::to_bytes)
         .collect::<Vec<Vec<u8>>>();
 
-    StarknetPedersenMerkleTree::from(&rlps[..])
+    StarknetPedersenMerkleTree::from(&abis[..])
 }
