@@ -61,6 +61,12 @@ pub enum VerifierError {
     TempFileRemoveError,
 }
 
+#[derive(Debug)]
+struct FeltResult {
+    offset: u64,
+    felts: Vec<Felt>,
+}
+
 impl VerifierError {
     pub fn status_code(&self) -> u8 {
         match self {
@@ -338,18 +344,19 @@ pub fn get_result_segments(
     layout_segments: &[LayoutSegment],
 ) -> Vec<ResultSegment> {
     // 1. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
+    let felt_segments = convert_segments_to_felt_segments(layout_segments);
+
     // 2. Sanitize felt segments
-    let sanitized = convert_to_felts_then_sanitize(layout_segments);
+    let sanitized = sanitize(&felt_segments);
 
     // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
     let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &sanitized);
 
-    // 4. Convert felt-aligned extracted data back into the sanitized byte-based segments
-    let sanitized_result =
-        extract_bytes_from_felts_using_original_ranges(&result_felts, &sanitized);
+    // 4. Convert sanitized segments into felt segments with original layout
+    let felt_segments = extract_original_felt_ranges_from_sanitized(result_felts, &felt_segments);
 
-    // 5. Convert sanitized segments into result segments with original layout
-    extract_original_byte_ranges_from_sanitized(sanitized_result, layout_segments)
+    // 5. Convert felt-aligned extracted data back into byte-based segments
+    extract_bytes_from_felts_using_original_ranges(&felt_segments, layout_segments)
 }
 
 // Bundling these to make sure they happen in the right order. Sanitizing before
@@ -422,7 +429,7 @@ fn convert_segments_to_felt_segments(segments: &[LayoutSegment]) -> Vec<LayoutSe
 fn extract_felt_ranges_from_felt_array(
     felt_array: &[Felt],
     felt_ranges: &[LayoutSegment],
-) -> Vec<Vec<Felt>> {
+) -> Vec<FeltResult> {
     let mut extracted_felt_segments = Vec::with_capacity(felt_ranges.len());
 
     let mut felts_position: usize = 0;
@@ -432,7 +439,11 @@ fn extract_felt_ranges_from_felt_array(
         let end_idx = felts_position + count;
 
         let segment_felts = felt_array[felts_position..end_idx].to_vec();
-        extracted_felt_segments.push(segment_felts);
+        let felt_result = FeltResult {
+            offset: range.offset,
+            felts: segment_felts,
+        };
+        extracted_felt_segments.push(felt_result);
         felts_position = end_idx;
     }
 
@@ -440,15 +451,16 @@ fn extract_felt_ranges_from_felt_array(
 }
 
 fn extract_bytes_from_felts_using_original_ranges(
-    felt_segments: &[Vec<Felt>],
+    felt_segments: &[FeltResult],
     original_segments: &[LayoutSegment],
 ) -> Vec<ResultSegment> {
     original_segments
         .iter()
         .enumerate()
         .map(|(i, orig)| {
-            let mut combined_bytes = Vec::with_capacity(felt_segments[i].len() * U248_BYTE_COUNT);
-            for felt in &felt_segments[i] {
+            let mut combined_bytes =
+                Vec::with_capacity(felt_segments[i].felts.len() * U248_BYTE_COUNT);
+            for felt in &felt_segments[i].felts {
                 let felt_bytes = felt.to_bytes_be(); // Get 32 bytes
                 combined_bytes.extend_from_slice(&felt_bytes[1..]); // Skip first byte (padding)
             }
@@ -463,16 +475,16 @@ fn extract_bytes_from_felts_using_original_ranges(
         .collect()
 }
 
-fn extract_original_byte_ranges_from_sanitized(
-    sanitized_results: Vec<ResultSegment>,
+fn extract_original_felt_ranges_from_sanitized(
+    sanitized_results: Vec<FeltResult>,
     original_segments: &[LayoutSegment],
-) -> Vec<ResultSegment> {
-    let mut result: Vec<ResultSegment> = Vec::with_capacity(original_segments.len());
+) -> Vec<FeltResult> {
+    let mut result: Vec<FeltResult> = Vec::with_capacity(original_segments.len());
     for orig in original_segments {
-        let mut collected_bytes: Vec<u8> = Vec::with_capacity(orig.size as usize);
+        let mut collected_felts: Vec<Felt> = Vec::with_capacity(orig.size as usize);
         let mut collected_up_to: usize = orig.offset as usize;
         for sanitized in &sanitized_results {
-            let last_sanitized_byte_idx = sanitized.offset as usize + sanitized.bytes.len() - 1;
+            let last_sanitized_byte_idx = sanitized.offset as usize + sanitized.felts.len() - 1;
             // If part of original segment range is contained in sanitized segment, then copy bytes over
             if sanitized.offset as usize <= collected_up_to
                 && last_sanitized_byte_idx >= collected_up_to
@@ -482,8 +494,8 @@ fn extract_original_byte_ranges_from_sanitized(
                 let sanitized_start_idx = collected_up_to - sanitized.offset as usize;
                 let sanitized_end_idx = last_copy_idx - sanitized.offset as usize;
 
-                for byte in &sanitized.bytes[sanitized_start_idx..=sanitized_end_idx] {
-                    collected_bytes.insert(collected_up_to - orig.offset as usize, *byte);
+                for felt in &sanitized.felts[sanitized_start_idx..=sanitized_end_idx] {
+                    collected_felts.insert(collected_up_to - orig.offset as usize, *felt);
                     collected_up_to += 1;
                 }
                 // All bytes collected
@@ -493,9 +505,9 @@ fn extract_original_byte_ranges_from_sanitized(
             }
         }
         // When last byte of original segment is found, then add ResultSegment to result and move on
-        result.push(ResultSegment {
+        result.push(FeltResult {
             offset: orig.offset,
-            bytes: collected_bytes,
+            felts: collected_felts,
         });
     }
     result
@@ -823,20 +835,11 @@ mod arch_independent_tests {
     fn get_segments_from_output_felts_works() {
         let query = get_test_query();
         let segments = get_segments(&query);
-        let sizes_sum = segments
-            .iter()
-            .fold(0, |acc, segment| acc + segment.size as u8);
-        // We expect the felts output from verify_merkle_proof.cairo to have the same number of felts
-        // as the sum of the sizes of our layout segments. This property is enforced so long as
-        // prover and verifier layout segment conversions match.
-        let mut dummy_felts = Vec::new();
-        for i in 0..sizes_sum {
-            dummy_felts.push(Felt::from_bytes_be_slice(&[i]));
-        }
+        let dummy_felts = get_dummy_felts_for_query(&query);
 
         let result_segments = extract_felt_ranges_from_felt_array(&dummy_felts, &segments);
 
-        check_dummy_result_segments_against_layout(&result_segments, &segments);
+        check_felt_segments_against_layout(&result_segments, &segments);
     }
 
     fn get_segments(query: &Query) -> Vec<LayoutSegment> {
@@ -856,24 +859,24 @@ mod arch_independent_tests {
         }
     }
 
-    fn check_dummy_result_segments_against_layout(
-        result_segments: &[Vec<Felt>],
+    fn check_felt_segments_against_layout(
+        felt_segments: &[FeltResult],
         layout_segments: &[LayoutSegment],
     ) {
-        assert_eq!(result_segments.len(), layout_segments.len());
-        let mut dummy_value_counter: u8 = 0;
-        for (result, layout) in result_segments.iter().zip(layout_segments) {
-            assert_eq!(result.len(), layout.size as usize);
-            for felt in result {
-                assert_eq!(*felt, Felt::from_bytes_be_slice(&[dummy_value_counter]));
-                dummy_value_counter += 1;
+        assert_eq!(felt_segments.len(), layout_segments.len());
+        let mut byte_value_counter: u8 = 0;
+        for (result, layout) in felt_segments.iter().zip(layout_segments) {
+            assert_eq!(result.felts.len(), layout.size as usize);
+            for felt in &result.felts {
+                let dummy_bytes = make_sample_bytes(&mut byte_value_counter);
+                assert_eq!(*felt, Felt::from_bytes_be_slice(&dummy_bytes));
             }
         }
     }
 
     fn get_test_query() -> Query {
         Query {
-            chain_id: 31337,
+            chain_id: 1,
             height: 1,
             index: 0,
             layout_segments: vec![
@@ -911,5 +914,37 @@ mod arch_independent_tests {
                 },
             ],
         }
+    }
+
+    fn get_dummy_felts_for_query(query: &Query) -> Vec<Felt> {
+        // Get original byte segments
+
+        // Sum up lengths of segments and construct payload with incrementing bytes
+        let felt_segments = get_segments(query);
+
+        let sizes_sum = felt_segments
+            .iter()
+            .fold(0, |acc, segment| acc + segment.size as u8);
+
+        // We expect the felts output from verify_merkle_proof.cairo to have the same number of felts
+        // as the sum of the sizes of our layout segments. This property is enforced so long as
+        // prover and verifier layout segment conversions match.
+        let mut dummy_felts = Vec::new();
+        let mut byte_value_counter = 0u8;
+        for _ in 0..sizes_sum {
+            let dummy_bytes = make_sample_bytes(&mut byte_value_counter);
+            dummy_felts.push(Felt::from_bytes_be_slice(&dummy_bytes));
+        }
+        dummy_felts
+    }
+
+    fn make_sample_bytes(byte_value_counter: &mut u8) -> Vec<u8> {
+        let mut dummy_bytes = Vec::new();
+        // Make 31 bytes with incrementing value, so we can check byte positions in output
+        for _ in 0..31 {
+            dummy_bytes.push(*byte_value_counter);
+            *byte_value_counter = byte_value_counter.wrapping_add(1);
+        }
+        dummy_bytes
     }
 }
