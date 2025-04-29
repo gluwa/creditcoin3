@@ -79,6 +79,8 @@ pub enum Error {
     Cc3Error(#[from] cc3::Error),
     #[error("cclient error: {0}")]
     Cclient(#[from] cc_client::Error),
+    #[error("Attestor not selected for header {0}")]
+    NotSelected(u64),
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
 }
@@ -86,12 +88,12 @@ pub enum Error {
 impl Error {
     #[must_use]
     pub fn is_not_selected_error(&self) -> bool {
-        matches!(
-            self,
-            Error::Cclient(cc_client::Error::FailedToCreateProofOfInclusion(
-                vrf::Error::NotSelected
-            ))
-        )
+        matches!(self, Error::NotSelected(_))
+    }
+
+    #[must_use]
+    pub fn is_fragment_error(&self) -> bool {
+        matches!(self, Error::FailedToCreateFragment)
     }
 
     #[must_use]
@@ -296,7 +298,10 @@ impl Engine {
         }
 
         // Eligiblity check
-        let vrf_output = self.cc3_client.sign_vrf(header_number).await?;
+        let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
+            error!("Error signing vrf: {:?}", e);
+            Error::NotSelected(header_number)
+        })?;
 
         // Create continuity fragment
         let continuity_fragment = self.create_continuity_proof(header_number).await?;
