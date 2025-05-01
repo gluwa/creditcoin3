@@ -9,7 +9,7 @@ use sc_network_gossip::{MessageIntent, ValidationResult, Validator, ValidatorCon
 use sp_core::{Pair, H256};
 use sp_runtime::traits::Block as BlockT;
 
-use log::{debug, error};
+use log::{debug, error, info};
 use parity_scale_codec::Codec;
 use parity_scale_codec::Decode;
 use parking_lot::{Mutex, RwLock};
@@ -30,6 +30,7 @@ const REBROADCAST_AFTER: Duration = Duration::from_secs(60);
 const REBROADCAST_AFTER: Duration = Duration::from_secs(5);
 
 pub struct GossipFilter<AccountId> {
+    pub epoch: u64,
     pub round: BTreeMap<ChainKey, (u64, u64)>,
     pub validators: BTreeMap<ChainKey, Vec<AccountId>>,
 }
@@ -46,7 +47,12 @@ where
         }
     }
 
-    pub fn consider_vote(&self, round: Round) -> Consider {
+    pub fn consider_vote(&self, round: Round, epoch: u64) -> Consider {
+        if epoch < self.epoch {
+            info!(target: LOG_TARGET, "📝 Vote for round #{:?} expired because epoch has changed. Vote epoch: {}, Expected epoch: {}", round, epoch, self.epoch);
+            return Consider::RejectPast;
+        }
+
         let chain_key = round.0;
         let block_height = round.1;
 
@@ -102,6 +108,7 @@ where
         Self {
             votes_topic: votes_topic::<B>(),
             gossip_filter: RwLock::new(GossipFilter {
+                epoch: 0,
                 round: BTreeMap::new(),
                 validators: BTreeMap::new(),
             }),
@@ -111,6 +118,7 @@ where
 
     pub fn update_filter(
         &self,
+        epoch: u64,
         chain_key: ChainKey,
         start: u64,
         end: u64,
@@ -119,6 +127,7 @@ where
         let mut filter = self.gossip_filter.write();
         filter.round.insert(chain_key, (start, end));
         filter.validators.insert(chain_key, validators);
+        filter.epoch = epoch;
     }
 
     fn verify_signature(
@@ -130,7 +139,7 @@ where
         let chain_key = round.0;
 
         // first check if the round is in the filter
-        if filter.consider_vote(round) != Consider::Accept {
+        if filter.consider_vote(round, attestation.epoch) != Consider::Accept {
             return Action::Discard;
         }
 
@@ -195,7 +204,7 @@ where
                 Ok(Message::Attestation(msg)) => {
                     let round = msg.round();
 
-                    let expired = filter.consider_vote(round) != Consider::Accept;
+                    let expired = filter.consider_vote(round, msg.epoch) != Consider::Accept;
 
                     debug!(target: LOG_TARGET, "📝 Vote for round #{:?} expired: {}", round, expired);
                     expired
@@ -232,7 +241,7 @@ where
                 Ok(Message::Attestation(msg)) => {
                     let round = msg.round();
 
-                    let allowed = filter.consider_vote(round) == Consider::Accept;
+                    let allowed = filter.consider_vote(round, msg.epoch) == Consider::Accept;
                     debug!(target: LOG_TARGET, "📝 Vote for round #{:?} allowed: {}", round, allowed);
                     allowed
                 }
@@ -287,7 +296,7 @@ pub(crate) mod tests {
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::Discard));
 
-        gossip_validator.update_filter(1, 0, 10, validator_set.clone());
+        gossip_validator.update_filter(0, 1, 0, 10, validator_set.clone());
 
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::ProcessAndKeep(_)));
@@ -310,7 +319,41 @@ pub(crate) mod tests {
         let attestation_data = simulate_attestation_data(1, 0);
         let attestation = create_signed_attestation(&attestor, attestation_data);
         let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
-        gossip_validator.update_filter(1, 10, 200, validator_set);
+        gossip_validator.update_filter(0, 1, 10, 200, validator_set);
+        let res = gossip_validator.validate(&mut context, &sender, &encoded);
+        assert!(matches!(res, ValidationResult::Discard));
+    }
+
+    #[test]
+    fn should_reject_when_epoch_changes() {
+        let _ = env_logger::try_init();
+
+        let attestor = Attestor::new();
+        let validator_set = vec![attestor.account_id.clone()];
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data.clone());
+
+        let gossip_validator = AttestorGossipValidator::<Block, AccountId32>::new();
+
+        let mut context = TestContext;
+        let sender = PeerId::random();
+
+        let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
+
+        let res = gossip_validator.validate(&mut context, &sender, &encoded);
+        assert!(matches!(res, ValidationResult::Discard));
+
+        gossip_validator.update_filter(0, 1, 0, 10, validator_set.clone());
+
+        let res = gossip_validator.validate(&mut context, &sender, &encoded);
+        assert!(matches!(res, ValidationResult::ProcessAndKeep(_)));
+
+        // Reject votes if epoch changes
+        let attestation_data = simulate_attestation_data(1, 0);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+        let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
+        gossip_validator.update_filter(1, 1, 10, 200, validator_set);
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::Discard));
     }

@@ -189,6 +189,7 @@ impl<'a> Client {
         attestation: AttestationPrimitive<H>,
         continuity_proof: AttestationFragmentSerializable,
         vrf_output: ProofOfInclusion,
+        epoch: u64,
     ) -> Attestation<H, AttestorId>
     where
         H: Serialize + AsRef<[u8]> + Send + Sync + std::fmt::Debug + Clone,
@@ -208,15 +209,16 @@ impl<'a> Client {
             signature: sp_core::sr25519::Signature::from_raw(signature.0),
             signature_bls: attestor_primitives::bls::WrapEncode(signature_bls),
             continuity_proof,
+            epoch,
         }
     }
 
     pub async fn sign_vrf(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
-        let (randomness, epoch_index) = self.inner.fetch_babe_randomness_two_epoch_ego().await?;
+        let (randomness, _epoch_index) = self.inner.fetch_babe_randomness_two_epoch_ego().await?;
 
         Ok(self
             .inner
-            .sign_babe_vrf(self.get_chain_key(), header_number, randomness, epoch_index)
+            .sign_babe_vrf(self.get_chain_key(), header_number, randomness)
             .await?)
     }
 
@@ -242,6 +244,10 @@ impl<'a> Client {
             .ok_or(Error::Cclient(cc_client::Error::NoCheckpointIntervalSet(
                 self.get_chain_key(),
             )))
+    }
+
+    pub async fn get_current_epoch(&self) -> Result<u64> {
+        Ok(self.inner.get_current_epoch().await?)
     }
 
     pub async fn submit_attestation<H>(

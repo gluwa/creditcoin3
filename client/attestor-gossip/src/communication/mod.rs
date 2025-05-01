@@ -20,6 +20,7 @@ pub struct Attestation<H, AccountId> {
     pub signature: sp_core::sr25519::Signature,
     pub signature_bls: <Bls as CryptoScheme>::Signature,
     pub continuity_proof: AttestationFragmentSerializable,
+    pub epoch: u64,
 }
 
 impl<H, AccountId> Attestation<H, AccountId>

@@ -178,6 +178,19 @@ impl<'a> Client {
         Ok((randomness, two_epoch_ago))
     }
 
+    pub async fn get_current_epoch(&self) -> Result<u64, Error> {
+        let epoch_index = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&cc3::storage().babe().epoch_index())
+            .await?;
+
+        Ok(epoch_index.unwrap_or_default())
+    }
+
     pub async fn target_sample_size(&self, chain_key: u64) -> Result<u32, Error> {
         let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
 
@@ -294,7 +307,6 @@ impl<'a> Client {
         chain_key: ChainKey,
         header_number: u64,
         randomness: Randomness,
-        epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
         let target_sample_size = self.target_sample_size(chain_key).await?;
@@ -313,7 +325,6 @@ impl<'a> Client {
             &randomness,
             &self.pair,
             &self.get_attestor_id(),
-            epoch_index,
             header_number,
         )?;
 

@@ -1,5 +1,5 @@
 use futures::{stream::Fuse, FutureExt, StreamExt};
-use log::{debug, error, info};
+use log::{debug, error};
 use parity_scale_codec::Codec;
 use sc_client_api::{client::BlockBackend, Backend, FinalityNotification};
 use sc_network::{NotificationService, ProtocolName};
@@ -137,7 +137,7 @@ where
     debug!(target: LOG_TARGET, "📝 Starting finality notification transformer.");
     let transformer_fut = async move {
         while let Some(notification) = finality_notifications.next().await {
-            info!(target: LOG_TARGET, "📝 Transforming grandpa notification. #{}({:?})", notification.header.number(), notification.hash);
+            debug!(target: LOG_TARGET, "📝 Transforming grandpa notification. #{}({:?})", notification.header.number(), notification.hash);
             if let Err(err) = tx.unbounded_send(UnpinnedFinalityNotification::from(notification)) {
                 error!(target: LOG_TARGET, "📝 Unable to send transformed notification. Shutting down. err = {}", err);
                 return;

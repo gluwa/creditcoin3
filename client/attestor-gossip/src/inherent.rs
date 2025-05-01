@@ -1,7 +1,7 @@
 use anyhow::Result;
 use attestor_primitives::{api::AttestorApi, Digest, SignedAttestation};
 use attestor_primitives::{InherentError, INHERENT_IDENTIFIER};
-use log::{error, info};
+use log::{debug, error, info};
 use parity_scale_codec::{Codec, Encode};
 use sc_client_api::{Backend, HeaderBackend};
 use sp_api::ProvideRuntimeApi;
@@ -127,7 +127,7 @@ where
         &self,
         inherent_data: &mut InherentData,
     ) -> Result<(), sp_inherents::Error> {
-        info!(target: LOG_TARGET, "📝 Calling attestor inherent provider");
+        debug!(target: LOG_TARGET, "📝 Calling attestor inherent provider");
 
         // Retrieve the latest attestation if available
         let mut provider = self.0.lock().map_err(|e| {

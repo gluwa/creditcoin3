@@ -24,8 +24,6 @@ pub struct ProofOfInclusion {
     pub output: Vec<u8>,
     /// The proof associated with the VRF output.
     pub proof: Vec<u8>,
-    /// The epoch in which the proof was generated.
-    pub epoch: u64,
 }
 
 /// The context for the VRF
@@ -80,7 +78,6 @@ pub fn make_proof_of_inclusion(
     randomness: &Randomness,
     keys: &sr25519::Pair,
     attestor_id: &AttestorId,
-    epoch: u64,
     header_number: u64,
 ) -> Result<ProofOfInclusion, Error> {
     // Create the transcript
@@ -116,7 +113,6 @@ pub fn make_proof_of_inclusion(
     Ok(ProofOfInclusion {
         output: sig.pre_output.encode(),
         proof: sig.proof.encode(),
-        epoch,
     })
 }
 
@@ -232,7 +228,9 @@ fn calculate_threshold(target_sample_size: u128, working_size: u128) -> u128 {
         return 0;
     }
     // Calculate the threshold
-    (MAX_U128 / working_size).saturating_mul(target_sample_size)
+    MAX_U128
+        .div_ceil(working_size)
+        .saturating_mul(target_sample_size)
 }
 
 #[cfg(test)]
@@ -250,7 +248,6 @@ mod tests {
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
-        let epoch = 1;
         let header_number = 100;
 
         let proof_of_inclusion = make_proof_of_inclusion(
@@ -259,7 +256,6 @@ mod tests {
             &randomness,
             &keys,
             &attestor_id,
-            epoch,
             header_number,
         )
         .unwrap();
@@ -284,7 +280,6 @@ mod tests {
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
-        let epoch = 1;
         let header_number = 100;
 
         let res = make_proof_of_inclusion(
@@ -293,7 +288,6 @@ mod tests {
             &randomness,
             &keys,
             &attestor_id,
-            epoch,
             header_number,
         );
 
@@ -309,7 +303,6 @@ mod tests {
         let randomness = Randomness::from(H256::random());
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
-        let epoch = 1;
         let header_number = 100;
 
         let proof_of_inclusion = make_proof_of_inclusion(
@@ -318,7 +311,6 @@ mod tests {
             &randomness,
             &keys,
             &attestor_id,
-            epoch,
             header_number,
         )
         .unwrap();
@@ -346,7 +338,7 @@ mod tests {
 
         let threshold = calculate_threshold(target_sample_size, working_size);
 
-        assert_eq!(threshold, 340282366920938463463374607431768211400);
+        assert_eq!(threshold, 340282366920938463463374607431768211455);
 
         let target_sample_size = 3;
         let working_size = 1;

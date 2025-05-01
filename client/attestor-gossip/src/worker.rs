@@ -1,4 +1,5 @@
 use crate::metrics::register_metrics;
+use crate::round::RoundConfig;
 use crate::{metric_inc, metric_set, metrics::VoterMetrics};
 use attestor_primitives::ChainKey;
 use futures::{stream::Fuse, StreamExt};
@@ -208,7 +209,7 @@ where
                         if let Err(err) = self.handle_finality_notification(&notif) {
                             break err;
                         }
-                        info!(target: LOG_TARGET, "📝 Finality notification processed");
+                        debug!(target: LOG_TARGET, "📝 Finality notification processed");
                     } else {
                         break Error::FinalityStreamTerminated;
                     }
@@ -220,7 +221,7 @@ where
                 // Handler that handles incoming attestation from the gossip netowrk
                 vote = votes.next() => {
                     if let Some(vote) = vote {
-                        info!(target: LOG_TARGET, "📝 Got a vote from the network");
+                        debug!(target: LOG_TARGET, "📝 Got a vote from the network");
                         metric_inc!(self.metrics, attestor_imported_votes);
                         match self.triage_message(vote.clone()).await {
                             Ok(()) => {
@@ -337,14 +338,14 @@ where
                     attestor_best_voted,
                     attestation.header_number()
                 );
-                info!(target: LOG_TARGET, "📝 Attestation added to round");
+                debug!(target: LOG_TARGET, "📝 Attestation added to round");
             }
             VoteImportResult::Stale => {
-                warn!(target: LOG_TARGET, "📝 Stale vote detected");
+                debug!(target: LOG_TARGET, "📝 Stale vote detected");
                 metric_inc!(self.metrics, attestor_stale_votes);
             }
             VoteImportResult::RoundConcluded => {
-                info!(target: LOG_TARGET, "📝 Round concluded");
+                debug!(target: LOG_TARGET, "📝 Round concluded");
                 // Submit attestation
                 match self.try_submit_attestation(attestation) {
                     Ok(()) => {
@@ -376,17 +377,14 @@ where
         let attestor_id = attestation.attestor_id();
 
         // Get randomness from the attestation
-        let attestation_epoch = attestation.proof_of_inclusion.epoch;
+        let attestation_epoch = attestation.epoch.saturating_sub(2);
         let runtime = self.runtime.runtime_api();
         let randomness = runtime.randomness_by_epoch_id(best_hash, attestation_epoch)?;
 
         // Here we verify the proof of inclusion
         // based on the round config
         // Get round config at the attestation epoch
-        let round_config = self
-            .state
-            .get_round_config(chain_key)
-            .ok_or(Error::RoundConfigNotFound)?;
+        let round_config = self.get_or_create_round_config(best_hash, chain_key)?;
 
         let is_included = vrf::verify_proof_of_inclusion(
             round_config.committee_set_size.into(),
@@ -414,6 +412,8 @@ where
         &mut self,
         attestation: Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
+        let digest_to_conclude = attestation.digest();
+
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number();
 
@@ -428,11 +428,15 @@ where
         let (attestors_collected, signatures): (Vec<_>, Vec<<Bls as CryptoScheme>::Signature>) =
             attestations
                 .iter() // or into_iter() if we can consume raw_attestations
-                .map(|(attestor_bls_pubkey, attestations)| {
-                    (
-                        attestor_bls_pubkey.clone(),
-                        attestations.signature_bls.clone(),
-                    ) // Clone if necessary
+                .filter_map(|(attestor_bls_pubkey, attestation)| {
+                    if attestation.digest() == digest_to_conclude {
+                        Some((
+                            attestor_bls_pubkey.clone(),
+                            attestation.signature_bls.clone(),
+                        )) // Clone if necessary
+                    } else {
+                        None
+                    }
                 })
                 .unzip();
 
@@ -473,6 +477,36 @@ where
         }?;
 
         Ok(())
+    }
+
+    // Get or create round config
+    // This function retrieves or creates a round configuration based on the provided chain key.
+    // Safeguards creation if not exists when the worker is restarted.
+    fn get_or_create_round_config(
+        &mut self,
+        best_hash: B::Hash,
+        chain_key: ChainKey,
+    ) -> Result<RoundConfig, Error> {
+        let round_config = self.state.get_round_config(chain_key);
+
+        if let Some(round_config) = round_config {
+            return Ok(round_config.clone());
+        }
+
+        // Round config is reset, create one
+        let runtime_api = self.runtime.runtime_api();
+        let current_epoch = runtime_api.current_epoch(best_hash)?;
+
+        let round_config = round::create(
+            self.runtime.clone(),
+            chain_key,
+            best_hash,
+            current_epoch.epoch_index,
+        )?;
+        // Update round configuration
+        self.state.add_round_config(chain_key, round_config.clone());
+
+        Ok(round_config)
     }
 
     /// Handle finality notification
@@ -548,7 +582,12 @@ where
                 0
             };
 
-            self.update_gossip_filter(notif.hash, chain_key, last_header_number)?;
+            self.update_gossip_filter(
+                notif.hash,
+                chain_key,
+                last_header_number,
+                current_epoch.epoch_index,
+            )?;
         }
 
         // Update current epoch index
@@ -562,6 +601,7 @@ where
         block_hash: B::Hash,
         chain_key: ChainKey,
         current_block: u64,
+        epoch: u64,
     ) -> Result<(), Error> {
         let runtime_api = self.runtime.runtime_api();
         // Get active attestor set
@@ -577,16 +617,17 @@ where
         let checkpoint_interval =
             runtime_api.attestation_checkpoint_interval(block_hash, chain_key)?;
 
-        // Calculate one checkpoints in number of attestations
-        let one_checkpoint = attestation_interval * checkpoint_interval as u64;
+        // Calculate five checkpoints in number of attestations
+        let five_checkpoints = attestation_interval * checkpoint_interval as u64 * 5;
 
-        // Have a sliding window of 2 checkpoints where attestations are valid
-        info!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
+        // Have a sliding window of 10 checkpoints where attestations are valid
+        debug!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
         self.comms.gossip_validator.update_filter(
+            epoch,
             chain_key,
-            current_block.saturating_sub(one_checkpoint),
+            current_block.saturating_sub(five_checkpoints),
             current_block
-                .checked_add(one_checkpoint)
+                .checked_add(five_checkpoints)
                 .ok_or(Error::Overflow)?,
             active_attestors,
         );

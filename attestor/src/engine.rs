@@ -306,12 +306,15 @@ impl Engine {
         // Create continuity fragment
         let continuity_fragment = self.create_continuity_proof(header_number).await?;
 
+        let current_epoch = self.cc_client().get_current_epoch().await?;
+
         // Set the previous digest
         attestation.prev_digest = continuity_fragment.prev_digest;
         let signed_attestation = self.cc3_client.sign_attestation(
             attestation,
             continuity_fragment.continuity_proof,
             vrf_output,
+            current_epoch,
         );
 
         debug!("Attestor selected for block({})", header_number);

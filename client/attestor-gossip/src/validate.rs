@@ -75,7 +75,10 @@ where
         let header_number = attestation.header_number();
 
         // Check if the attestation bls signature is valid
-        self.verify_bls_signature(block_hash, attestation)?;
+        if !self.verify_bls_signature(block_hash, attestation)? {
+            error!("Invalid BLS signature");
+            return Err(Error::InvalidBlsSignature);
+        }
 
         let runtime = self.runtime.runtime_api();
 

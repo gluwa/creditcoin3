@@ -49,7 +49,8 @@ impl<H, A> Default for VoteRound<H, A> {
 
 impl<H, A> VoteRound<H, A>
 where
-    A: Clone + PartialEq + Eq + std::hash::Hash,
+    H: Clone + AsRef<[u8]>,
+    A: Clone + PartialEq + Eq + std::hash::Hash + std::fmt::Debug + Into<[u8; 32]>,
 {
     pub fn init(attestation: Attestation<H, A>, epoch: EpochIndex) -> Self {
         let header_number = attestation.attestation_data.header_number;
@@ -88,6 +89,11 @@ where
                 self.epoch = epoch_index;
             }
 
+            debug!(
+                target: LOG_TARGET,
+                "📝 Adding vote for header number: {}, attestor: {:?}, digest: {:?}",
+                header_number, attestor_id, attestation.digest()
+            );
             // Insert the vote
             return votes.insert(attestor_id, attestation);
         } else {
@@ -234,11 +240,12 @@ where
 
         info!(
             target: LOG_TARGET,
-            "📝 Checking if we can finalize round{:?}, digest: {:?}, Votes: {:?}/{:?}",
+            "📝 Checking if we can finalize round{:?}, digest: {:?}, Votes: {:?}/{:?}, epoch: {}",
             round,
             major_digest,
             attestations.len(),
-            threshold
+            threshold,
+            round_config.current_epoch
         );
         // If we can't find a majority voting on the same digest, we can't continue
         // Also check if the target attestation to be submitted is the same as the last attestation + interval
@@ -246,7 +253,16 @@ where
         Ok(attestations.len() >= threshold.try_into().unwrap())
     }
 
+    // Add a new round configuration for a given chain key.
+    // Resets the best round if the new configuration is different. This to allow revoting for attestations.
     pub fn add_round_config(&mut self, chain_key: ChainKey, round_config: RoundConfig) {
+        if let Some(rc) = self.get_round_config(chain_key) {
+            if rc != &round_config {
+                // Reset best round
+                self.best_round = BTreeMap::new();
+            }
+        }
+
         self.round_configs.insert(chain_key, round_config);
     }
 
