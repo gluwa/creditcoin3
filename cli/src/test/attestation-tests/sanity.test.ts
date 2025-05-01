@@ -119,10 +119,9 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
 
-            // 200 CC blocks is 1000 seconds which means around 166 Anvil blocks
-            // ingested at 10 blocks this means 15-16 events max
-            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(25);
-            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(25);
+            // Max 10 blocks are attested for in each CC block, so it can be a lot of attested events
+            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(30);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(30);
 
             // match the frequency b/c we don't want this to pass if only a few events are recorded
             // and then something suddenly fails/disconnects

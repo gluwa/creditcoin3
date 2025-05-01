@@ -29,6 +29,13 @@ pub struct Attestor {
 
     #[arg(long, default_value = "0", help = "Start block for the source chain")]
     start_block: u64,
+
+    #[arg(
+        long,
+        default_value = "10",
+        help = "Maturity delay for the source chain block to be considered final"
+    )]
+    maturity_delay: u64,
 }
 
 #[tokio::main]
@@ -55,6 +62,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eth_start_block: args.start_block,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
+        start_block: args.start_block,
+        maturity_delay: args.maturity_delay,
     };
 
     let mut server = Server::new(config);

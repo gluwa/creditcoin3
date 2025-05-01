@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::sync::Arc;
-use tokio::{sync::Mutex, time::sleep};
+use engine::AsyncEngine;
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 pub mod engine;
@@ -29,6 +29,8 @@ pub struct Config {
     pub eth_start_block: u64,
     pub cc3_rpc_url: String,
     pub cc3_key: String,
+    pub start_block: u64,
+    pub maturity_delay: u64,
     //pub bls_key: [u8; 32],
 }
 
@@ -41,24 +43,20 @@ impl Server {
 
     pub async fn run(&mut self) -> Result<()> {
         // Construct the attestation engine
-        let mut engine = engine::Engine::new(&self.config).await?;
-        let chain_key = engine.chain_key();
+        let mut engine = AsyncEngine::new(&self.config).await?;
 
         // Start the attestation engine
         engine.start(self.config.eth_start_block).await?;
         info!("Started attestation engine");
 
         // Wrap the engine in a arc mutex
-        let engine = Arc::new(Mutex::new(engine));
 
-        let ccsub = ccsub::CclientSub::new(engine.clone(), chain_key);
+        let ccsub = ccsub::CclientSub::new(engine.clone());
         ccsub.run().await?;
 
         // Poll the engine for new attestations
         loop {
-            let mut guard = engine.lock().await;
-
-            let maybe_attestation = guard.next().await;
+            let maybe_attestation = engine.next().await;
 
             if let Some(attestation) = maybe_attestation {
                 let digest = attestation.digest();
@@ -67,7 +65,7 @@ impl Server {
                     digest,
                     attestation.round()
                 );
-                match guard.submit_attestation(attestation).await {
+                match engine.submit_attestation(attestation).await {
                     Ok(()) => {
                         info!("Submitted attestation with digest: {:?}", digest);
                     }
@@ -86,7 +84,6 @@ impl Server {
                     }
                 }
             } else {
-                drop(guard);
                 // sleep
                 info!("No attestation to submit, sleeping for 6 seconds");
                 sleep(std::time::Duration::from_secs(6)).await;

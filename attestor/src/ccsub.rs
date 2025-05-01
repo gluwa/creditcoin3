@@ -1,14 +1,12 @@
 use anyhow::Result;
 use sp_core::H256;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::{debug, info};
 
 use cc_client::{attestation::CcEvent, AccountId32};
 
 use attestor_primitives::{ChainKey, SignedAttestation};
 
-use crate::engine::Engine;
+use crate::engine::AsyncEngine;
 
 pub type Randomness = [u8; 32];
 pub type RandomnessChange = (u64, Randomness);
@@ -17,6 +15,7 @@ pub type AttestationIntervalChange = (ChainKey, u64);
 /// Event that can be received from the client
 /// - `RandomnessChanged`: Randomness changed
 /// - `AttestationIntervalChanged`: Attestation interval changed
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     RandomnessChanged(RandomnessChange),
     AttestationIntervalChanged(AttestationIntervalChange),
@@ -24,17 +23,17 @@ pub enum Event {
 }
 
 pub struct CclientSub {
-    engine: Arc<Mutex<Engine>>,
-    chain_key: ChainKey,
+    engine: AsyncEngine,
 }
 
 impl CclientSub {
-    pub fn new(engine: Arc<Mutex<Engine>>, chain_key: ChainKey) -> Self {
-        Self { engine, chain_key }
+    pub fn new(engine: AsyncEngine) -> Self {
+        Self { engine }
     }
 
     pub async fn run(self) -> Result<()> {
-        let mut event_sub = self.engine.lock().await.event_sub().await?;
+        let mut engine = self.engine.clone();
+        let mut event_sub = engine.event_sub().await?;
 
         tokio::spawn(async move {
             loop {
@@ -51,16 +50,14 @@ impl CclientSub {
                             let event = Event::RandomnessChanged((epoch, randomness));
 
                             info!("Locking engine for event");
-                            self.engine
-                                .lock()
-                                .await
+                            engine
                                 .note_cc_event(event)
                                 .await
                                 .expect("Error noting epoch change");
                             info!("Noted epoch change");
                         }
                         CcEvent::AttestationIntervalChanged(ck, interval) => {
-                            if self.chain_key != ck {
+                            if engine.chain_key != ck {
                                 debug!("Ignoring interval change for different chain key");
                                 continue;
                             }
@@ -69,15 +66,13 @@ impl CclientSub {
 
                             let event = Event::AttestationIntervalChanged((ck, interval));
 
-                            self.engine
-                                .lock()
-                                .await
+                            engine
                                 .note_cc_event(event)
                                 .await
                                 .expect("Error noting interval change");
                         }
                         CcEvent::BlockAttested(attestation) => {
-                            if self.chain_key != attestation.chain_key() {
+                            if engine.chain_key != attestation.chain_key() {
                                 debug!("Ignoring attestation for different chain key");
                                 continue;
                             }
@@ -92,15 +87,13 @@ impl CclientSub {
 
                             let event = Event::BlockAttested(attestation);
 
-                            self.engine
-                                .lock()
-                                .await
+                            engine
                                 .note_cc_event(event)
                                 .await
                                 .expect("Error noting attestation");
                         }
                         CcEvent::CheckpointReached(checkpoint, ck) => {
-                            if self.chain_key != ck {
+                            if engine.chain_key != ck {
                                 debug!("Ignoring checkpoint for different chain key");
                                 continue;
                             }

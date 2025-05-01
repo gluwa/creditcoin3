@@ -1,5 +1,4 @@
 use anyhow::Result;
-use attestation_chain::continuity_chain::CreateResult;
 use eth::Client;
 use sp_core::H256;
 use std::collections::BTreeSet;
@@ -7,9 +6,11 @@ use thiserror::Error;
 use tokio::{
     sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
+    time::sleep,
 };
 use tracing::{debug, error, info, warn};
 
+use attestation_chain::continuity_chain::CreateResult;
 use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest};
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
@@ -27,7 +28,7 @@ const MAX_EPOCHS_HALTED: u64 = 2;
 /// Defines how much checkpoints attestations are valid for
 pub const ATTESTATION_CHECKPOINT_WINDOW: u64 = 2;
 
-pub struct Engine {
+struct Engine {
     // Engine state
     state: State,
     // Ethereum client
@@ -45,6 +46,8 @@ pub struct Engine {
     last_finalized_attestation_header: u64,
     // Keeps track of the current epoch
     current_epoch: u64,
+    // Keeps track of the starting block provided by the user
+    start_block: u64,
 }
 
 enum State {
@@ -107,9 +110,18 @@ impl Error {
     }
 }
 
-impl Engine {
-    /// Create a new attestation engine
-    /// This will create a new connection to the evm chain and the creditcoin chain
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[derive(Clone)]
+pub struct AsyncEngine {
+    inner: Arc<Mutex<Engine>>,
+    eth_client: Client,
+    maturity_delay: u64,
+    pub chain_key: ChainKey,
+}
+
+impl AsyncEngine {
     pub async fn new(config: &Config) -> Result<Self> {
         let eth_client = Client::new(&config.eth_rpc_url, None).await?;
         let chain_id = eth_client.chain_id();
@@ -119,11 +131,13 @@ impl Engine {
             cc3::Client::new(config.cc3_rpc_url.clone(), &config.cc3_key, chain_id).await?;
         cc3_client.init().await?;
 
+        let chain_key = cc3_client.get_chain_key();
+
         let (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(ATTESTATION_BUFFER_SIZE);
 
-        Ok(Self {
+        let engine: Engine = Engine {
             state: State::NotRunning,
-            eth_client,
+            eth_client: eth_client.clone(),
             cc3_client,
             source_chain_subscription: None,
             sender: attestation_tx,
@@ -131,9 +145,149 @@ impl Engine {
             voted_for: BTreeSet::new(),
             last_finalized_attestation_header: 0,
             current_epoch: 0,
+            start_block: config.start_block,
+        };
+
+        Ok(Self {
+            inner: Arc::new(Mutex::new(engine)),
+            eth_client,
+            maturity_delay: config.maturity_delay,
+            chain_key,
         })
     }
 
+    pub async fn start(&mut self, start_block: u64) -> Result<(), Error> {
+        let mut engine = self.inner.lock().await;
+        engine.start(start_block).await
+    }
+
+    /// Poll a new attestation from the source chain
+    /// This will block until a new attestation is available
+    /// If the engine is not running, it will return None in order to unblock the caller
+    /// So preferably if the poll return None, the caller should stop polling or issue a timeout
+    pub async fn next(&mut self) -> Option<AttestationPrimitive<H256>> {
+        let mut engine = self.inner.lock().await;
+
+        if engine.state.not_running() {
+            return None;
+        }
+
+        debug!("Getting next attestation");
+        let attestation = engine.receiver.recv().await;
+        drop(engine);
+
+        if let Some(attestation) = attestation {
+            return Some(
+                self.mature_block(attestation)
+                    .await
+                    .expect("Failed to mature block"),
+            );
+        }
+
+        None
+    }
+
+    /// Submit an attestation to the creditcoin chain
+    pub async fn submit_attestation(
+        &mut self,
+        attestation: AttestationPrimitive<H256>,
+    ) -> Result<(), Error> {
+        let mut engine = self.inner.lock().await;
+
+        if engine.state.not_running() {
+            return Err(Error::NotRunning);
+        }
+
+        // Prepare the attestation
+        let attestation = engine.prepare_attestation(attestation).await?;
+
+        // Note voted for the header number
+        engine
+            .voted_for
+            .insert((attestation.header_number(), attestation.digest()));
+
+        info!(
+            "Submitted attestation for block({}), digest: {:?}, epoch: {}",
+            attestation.header_number(),
+            attestation.digest(),
+            engine.current_epoch
+        );
+
+        // Submit the attestation to the chain
+        engine
+            .cc_client()
+            .submit_attestation::<H256>(attestation)
+            .await?;
+
+        // Evaluate the voting position
+        engine.evaluate_voting_position().await?;
+
+        Ok(())
+    }
+
+    /// Note a cc event
+    /// This is used to handle events from the creditcoin chain
+    pub async fn note_cc_event(&mut self, event: ccsub::Event) -> Result<(), Error> {
+        let mut engine = self.inner.lock().await;
+        match event.clone() {
+            ccsub::Event::AttestationIntervalChanged((_chain_key, interval)) => {
+                engine.note_interval_change(interval).await?;
+            }
+            ccsub::Event::BlockAttested(attestation) => {
+                engine
+                    .note_last_attested_header(attestation.header_number())
+                    .await?;
+            }
+            ccsub::Event::RandomnessChanged((epoch, _randomness)) => {
+                engine.note_epoch_change(epoch).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn event_sub(&self) -> Result<Subscription> {
+        let guard = self.inner.lock().await;
+        Ok(guard
+            .cc3_client
+            .inner
+            .subscribe_events(self.chain_key)
+            .await?)
+    }
+
+    async fn mature_block(
+        &self,
+        attestation: AttestationPrimitive<sp_core::H256>,
+    ) -> Result<AttestationPrimitive<sp_core::H256>> {
+        // Check if we can mature the block
+        let check_interval = tokio::time::Duration::from_secs(10);
+
+        loop {
+            // Get current eth head first
+            let last_eth_block_number = match self.eth_client.get_last_block().await {
+                Ok(block_number) => block_number,
+                Err(e) => {
+                    error!("Failed to get last block number: {:?}", e);
+                    return Err(e.into());
+                }
+            };
+
+            // If the attestation is mature, return it
+            if attestation.header_number <= last_eth_block_number - self.maturity_delay {
+                return Ok(attestation);
+            }
+
+            info!("Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
+                      last_eth_block_number,
+                      attestation.header_number + self.maturity_delay);
+
+            // Wait for check interval before checking again
+            sleep(check_interval).await;
+        }
+    }
+}
+
+impl Engine {
     #[must_use]
     fn cc_client(&self) -> &cc3::Client {
         &self.cc3_client
@@ -149,15 +303,7 @@ impl Engine {
         self.cc3_client.get_attestation_interval()
     }
 
-    pub async fn event_sub(&self) -> Result<Subscription> {
-        Ok(self
-            .cc3_client
-            .inner
-            .subscribe_events(self.chain_key())
-            .await?)
-    }
-
-    pub async fn start(&mut self, mut start_block: u64) -> Result<(), Error> {
+    async fn start(&mut self, mut start_block: u64) -> Result<(), Error> {
         if matches!(self.state, State::Running) {
             return Ok(());
         }
@@ -264,7 +410,7 @@ impl Engine {
     /// This will block until a new attestation is available
     /// If the engine is not running, it will return None in order to unblock the caller
     /// So preferably if the poll return None, the caller should stop polling or issue a timeout
-    pub async fn next(&mut self) -> Option<AttestationPrimitive<H256>> {
+    async fn next(&mut self) -> Option<AttestationPrimitive<H256>> {
         if self.state.not_running() {
             return None;
         }
@@ -322,40 +468,6 @@ impl Engine {
         Ok(signed_attestation)
     }
 
-    /// Submit an attestation to the creditcoin chain
-    pub async fn submit_attestation(
-        &mut self,
-        attestation: AttestationPrimitive<H256>,
-    ) -> Result<(), Error> {
-        if self.state.not_running() {
-            return Err(Error::NotRunning);
-        }
-
-        // Prepare the attestation
-        let attestation = self.prepare_attestation(attestation).await?;
-
-        // Note voted for the header number
-        self.voted_for
-            .insert((attestation.header_number(), attestation.digest()));
-
-        info!(
-            "Submitted attestation for block({}), digest: {:?}, epoch: {}",
-            attestation.header_number(),
-            attestation.digest(),
-            self.current_epoch
-        );
-
-        // Submit the attestation to the chain
-        self.cc_client()
-            .submit_attestation::<H256>(attestation)
-            .await?;
-
-        // Evaluate the voting position
-        self.evaluate_voting_position().await?;
-
-        Ok(())
-    }
-
     /// Evaluate the voting position of the attestor
     /// This is important to ensure that the attestor is in line with the chain
     /// If the attestor is ahead of the chain, it will stop the engine and wait for the chain to catch up
@@ -394,8 +506,8 @@ impl Engine {
         } else if drifted {
             warn!("Attestation was finalized, but we are ahead with voting. Last voted for: {:}, last finalized attestation: {:}", last_voted_for_block, last_finalized);
             info!(
-                "Stopping the engine at last block voted for: {:}",
-                last_voted_for_block
+                "Stopping the engine at last block voted for: {:?}, current epoch: {}",
+                last_voted_for_block, self.current_epoch
             );
 
             self.state = State::Halted(self.current_epoch);
@@ -468,25 +580,6 @@ impl Engine {
         Ok(fragment)
     }
 
-    /// Note a cc event
-    /// This is used to handle events from the creditcoin chain
-    pub async fn note_cc_event(&mut self, event: ccsub::Event) -> Result<(), Error> {
-        match event {
-            ccsub::Event::AttestationIntervalChanged((_chain_key, interval)) => {
-                self.note_interval_change(interval).await?;
-            }
-            ccsub::Event::BlockAttested(attestation) => {
-                self.note_last_attested_header(attestation.header_number())
-                    .await?;
-            }
-            ccsub::Event::RandomnessChanged((epoch, _randomness)) => {
-                self.note_epoch_change(epoch).await?;
-            }
-        }
-
-        Ok(())
-    }
-
     /// Note the interval change
     /// If the interval changes, we need to restart the engine
     /// Otherwise we do nothing
@@ -494,7 +587,9 @@ impl Engine {
         let needs_restart = self.cc3_client.get_attestation_interval() != new_interval;
         if needs_restart {
             self.cc3_client.change_attestation_interval(new_interval);
-            let start_block = self.voted_for.last().copied().unwrap_or_default().0;
+            // Restart at new interval block
+            let start_block = self.voted_for.last().copied().unwrap_or_default().0 + new_interval;
+
             self.restart(start_block).await?;
         }
 
@@ -551,9 +646,14 @@ impl Engine {
             self.last_finalized_attestation_header = last_finalized_attestation.header_number();
         }
 
+        // By default start from the last attested block OR 0 if there is no attestation and we need to start from the genesis block
         let mut start_at = self.last_finalized_attestation_header;
-        // If we don't attest to the genesis block, we need to start at the next interval
-        if self.last_finalized_attestation_header != 0 {
+        // If the provided start block by the user is greater than the last finalized attestation, we need to start from there
+        // It also included the case where we need to start from the genesis block
+        if self.start_block >= start_at {
+            start_at = self.start_block;
+        // Otherwise we need to start from the last finalized attestation + the attestation interval
+        } else {
             start_at += self.attestation_interval();
         }
 
