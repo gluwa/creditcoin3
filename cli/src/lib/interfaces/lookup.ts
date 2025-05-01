@@ -2794,7 +2794,19 @@ export default {
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup397: creditcoin3_runtime::Runtime
+     * Lookup396: frame_metadata_hash_extension::CheckMetadataHash<T>
+     **/
+    FrameMetadataHashExtensionCheckMetadataHash: {
+        mode: 'FrameMetadataHashExtensionMode',
+    },
+    /**
+     * Lookup397: frame_metadata_hash_extension::Mode
+     **/
+    FrameMetadataHashExtensionMode: {
+        _enum: ['Disabled', 'Enabled'],
+    },
+    /**
+     * Lookup399: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
