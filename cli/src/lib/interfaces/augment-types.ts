@@ -403,10 +403,13 @@ import type {
     ExtrinsicPayload,
     ExtrinsicPayloadUnknown,
     ExtrinsicPayloadV4,
+    ExtrinsicPayloadV5,
     ExtrinsicSignature,
     ExtrinsicSignatureV4,
+    ExtrinsicSignatureV5,
     ExtrinsicUnknown,
     ExtrinsicV4,
+    ExtrinsicV5,
     ImmortalEra,
     MortalEra,
     MultiSignature,
@@ -1716,12 +1719,15 @@ declare module '@polkadot/types/types/registry' {
         ExtrinsicPayload: ExtrinsicPayload;
         ExtrinsicPayloadUnknown: ExtrinsicPayloadUnknown;
         ExtrinsicPayloadV4: ExtrinsicPayloadV4;
+        ExtrinsicPayloadV5: ExtrinsicPayloadV5;
         ExtrinsicSignature: ExtrinsicSignature;
         ExtrinsicSignatureV4: ExtrinsicSignatureV4;
+        ExtrinsicSignatureV5: ExtrinsicSignatureV5;
         ExtrinsicStatus: ExtrinsicStatus;
         ExtrinsicsWeight: ExtrinsicsWeight;
         ExtrinsicUnknown: ExtrinsicUnknown;
         ExtrinsicV4: ExtrinsicV4;
+        ExtrinsicV5: ExtrinsicV5;
         f32: f32;
         F32: F32;
         f64: f64;
