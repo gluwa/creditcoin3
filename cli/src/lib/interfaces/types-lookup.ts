@@ -3220,6 +3220,18 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletTransactionPaymentChargeTransactionPayment (395) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name Creditcoin3RuntimeRuntime (397) */
+    /** @name FrameMetadataHashExtensionCheckMetadataHash (396) */
+    interface FrameMetadataHashExtensionCheckMetadataHash extends Struct {
+        readonly mode: FrameMetadataHashExtensionMode;
+    }
+
+    /** @name FrameMetadataHashExtensionMode (397) */
+    interface FrameMetadataHashExtensionMode extends Enum {
+        readonly isDisabled: boolean;
+        readonly isEnabled: boolean;
+        readonly type: 'Disabled' | 'Enabled';
+    }
+
+    /** @name Creditcoin3RuntimeRuntime (399) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
