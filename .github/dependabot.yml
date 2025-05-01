@@ -39,7 +39,7 @@ updates:
     open-pull-requests-limit: 5
     rebase-strategy: "disabled"
     groups:
-      all-dependencies:
+      docker-compose:
         dependency-type: "production"
         applies-to: version-updates
 
