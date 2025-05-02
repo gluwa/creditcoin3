@@ -588,7 +588,7 @@ type SupportedChain @entity {
     # Chain key
     chainKey: Int! @index
     # Chain id
-    chainId: Int! @index
+    chainId: BigInt! @index
     # Chain name
     chainName: String!
     # At Block
@@ -600,7 +600,7 @@ type ChainRegistered @entity {
     # Chain key
     chainKey: Int! @index
     # Chain id
-    chainId: Int! @index
+    chainId: BigInt! @index
     # Chain name
     chainName: String!
     # At Block
@@ -614,7 +614,7 @@ type ChainRemoved @entity {
     # Chain key
     chainKey: Int! @index
     # Chain id
-    chainId: Int! @index
+    chainId: BigInt! @index
     # Chain name
     chainName: String!
     # At Block

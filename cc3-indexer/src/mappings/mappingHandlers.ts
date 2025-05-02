@@ -109,7 +109,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
-        chainId: parseInt(chainId.toString(), 10),
+        chainId: BigInt(chainId.toString()),
         whoId: from.toString(),
     });
 
@@ -118,7 +118,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
-        chainId: parseInt(chainId.toString(), 10),
+        chainId: BigInt(chainId.toString()),
     });
 
     logger.info(`New Supported Chain event created at block ${event.block.block.header.number.toString()}`);
@@ -148,7 +148,7 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
-        chainId: parseInt(chainId.toString(), 10),
+        chainId: BigInt(chainId.toString()),
         whoId: from.toString(),
     });
     await chainRemoved.save();

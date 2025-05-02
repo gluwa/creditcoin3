@@ -21,7 +21,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         id: 'chain_1',
         chainKey: 1,
         chainName: 'Ethereum',
-        chainId: 1,
+        chainId: BigInt(1),
         at: block.block.header.number.toNumber(),
     });
     await Promise.all([chain1.save(), supportedChain1.save()]);
@@ -43,7 +43,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         id: 'chain_2',
         chainKey: 2,
         chainName: 'Anvil1',
-        chainId: 31337,
+        chainId: BigInt(31337),
         at: block.block.header.number.toNumber(),
     });
     await Promise.all([chain2.save(), supportedChain2.save()]);
@@ -65,7 +65,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         id: 'chain_3',
         chainKey: 3,
         chainName: 'Sepolia Ethereum',
-        chainId: 11155111,
+        chainId: BigInt(11155111),
         at: block.block.header.number.toNumber(),
     });
     await Promise.all([chain3.save(), supportedChain3.save()]);
@@ -87,7 +87,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         id: 'chain_4',
         chainKey: 4,
         chainName: 'Anvil2',
-        chainId: 31338,
+        chainId: BigInt(31338),
         at: block.block.header.number.toNumber(),
     });
     await Promise.all([chain4.save(), supportedChain4.save()]);
