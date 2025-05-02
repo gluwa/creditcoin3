@@ -583,7 +583,7 @@ type ProceedsWithdrawn @entity {
     amount: BigInt!
 }
 
-type SupportedChains @entity {
+type SupportedChain @entity {
     id: ID!
     # Chain key
     chainKey: Int! @index
