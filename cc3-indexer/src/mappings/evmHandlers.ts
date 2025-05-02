@@ -114,6 +114,8 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
     }
     const query = queries[0];
 
+    query.escrowedAmount = BigInt(0);
+
     // Update state
     switch (state) {
         case 0:
@@ -165,7 +167,7 @@ export async function handleEscrowedPaymentReclaimed(
     }
     const query = queries[0];
 
-    query.escrowedAmount = escrowedAmount.toBigInt();
+    query.escrowedAmount = BigInt(0);
 
     await query.save();
 
