@@ -154,34 +154,37 @@ contract CreditcoinPublicProver is Ownable {
             revert("Query has timed out");
         }
 
-        // First verify the proof
-        uint64 result = _call_verifier_verify(queryId, proof);
+        // Start proof verification
+        try verifier.verify(proof, queries[queryId].query) returns (uint64 result) {
+            require(result == 0, "Proof verification failed");
 
-        // Calculate the prover's fee
-        // Transfer the prover's fee to the prover
-        uint256 proverFee = Balance.unwrap(queries[queryId].escrowedAmount);
+            // Calculate the prover's fee
+            // Transfer the prover's fee to the prover
+            uint256 proverFee = Balance.unwrap(queries[queryId].escrowedAmount);
 
-        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
+            totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
 
-        // Send to proceedsAccount
-        payable(proceedsAccount).transfer(proverFee);
+            // Send to proceedsAccount
+            payable(proceedsAccount).transfer(proverFee);
 
-        queries[queryId].escrowedAmount = Balance.wrap(0);
+            queries[queryId].escrowedAmount = Balance.wrap(0);
 
-        // Check the result of the proof verification
-        // 0 == success, 1, 2, 3 == failure
-        if (result == 0) {
             queries[queryId].state = QueryState.ResultAvailable;
-        } else {
+
+            ResultSegment[] memory resultSegments = _call_verifier_get_result_segments(queryId);
+
+            // Emit event with query ID, proof, and state
+            emit QueryProofVerified(queryId, resultSegments, queries[queryId].state);
+
+            return resultSegments;
+        } catch {
             queries[queryId].state = QueryState.InvalidQuery;
+
+            emit QueryProofVerificationFailed(queryId, queries[queryId].state);
+
+            //TODO: extract revert reason here
+            revert("Proof verification failed");
         }
-
-        ResultSegment[] memory resultSegments = _call_verifier_get_result_segments(queryId);
-
-        // Emit event with query ID, proof, and state
-        emit QueryProofVerified(queryId, resultSegments, queries[queryId].state);
-
-        return resultSegments;
     }
 
     function withdrawProceeds() public onlyOwner {
@@ -268,6 +271,7 @@ interface QueryVerifierContract {
 event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName, uint64 timeout);
 event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, ChainQuery chainQuery);
 event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments, QueryState state);
+event QueryProofVerificationFailed(QueryId indexed queryId, QueryState state);
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
 event CostPerByteUpdated(uint256 newCostPerByte);
