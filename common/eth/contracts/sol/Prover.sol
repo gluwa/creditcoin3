@@ -156,6 +156,15 @@ contract CreditcoinPublicProver is Ownable {
         return verifier.get_result_segments(queryId);
     }
 
+    function _getRevertReason(bytes memory revertData) internal pure returns (string memory) {
+        if (revertData.length < 68) return "Cannot decode revert reason";
+        assembly {
+            // Skip the function selector 4 bytes
+            revertData := add(revertData, 0x04)
+        }
+        return abi.decode(revertData, (string));
+    }
+
     // submitQueryProof is called by the prover when a query's proof is ready.
     function submitQueryProof(QueryId queryId, bytes calldata proof)
         public
@@ -190,12 +199,13 @@ contract CreditcoinPublicProver is Ownable {
             emit QueryProofVerified(queryId, resultSegments, queries[queryId].state);
 
             return resultSegments;
-        } catch {
+        } catch (bytes memory revertData) {
             queries[queryId].state = QueryState.InvalidQuery;
 
-            emit QueryProofVerificationFailed(queryId, queries[queryId].state);
+            string memory reason = _getRevertReason(revertData);
 
-            //TODO: extract revert reason here
+            emit QueryProofVerificationFailed(queryId, reason);
+
             revert("Proof verification failed");
         }
     }
@@ -291,7 +301,7 @@ event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 esc
 
 event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments, QueryState state);
 
-event QueryProofVerificationFailed(QueryId indexed queryId, QueryState state);
+event QueryProofVerificationFailed(QueryId indexed queryId, string reason);
 
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 
