@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import './Types.sol';
-import './Ownable.sol';
+import "./Types.sol";
+import "./Ownable.sol";
 
 address constant PROOF_VERIFIER_ADDRESS = 0x0000000000000000000000000000000000000Be9;
 
@@ -35,7 +35,9 @@ contract CreditcoinPublicProver is Ownable {
         displayName = _displayName;
         timeout = _timeout;
 
-        emit ProverDeployed(address(this), msg.sender, _proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeout);
+        emit ProverDeployed(
+            address(this), msg.sender, _proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeout
+        );
     }
 
     function computeQueryCost(ChainQuery calldata query) public view returns (uint256) {
@@ -72,7 +74,7 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     function submitQuery(ChainQuery calldata query, address principal) public payable {
-        require (query.chainId == chainKey, "Chain not supported");
+        require(query.chainId == chainKey, "Chain not supported");
         QueryId queryId = computeQueryId(query);
         // require(queries[queryId].principal == address(0));
         // Need a more complex guard for the queries that allows replay attack protection.
@@ -94,7 +96,7 @@ contract CreditcoinPublicProver is Ownable {
         queries[queryId].query.chainId = query.chainId;
         queries[queryId].query.height = query.height;
         queries[queryId].query.index = query.index;
-        for (uint i = 0; i < query.layoutSegments.length; i++) {
+        for (uint256 i = 0; i < query.layoutSegments.length; i++) {
             queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
         }
         // .result doesn't need to be set here
@@ -115,7 +117,7 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     function reclaimEscrowedPayment(QueryId queryId) public {
-        require(queries[queryId].principal == msg.sender, 'Sender different from query.principal');
+        require(queries[queryId].principal == msg.sender, "Sender different from query.principal");
 
         QueryState state = queries[queryId].state;
         // Explicitly revert if the state is ResultAvailable
@@ -124,7 +126,9 @@ contract CreditcoinPublicProver is Ownable {
         // Allow reclaim if timeout has passed OR if the query is invalid
         bool isInvalidQuery = (state == QueryState.InvalidQuery);
 
-        require(isInvalidQuery ||isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met");
+        require(
+            isInvalidQuery || isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met"
+        );
 
         uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
 
@@ -138,17 +142,26 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_verify(QueryId queryId, bytes calldata proof) virtual internal returns (uint64) {
+    function _call_verifier_verify(QueryId queryId, bytes calldata proof) internal virtual returns (uint64) {
         return verifier.verify(proof, queries[queryId].query);
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_get_result_segments(QueryId queryId) virtual internal view returns (ResultSegment[] memory) {
+    function _call_verifier_get_result_segments(QueryId queryId)
+        internal
+        view
+        virtual
+        returns (ResultSegment[] memory)
+    {
         return verifier.get_result_segments(queryId);
     }
 
     // submitQueryProof is called by the prover when a query's proof is ready.
-    function submitQueryProof(QueryId queryId, bytes calldata proof) public onlyOwner returns (ResultSegment[] memory) {
+    function submitQueryProof(QueryId queryId, bytes calldata proof)
+        public
+        onlyOwner
+        returns (ResultSegment[] memory)
+    {
         // Check if timeout has occurred
         if (isQueryTimedOut(queryId)) {
             revert("Query has timed out");
@@ -258,21 +271,32 @@ contract CreditcoinPublicProver is Ownable {
 /// @title QueryVerifierContract interface
 /// @notice This interface defines the functions and events for interacting with the QueryVerifierContract.
 interface QueryVerifierContract {
-    function verify(
-        bytes calldata proof,
-        ChainQuery calldata query
-    ) external returns (uint64);
+    function verify(bytes calldata proof, ChainQuery calldata query) external returns (uint64);
 
-    function get_result_segments(
-        QueryId queryId
-    ) external view returns (ResultSegment[] memory);
+    function get_result_segments(QueryId queryId) external view returns (ResultSegment[] memory);
 }
 
-event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount, uint256 costPerByte, uint256 baseFee, uint64 chainKey, string displayName, uint64 timeout);
+event ProverDeployed(
+    address indexed contractAddress,
+    address indexed owner,
+    address proceedsAccount,
+    uint256 costPerByte,
+    uint256 baseFee,
+    uint64 chainKey,
+    string displayName,
+    uint64 timeout
+);
+
 event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 escrowedAmount, ChainQuery chainQuery);
+
 event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments, QueryState state);
+
 event QueryProofVerificationFailed(QueryId indexed queryId, QueryState state);
+
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
+
 event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
+
 event CostPerByteUpdated(uint256 newCostPerByte);
+
 event BaseFeeUpdated(uint256 newBaseFee);

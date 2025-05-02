@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 // Types, structs, and enums
 type QueryId is bytes32;
+
 type Balance is uint256;
 
 struct ChainQuery {
