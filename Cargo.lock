@@ -3769,6 +3769,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethabi"
+version = "18.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7413c5f74cc903ea37386a8965a936cbeb334bd270862fdece542c1b2dcbc898"
+dependencies = [
+ "ethereum-types",
+ "hex",
+ "sha3",
+]
+
+[[package]]
 name = "ethbloom"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8449,6 +8460,7 @@ dependencies = [
  "attestor-primitives",
  "derive_more 0.99.19",
  "env_logger 0.11.8",
+ "ethabi",
  "fp-account",
  "fp-evm",
  "frame-election-provider-support",

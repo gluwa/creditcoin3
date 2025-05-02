@@ -1,7 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::marker::PhantomData;
-use fp_evm::{PrecompileFailure, PrecompileHandle};
+use ethabi::{encode, Token};
+use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
@@ -28,6 +29,16 @@ pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(ad
 pub struct ProofVerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
 type ConstU50MB = sp_core::ConstU32<52428800>;
+
+fn encode_revert_message(message: &str) -> Vec<u8> {
+    // function selector for Error(string)
+    let mut revert_with_selector = [0x08, 0xc3, 0x79, 0xa0].to_vec();
+
+    let encoded_revert = encode(&[Token::String(message.into())]);
+    revert_with_selector.extend(encoded_revert);
+
+    revert_with_selector
+}
 
 #[precompile_utils::precompile]
 impl<Runtime> ProofVerifierPrecompile<Runtime>
@@ -82,36 +93,66 @@ where
                     Ok(0)
                 }
                 Err(e) => match e {
-                    TryDispatchError::Evm(_) => Ok(5),
+                    TryDispatchError::Evm(_) => {
+                        let encoded_revert = encode_revert_message("EVM dispatch error");
+                        Err(PrecompileFailure::Revert {
+                            output: encoded_revert,
+                            exit_status: ExitRevert::Reverted,
+                        })
+                    }
                     TryDispatchError::Substrate(dispatch_error) => match dispatch_error {
                         DispatchError::Module(module_error) => {
                             let error = module_error.error;
                             match error {
                                 [0, 0, 0, 0] => {
-                                    error!("Invalid proof submitted: {:?}", e);
-                                    Ok(1)
+                                    let encoded_revert =
+                                        encode_revert_message("Invalid proof submitted");
+                                    Err(PrecompileFailure::Revert {
+                                        output: encoded_revert,
+                                        exit_status: ExitRevert::Reverted,
+                                    })
                                 }
                                 [11, 0, 0, 0] => {
-                                    error!("Query layout mismatch: {:?}", e);
-                                    Ok(2)
+                                    let encoded_revert =
+                                        encode_revert_message("Query layout mismatch");
+                                    Err(PrecompileFailure::Revert {
+                                        output: encoded_revert,
+                                        exit_status: ExitRevert::Reverted,
+                                    })
                                 }
                                 [10, 0, 0, 0] => {
-                                    error!("Query out of bounds: {:?}", e);
-                                    Ok(3)
+                                    let encoded_revert =
+                                        encode_revert_message("Query out of bounds");
+                                    Err(PrecompileFailure::Revert {
+                                        output: encoded_revert,
+                                        exit_status: ExitRevert::Reverted,
+                                    })
                                 }
                                 [13, 0, 0, 0] => {
-                                    error!("Checkpoint block number mismatch: {:?}", e);
-                                    Ok(4)
+                                    let encoded_revert =
+                                        encode_revert_message("Checkpoint block number mismatch");
+                                    Err(PrecompileFailure::Revert {
+                                        output: encoded_revert,
+                                        exit_status: ExitRevert::Reverted,
+                                    })
                                 }
                                 _ => {
-                                    error!("Failed to dispatch submit_proof: {:?}", e);
-                                    Ok(1)
+                                    let encoded_revert =
+                                        encode_revert_message("Failed to dispatch submit_proof");
+                                    Err(PrecompileFailure::Revert {
+                                        output: encoded_revert,
+                                        exit_status: ExitRevert::Reverted,
+                                    })
                                 }
                             }
                         }
                         _ => {
-                            error!("Failed to dispatch submit_proof: {:?}", e);
-                            Ok(3)
+                            let encoded_revert =
+                                encode_revert_message("Failed to dispatch submit_proof");
+                            Err(PrecompileFailure::Revert {
+                                output: encoded_revert,
+                                exit_status: ExitRevert::Reverted,
+                            })
                         }
                     },
                 },

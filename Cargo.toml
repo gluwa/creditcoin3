@@ -220,6 +220,7 @@ pallet-attestation-poc = { path = "pallets/attestation-poc", default-features = 
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Precompiles
+ethabi = { version = "18.0.0", default-features = false }
 pallet-evm-precompile-proof-verifier = { path = "precompiles/proof-verifier", default-features = false }
 pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
 

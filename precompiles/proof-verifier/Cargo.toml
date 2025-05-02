@@ -44,6 +44,8 @@ fp-account = { workspace = true }
 fp-evm = { workspace = true }
 pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 
+ethabi = { workspace = true, default-features = false }
+
 [dev-dependencies]
 derive_more = { workspace = true }
 env_logger = { workspace = true }

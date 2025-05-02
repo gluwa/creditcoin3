@@ -81,7 +81,7 @@ fn verify_should_revert_when_proof_is_empty() {
                         query,
                     },
                 )
-                .execute_returns(1u8);
+                .execute_reverts(|r| r == b"Invalid proof submitted");
         });
 }
 
@@ -121,7 +121,7 @@ fn verify_should_revert_when_block_number_is_mismatched_between_query_and_the_pr
                         query: query.clone(),
                     },
                 )
-                .execute_returns(4u8);
+                .execute_reverts(|r| r == b"Checkpoint block number mismatch")
         });
 }
 

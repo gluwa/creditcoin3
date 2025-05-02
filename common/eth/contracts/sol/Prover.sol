@@ -154,7 +154,7 @@ contract CreditcoinPublicProver is Ownable {
             revert("Query has timed out");
         }
 
-        // Fist verify the proof
+        // First verify the proof
         uint64 result = _call_verifier_verify(queryId, proof);
 
         // Calculate the prover's fee
