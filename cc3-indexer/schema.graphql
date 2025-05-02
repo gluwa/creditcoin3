@@ -591,12 +591,8 @@ type SupportedChains @entity {
     chainId: Int! @index
     # Chain name
     chainName: String!
-
-    lastUpdateBlockNumber: Int!
-    """
-    1 - Registred, 0 Removed
-    """
-    status: Int!
+    # At Block
+    at: Int!
 }
 
 type ChainRegistered @entity {
@@ -607,8 +603,8 @@ type ChainRegistered @entity {
     chainId: Int! @index
     # Chain name
     chainName: String!
-
-    lastUpdateBlockNumber: Int!
+    # At Block
+    at: Int!
     # account that registered chain
     who: Account!
 }
@@ -621,9 +617,8 @@ type ChainRemoved @entity {
     chainId: Int! @index
     # Chain name
     chainName: String!
-
-    lastUpdateBlockNumber: Int!
+    # At Block
+    at: Int!
     # account that removed chain
     who: Account!
 }
-

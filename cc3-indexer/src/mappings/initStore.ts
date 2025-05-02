@@ -1,5 +1,5 @@
 import { SubstrateBlock } from '@subql/types';
-import { AttestationChainData } from '../types';
+import { AttestationChainData, SupportedChain } from '../types';
 
 export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<void> {
     logger.info(`Initiating store and database at block #${block.block.header.number.toString()}`);
@@ -17,7 +17,14 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
-    await chain1.save();
+    const supportedChain1 = SupportedChain.create({
+        id: 'chain_1',
+        chainKey: 1,
+        chainName: 'Ethereum',
+        chainId: 1,
+        at: block.block.header.number.toNumber(),
+    });
+    await Promise.all([chain1.save(), supportedChain1.save()]);
 
     const chain2 = AttestationChainData.create({
         id: 'chain_2',
@@ -32,7 +39,14 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
-    await chain2.save();
+    const supportedChain2 = SupportedChain.create({
+        id: 'chain_2',
+        chainKey: 2,
+        chainName: 'Anvil1',
+        chainId: 31337,
+        at: block.block.header.number.toNumber(),
+    });
+    await Promise.all([chain2.save(), supportedChain2.save()]);
 
     const chain3 = AttestationChainData.create({
         id: 'chain_3',
@@ -47,7 +61,14 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
-    await chain3.save();
+    const supportedChain3 = SupportedChain.create({
+        id: 'chain_3',
+        chainKey: 3,
+        chainName: 'Sepolia Ethereum',
+        chainId: 11155111,
+        at: block.block.header.number.toNumber(),
+    });
+    await Promise.all([chain3.save(), supportedChain3.save()]);
 
     const chain4 = AttestationChainData.create({
         id: 'chain_4',
@@ -62,7 +83,14 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
-    await chain4.save();
+    const supportedChain4 = SupportedChain.create({
+        id: 'chain_4',
+        chainKey: 4,
+        chainName: 'Anvil2',
+        chainId: 31338,
+        at: block.block.header.number.toNumber(),
+    });
+    await Promise.all([chain4.save(), supportedChain4.save()]);
 }
 
 // Getter

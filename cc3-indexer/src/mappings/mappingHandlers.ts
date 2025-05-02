@@ -26,7 +26,7 @@ import {
     MapAttestationAttestor,
     CheckpointIntervalChanged,
     ChainRegistered,
-    SupportedChains,
+    SupportedChain,
     ChainRemoved,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
@@ -88,8 +88,6 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
 }
 
 export async function handleSupportedChainRegistered(event: SubstrateEvent): Promise<void> {
-    logger.info(`New Supported Chain Registered event found at block ${event.block.block.header.number.toString()}`);
-
     const {
         event: {
             data: [chainKey, chainId, chainName],
@@ -104,22 +102,23 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = parseInt(chainKeyStr, 10);
 
+    const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
+
     const chainRegistered = ChainRegistered.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
-        lastUpdateBlockNumber: blockNumber,
+        at: blockNumber,
         chainKey: chainKeyNumber,
-        chainName: chainName.toString(),
+        chainName: hexDecodedChainName,
         chainId: parseInt(chainId.toString(), 10),
         whoId: from.toString(),
     });
 
-    const suportedChain = SupportedChains.create({
+    const suportedChain = SupportedChain.create({
         id: chainKeyNumber.toString(),
-        lastUpdateBlockNumber: blockNumber,
+        at: blockNumber,
         chainKey: chainKeyNumber,
-        chainName: chainName.toString(),
+        chainName: hexDecodedChainName,
         chainId: parseInt(chainId.toString(), 10),
-        status: 1,
     });
 
     logger.info(`New Supported Chain event created at block ${event.block.block.header.number.toString()}`);
@@ -128,8 +127,6 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
-    logger.info(`New Supported Chain Registered event found at block ${event.block.block.header.number.toString()}`);
-
     const {
         event: {
             data: [chainKey, chainId, chainName],
@@ -144,39 +141,31 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = parseInt(chainKeyStr, 10);
 
-    const chainRegistered = ChainRemoved.create({
+    const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
+
+    const chainRemoved = ChainRemoved.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
-        lastUpdateBlockNumber: blockNumber,
+        at: blockNumber,
         chainKey: chainKeyNumber,
-        chainName: chainName.toString(),
+        chainName: hexDecodedChainName,
         chainId: parseInt(chainId.toString(), 10),
         whoId: from.toString(),
     });
-    const updateList = [chainRegistered.save()];
+    await chainRemoved.save();
 
-    const attestor = await SupportedChains.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
-    if (isEmpty(attestor)) {
+    const supportedChain = await SupportedChain.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
+    if (isEmpty(supportedChain)) {
         logger.error(
-            `Supported Chains : ${chainKeyStr} not found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain  will be created with status 0 now.`,
+            `Supported Chains : ${chainKeyStr} not found in db for block number event: ${event.block.block.header.number.toString()}.`,
         );
-        const suportedChain = SupportedChains.create({
-            id: chainKeyNumber.toString(),
-            lastUpdateBlockNumber: blockNumber,
-            chainKey: chainKeyNumber,
-            chainName: chainName.toString(),
-            chainId: parseInt(chainId.toString(), 10),
-            status: 0,
-        });
-        updateList.push(suportedChain.save());
     } else {
         logger.info(
-            `Supported Chains : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain will be updated with status 0 now.`,
+            `Supported Chains : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain will be removed`,
         );
-        attestor[0].status = 0;
-        attestor[0].lastUpdateBlockNumber = blockNumber;
-        updateList.push(attestor[0].save());
+        await SupportedChain.remove(supportedChain[0].id);
     }
-    await Promise.all(updateList);
+
+    return Promise.resolve();
 }
 
 export async function handleEventAttestorRegistered(event: SubstrateEvent): Promise<void> {
