@@ -13,9 +13,11 @@ if [ "$RESULT" != "0" ]; then
     exit $RESULT
 fi
 
-# Check if there are any .toml files that have changed
-if git diff --cached --name-only | grep -q '\.toml$'; then
-    taplo format --check
+# Check .toml files excluding 'target/'
+TOML_FILES=$(git diff --cached --name-only '*.toml' ':!target/*')
+
+if [ -n "$TOML_FILES" ]; then
+    taplo format --check "$TOML_FILES"
     RESULT=$?
     if [ "$RESULT" != "0" ]; then
         echo "INFO: pre-commit: taplo format failed"
