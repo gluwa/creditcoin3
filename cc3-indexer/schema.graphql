@@ -499,7 +499,7 @@ type Prover @entity {
 
     proceedsAccount: String
 
-    contractAddress: String
+    contractAddress: String @index
 
     chainKey: BigInt!
 

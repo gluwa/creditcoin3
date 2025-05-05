@@ -23,7 +23,9 @@ export async function handleProverDeployed(event: FrontierEvmEvent<ProverDeploye
         return;
     }
 
-    const [contractAddress, owner, proceedsAccount, baseCostPerByte, baseFee, chainKey, name, timeout] = event.args;
+    const contractAddress = event.address;
+
+    const [_owner, owner, proceedsAccount, baseCostPerByte, baseFee, chainKey, name, timeout] = event.args;
 
     const id = `${event.blockNumber} - ${event.transactionIndex}`;
 
@@ -207,6 +209,7 @@ export async function handleUpdateBaseFee(event: FrontierEvmEvent<BaseFeeUpdated
     }
 
     const proverContractAddress = event.address;
+    logger.info(`Updating base fee for prover ${proverContractAddress}`);
 
     const [newBaseFee] = event.args;
 
@@ -215,6 +218,7 @@ export async function handleUpdateBaseFee(event: FrontierEvmEvent<BaseFeeUpdated
     // Update the prover entity
     const provers = await Prover.getByFields([['contractAddress', '=', proverContractAddress]], { limit: 1 });
     for (const prover of provers) {
+        logger.info(`Updating base fee for prover ${prover.id}`);
         prover.baseFee = BigInt(newBaseFee.toString());
         await prover.save();
     }
@@ -229,6 +233,7 @@ export async function handleUpdateCostPerByte(event: FrontierEvmEvent<CostPerByt
     }
 
     const proverContractAddress = event.address;
+    logger.info(`Updating cost per byte for prover ${proverContractAddress}`);
 
     const [newCostPerByte] = event.args;
 
@@ -237,6 +242,7 @@ export async function handleUpdateCostPerByte(event: FrontierEvmEvent<CostPerByt
     // Update the prover entity
     const provers = await Prover.getByFields([['contractAddress', '=', proverContractAddress]], { limit: 1 });
     for (const prover of provers) {
+        logger.info(`Updating cost per byte for prover ${prover.id}`);
         prover.baseCostPerByte = BigInt(newCostPerByte.toString());
         await prover.save();
     }
