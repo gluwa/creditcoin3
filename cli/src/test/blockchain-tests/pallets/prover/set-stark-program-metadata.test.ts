@@ -12,7 +12,9 @@ describe('SetStarkProgramMetadata', (): void => {
 
         // remove metadata b/c its set in genesis
         // will fail silently if already removed
-        await api.tx.sudo.sudo(api.tx.prover.removeStarkProgramMetadata(starkProgramVersion)).signAndSend(root);
+        await api.tx.sudo
+            .sudo(api.tx.prover.removeStarkProgramMetadata(starkProgramVersion))
+            .signAndSend(root, { nonce: -1 });
     }, 30_000);
 
     afterAll(async () => {

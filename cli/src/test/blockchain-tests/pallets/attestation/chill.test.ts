@@ -15,7 +15,9 @@ describe('Chill', (): void => {
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
         await fundFromSudo(attestorAccount.address, MICROUNITS_PER_CTC.mul(new BN(2000)));
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestorAccount.address).signAndSend(alice);
+        await api.tx.attestation
+            .registerAttestor(chain_Anvil2_Key, attestorAccount.address)
+            .signAndSend(alice, { nonce: -1 });
 
         // wait for at least one block b/c when registerAttestor() & chill() happen to be in the same
         // block chill() will fail b/c storage hasn't been updated yet!

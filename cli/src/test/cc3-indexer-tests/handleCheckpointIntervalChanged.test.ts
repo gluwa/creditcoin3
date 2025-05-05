@@ -27,7 +27,7 @@ describe('handleCheckpointIntervalChanged()', () => {
             // NOTE: by defauilt it is 10
             await api.tx.sudo
                 .sudo(api.tx.attestation.setAttestationsPerCheckpoint(chain_Anvil2_Key, newInterval))
-                .signAndSend(root);
+                .signAndSend(root, { nonce: -1 });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

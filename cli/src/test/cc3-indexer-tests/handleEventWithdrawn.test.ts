@@ -19,11 +19,11 @@ describe('handleEventWithdrawn()', () => {
         attestor = await randomFundedAccount(api, root);
 
         // register & bond
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // unregister & unbond
-        await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+        await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // wait for funds to be unlocked!
@@ -39,7 +39,7 @@ describe('handleEventWithdrawn()', () => {
         beforeAll(async () => {
             startingBlock = (await getChainStatus(api)).bestNumber;
 
-            await api.tx.attestation.withdrawUnbonded().signAndSend(bob);
+            await api.tx.attestation.withdrawUnbonded().signAndSend(bob, { nonce: -1 });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

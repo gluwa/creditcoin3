@@ -17,7 +17,7 @@ describe('handleEventAttestorUnregistered()', () => {
         attestor = await randomFundedAccount(api, root);
 
         // NOTE: Bob is the STASH for a random attestor on the Anvil2 chain
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
 
         // wait for txn to make it on chain so we can deregister later
         await forElapsedBlocks(api, { minBlocks: 3 });
@@ -56,7 +56,9 @@ describe('handleEventAttestorUnregistered()', () => {
             expect(foundMatch).toEqual(false);
 
             // NOTE: now remove it and observe GraphQL responses below
-            await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+            await api.tx.attestation
+                .unregisterAttestor(chain_Anvil2_Key, attestor.address)
+                .signAndSend(bob, { nonce: -1 });
 
             // wait for txn to make it on chain & indexer to ingest the block
             await forElapsedBlocks(api, { minBlocks: 3 });

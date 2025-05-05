@@ -28,7 +28,9 @@ describe('handleEventBonded()', () => {
             startingBlock = (await getChainStatus(api)).bestNumber;
 
             // NOTE: registering the attestor will bond a fixed amount
-            await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+            await api.tx.attestation
+                .registerAttestor(chain_Anvil2_Key, attestor.address)
+                .signAndSend(bob, { nonce: -1 });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

@@ -17,7 +17,7 @@ describe('Attest', (): void => {
 
         // NOTE: Alice is the STASH for a random attestor on the Anvil2 chain
         attestor = await randomFundedAccount(api, root);
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(alice);
+        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(alice, { nonce: -1 });
 
         // wait for Attestors storage item to be updated!
         await forElapsedBlocks(api, { minBlocks: 1 });

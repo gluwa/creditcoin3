@@ -22,7 +22,7 @@ describe('Precompile: get_result_segments()', (): void => {
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         await api.tx.sudo
             .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root);
+            .signAndSend(root, { nonce: -1 });
 
         const alice = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));

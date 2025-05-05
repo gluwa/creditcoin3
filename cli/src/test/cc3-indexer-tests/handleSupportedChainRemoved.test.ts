@@ -16,7 +16,9 @@ describe('handleSupportedChainRemoved()', () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        await api.tx.sudo.sudo(api.tx.supportedChains.registerChain(newChainId, newChainName)).signAndSend(root);
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName))
+            .signAndSend(root, { nonce: -1 });
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // will fail if the query returns None
@@ -55,7 +57,9 @@ describe('handleSupportedChainRemoved()', () => {
             startingBlock = (await getChainStatus(api)).bestNumber;
             expect(startingBlock).toBeGreaterThan(0);
 
-            await api.tx.sudo.sudo(api.tx.supportedChains.removeChain(newChainKey, true)).signAndSend(root);
+            await api.tx.sudo
+                .sudo(api.tx.supportedChains.removeChain(newChainKey, true))
+                .signAndSend(root, { nonce: -1 });
 
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 60_000);

@@ -12,7 +12,9 @@ describe('SetPayee', (): void => {
 
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         const attrAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attrAccount.address).signAndSend(alice);
+        await api.tx.attestation
+            .registerAttestor(chain_Anvil2_Key, attrAccount.address)
+            .signAndSend(alice, { nonce: -1 });
     });
 
     afterAll(async () => {

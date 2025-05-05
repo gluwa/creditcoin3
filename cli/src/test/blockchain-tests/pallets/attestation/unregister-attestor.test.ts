@@ -1,5 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
-import { extractFee } from '../../../utils';
+import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
 
 describe('UnregisterAttestor', (): void => {
@@ -13,8 +13,12 @@ describe('UnregisterAttestor', (): void => {
 
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestorAccount.address).signAndSend(alice);
-    });
+        await api.tx.attestation
+            .registerAttestor(chain_Anvil2_Key, attestorAccount.address)
+            .signAndSend(alice, { nonce: -1 });
+
+        await forElapsedBlocks(api, { minBlocks: 1 });
+    }, 30_000);
 
     afterAll(async () => {
         await api.disconnect();

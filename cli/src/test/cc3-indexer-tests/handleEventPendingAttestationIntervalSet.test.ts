@@ -17,7 +17,9 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        await api.tx.sudo.sudo(api.tx.supportedChains.registerChain(newChainId, newChainName)).signAndSend(root);
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName))
+            .signAndSend(root, { nonce: -1 });
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // will fail if the query returns None
@@ -28,7 +30,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
     }, 30_000);
 
     afterAll(async () => {
-        await api.tx.sudo.sudo(api.tx.supportedChains.removeChain(newChainKey, true)).signAndSend(root);
+        await api.tx.sudo.sudo(api.tx.supportedChains.removeChain(newChainKey, true)).signAndSend(root, { nonce: -1 });
 
         await api.disconnect();
     });
@@ -40,7 +42,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
 
             await api.tx.sudo
                 .sudo(api.tx.attestation.setChainAttestationInterval(newChainKey, newInterval))
-                .signAndSend(root);
+                .signAndSend(root, { nonce: -1 });
 
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);

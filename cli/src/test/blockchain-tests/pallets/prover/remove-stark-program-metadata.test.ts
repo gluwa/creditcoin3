@@ -14,7 +14,7 @@ describe('RemoveStarkProgramMetadata', (): void => {
         // will fail silently if already set
         await api.tx.sudo
             .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root);
+            .signAndSend(root, { nonce: -1 });
     }, 30_000);
 
     afterAll(async () => {

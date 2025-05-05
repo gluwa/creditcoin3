@@ -1,5 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
-import { extractFee } from '../../../utils';
+import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
 
 describe('UnregisterInvulnerable', (): void => {
@@ -15,8 +15,10 @@ describe('UnregisterInvulnerable', (): void => {
         attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
         await api.tx.sudo
             .sudo(api.tx.attestation.registerInvulnerable(chain_Anvil2_Key, attestorAccount.address))
-            .signAndSend(root);
-    });
+            .signAndSend(root, { nonce: -1 });
+
+        await forElapsedBlocks(api, { minBlocks: 1 });
+    }, 30_000);
 
     afterAll(async () => {
         await api.disconnect();

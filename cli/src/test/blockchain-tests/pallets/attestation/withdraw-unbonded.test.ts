@@ -14,13 +14,17 @@ describe('WithdrawUnbonded', (): void => {
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         const attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
         await fundFromSudo(attestorAccount.address, MICROUNITS_PER_CTC.mul(new BN(2000)));
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestorAccount.address).signAndSend(alice);
+        await api.tx.attestation
+            .registerAttestor(chain_Anvil2_Key, attestorAccount.address)
+            .signAndSend(alice, { nonce: -1 });
 
         // wait for Attestors storage item to be updated!
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // unregister so that unbonding can begin
-        await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestorAccount.address).signAndSend(alice);
+        await api.tx.attestation
+            .unregisterAttestor(chain_Anvil2_Key, attestorAccount.address)
+            .signAndSend(alice, { nonce: -1 });
 
         // wait for funds to be unlocked!
         const unbondingPeriod: number = api.consts.attestation.bondingDuration.toNumber();

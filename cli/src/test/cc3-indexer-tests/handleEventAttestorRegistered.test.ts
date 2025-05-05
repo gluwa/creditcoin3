@@ -42,7 +42,9 @@ describe('handleEventAttestorRegistered()', () => {
     describe('when new attestor is registered', () => {
         beforeAll(async () => {
             // NOTE: Bob is the STASH for a random attestor on the Anvil2 chain
-            await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+            await api.tx.attestation
+                .registerAttestor(chain_Anvil2_Key, attestor.address)
+                .signAndSend(bob, { nonce: -1 });
 
             // wait for txn to make it on chain & indexer to ingest the block
             await forElapsedBlocks(api, { minBlocks: 3 });

@@ -36,7 +36,7 @@ describe('handleEventInvulnerableRegistered()', () => {
             // NOTE: act and observe GraphQL responses below
             await api.tx.sudo
                 .sudo(api.tx.attestation.registerInvulnerable(chain_Anvil2_Key, attestor.address))
-                .signAndSend(root);
+                .signAndSend(root, { nonce: -1 });
 
             // wait for txn to make it on chain & indexer to ingest the block
             await forElapsedBlocks(api, { minBlocks: 3 });

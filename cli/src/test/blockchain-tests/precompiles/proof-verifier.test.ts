@@ -24,7 +24,7 @@ describe('Precompile: verify()', (): void => {
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         await api.tx.sudo
             .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root);
+            .signAndSend(root, { nonce: -1 });
 
         evmProvider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
 

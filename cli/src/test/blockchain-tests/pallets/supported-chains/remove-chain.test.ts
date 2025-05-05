@@ -13,7 +13,9 @@ describe('RemoveChain', (): void => {
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
-        await api.tx.sudo.sudo(api.tx.supportedChains.registerChain(chainId, chainName)).signAndSend(root);
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.registerChain(chainId, chainName))
+            .signAndSend(root, { nonce: -1 });
 
         await forElapsedBlocks(api);
 

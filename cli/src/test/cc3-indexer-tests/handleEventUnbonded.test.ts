@@ -19,7 +19,7 @@ describe('handleEventUnbonded()', () => {
         attestor = await randomFundedAccount(api, root);
 
         // register here just so we can unregister a bit later
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
         await forElapsedBlocks(api, { minBlocks: 3 });
     }, 45_000);
 
@@ -32,7 +32,9 @@ describe('handleEventUnbonded()', () => {
             startingBlock = (await getChainStatus(api)).bestNumber;
 
             // NOTE: unregistering the attestor will also unbond
-            await api.tx.attestation.unregisterAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob);
+            await api.tx.attestation
+                .unregisterAttestor(chain_Anvil2_Key, attestor.address)
+                .signAndSend(bob, { nonce: -1 });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

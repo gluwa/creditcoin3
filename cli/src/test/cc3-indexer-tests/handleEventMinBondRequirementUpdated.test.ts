@@ -24,7 +24,9 @@ describe('handleEventMinBondRequirementUpdated()', () => {
             expect(startingBlock).toBeGreaterThan(0);
 
             // NOTE: by defauilt it is 100
-            await api.tx.sudo.sudo(api.tx.attestation.setMinBondRequirement(newMinBondAmount)).signAndSend(root);
+            await api.tx.sudo
+                .sudo(api.tx.attestation.setMinBondRequirement(newMinBondAmount))
+                .signAndSend(root, { nonce: -1 });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
