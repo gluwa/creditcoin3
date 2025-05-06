@@ -142,7 +142,7 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_verify(QueryId queryId, bytes calldata proof) internal virtual returns (uint64) {
+    function _call_verifier_verify(QueryId queryId, bytes calldata proof) external virtual returns (uint64) {
         return verifier.verify(proof, queries[queryId].query);
     }
 
@@ -177,8 +177,7 @@ contract CreditcoinPublicProver is Ownable {
         }
 
         // Start proof verification
-        try verifier.verify(proof, queries[queryId].query) returns (uint64 result) {
-            require(result == 0, "Proof verification failed");
+        try this._call_verifier_verify(queryId, proof) {
 
             // Calculate the prover's fee
             // Transfer the prover's fee to the prover
