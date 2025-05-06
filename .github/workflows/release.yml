@@ -113,7 +113,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: --release ${{ needs.setup.outputs.build_options}}
+          args: --release --features metadata-hash ${{ needs.setup.outputs.build_options}}
 
       - name: Build MacOS aarch64 target
         if: matrix.operating-system == 'macos-13'
@@ -121,7 +121,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: --release --target aarch64-apple-darwin
+          args: --release --features metadata-hash --target aarch64-apple-darwin
 
       - name: Compress
         continue-on-error: true
@@ -171,7 +171,7 @@ jobs:
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
         env:
-          BUILD_OPTS: "--release ${{ needs.setup.outputs.build_options }}"
+          BUILD_OPTS: "--release --features metadata-hash ${{ needs.setup.outputs.build_options }}"
         with:
           chain: "creditcoin"
           runtime_dir: runtime
