@@ -515,6 +515,7 @@ fn extract_original_felt_ranges_from_sanitized(
 
 #[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
+    use super::arch_independent_tests::get_test_query;
     use crate::command::{
         convert_segments_to_felt_segments, felts_from_bytes, hash_layout_segments,
         validate_query_against_proof, VerifierError, NULL_ABI,
@@ -527,7 +528,6 @@ pub mod tests {
         types::{CairoVerifierOutput, StoneProof, StoneProofJson},
     };
     use sp_core::H256;
-    use super::arch_independent_tests::get_test_query;
 
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
@@ -554,8 +554,9 @@ pub mod tests {
 
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
-        let result = super::run_verifier(proof_example, query, metadata).expect("Result should be Ok()");
-        
+        let result =
+            super::run_verifier(proof_example, query, metadata).expect("Result should be Ok()");
+
         check_result_segments_against_expected(result.1);
     }
 
@@ -799,42 +800,66 @@ pub mod tests {
     }
 
     fn check_result_segments_against_expected(actual_segments: Vec<ResultSegment>) {
-        // Expected result segments correspond to the test ERC20 Transfer query in `get_test_query()`. 
-        // These have been validated against the fields of the original transaction, transaction 
+        // Expected result segments correspond to the test ERC20 Transfer query in `get_test_query()`.
+        // These have been validated against the fields of the original transaction, transaction
         // receipt, and query.
         let expected_segments: Vec<ResultSegment> = vec![
             ResultSegment {
                 offset: 448,
-                bytes: hex::decode("0x0000000000000000000000000000000000000000000000000000000000000001").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 192,
-                bytes: hex::decode("0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 224,
-                bytes: hex::decode("0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 800,
-                bytes: hex::decode("0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 928,
-                bytes: hex::decode("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 960,
-                bytes: hex::decode("0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 992,
-                bytes: hex::decode("0x0000000000000000000000000000000000000000000000000000000000000001").expect("Decoding failed")
+                bytes: hex::decode(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                )
+                .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 1056,
-                bytes: hex::decode("0x0000000000000000000000000000000000000000000000000000000000000032").expect("Decoding failed")
-            }
+                bytes: hex::decode(
+                    "0x0000000000000000000000000000000000000000000000000000000000000032",
+                )
+                .expect("Decoding failed"),
+            },
         ];
         assert_eq!(expected_segments, actual_segments);
     }
@@ -916,7 +941,7 @@ mod arch_independent_tests {
     }
 
     // note: the proof example has changed, the proof_example.json file is now
-    // in correspondence with the provided query and metadata 
+    // in correspondence with the provided query and metadata
     // (block `TODO:get number`, index 0, ERC20 Transfer data layout).
     // Thus the proof is valid for this query, and should be verified against
     // it successfully.
