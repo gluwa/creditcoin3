@@ -3,22 +3,10 @@ use attestor_primitives::{Attestation, ChainKey};
 use eth::{self, subscription::SubscriptionConfig};
 use sp_core::H256;
 use std::time::Duration;
-use thiserror::Error;
-use tokio::{
-    sync::mpsc::{error::SendError, Sender},
-    time::sleep,
-};
+use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info};
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Failed to subscribe {0}")]
-    FailedToSubscribe(String),
-    #[error("Eth client error {0}")]
-    EthClient(#[from] eth::Error),
-    #[error("Send error {0}")]
-    Send(#[from] SendError<Attestation<H256>>),
-}
+use crate::error::Error;
 
 /// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
 /// where we can send the new block to in order to start the attestation cycle

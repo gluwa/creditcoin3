@@ -8,6 +8,7 @@ pub mod engine;
 mod attestation;
 mod cc3;
 mod ccsub;
+mod error;
 mod eth_sub;
 mod fragment;
 mod retry;
@@ -42,52 +43,66 @@ impl Server {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        // Construct the attestation engine
         let mut engine = AsyncEngine::new(&self.config).await?;
-
-        // Start the attestation engine
         engine.start(self.config.eth_start_block).await?;
         info!("Started attestation engine");
 
-        // Wrap the engine in a arc mutex
-
+        // Create a task for ccsub and monitor it
         let ccsub = ccsub::CclientSub::new(engine.clone());
-        ccsub.run().await?;
+        let mut ccsub_handle = tokio::spawn(async move { ccsub.run().await });
 
-        // Poll the engine for new attestations
         loop {
-            let maybe_attestation = engine.next().await;
-
-            if let Some(attestation) = maybe_attestation {
-                let digest = attestation.digest();
-                info!(
-                    "Going to submit attestation with digest: {:?}. Round: {:?}",
-                    digest,
-                    attestation.round()
-                );
-                match engine.submit_attestation(attestation).await {
-                    Ok(()) => {
-                        info!("Submitted attestation with digest: {:?}", digest);
-                    }
-                    Err(e) => {
-                        if e.is_not_selected_error() {
-                            warn!("Failed to create proof of inclusion, attestor not selected.");
-                        } else if e.is_not_running_error() {
-                            info!("Engine not running, continuing ...");
-                        } else if e.is_double_vote_error() {
-                            warn!("Double vote detected, continuing ...");
-                        } else if e.is_fragment_error() {
-                            warn!("Fragment error detected, continuing ...");
-                        } else {
-                            return Err(e.into());
+            tokio::select! {
+                ccsub_result = &mut ccsub_handle => {
+                    match ccsub_result {
+                        Ok(Ok(())) => {
+                            info!("CclientSub completed successfully");
+                            break; // or continue depending on whether it's fatal
+                        },
+                        Ok(Err(e)) => {
+                            return Err(e);
+                        },
+                        Err(join_err) => {
+                            tracing::error!("CclientSub panicked or was aborted: {}", join_err);
+                            return Err(join_err.into());
                         }
                     }
                 }
-            } else {
-                // sleep
-                info!("No attestation to submit, sleeping for 6 seconds");
-                sleep(std::time::Duration::from_secs(6)).await;
+
+                maybe_attestation = engine.next() => {
+                    if let Some(attestation) = maybe_attestation {
+                        let digest = attestation.digest();
+                        info!(
+                            "Going to submit attestation with digest: {:?}. Round: {:?}",
+                            digest,
+                            attestation.round()
+                        );
+                        match engine.submit_attestation(attestation).await {
+                            Ok(()) => {
+                                info!("Submitted attestation with digest: {:?}", digest);
+                            }
+                            Err(e) => {
+                                if e.is_not_selected_error() {
+                                    warn!("Failed to create proof of inclusion, attestor not selected.");
+                                } else if e.is_not_running_error() {
+                                    info!("Engine not running, continuing ...");
+                                } else if e.is_double_vote_error() {
+                                    warn!("Double vote detected, continuing ...");
+                                } else if e.is_fragment_error() {
+                                    warn!("Fragment error detected, continuing ...");
+                                } else {
+                                    return Err(e.into());
+                                }
+                            }
+                        }
+                    } else {
+                        info!("No attestation to submit, sleeping for 6 seconds");
+                        sleep(std::time::Duration::from_secs(6)).await;
+                    }
+                }
             }
         }
+
+        Ok(())
     }
 }

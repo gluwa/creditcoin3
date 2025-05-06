@@ -3,7 +3,6 @@ use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use serde::Serialize;
 use sp_core::H256;
-use thiserror::Error;
 use tracing::{debug, error, info};
 
 use cc_client::{AccountId32, Client as CcClient};
@@ -15,29 +14,7 @@ use attestor_primitives::{
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Invalid BLS key")]
-    InvalidBlsKey,
-    #[error("Invalid proof of possession")]
-    InvalidProofOfPossession,
-    #[error("Failed to get chain key")]
-    FailedToGetChainKey,
-    #[error("Failed to get attestation interval")]
-    FailedToGetAttestationInterval,
-    #[error("Client error: {0}")]
-    Cclient(#[from] cc_client::Error),
-    #[error("Ethereum error: {0}")]
-    Eth(#[from] eth::Error),
-    #[error("Attestation fragment error: {0}")]
-    Fragment(#[from] attestation_chain::attestation_fragment::AttestationFragmentError),
-    #[error("Attestation fragment block error: {0}")]
-    FragmentBlock(#[from] attestation_chain::block::BlockError),
-    #[error("Failed to cast attestation_interval to usize: attestation_interval: {0}")]
-    InvalidFragmentLength(u64),
-    #[error("Trying to submit duplicate attestation")]
-    DuplicateSubmission,
-}
+use crate::error::Error;
 
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {

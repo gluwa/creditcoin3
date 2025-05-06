@@ -2,7 +2,7 @@ use anyhow::Result;
 use eth::Client;
 use sp_core::H256;
 use std::collections::BTreeSet;
-use thiserror::Error;
+
 use tokio::{
     sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
@@ -15,7 +15,7 @@ use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, Chain
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
 
-use crate::{cc3, ccsub, eth_sub, fragment, retry, Config};
+use crate::{cc3, ccsub, error::Error, eth_sub, fragment, retry, Config};
 
 pub const ATTESTATION_BUFFER_SIZE: usize = 100;
 
@@ -65,48 +65,6 @@ impl State {
 
     fn is_halted(&self) -> bool {
         matches!(self, Self::Halted(_))
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("Failed to submit attestation")]
-    FailedToSubmit,
-    #[error("Double vote")]
-    DoubleVote,
-    #[error("Engine is not running")]
-    NotRunning,
-    #[error("Failed to create fragment")]
-    FailedToCreateFragment,
-    #[error("Cc3 error: {0}")]
-    Cc3Error(#[from] cc3::Error),
-    #[error("cclient error: {0}")]
-    Cclient(#[from] cc_client::Error),
-    #[error("Attestor not selected for header {0}")]
-    NotSelected(u64),
-    #[error("Other error: {0}")]
-    Other(#[from] anyhow::Error),
-}
-
-impl Error {
-    #[must_use]
-    pub fn is_not_selected_error(&self) -> bool {
-        matches!(self, Error::NotSelected(_))
-    }
-
-    #[must_use]
-    pub fn is_fragment_error(&self) -> bool {
-        matches!(self, Error::FailedToCreateFragment)
-    }
-
-    #[must_use]
-    pub fn is_not_running_error(&self) -> bool {
-        matches!(self, Error::NotRunning)
-    }
-
-    #[must_use]
-    pub fn is_double_vote_error(&self) -> bool {
-        matches!(self, Error::DoubleVote)
     }
 }
 
@@ -444,10 +402,7 @@ impl Engine {
         }
 
         // Eligiblity check
-        let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
-            error!("Error signing vrf: {:?}", e);
-            Error::NotSelected(header_number)
-        })?;
+        let vrf_output = self.cc3_client.sign_vrf(header_number).await?;
 
         // Create continuity fragment
         let continuity_fragment = self.create_continuity_proof(header_number).await?;
@@ -481,11 +436,6 @@ impl Engine {
             "Last voted for: {:}, last finalized attestation: {:}",
             last_voted_for_block, last_finalized
         );
-
-        if last_finalized == 0 {
-            debug!("No attestations voted for or finalized, skipping evaluation");
-            return Ok(());
-        }
 
         let diff = last_voted_for_block.saturating_sub(last_finalized);
         // If the difference is greater than the allowed drift, we need to restart the engine

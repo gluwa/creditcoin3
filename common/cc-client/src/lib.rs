@@ -53,8 +53,8 @@ pub type Randomness = [u8; 32];
 pub enum Error {
     #[error("Failed to submit RPC")]
     FailedToSubmit,
-    #[error("Failed to get Babe VRF")]
-    FailedToGetBabeVrf,
+    #[error("Failed to get Babe VRF at epoch {0}")]
+    FailedToGetBabeVrf(u64),
     #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
     #[error("No Checkpoint interval set for chain with key {0}")]
@@ -173,7 +173,7 @@ impl<'a> Client {
                     .randomness_by_epoch_index(two_epoch_ago),
             )
             .await?
-            .ok_or(Error::FailedToGetBabeVrf)?;
+            .ok_or(Error::FailedToGetBabeVrf(two_epoch_ago))?;
 
         Ok((randomness, two_epoch_ago))
     }
