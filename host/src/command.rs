@@ -917,8 +917,9 @@ mod arch_independent_tests {
 
     // note: the proof example has changed, the proof_example.json file is now
     // in correspondence with the provided query and metadata 
-    // (block `TODO:get number`, index 0, ERC20 Transfer data layout),
-    // thus the proof is valid and should be verified successfully
+    // (block `TODO:get number`, index 0, ERC20 Transfer data layout).
+    // Thus the proof is valid for this query, and should be verified against
+    // it successfully.
     pub fn get_test_query() -> Query {
         Query {
             chain_id: 1,
