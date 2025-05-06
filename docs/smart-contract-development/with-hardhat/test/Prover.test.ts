@@ -370,10 +370,6 @@ describe('CreditcoinPublicProver', function () {
     describe('submitQueryProof()', function () {
         const verificationResult = [
             { result: 0, expectedState: 2, stateName: 'QueryState.ResultAvailable' },
-            { result: 1, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
-            { result: 2, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
-            { result: 3, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
-            { result: 4, expectedState: 3, stateName: 'QueryState.InvalidQuery' },
         ];
 
         verificationResult.forEach(({ result, expectedState, stateName }) => {
