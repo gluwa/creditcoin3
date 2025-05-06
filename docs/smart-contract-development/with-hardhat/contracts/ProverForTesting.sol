@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import 'hardhat/console.sol';
-import './Prover.sol';
+import "hardhat/console.sol";
+import "./Prover.sol";
 
 contract ProverForTesting is CreditcoinPublicProver {
     uint64 private fakeVerifierResult;
@@ -17,16 +17,18 @@ contract ProverForTesting is CreditcoinPublicProver {
     }
 
     // this will be called by submitQueryProof()
-    function _call_verifier_verify(QueryId, bytes calldata) external override view returns (uint64) {
-        if (fakeVerifierResult == 0) {
-            return fakeVerifierResult;
-        } else {
-            revert("Proof verification failed");
-        }
+    function _call_verifier_verify(QueryId, bytes calldata) external view override returns (uint64) {
+        return fakeVerifierResult;
     }
 
     // this will be called by getQueryResultSegments()
-    function _call_verifier_get_result_segments(QueryId) virtual internal override view returns (ResultSegment[] memory) {
+    function _call_verifier_get_result_segments(QueryId)
+        internal
+        view
+        virtual
+        override
+        returns (ResultSegment[] memory)
+    {
         return fakeQueryResultSegments;
     }
 
@@ -63,7 +65,10 @@ contract ProverForTesting is CreditcoinPublicProver {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - howMuch);
     }
 
-    function mock_submitQueryWithState(ChainQuery calldata query, address principal, QueryState newState) public payable {
+    function mock_submitQueryWithState(ChainQuery calldata query, address principal, QueryState newState)
+        public
+        payable
+    {
         QueryId queryId = computeQueryId(query);
 
         submitQuery(query, principal);

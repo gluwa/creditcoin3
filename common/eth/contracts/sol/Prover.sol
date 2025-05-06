@@ -178,7 +178,6 @@ contract CreditcoinPublicProver is Ownable {
 
         // Start proof verification
         try this._call_verifier_verify(queryId, proof) {
-
             // Calculate the prover's fee
             // Transfer the prover's fee to the prover
             uint256 proverFee = Balance.unwrap(queries[queryId].escrowedAmount);
