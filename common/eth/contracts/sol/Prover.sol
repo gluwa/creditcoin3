@@ -205,7 +205,7 @@ contract CreditcoinPublicProver is Ownable {
 
             emit QueryProofVerificationFailed(queryId, reason);
 
-            revert("Proof verification failed");
+            revert(string(abi.encodePacked("Proof verification failed: ", reason)));
         }
     }
 

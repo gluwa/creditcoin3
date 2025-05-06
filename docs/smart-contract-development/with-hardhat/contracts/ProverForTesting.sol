@@ -17,8 +17,12 @@ contract ProverForTesting is CreditcoinPublicProver {
     }
 
     // this will be called by submitQueryProof()
-    function _call_verifier_verify(QueryId, bytes calldata) internal override view returns (uint64) {
-        return fakeVerifierResult;
+    function _call_verifier_verify(QueryId, bytes calldata) external override view returns (uint64) {
+        if (fakeVerifierResult == 0) {
+            return fakeVerifierResult;
+        } else {
+            revert("Proof verification failed");
+        }
     }
 
     // this will be called by getQueryResultSegments()
