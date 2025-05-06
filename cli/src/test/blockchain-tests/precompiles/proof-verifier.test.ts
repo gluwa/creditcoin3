@@ -1,6 +1,7 @@
 import { WebSocketProvider, ethers } from 'ethers';
 import contractABIJSON = require('../artifacts/proof_verifier.json');
 import validProof = require('../artifacts/valid_proof.json');
+import invalidProof = require('../artifacts/bogus_public_memory_example.json');
 import { validQuery } from '../helpers';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { u8aToHex } from '../../../lib/common';
@@ -71,5 +72,22 @@ describe('Precompile: verify()', (): void => {
 
         const txHash = result?.hash;
         expect(txHash).toBeDefined();
+    }, 300_000);
+
+    test('should revert when called with invalid input', async () => {
+        const gasLimit = 30_000_000;
+
+        // this needs to be a bytes array
+        const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(invalidProof)));
+
+        // when passing this to the verify() precompile it expects the field to be called `layout`
+        // while the extrinsic expects this as `layoutSegments`
+        const query = {};
+        // @ts-ignore
+        delete Object.assign(query, validQuery, { ['layout']: validQuery.layoutSegments }).layoutSegments;
+
+        const txResponse = await contract.verify(proof, query, { gasPrice, gasLimit });
+
+        await expect(txResponse.wait()).rejects.toThrow(/reverted/);
     }, 300_000);
 });
