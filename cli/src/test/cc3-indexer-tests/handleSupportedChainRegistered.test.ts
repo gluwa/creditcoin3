@@ -18,7 +18,9 @@ describe('handleSupportedChainRegistered()', () => {
     }, 30_000);
 
     afterAll(async () => {
-        await api.tx.sudo.sudo(api.tx.supportedChains.removeChain(newChainKey, true)).signAndSend(root, { nonce: -1 });
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.removeChain(newChainKey, true))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
         await api.disconnect();
     });
@@ -30,7 +32,7 @@ describe('handleSupportedChainRegistered()', () => {
 
             await api.tx.sudo
                 .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName))
-                .signAndSend(root, { nonce: -1 });
+                .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             await forElapsedBlocks(api, { minBlocks: 1 });
 
             // will fail if the query returns None

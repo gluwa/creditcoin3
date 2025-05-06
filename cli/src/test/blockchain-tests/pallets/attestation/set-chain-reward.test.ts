@@ -19,11 +19,12 @@ describe('SetChainReward', (): void => {
     it('fee is min 0.01 CTC', async (): Promise<void> => {
         const chainReward = MICROUNITS_PER_CTC.mul(new BN(4444));
 
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         return new Promise((resolve, reject): void => {
             // note: using chain Anvil2 b/c this may lead to side effects in other test scenarios
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.attestation.setChainReward(chain_Anvil2_Key, chainReward))
-                .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

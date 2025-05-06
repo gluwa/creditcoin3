@@ -18,10 +18,12 @@ describe('RegisterChain', (): void => {
         // unique integer to serve as chain id during testing
         const chainId = Date.now();
 
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
+
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.supportedChains.registerChain(chainId, `Test Chain ${chainId}`))
-                .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

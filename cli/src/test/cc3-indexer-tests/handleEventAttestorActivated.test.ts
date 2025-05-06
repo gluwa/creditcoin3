@@ -20,7 +20,9 @@ describe('handleEventAttestorActivated()', () => {
         attestor = await randomFundedAccount(api, root);
 
         // NOTE: Bob is the STASH for a random attestor on the Anvil2 chain
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
+        await api.tx.attestation
+            .registerAttestor(chain_Anvil2_Key, attestor.address)
+            .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
 
         // wait for txn to make it on chain so we can deregister later
         await forElapsedBlocks(api, { minBlocks: 3 });
@@ -70,7 +72,7 @@ describe('handleEventAttestorActivated()', () => {
             // NOTE: now start attesting and observe GraphQL responses below
             await api.tx.attestation
                 .attest(chain_Anvil2_Key, blsPublicKey, proofOfPossession.as_bytes())
-                .signAndSend(attestor.keyring, { nonce: -1 });
+                .signAndSend(attestor.keyring, { nonce: await api.rpc.system.accountNextIndex(attestor.address) });
 
             // wait for txn to make it on chain & indexer to ingest the block
             await forElapsedBlocks(api, { minBlocks: 3 });

@@ -87,9 +87,10 @@ describe('BlockAttested events', (): void => {
 
                                 // note: using chain Anvil-2 b/c changing interval for Anvil-1
                                 // may lead to side effects in other test scenarios
+                                const nonce = await api.rpc.system.accountNextIndex(root.address);
                                 await api.tx.sudo
                                     .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
-                                    .signAndSend(root, { nonce: -1 });
+                                    .signAndSend(root, { nonce });
                                 console.log(`**** DEBUG: NEW INTERVAL for ${chain_Anvil2_Key} will be ${newInterval}`);
                             }
                         }

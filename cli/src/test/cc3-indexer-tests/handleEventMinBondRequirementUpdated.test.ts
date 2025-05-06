@@ -26,7 +26,7 @@ describe('handleEventMinBondRequirementUpdated()', () => {
             // NOTE: by defauilt it is 100
             await api.tx.sudo
                 .sudo(api.tx.attestation.setMinBondRequirement(newMinBondAmount))
-                .signAndSend(root, { nonce: -1 });
+                .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

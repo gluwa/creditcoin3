@@ -22,9 +22,10 @@ describe('Precompile: verify()', (): void => {
         // need to call this, otherwise the call to submit_proof() which underlines the
         // precompile will fail
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         await api.tx.sudo
             .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root, { nonce: -1 });
+            .signAndSend(root, { nonce });
 
         evmProvider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
 

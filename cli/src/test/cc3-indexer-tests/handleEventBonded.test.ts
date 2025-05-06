@@ -30,7 +30,7 @@ describe('handleEventBonded()', () => {
             // NOTE: registering the attestor will bond a fixed amount
             await api.tx.attestation
                 .registerAttestor(chain_Anvil2_Key, attestor.address)
-                .signAndSend(bob, { nonce: -1 });
+                .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

@@ -40,7 +40,9 @@ describe('handleEventRewardClaimed()', () => {
 
     describe('when reward is claimed', () => {
         beforeAll(async () => {
-            await api.tx.attestation.claimRewards().signAndSend(alice, { nonce: -1 });
+            await api.tx.attestation
+                .claimRewards()
+                .signAndSend(alice, { nonce: await api.rpc.system.accountNextIndex(alice.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

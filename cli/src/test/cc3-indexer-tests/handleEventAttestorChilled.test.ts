@@ -18,7 +18,9 @@ describe('handleEventAttestorChilled()', () => {
         attestor = await randomFundedAccount(api, root);
 
         // NOTE: Bob is the STASH for a random attestor on the Anvil2 chain
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
+        await api.tx.attestation
+            .registerAttestor(chain_Anvil2_Key, attestor.address)
+            .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
     }, 45_000);
 
@@ -60,7 +62,9 @@ describe('handleEventAttestorChilled()', () => {
             expect(startingBlock).toBeGreaterThan(0);
 
             // NOTE: now chill and observe GraphQL responses below
-            await api.tx.attestation.chill(chain_Anvil2_Key, attestor.address).signAndSend(bob, { nonce: -1 });
+            await api.tx.attestation
+                .chill(chain_Anvil2_Key, attestor.address)
+                .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
 
             // wait for txn to make it on chain & indexer to ingest the block
             await forElapsedBlocks(api, { minBlocks: 3 });

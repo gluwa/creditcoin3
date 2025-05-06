@@ -11,6 +11,7 @@ async function internalSignSendAndWatch(
     api: ApiPromise,
     signer: KeyringPair,
 ): Promise<TxResult> {
+    const nonce = await api.rpc.system.accountNextIndex(signer.address);
     return new Promise((resolve, reject) => {
         console.log('Sending transaction...');
         let maybeUnsub: (() => void) | undefined;
@@ -20,7 +21,7 @@ async function internalSignSendAndWatch(
             }
             resolve(result);
         };
-        tx.signAndSend(signer, { nonce: -1 }, ({ status, dispatchError, events }) => {
+        tx.signAndSend(signer, { nonce }, ({ status, dispatchError, events }) => {
             for (const { event } of events) {
                 if (api.events.proxy.ProxyExecuted.is(event)) {
                     const [dispatchResult] = event.data;

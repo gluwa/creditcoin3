@@ -17,7 +17,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
         // register as invulnerable just so we can remove it later
         await api.tx.sudo
             .sudo(api.tx.attestation.registerInvulnerable(chain_Anvil2_Key, attestor.address))
-            .signAndSend(root, { nonce: -1 });
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
     }, 30_000);
 
@@ -55,7 +55,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
             // act and observe GraphQL responses below
             await api.tx.sudo
                 .sudo(api.tx.attestation.unregisterInvulnerable(chain_Anvil2_Key, attestor.address))
-                .signAndSend(root, { nonce: -1 });
+                .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 

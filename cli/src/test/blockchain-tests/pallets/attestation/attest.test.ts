@@ -17,7 +17,8 @@ describe('Attest', (): void => {
 
         // NOTE: Alice is the STASH for a random attestor on the Anvil2 chain
         attestor = await randomFundedAccount(api, root);
-        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(alice, { nonce: -1 });
+        const nonce = await api.rpc.system.accountNextIndex(alice.address);
+        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attestor.address).signAndSend(alice, { nonce });
 
         // wait for Attestors storage item to be updated!
         await forElapsedBlocks(api, { minBlocks: 1 });
@@ -32,10 +33,11 @@ describe('Attest', (): void => {
         const blsPublicKey = blsSecretKey.public_key().as_bytes();
         const proofOfPossession = blsSecretKey.sign(blsPublicKey);
 
+        const nonce = await api.rpc.system.accountNextIndex(attestor.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.attestation
                 .attest(chain_Anvil2_Key, blsPublicKey, proofOfPossession.as_bytes())
-                .signAndSend(attestor.keyring, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(attestor.keyring, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

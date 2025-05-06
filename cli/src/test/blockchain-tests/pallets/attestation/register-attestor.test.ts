@@ -16,13 +16,14 @@ describe('RegisterAttestor', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
+        const nonce = await api.rpc.system.accountNextIndex(alice.address);
         return new Promise((resolve, reject): void => {
             const attrAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
 
             // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
             const unsubscribe = api.tx.attestation
                 .registerAttestor(chain_Anvil2_Key, attrAccount.address)
-                .signAndSend(alice, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(alice, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

@@ -16,12 +16,13 @@ describe('SetAttestationsPerCheckpoint', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         return new Promise((resolve, reject): void => {
             // note: using chain Anvil-2 b/c changing interval for Anvil-1
             // may lead to side effects in other test scenarios
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.attestation.setAttestationsPerCheckpoint(chain_Anvil2_Key, 4))
-                .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

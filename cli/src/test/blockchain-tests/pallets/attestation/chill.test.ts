@@ -15,9 +15,10 @@ describe('Chill', (): void => {
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
         await fundFromSudo(attestorAccount.address, MICROUNITS_PER_CTC.mul(new BN(2000)));
+        const nonce = await api.rpc.system.accountNextIndex(alice.address);
         await api.tx.attestation
             .registerAttestor(chain_Anvil2_Key, attestorAccount.address)
-            .signAndSend(alice, { nonce: -1 });
+            .signAndSend(alice, { nonce });
 
         // wait for at least one block b/c when registerAttestor() & chill() happen to be in the same
         // block chill() will fail b/c storage hasn't been updated yet!
@@ -29,11 +30,12 @@ describe('Chill', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
+        const nonce = await api.rpc.system.accountNextIndex(alice.address);
         return new Promise((resolve, reject): void => {
             // NOTE: this is signed by the random attestor account
             const unsubscribe = api.tx.attestation
                 .chill(chain_Anvil2_Key, attestorAccount.address)
-                .signAndSend(alice, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(alice, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

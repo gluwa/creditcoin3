@@ -20,15 +20,17 @@ describe('Precompile: get_result_segments()', (): void => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
 
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        let nonce = await api.rpc.system.accountNextIndex(root.address);
         await api.tx.sudo
             .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root, { nonce: -1 });
+            .signAndSend(root, { nonce });
 
         const alice = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
+        nonce = await api.rpc.system.accountNextIndex(alice.address);
         await api.tx.prover
             .submitProof(proof, validQuery)
-            .signAndSend(alice, { nonce: -1 }, ({ dispatchError, events, status }) => {
+            .signAndSend(alice, { nonce }, ({ dispatchError, events, status }) => {
                 expectNoDispatchError(api, dispatchError);
                 if (events) events.forEach((event) => expectNoEventError(api, event));
 

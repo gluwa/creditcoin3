@@ -14,9 +14,10 @@ describe('SubmitProof', (): void => {
         signer = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
         const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         await api.tx.sudo
             .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root, { nonce: -1 });
+            .signAndSend(root, { nonce });
     }, 30_000);
 
     afterAll(async () => {
@@ -27,10 +28,11 @@ describe('SubmitProof', (): void => {
         // this is a hex encoded bytes array
         const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
 
+        const nonce = await api.rpc.system.accountNextIndex(signer.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.prover
                 .submitProof(proof, validQuery)
-                .signAndSend(signer, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(signer, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

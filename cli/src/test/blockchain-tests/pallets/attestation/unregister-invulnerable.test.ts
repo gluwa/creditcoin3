@@ -13,9 +13,10 @@ describe('UnregisterInvulnerable', (): void => {
 
         // NOTE: Insert a random invulnerable for the Anvil2 chain
         attestorAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         await api.tx.sudo
             .sudo(api.tx.attestation.registerInvulnerable(chain_Anvil2_Key, attestorAccount.address))
-            .signAndSend(root, { nonce: -1 });
+            .signAndSend(root, { nonce });
 
         await forElapsedBlocks(api, { minBlocks: 1 });
     }, 30_000);
@@ -25,10 +26,11 @@ describe('UnregisterInvulnerable', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.attestation.unregisterInvulnerable(chain_Anvil2_Key, attestorAccount.address))
-                .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

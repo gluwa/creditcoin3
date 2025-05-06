@@ -12,9 +12,8 @@ describe('SetPayee', (): void => {
 
         // NOTE: Alice acts as the STASH for a random attestor on the Anvil2 chain
         const attrAccount = (global as any).CREDITCOIN_CREATE_SIGNER('random');
-        await api.tx.attestation
-            .registerAttestor(chain_Anvil2_Key, attrAccount.address)
-            .signAndSend(alice, { nonce: -1 });
+        const nonce = await api.rpc.system.accountNextIndex(alice.address);
+        await api.tx.attestation.registerAttestor(chain_Anvil2_Key, attrAccount.address).signAndSend(alice, { nonce });
     });
 
     afterAll(async () => {
@@ -24,13 +23,14 @@ describe('SetPayee', (): void => {
     it('fee is min 0.01 CTC', async (): Promise<void> => {
         const newPayee = (global as any).CREDITCOIN_CREATE_SIGNER('random');
 
+        const nonce = await api.rpc.system.accountNextIndex(alice.address);
         return new Promise((resolve, reject): void => {
             // WARNING: if we ever want to assert on collected rewards make sure that payee
             // is configured correctly in `beforeAll()` as part of the other test scenario
             const unsubscribe = api.tx.attestation
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 .setPayee({ Account: newPayee.address })
-                .signAndSend(alice, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(alice, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));

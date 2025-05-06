@@ -28,7 +28,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
             // NOTE: by defauilt it is 10
             await api.tx.sudo
                 .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
-                .signAndSend(root, { nonce: -1 });
+                .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             // wait for the pending change to take effect
             await waitEras(1, api);
 

@@ -10,11 +10,12 @@ describe('SetStarkProgramMetadata', (): void => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         // remove metadata b/c its set in genesis
         // will fail silently if already removed
         await api.tx.sudo
             .sudo(api.tx.prover.removeStarkProgramMetadata(starkProgramVersion))
-            .signAndSend(root, { nonce: -1 });
+            .signAndSend(root, { nonce });
     }, 30_000);
 
     afterAll(async () => {
@@ -22,10 +23,11 @@ describe('SetStarkProgramMetadata', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
+        const nonce = await api.rpc.system.accountNextIndex(root.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
                 .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-                .signAndSend(root, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
                 .catch((error) => reject(error));
