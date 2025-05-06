@@ -527,31 +527,36 @@ pub mod tests {
         types::{CairoVerifierOutput, StoneProof, StoneProofJson},
     };
     use sp_core::H256;
+    use super::arch_independent_tests::get_test_query;
 
-    // note: the proof example has changed, the proof_example.json file is now
-    // in correspondence with the provided query and metadata (block 1, index 0, full data layout),
-    // thus the proof is valid and should be verified successfully
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
         let proof_path = "../cairo/stone-verifier/proof_example.json";
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
-        let query = Query {
-            chain_id: 31337,
-            height: 4,
-            index: 0,
-            layout_segments: vec![LayoutSegment {
-                offset: 0,
-                size: 681,
-            }],
-        };
+        let query = get_test_query();
 
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
         let result = super::run_verifier(proof_example, query, metadata);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verifying_authenticated_proof_should_return_correct_result_segments() {
+        let proof_path = "../cairo/stone-verifier/proof_example.json";
+
+        let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
+
+        let query = get_test_query();
+
+        let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
+
+        let result = super::run_verifier(proof_example, query, metadata).expect("Result should be Ok()");
+        
+        check_result_segments_against_expected(result.1);
     }
 
     #[test]
@@ -564,12 +569,7 @@ pub mod tests {
         let proof_path = "../cairo/stone-verifier/bogus_public_memory_example.json";
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
-        let query = Query {
-            chain_id: 31337,
-            height: 1,
-            index: 1,
-            layout_segments: vec![],
-        };
+        let query = get_test_query();
 
         let metadata = vec![(1, STARK_PROGRAM_V2_HASH)];
 
@@ -797,6 +797,47 @@ pub mod tests {
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }
+
+    fn check_result_segments_against_expected(actual_segments: Vec<ResultSegment>) {
+        // Expected result segments correspond to the test ERC20 Transfer query in `get_test_query()`. 
+        // These have been validated against the fields of the original transaction, transaction 
+        // receipt, and query.
+        let expected_segments: Vec<ResultSegment> = vec![
+            ResultSegment {
+                offset: 448,
+                bytes: hex::decode("0x0000000000000000000000000000000000000000000000000000000000000001").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 192,
+                bytes: hex::decode("0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 224,
+                bytes: hex::decode("0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 800,
+                bytes: hex::decode("0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 928,
+                bytes: hex::decode("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 960,
+                bytes: hex::decode("0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 992,
+                bytes: hex::decode("0x0000000000000000000000000000000000000000000000000000000000000001").expect("Decoding failed")
+            },
+            ResultSegment {
+                offset: 1056,
+                bytes: hex::decode("0x0000000000000000000000000000000000000000000000000000000000000032").expect("Decoding failed")
+            }
+        ];
+        assert_eq!(expected_segments, actual_segments);
+    }
 }
 
 #[cfg(test)]
@@ -874,7 +915,11 @@ mod arch_independent_tests {
         }
     }
 
-    fn get_test_query() -> Query {
+    // note: the proof example has changed, the proof_example.json file is now
+    // in correspondence with the provided query and metadata 
+    // (block `TODO:get number`, index 0, ERC20 Transfer data layout),
+    // thus the proof is valid and should be verified successfully
+    pub fn get_test_query() -> Query {
         Query {
             chain_id: 1,
             height: 1,

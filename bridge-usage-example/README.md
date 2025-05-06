@@ -43,7 +43,7 @@ cast send --rpc-url <RPC-URL> <CONTRACT-ADDRESS> "transfer(address, uint256)" <A
 Again, we use our pre-funded Anvil account with private key 0xac09...
 EX:
 ```sh
-cast send --rpc-url 127.0.0.1:8545 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 "transfer(address, uint256)" "0x0000000000000000000000000000000000000001" "50" --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+cast send --rpc-url 127.0.0.1:8545 0x5FbDB2315678afecb367f032d93F642f64180aa3 "transfer(address, uint256)" "0x0000000000000000000000000000000000000001" "50" --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ```
 
 ## 4. Create a CCNext Proving Query
