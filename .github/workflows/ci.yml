@@ -367,11 +367,11 @@ jobs:
 
       - name: Check Build
         run: |
-          SKIP_WASM_BUILD=1 cargo check --release --features metadata-hash
+          SKIP_WASM_BUILD=1 cargo check --release
 
       - name: Check Build for Benchmarking
         run: |
-          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --features metadata-hash --release
+          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   unit-test-creditcoin:
     runs-on: ubuntu-24.04
@@ -451,7 +451,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: --release --features metadata-hash ${{ steps.compiler-flags.outputs.extra }}
+          args: --release ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
@@ -514,7 +514,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: --release --features=fast-runtime --features metadata-hash ${{ steps.compiler-flags.outputs.extra }}
+          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
 
       - name: Upload creditcoin-node binary
         uses: actions/upload-artifact@v4
