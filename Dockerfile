@@ -20,7 +20,7 @@ COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 
 
 FROM devel-base as rust-builder
-ARG BUILD_ARGS="--features metadata-hash"
+ARG BUILD_ARGS=""
 USER 0
 RUN apt-get install -y --no-install-recommends \
     cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler
