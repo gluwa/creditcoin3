@@ -521,7 +521,8 @@ pub mod tests {
         validate_query_against_proof, VerifierError, NULL_ABI,
     };
     use pallet_prover_primitives::{
-        LayoutSegment, Query, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH, STARK_PROGRAM_V3_HASH,
+        LayoutSegment, Query, ResultSegment, STARK_PROGRAM_V1_HASH, STARK_PROGRAM_V2_HASH,
+        STARK_PROGRAM_V3_HASH,
     };
     use prover_primitives::{
         stark_program_auth::StarkProgramAuthError,
@@ -531,7 +532,7 @@ pub mod tests {
 
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
-        let proof_path = "../cairo/stone-verifier/proof_example.json";
+        let proof_path = "../cairo/stone-verifier/proof_example_erc20.json";
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
@@ -546,7 +547,7 @@ pub mod tests {
 
     #[test]
     fn verifying_authenticated_proof_should_return_correct_result_segments() {
-        let proof_path = "../cairo/stone-verifier/proof_example.json";
+        let proof_path = "../cairo/stone-verifier/proof_example_erc20.json";
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
@@ -807,56 +808,56 @@ pub mod tests {
             ResultSegment {
                 offset: 448,
                 bytes: hex::decode(
-                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "0000000000000000000000000000000000000000000000000000000000000001",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 192,
                 bytes: hex::decode(
-                    "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                    "000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 224,
                 bytes: hex::decode(
-                    "0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3",
+                    "0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 800,
                 bytes: hex::decode(
-                    "0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3",
+                    "0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 928,
                 bytes: hex::decode(
-                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                    "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 960,
                 bytes: hex::decode(
-                    "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                    "000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 992,
                 bytes: hex::decode(
-                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "0000000000000000000000000000000000000000000000000000000000000001",
                 )
                 .expect("Decoding failed"),
             },
             ResultSegment {
                 offset: 1056,
                 bytes: hex::decode(
-                    "0x0000000000000000000000000000000000000000000000000000000000000032",
+                    "0000000000000000000000000000000000000000000000000000000000000032",
                 )
                 .expect("Decoding failed"),
             },
