@@ -214,7 +214,7 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin3:${{needs.sanity-check.outputs.TAG_NAME  }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
+          docker build -t gluwa/creditcoin3:${{needs.sanity-check.outputs.TAG_NAME }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash" .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
           docker push gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }}
