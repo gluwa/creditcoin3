@@ -105,6 +105,7 @@ where
                             let error = module_error.error;
                             match error {
                                 [0, 0, 0, 0] => {
+                                    error!("Invalid proof submitted: {:?}", e);
                                     let encoded_revert =
                                         encode_revert_message("Invalid proof submitted");
                                     Err(PrecompileFailure::Revert {
@@ -113,6 +114,7 @@ where
                                     })
                                 }
                                 [11, 0, 0, 0] => {
+                                    error!("Query layout mismatch: {:?}", e);
                                     let encoded_revert =
                                         encode_revert_message("Query layout mismatch");
                                     Err(PrecompileFailure::Revert {
@@ -121,6 +123,7 @@ where
                                     })
                                 }
                                 [10, 0, 0, 0] => {
+                                    error!("Query out of bounds: {:?}", e);
                                     let encoded_revert =
                                         encode_revert_message("Query out of bounds");
                                     Err(PrecompileFailure::Revert {
@@ -129,6 +132,7 @@ where
                                     })
                                 }
                                 [13, 0, 0, 0] => {
+                                    error!("Checkpoint block number mismatch: {:?}", e);
                                     let encoded_revert =
                                         encode_revert_message("Checkpoint block number mismatch");
                                     Err(PrecompileFailure::Revert {
@@ -137,6 +141,7 @@ where
                                     })
                                 }
                                 _ => {
+                                    error!("Failed to dispatch submit_proof: {:?}", e);
                                     let encoded_revert =
                                         encode_revert_message("Failed to dispatch submit_proof");
                                     Err(PrecompileFailure::Revert {
@@ -147,6 +152,7 @@ where
                             }
                         }
                         _ => {
+                            error!("Failed to dispatch submit_proof: {:?}", e);
                             let encoded_revert =
                                 encode_revert_message("Failed to dispatch submit_proof");
                             Err(PrecompileFailure::Revert {
