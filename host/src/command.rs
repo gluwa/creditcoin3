@@ -513,7 +513,7 @@ fn extract_original_felt_ranges_from_sanitized(
     result
 }
 
-#[cfg(all(test))]
+#[cfg(all(test, target_arch = "x86_64"))]
 pub mod tests {
     use super::arch_independent_tests::get_test_query;
     use crate::command::{
