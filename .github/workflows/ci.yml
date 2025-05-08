@@ -1840,6 +1840,35 @@ jobs:
           cache: "pip"
       - run: pip install -r prover/requirements.txt
 
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Run attestation tests
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:attestation
+
       - name: Download prover binary
         uses: actions/download-artifact@v4
         with:
@@ -1888,36 +1917,12 @@ jobs:
             --name "Test" \
             > /var/tmp/integration-test-attestor-network/prover-2.log 2>&1 &
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install -g yarn
-
-      - name: Install Solidity compiler
-        run: |
-          sudo .github/install-solidity-compiler.sh
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
-      - name: Generate precompiles ABI from source code
-        working-directory: ./precompiles/metadata
-        run: |
-          solc --version
-          ./abi-creator.sh
-
-      - name: Run attestation tests
-        working-directory: ./cli
-        run: |
-          yarn install
-          yarn test:attestation
-
       - name: Restart creditcoin3-node
         run: |
+          # give time for prover nodes to initialize
+          sleep 60
+
+          # then restart creditcoin3-node a few time so provers can try to reconnect
           .github/restart-creditcoin3-node.sh
 
       - name: Check if prover restarted query subscription
