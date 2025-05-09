@@ -10,6 +10,86 @@ import { fundFromSudo } from '../../integration-tests/helpers';
 const transferABI = transferABIJSON.contracts['sol/substrate_transfer.sol:SubstrateTransfer'].abi;
 const verifierABI = verifierABIJSON.contracts['sol/proof_verifier.sol:QueryVerifierContract'].abi;
 
+import { ContractTransactionResponse } from 'ethers';
+import validProof = require('../artifacts/valid_proof.json');
+import { validQuery } from '../helpers';
+import { u8aToHex } from '../../../lib/common';
+import { starkProgramHash, starkProgramVersion } from '../pallets/prover/consts';
+
+describe('Precompile: get_result_segments()', (): void => {
+    let contract: any;
+    let alith: any;
+    let api: ApiPromise;
+    let queryId: any;
+
+    beforeAll(async () => {
+        ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
+
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        let nonce = await api.rpc.system.accountNextIndex(root.address);
+        await api.tx.sudo
+            .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
+            .signAndSend(root, { nonce });
+
+        const alice = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
+        const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
+        nonce = await api.rpc.system.accountNextIndex(alice.address);
+        await api.tx.prover
+            .submitProof(proof, validQuery)
+            .signAndSend(alice, { nonce }, ({ dispatchError, events, status }) => {
+                expectNoDispatchError(api, dispatchError);
+                if (events) events.forEach((event) => expectNoEventError(api, event));
+
+                if (status.isInBlock) {
+                    const querySubmitted = events.find(({ event: { method, section } }) => {
+                        return section === 'prover' && method === 'QueryVerified';
+                    });
+
+                    expect(querySubmitted).toBeTruthy();
+                    if (querySubmitted) {
+                        queryId = querySubmitted.event.data[0];
+                    }
+                }
+            });
+
+        const evmProvider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
+
+        // precompile contract deployed at 3049 to hex, see runtime/src/precompiles.rs for more
+        const precompileContractAddress = '0x0000000000000000000000000000000000000be9';
+
+        const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
+        alith = new ethers.Wallet(privateKey, evmProvider);
+        // will only work when connected to a chain locally and //Alice is root
+        // either during local development or during runtime-upgrade against a fork
+        // note: Alith starts with 2mil CTC during local development
+        const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
+        // note: balances.Transfer is happy to accept Address20 directly too
+        expect(result.status).toBe(0);
+
+        contract = new ethers.Contract(precompileContractAddress, verifierABI, alith);
+    }, 90_000);
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    test('should work when called with valid query id', async () => {
+        expect(queryId).toBeTruthy();
+        const result = await contract.get_result_segments(queryId);
+        expect(result.length).toBeGreaterThanOrEqual(1);
+
+        const [offset, abiBytes] = result[0];
+        expect(offset).toBeDefined();
+        expect(abiBytes).toBeDefined();
+    }, 30_000);
+
+    test('should error when called with invalid query id', async () => {
+        await expect(contract.get_result_segments(new Uint8Array(32))).rejects.toThrow(
+            /missing revert data.*code=CALL_EXCEPTION/,
+        );
+    }, 30_000);
+});
+
 describe('Precompile: transfer_substrate()', (): void => {
     let contract: any;
     let destination: any;
@@ -115,12 +195,6 @@ describe('Precompile: transfer_substrate()', (): void => {
     });
 });
 
-import { ContractTransactionResponse } from 'ethers';
-import validProof = require('../artifacts/valid_proof.json');
-import { validQuery } from '../helpers';
-import { u8aToHex } from '../../../lib/common';
-import { starkProgramHash, starkProgramVersion } from '../pallets/prover/consts';
-
 describe('Precompile: verify()', (): void => {
     let contract: any;
     let evmProvider: any;
@@ -202,78 +276,4 @@ describe('Precompile: verify()', (): void => {
             contract.verify(proof, query, { gasPrice, gasLimit }).then((tx: ContractTransactionResponse) => tx.wait()),
         ).rejects.toThrow(/reverted/);
     }, 300_000);
-});
-
-describe('Precompile: get_result_segments()', (): void => {
-    let contract: any;
-    let alith: any;
-    let api: ApiPromise;
-    let queryId: any;
-
-    beforeAll(async () => {
-        ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
-
-        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
-        let nonce = await api.rpc.system.accountNextIndex(root.address);
-        await api.tx.sudo
-            .sudo(api.tx.prover.setStarkProgramMetadata(starkProgramVersion, starkProgramHash))
-            .signAndSend(root, { nonce });
-
-        const alice = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
-        const proof = u8aToHex(new TextEncoder().encode(JSON.stringify(validProof)));
-        nonce = await api.rpc.system.accountNextIndex(alice.address);
-        await api.tx.prover
-            .submitProof(proof, validQuery)
-            .signAndSend(alice, { nonce }, ({ dispatchError, events, status }) => {
-                expectNoDispatchError(api, dispatchError);
-                if (events) events.forEach((event) => expectNoEventError(api, event));
-
-                if (status.isInBlock) {
-                    const querySubmitted = events.find(({ event: { method, section } }) => {
-                        return section === 'prover' && method === 'QueryVerified';
-                    });
-
-                    expect(querySubmitted).toBeTruthy();
-                    if (querySubmitted) {
-                        queryId = querySubmitted.event.data[0];
-                    }
-                }
-            });
-
-        const evmProvider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
-
-        // precompile contract deployed at 3049 to hex, see runtime/src/precompiles.rs for more
-        const precompileContractAddress = '0x0000000000000000000000000000000000000be9';
-
-        const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
-        alith = new ethers.Wallet(privateKey, evmProvider);
-        // will only work when connected to a chain locally and //Alice is root
-        // either during local development or during runtime-upgrade against a fork
-        // note: Alith starts with 2mil CTC during local development
-        const result = await fundFromSudo(alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
-        // note: balances.Transfer is happy to accept Address20 directly too
-        expect(result.status).toBe(0);
-
-        contract = new ethers.Contract(precompileContractAddress, verifierABI, alith);
-    }, 90_000);
-
-    afterAll(async () => {
-        await api.disconnect();
-    });
-
-    test('should work when called with valid query id', async () => {
-        expect(queryId).toBeTruthy();
-        const result = await contract.get_result_segments(queryId);
-        expect(result.length).toBeGreaterThanOrEqual(1);
-
-        const [offset, abiBytes] = result[0];
-        expect(offset).toBeDefined();
-        expect(abiBytes).toBeDefined();
-    }, 30_000);
-
-    test('should error when called with invalid query id', async () => {
-        await expect(contract.get_result_segments(new Uint8Array(32))).rejects.toThrow(
-            /missing revert data.*code=CALL_EXCEPTION/,
-        );
-    }, 30_000);
 });
