@@ -31,7 +31,7 @@ where
     let target_sample_size = ra.runtime_api().target_sample_size(block_hash, chain_key)?;
     let committee_set_size = ra.runtime_api().working_set_size(block_hash, chain_key)?;
 
-    let threshold = calculate_threshold(committee_set_size);
+    let threshold = calculate_threshold(target_sample_size);
 
     Ok(RoundConfig {
         committee_set_size,

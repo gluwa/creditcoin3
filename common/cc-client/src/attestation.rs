@@ -19,7 +19,7 @@ use crate::{Client, Randomness};
 pub enum CcEvent {
     BlockAttested(SignedAttestation<Digest, AccountId32>),
     RandomnessChanged((u64, Randomness)),
-    CheckpointReached(AttestationCheckpoint, ChainKey),
+    CheckpointReached(ChainKey, AttestationCheckpoint),
     AttestationIntervalChanged(ChainKey, u64),
 }
 
@@ -161,7 +161,7 @@ impl Client {
                                 debug!("Checkpoint digest: {:?}", checkpoint.digest);
 
                                 if sender
-                                    .send(CcEvent::CheckpointReached(checkpoint, chain_key))
+                                    .send(CcEvent::CheckpointReached(chain_key, checkpoint))
                                     .await
                                     .is_err()
                                 {

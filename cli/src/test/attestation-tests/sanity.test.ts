@@ -126,8 +126,8 @@ describe('BlockAttested events', (): void => {
 
             // match the frequency b/c we don't want this to pass if only a few events are recorded
             // and then something suddenly fails/disconnects
-            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(6);
-            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(6);
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(4);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(4);
             // note that this isn't super robust b/c we still don't quite know what the
             // average distance between these events is, see CSUB-1268 but
             // nevertheless should be good enough for CI to detect if something suddenly

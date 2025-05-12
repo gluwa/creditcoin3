@@ -2,6 +2,7 @@ use sp_core::H256;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
+use crate::continuity::Error as ContinuityError;
 use attestor_primitives::Attestation;
 
 #[derive(Error, Debug)]
@@ -32,6 +33,8 @@ pub enum Error {
     EthClient(#[from] eth::Error),
     #[error("Send error {0}")]
     Send(#[from] SendError<Attestation<H256>>),
+    #[error("Continuity Error {0}")]
+    Continuity(#[from] ContinuityError),
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
 }

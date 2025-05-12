@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use anyhow::Result;
-use attestation_chain::block::Block;
 use hex::ToHex;
 use sp_core::H256;
 use thiserror::Error;
@@ -198,11 +197,9 @@ async fn construct_fragment(
     // Transform the fragment into a list of blocks
     let fragment_result = fragment
         .continuity_proof
-        .get_blocks_ref()
+        .blocks()
         .iter()
         .map(|block| {
-            let block: Block = block.clone().try_into().expect("Failed to convert block");
-
             let hash = H256::from(block.digest().to_bytes_be());
 
             BlockWithDigest {

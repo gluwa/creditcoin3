@@ -5,8 +5,9 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utils::json_serializable::JsonSerializable;
+use utils::Felt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AttestationFragment {
     fragment_length: usize,
     blocks: Vec<Block>,
@@ -20,12 +21,23 @@ impl AttestationFragment {
         }
     }
 
+    pub fn from_blocks(blocks: Vec<Block>) -> Self {
+        Self {
+            fragment_length: blocks.len(),
+            blocks,
+        }
+    }
+
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
     }
 
     pub fn head(&self) -> Option<&Block> {
         self.blocks.last()
+    }
+
+    pub fn head_prev_digest(&self) -> Option<&Felt> {
+        self.head().map(|block| &block.prev_digest)
     }
 
     pub fn tail(&self) -> Option<&Block> {

@@ -2,20 +2,23 @@ use anyhow::Result;
 use eth::Client;
 use sp_core::H256;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use tokio::{
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Mutex,
+    },
     task::JoinHandle,
     time::sleep,
 };
 use tracing::{debug, error, info, warn};
 
-use attestation_chain::continuity_chain::CreateResult;
 use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest};
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
 
-use crate::{cc3, ccsub, error::Error, eth_sub, fragment, retry, Config};
+use crate::{cc3, ccsub, continuity, error::Error, eth_sub, retry, Config};
 
 pub const ATTESTATION_BUFFER_SIZE: usize = 100;
 
@@ -48,6 +51,8 @@ struct Engine {
     current_epoch: u64,
     // Keeps track of the starting block provided by the user
     start_block: u64,
+    // Continuity cache
+    continuity_cache: continuity::Cache,
 }
 
 enum State {
@@ -67,9 +72,6 @@ impl State {
         matches!(self, Self::Halted(_))
     }
 }
-
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct AsyncEngine {
@@ -104,6 +106,7 @@ impl AsyncEngine {
             last_finalized_attestation_header: 0,
             current_epoch: 0,
             start_block: config.start_block,
+            continuity_cache: continuity::Cache::new(eth_client.clone()),
         };
 
         Ok(Self {
@@ -159,14 +162,16 @@ impl AsyncEngine {
         // Prepare the attestation
         let attestation = engine.prepare_attestation(attestation).await?;
 
+        let round = attestation.round();
+
         // Note voted for the header number
         engine
             .voted_for
             .insert((attestation.header_number(), attestation.digest()));
 
         info!(
-            "Submitted attestation for block({}), digest: {:?}, epoch: {}",
-            attestation.header_number(),
+            "Submitted attestation for round: {:?}, digest: {:?}, epoch: {}",
+            round,
             attestation.digest(),
             engine.current_epoch
         );
@@ -198,6 +203,17 @@ impl AsyncEngine {
             }
             ccsub::Event::RandomnessChanged((epoch, _randomness)) => {
                 engine.note_epoch_change(epoch).await?;
+            }
+            ccsub::Event::CheckpointReached(ck, checkpoint) => {
+                if engine.chain_key() != ck {
+                    debug!("Ignoring checkpoint for different chain key");
+                    return Ok(());
+                }
+
+                // Prune the continuity cache
+                engine
+                    .continuity_cache
+                    .prune_all_before(checkpoint.block_number);
             }
         }
 
@@ -385,44 +401,6 @@ impl Engine {
         Ok(attestation_interval * checkpoint_interval)
     }
 
-    /// Preare an attestation for submission
-    /// This will sign the attestation, if signing fails it means we are not eligible to submit an attestation
-    /// A fragment is created for the attestation to prove continuity
-    async fn prepare_attestation(
-        &self,
-        mut attestation: AttestationPrimitive<H256>,
-    ) -> Result<Attestation<H256, AttestorId>, Error> {
-        let header_number = attestation.header_number;
-        let digest = attestation.digest();
-
-        // Exit early if the attestation has already been submitted
-        if self.voted_for.contains(&(header_number, digest)) {
-            warn!("Attestation already voted for: {}", header_number);
-            return Err(Error::DoubleVote);
-        }
-
-        // Eligiblity check
-        let vrf_output = self.cc3_client.sign_vrf(header_number).await?;
-
-        // Create continuity fragment
-        let continuity_fragment = self.create_continuity_proof(header_number).await?;
-
-        let current_epoch = self.cc_client().get_current_epoch().await?;
-
-        // Set the previous digest
-        attestation.prev_digest = continuity_fragment.prev_digest;
-        let signed_attestation = self.cc3_client.sign_attestation(
-            attestation,
-            continuity_fragment.continuity_proof,
-            vrf_output,
-            current_epoch,
-        );
-
-        debug!("Attestor selected for block({})", header_number);
-
-        Ok(signed_attestation)
-    }
-
     /// Evaluate the voting position of the attestor
     /// This is important to ensure that the attestor is in line with the chain
     /// If the attestor is ahead of the chain, it will stop the engine and wait for the chain to catch up
@@ -468,59 +446,103 @@ impl Engine {
         Ok(())
     }
 
-    pub async fn create_continuity_proof(
-        &self,
-        attestation_header_number: u64,
-    ) -> Result<CreateResult, Error> {
-        // We need the last voted digest to create a fragment for the new attestation vote.
-        // Otherwise we cannot construct the continuity proof.
-        let last_digest_header_number = if let Some(last_voted_for) = self.voted_for.last().copied()
-        {
-            last_voted_for
-        } else {
-            // Get last finalized attestation
-            let last_attestation = self
-                .cc_client()
-                .get_last_attestation(self.chain_key())
-                .await?;
-            if let Some(last_attestation) = last_attestation {
-                warn!(
-                    "No last voted for attestation, using last finalized attestation from chain: {}",
-                    last_attestation.header_number()
-                );
-                (last_attestation.header_number(), last_attestation.digest())
-            } else {
-                warn!("No last attestation found, using zero digest");
-                (0, H256::zero())
-            }
-        };
+    /// Preare an attestation for submission
+    /// This will sign the attestation, if signing fails it means we are not eligible to submit an attestation
+    /// A fragment is created for the attestation to prove continuity
+    async fn prepare_attestation(
+        &mut self,
+        mut attestation: AttestationPrimitive<H256>,
+    ) -> Result<Attestation<H256, AttestorId>, Error> {
+        let header_number = attestation.header_number;
+        let digest = attestation.digest();
 
-        // Calculate fragment length based on the attestation header number and the last voted for header number
-        let fragment_length = attestation_header_number.saturating_sub(last_digest_header_number.0);
-
-        // If fragment length is 0 and we are not attesting for the genesis block,
-        // return an error
-        if fragment_length == 0 && attestation_header_number != 0 {
-            error!(
-                "Fragment length is 0, this means we are trying to create a fragment for the same block"
-            );
-            return Err(Error::FailedToCreateFragment);
+        // Exit early if the attestation has already been submitted
+        if self.voted_for.contains(&(header_number, digest)) {
+            warn!("Attestation already voted for: {}", header_number);
+            return Err(Error::DoubleVote);
         }
 
-        debug!(
-            "Creating continuity proof for block({}), last voted for: {}, fragment_length: {}",
-            attestation_header_number, last_digest_header_number.0, fragment_length
+        // Eligiblity check
+        let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
+            error!("Error signing vrf: {:?}", e);
+            Error::NotSelected(header_number)
+        })?;
+
+        // Create continuity fragment
+        let continuity_fragment = self.create_continuity_proof(header_number).await?;
+
+        let current_epoch = self.cc_client().get_current_epoch().await?;
+
+        // Set the previous digest
+        attestation.prev_digest = Some(
+            continuity_fragment
+                .head_prev_digest()
+                .map_or_else(sp_core::H256::zero, |d| H256::from(d.to_bytes_be())),
         );
+        info!("Previous digest set, {:?}", attestation.prev_digest);
+
+        // Serialize the fragment to be sent over the wire
+        let serialized_fragment =
+            continuity::AttestationFragmentSerializable::from(&continuity_fragment);
+
+        let signed_attestation = self.cc3_client.sign_attestation(
+            attestation,
+            serialized_fragment,
+            vrf_output,
+            current_epoch,
+        );
+
+        debug!("Attestor selected for block({})", header_number);
+
+        Ok(signed_attestation)
+    }
+
+    /// Create a continuity proof for the given attestation header number.
+    /// It always starts from the last finalized attestation and continues until the given header number.
+    pub async fn create_continuity_proof(
+        &mut self,
+        attestation_header_number: u64,
+    ) -> Result<continuity::AttestationFragment, Error> {
+        if attestation_header_number == 0 {
+            info!("Creating default continuity proof for header number 0");
+            return Ok(continuity::AttestationFragment::default());
+        }
+
+        // Get last finalized attestation
+        let last_attestation = self
+            .cc_client()
+            .get_last_attestation(self.chain_key())
+            .await?;
+
+        // From which point we want to create a continuity proof
+        let (from_header, from_digest) = if let Some(last_attestation) = last_attestation {
+            info!(
+                "Last finalized attestation found: header_number={}, digest={}",
+                last_attestation.header_number(),
+                last_attestation.digest()
+            );
+            // Last finalized attestation + 1 because the last finalized one is accessible on the receiving nodes
+            // Only if the last attestation is genesis, we need to start from the genesis block
+            if last_attestation.header_number() == 0 {
+                (0, H256::zero())
+            } else {
+                (
+                    last_attestation.header_number().saturating_add(1),
+                    last_attestation.digest(),
+                )
+            }
+        } else {
+            warn!("No last attestation found, starting from configured starting block");
+            // Treating provided start block as genesis block
+            (self.start_block, H256::zero())
+        };
 
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
-        let fragment = fragment::async_retry_create(
-            &self.eth_client,
-            attestation_header_number,
-            fragment_length,
-            last_digest_header_number.1,
-        )
-        .await?;
+        let fragment = self
+            .continuity_cache
+            .async_retry_create(from_header, from_digest, attestation_header_number)
+            .await?;
 
         debug!(
             "Completed fragment creation for block({})",

@@ -306,14 +306,15 @@ where
             attestation.header_number()
         );
 
-        let block_hash = self.backend.blockchain().info().best_hash;
+        let best_block_hash = self.backend.blockchain().info().best_hash;
+        let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
 
-        // Validate the attestation
+        // Validate the attestation on the last finalized block
         self.attestation_validator
-            .validate_attestation(block_hash, &attestation)?;
+            .validate_attestation(finalized_block_hash, &attestation)?;
 
         // Verify the VRF output
-        self.verify_vrf(block_hash, &attestation)?;
+        self.verify_vrf(best_block_hash, &attestation)?;
 
         // Short circuit if we are not an authority
         if !self.is_authority {

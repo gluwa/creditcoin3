@@ -3,9 +3,7 @@ use sp_core::H256;
 use tracing::debug;
 
 use crate::{
-    attestation_fragment::{
-        AttestationFragment, AttestationFragmentError, AttestationFragmentSerializable,
-    },
+    attestation_fragment::{AttestationFragment, AttestationFragmentError},
     block::{Block as FragmentBlock, BlockError},
 };
 
@@ -31,8 +29,9 @@ pub struct Manager<'a> {
     eth_client: &'a Client,
 }
 
+#[derive(Debug, Default)]
 pub struct CreateResult {
-    pub continuity_proof: AttestationFragmentSerializable,
+    pub continuity_proof: AttestationFragment,
     pub previous_fragment_block: FragmentBlock,
     pub prev_digest: Option<H256>,
 }
@@ -50,13 +49,7 @@ impl<'a> Manager<'a> {
         // Only for genesis block we don't need to build a fragment
         if self.end_block == 0 {
             debug!("No need to build full fragment for genesis block");
-            let serializeable_frament =
-                AttestationFragmentSerializable::from(&AttestationFragment::new(0));
-            return Ok(CreateResult {
-                continuity_proof: serializeable_frament,
-                previous_fragment_block: Default::default(),
-                prev_digest: None,
-            });
+            return Ok(CreateResult::default());
         }
 
         // Fragment size is the difference between the attestation header number and the last finalized attestation header number
@@ -75,7 +68,7 @@ impl<'a> Manager<'a> {
 
         // Construct the previous fragment block (in this case it will always be an attestation or checkpoint)
         // This is needed because the prover needs to be able to always have the previous block in the fragment
-        let previous_block_number = self.start_block - 1;
+        let previous_block_number = self.start_block.saturating_sub(1);
         let previous_block = self.eth_client.get_block(previous_block_number).await?;
         let prev_merkle_root = eth::starknet_pedersen_mmr(&previous_block);
         let previous_fragment_block = FragmentBlock::new_with_digest(
@@ -115,11 +108,8 @@ impl<'a> Manager<'a> {
             prev_digest = Some(H256::from(last_block.prev_digest().to_bytes_be()));
         }
 
-        // Serialize the fragment to be sent over the wire
-        let serialized_fragment = AttestationFragmentSerializable::from(&fragment);
-
         Ok(CreateResult {
-            continuity_proof: serialized_fragment,
+            continuity_proof: fragment,
             previous_fragment_block,
             prev_digest,
         })

@@ -4,7 +4,7 @@ use tracing::{debug, info};
 
 use cc_client::{attestation::CcEvent, AccountId32};
 
-use attestor_primitives::{ChainKey, SignedAttestation};
+use attestor_primitives::{AttestationCheckpoint, ChainKey, SignedAttestation};
 
 use crate::engine::AsyncEngine;
 
@@ -20,6 +20,7 @@ pub enum Event {
     RandomnessChanged(RandomnessChange),
     AttestationIntervalChanged(AttestationIntervalChange),
     BlockAttested(SignedAttestation<H256, AccountId32>),
+    CheckpointReached(ChainKey, AttestationCheckpoint),
 }
 
 pub struct CclientSub {
@@ -77,7 +78,7 @@ impl CclientSub {
                     engine.note_cc_event(event).await?;
                 }
 
-                CcEvent::CheckpointReached(checkpoint, ck) => {
+                CcEvent::CheckpointReached(ck, checkpoint) => {
                     if engine.chain_key != ck {
                         debug!("Ignoring checkpoint for different chain key");
                         continue;
@@ -87,6 +88,10 @@ impl CclientSub {
                         "✅ Checkpoint reached, block: {:}, digest: {:}",
                         checkpoint.block_number, checkpoint.digest
                     );
+
+                    engine
+                        .note_cc_event(Event::CheckpointReached(ck, checkpoint))
+                        .await?;
                 }
             };
         }

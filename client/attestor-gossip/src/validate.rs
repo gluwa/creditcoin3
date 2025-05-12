@@ -7,9 +7,8 @@ use sp_api::ProvideRuntimeApi;
 use sp_core::H256;
 use sp_runtime::traits::Block as BlockT;
 
-use log::{debug, error};
+use log::{debug, error, info};
 use parity_scale_codec::Codec;
-use starknet_crypto::Felt;
 
 use attestation_chain::block::Block;
 use attestor_primitives::{
@@ -102,9 +101,9 @@ where
             return Err(Error::InvalidAttestationContinuityProof);
         }
 
-        // Check that continuity from prior attestation is valid
-        let mut last_block_digest: Option<Felt> = None;
-        debug!(target: LOG_TARGET, "📝 Checking Continuity proof, length: {:?}", attestation.continuity_proof.len());
+        let mut last_block_digest = runtime.last_digest(block_hash, chain_key)?;
+        info!(target: LOG_TARGET, "📝 Checking Continuity proof, length: {:?}, round: {:?}, last_block_digest: {:?}", attestation.continuity_proof.len(), attestation.round(), last_block_digest);
+
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
             debug!(target: LOG_TARGET, "📝 Checking continuity proof for block {:?}", serializable);
             let block: Block = Block::try_from(serializable)
@@ -114,20 +113,47 @@ where
                 Block::hash_payload(&block.block_number.into(), &block.root, &block.prev_digest);
 
             if computed_digest != block.digest {
+                error!(target: LOG_TARGET, "❌ Invalid digest in continuity proof for block {:?}", block);
                 return Err(Error::InvalidAttestationContinuityProof);
             }
 
-            // Check continuity
+            let block_digest = H256::from_slice(&block.digest.to_bytes_be());
+            let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
+
             match last_block_digest {
-                Some(last_digest) if last_digest == block.prev_digest => {
-                    last_block_digest = Some(block.digest);
+                Some(last_digest) if last_digest == block_prev_digest => {
+                    last_block_digest = Some(block_digest);
                 }
-                Some(_) => return Err(Error::InvalidAttestationContinuityProof),
-                None => last_block_digest = Some(block.digest),
+                Some(_) => {
+                    if block_prev_digest.is_zero() {
+                        let valid = runtime.contains_digest(block_hash, chain_key, block_digest)?
+                            || runtime
+                                .last_checkpoint(block_hash, chain_key)?
+                                .map_or(false, |ck| ck.digest == block_digest);
+
+                        if !valid {
+                            error!(target: LOG_TARGET, "❌ Invalid continuity proof for block {:?}", block);
+                            return Err(Error::InvalidAttestationContinuityProof);
+                        }
+
+                        debug!(target: LOG_TARGET, "✅ Valid continuity proof for block {:?}", block);
+                        last_block_digest = Some(block_digest);
+                    } else if runtime.contains_digest(block_hash, chain_key, block_prev_digest)? {
+                        debug!(target: LOG_TARGET, "✅ Valid continuity proof for block {:?}", block);
+                        last_block_digest = Some(block_digest);
+                    } else {
+                        error!(target: LOG_TARGET, "❌ Invalid continuity proof for block {:?}", block);
+                        return Err(Error::InvalidAttestationContinuityProof);
+                    }
+                }
+                None => {
+                    // Genesis case
+                    last_block_digest = Some(block_digest);
+                }
             }
         }
 
-        debug!(target: LOG_TARGET, "📝 Attestation is valid");
+        info!(target: LOG_TARGET, "✅ Attestation continuity proof & signature are valid.");
         Ok(())
     }
 

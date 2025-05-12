@@ -141,7 +141,7 @@ impl Client {
                     // Handle the claim processing logic here
                     attestation_chan.send(attestation)?;
                 }
-                Some(CcEvent::CheckpointReached(checkpoint, chain_key)) => {
+                Some(CcEvent::CheckpointReached(chain_key, checkpoint)) => {
                     info!(
                         "Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
                         chain_key,

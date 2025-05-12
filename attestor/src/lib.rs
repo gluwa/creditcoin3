@@ -8,9 +8,9 @@ pub mod engine;
 mod attestation;
 mod cc3;
 mod ccsub;
+mod continuity;
 mod error;
 mod eth_sub;
-mod fragment;
 mod retry;
 
 #[derive(Debug, Clone)]
@@ -68,18 +68,13 @@ impl Server {
                         }
                     }
                 }
-
                 maybe_attestation = engine.next() => {
                     if let Some(attestation) = maybe_attestation {
-                        let digest = attestation.digest();
-                        info!(
-                            "Going to submit attestation with digest: {:?}. Round: {:?}",
-                            digest,
-                            attestation.round()
-                        );
+                        let round = attestation.round();
+                        info!("Going to submit attestation for round: {:?}", round);
                         match engine.submit_attestation(attestation).await {
                             Ok(()) => {
-                                info!("Submitted attestation with digest: {:?}", digest);
+                                info!("Submitted attestation for round: {:?}", round);
                             }
                             Err(e) => {
                                 if e.is_not_selected_error() {

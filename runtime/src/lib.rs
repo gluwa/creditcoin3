@@ -53,7 +53,8 @@ use pallet_grandpa::{
 use pallet_transaction_payment::ConstFeeMultiplier;
 // Frontier
 use attestor_primitives::{
-    AttestorStatus, BlsPublicKey, ChainId, ChainKey, Digest, SignedAttestation,
+    AttestationCheckpoint, AttestorStatus, BlsPublicKey, ChainId, ChainKey, Digest,
+    SignedAttestation,
 };
 use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
@@ -1527,6 +1528,10 @@ impl_runtime_apis! {
 
         fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32 {
             Attestation::attestation_checkpoint_interval(chain_key)
+        }
+
+        fn last_checkpoint(chain_key: ChainKey) -> Option<AttestationCheckpoint> {
+            Attestation::last_checkpoint(chain_key)
         }
     }
 
