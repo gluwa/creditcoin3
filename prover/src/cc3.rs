@@ -152,7 +152,8 @@ impl Client {
                     checkpoint_chan.send((checkpoint, chain_key))?;
                 }
                 None => {
-                    panic!("Connection to the blockchain lost, exiting prover");
+                    error!("Connection to the blockchain lost, exiting prover");
+                    return Err(Error::FailedToGetRPcClient.into());
                 }
                 _ => (),
             }

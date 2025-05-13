@@ -332,7 +332,8 @@ pub async fn sync_cache(
                 }
             },
             _ = &mut sync_handle => {
-                panic!("Sync handle has been dropped, exiting loop");
+                warn!("Sync handle has been dropped, exiting loop");
+                break;
             }
         }
     }
