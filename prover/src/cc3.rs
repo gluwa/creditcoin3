@@ -152,7 +152,7 @@ impl Client {
                     checkpoint_chan.send((checkpoint, chain_key))?;
                 }
                 None => {
-                    panic!("Subscription task failed with internal error:",);
+                    panic!("Connection to the blockchain lost, exiting prover");
                 }
                 _ => (),
             }

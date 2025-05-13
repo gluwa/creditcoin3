@@ -29,8 +29,8 @@ const BUFFER_SIZE: usize = 100;
 /// It has a handle to cancel the subscription
 #[derive(Debug)]
 pub struct Subscription {
-    pub receiver: mpsc::Receiver<CcEvent>,
-    pub handle: JoinHandle<Result<(), Error>>,
+    receiver: mpsc::Receiver<CcEvent>,
+    handle: JoinHandle<Result<(), Error>>,
 }
 
 impl Subscription {
