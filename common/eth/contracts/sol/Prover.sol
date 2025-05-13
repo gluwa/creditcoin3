@@ -226,25 +226,22 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     function getUnprocessedQueries() public view returns (ChainQuery[] memory) {
-        uint256 unprocessedCount;
+        ChainQuery[] memory temp = new ChainQuery[](queryIds.length);
+        uint256 count = 0;
 
         for (uint256 i = 0; i < queryIds.length; i++) {
-            if (queries[queryIds[i]].state == QueryState.Submitted) {
-                unprocessedCount++;
+            QueryDetails storage current = queries[queryIds[i]];
+            if (current.state == QueryState.Submitted && !isQueryTimedOut(queryIds[i])) {
+                temp[count++] = current.query;
             }
         }
 
-        ChainQuery[] memory unprocessedQueries = new ChainQuery[](unprocessedCount);
-        uint256 index;
-
-        for (uint256 i = 0; i < queryIds.length; i++) {
-            if (queries[queryIds[i]].state == QueryState.Submitted) {
-                unprocessedQueries[index] = queries[queryIds[i]].query;
-                index++;
-            }
+        ChainQuery[] memory result = new ChainQuery[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = temp[i];
         }
 
-        return unprocessedQueries;
+        return result;
     }
 
     function removeQueryId(QueryId queryId) public onlyOwner {

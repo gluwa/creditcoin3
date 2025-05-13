@@ -6,7 +6,7 @@ use sp_core::H256;
 use std::sync::Arc;
 use tokio::{
     sync::mpsc,
-    time::{sleep, Duration},
+    time::{interval, Duration},
 };
 use tracing::{debug, error, info};
 
@@ -33,6 +33,10 @@ pub type CcClientArc = Arc<cc3::Client>;
 
 /// `EthClientArc` type
 pub type EthClientArc = Arc<EthClient>;
+
+/// Query polling interval
+/// Defines how often the prover will poll for unprocessed queries
+const QUERY_POLLING_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Prover server is configured using `Config`
 pub struct Server {
@@ -143,61 +147,38 @@ impl Server {
         )
         .await?;
 
-        info!("Starting unprocessed query processing...");
-        let unprocessed_queries = contract::get_unprocessed_queries(&self.cc3_client).await?;
-        for query in unprocessed_queries {
-            info!("Processing unprocessed query: {:?}", query);
-            if let Err(e) = self
-                .process_query(query.clone(), chain_attestation_interval)
-                .await
-            {
-                error!("Query processing failed, Error: {e:?}");
-                remove_query_id(&self.cc3_client, query.id()).await?;
-            }
-        }
+        // Interval for polling unprocessed queries
+        let mut polling_interval = interval(QUERY_POLLING_INTERVAL);
 
-        // Create a channel for query submission
-        let (queue, mut queries) = mpsc::unbounded_channel();
-
-        let eth_cc3_client = self.cc3_client.clone();
-        let mut query_submission_handle = tokio::spawn(async move {
-            loop {
-                info!("Starting query submission subscription...");
-                match contract::subscribe_query_submission(&eth_cc3_client, queue.clone()).await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        error!("Failed to subscribe to query submission: {:?}", e);
-                        // Optional: Break the loop after a certain number of retries if desired
-                        info!("Retrying subscription in one second...");
-                        sleep(Duration::from_secs(1)).await; // Delay before retrying
-                    }
-                }
-            }
-        });
-
-        info!("Listening for new queries...");
-        // Wait for new queries and handle them
         loop {
             tokio::select! {
-                maybe_query = queries.recv() => {
-                    if let Some(query) = maybe_query {
-                        info!("Processing query: {:?}", query);
-                        if let Err(e) = self
-                            .process_query(query.clone(), chain_attestation_interval)
-                            .await
-                        {
-                            error!("Query processing failed, Error: {e:?}");
-                            remove_query_id(&self.cc3_client, query.id()).await?;
+                _ = polling_interval.tick() => {
+                    info!("Polling unprocessed queries...");
+                    match contract::get_unprocessed_queries(&self.cc3_client).await {
+                        Ok(unprocessed_queries) => {
+                            info!("Found {} unprocessed queries", unprocessed_queries.len());
+                            // get first one
+                            // because we won't process all of them at once
+                            let query = unprocessed_queries.first().cloned();
+                            if let Some(query) = query {
+                                // process the query
+                                info!("Processing unprocessed query: {:?}", query);
+                                if let Err(e) = self
+                                    .process_query(query.clone(), chain_attestation_interval)
+                                    .await
+                                {
+                                    error!("Query processing failed, Error: {e:?}");
+                                    remove_query_id(&self.cc3_client, query.id()).await?;
+                                }
+                            }
                         }
-                    } else {
-                        panic!("Queries processing channel dropped.")
+                        Err(e) => {
+                            error!("Failed to fetch unprocessed queries: {:?}", e);
+                        }
                     }
                 }
                 _ = &mut sync_cache_handle => {
                     panic!("Sync cache thread aborted.")
-                },
-                _ = &mut query_submission_handle => {
-                    panic!("Query submission thread aborted.")
                 },
             }
         }

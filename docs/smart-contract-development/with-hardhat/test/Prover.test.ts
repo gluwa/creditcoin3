@@ -368,9 +368,7 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('submitQueryProof()', function () {
-        const verificationResult = [
-            { result: 0, expectedState: 2, stateName: 'QueryState.ResultAvailable' },
-        ];
+        const verificationResult = [{ result: 0, expectedState: 2, stateName: 'QueryState.ResultAvailable' }];
 
         verificationResult.forEach(({ result, expectedState, stateName }) => {
             it(`Should emit an event and set query.state to ${stateName} when verification result is ${result}`, async function () {
@@ -614,14 +612,27 @@ describe('CreditcoinPublicProver', function () {
             const queryIdTwo = receiptTwo?.logs[0]?.args?.[0];
             const qdTwo = await prover.queries(queryIdTwo);
 
-            // QueryState.TimedOut
-            await prover.connect(owner).mock_setQueryState(queryIdOne, 3);
+            // QueryState.ResultAvailable
+            await prover.connect(owner).mock_setQueryState(queryIdOne, 2);
 
             const unprocessed = await prover.connect(user).getUnprocessedQueries();
             expect(unprocessed.length).to.equal(1);
             expect(unprocessed[0].chainId).to.equal(qdTwo.query.chainId);
             expect(unprocessed[0].height).to.equal(qdTwo.query.height);
             expect(unprocessed[0].index).to.equal(qdTwo.query.index);
+        });
+
+        it('timedout queries are not returned', async function () {
+            await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+
+            // Progress blocks
+            await progressBlocks(TIMEOUT_BLOCKS, BLOCKTIME);
+
+            const unprocessed = await prover.connect(user).getUnprocessedQueries();
+            // Still one unprocessed query
+            expect(unprocessed.length).to.equal(1);
         });
     });
 

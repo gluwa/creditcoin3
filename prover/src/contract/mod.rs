@@ -1,5 +1,4 @@
 use anyhow::Result;
-use tokio::sync::mpsc;
 use tracing::info;
 
 use crate::query::QueryId;
@@ -88,21 +87,6 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
     info!("Proof submitted tx_hash: {}", tx_hash);
 
     Ok(tx_hash)
-}
-
-pub async fn subscribe_query_submission(
-    eth_client: &Client,
-    query_channel: mpsc::UnboundedSender<Query>,
-) -> Result<()> {
-    let chain_id = eth_client.get_chain_id().await?;
-
-    // Get the deployment artifact
-    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
-
-    artifact
-        .contract
-        .subscribe_query_submissions(eth_client, query_channel)
-        .await
 }
 
 pub async fn remove_query_id(eth_client: &Client, query_id: QueryId) -> Result<String> {
