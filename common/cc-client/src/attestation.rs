@@ -3,7 +3,7 @@ use subxt::error::Error as SubxtError;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub use subxt::utils::AccountId32;
 
@@ -29,8 +29,8 @@ const BUFFER_SIZE: usize = 100;
 /// It has a handle to cancel the subscription
 #[derive(Debug)]
 pub struct Subscription {
-    receiver: mpsc::Receiver<CcEvent>,
-    handle: JoinHandle<Result<(), Error>>,
+    pub receiver: mpsc::Receiver<CcEvent>,
+    pub handle: JoinHandle<Result<(), Error>>,
 }
 
 impl Subscription {
@@ -67,6 +67,8 @@ pub enum Error {
     ClientError(#[from] anyhow::Error),
     #[error("error {0}")]
     Error(#[from] crate::Error),
+    #[error("Subscription connection lost: {0}")]
+    SubscriptionConnectionLost(SubxtError),
 }
 
 impl Client {
@@ -82,124 +84,141 @@ impl Client {
             let mut blocks_sub = api.blocks().subscribe_finalized().await?;
             info!("Subscription started, streaming finalized blocks...");
 
-            while let Some(block) = blocks_sub.next().await {
-                let block = block?;
+            loop {
+                match blocks_sub.next().await {
+                    Some(Ok(block)) => {
+                        let block_number = block.header().number;
+                        debug!("Got block #{block_number}:");
+                        let block_hash = block.hash();
+                        debug!("Block Hash: {block_hash}");
 
-                let block_number = block.header().number;
-                debug!("Got block #{block_number}:");
-                let block_hash = block.hash();
-                debug!("Block Hash: {block_hash}");
+                        let events = block.events().await?;
 
-                let events = block.events().await?;
+                        for event in events.iter() {
+                            let event = event.unwrap();
+                            debug!(
+                                "event pallet: {}, event variant: {}",
+                                event.pallet_name(),
+                                event.variant_name()
+                            );
 
-                for event in events.iter() {
-                    let event = event.unwrap();
-                    debug!(
-                        "event pallet: {}, event variant: {}",
-                        event.pallet_name(),
-                        event.variant_name()
-                    );
+                            match (event.pallet_name(), event.variant_name()) {
+                                (ATTESTATION_MODULE, ATTESTATION_SUBMITTED_EVENT) => {
+                                    if let Ok(Some(evt)) = event.as_event::<BlockAttested>() {
+                                        debug!("attestation chain_key: {:?}", evt.0);
 
-                    match (event.pallet_name(), event.variant_name()) {
-                        (ATTESTATION_MODULE, ATTESTATION_SUBMITTED_EVENT) => {
-                            if let Ok(Some(evt)) = event.as_event::<BlockAttested>() {
-                                debug!("attestation chain_key: {:?}", evt.0);
+                                        // If the filter is not empty, check if the chain_key is in the filter
+                                        if filter != evt.0 {
+                                            continue;
+                                        }
 
-                                // If the filter is not empty, check if the chain_key is in the filter
-                                if filter != evt.0 {
-                                    continue;
+                                        let attestation: SignedAttestation<Digest, AccountId32> =
+                                            evt.1.into();
+
+                                        debug!("attestation digest: {:?}", attestation.digest());
+
+                                        if sender
+                                            .send(CcEvent::BlockAttested(attestation))
+                                            .await
+                                            .is_err()
+                                        {
+                                            // The receiver has been dropped
+                                            break;
+                                        }
+                                    }
                                 }
+                                (RANDOMNESS_MODULE, RANDOMNESS_CHANGED_EVENT) => {
+                                    if let Ok(Some(evt)) =
+                                        event.as_event::<StoreRandomnessForEpoch>()
+                                    {
+                                        debug!(
+                                            "randomness epoch (index: {}, randomnes: {:?})",
+                                            evt.epoch_index, evt.randomness
+                                        );
 
-                                let attestation: SignedAttestation<Digest, AccountId32> =
-                                    evt.1.into();
-
-                                debug!("attestation digest: {:?}", attestation.digest());
-
-                                if sender
-                                    .send(CcEvent::BlockAttested(attestation))
-                                    .await
-                                    .is_err()
-                                {
-                                    // The receiver has been dropped
-                                    break;
+                                        if sender
+                                            .send(CcEvent::RandomnessChanged((
+                                                evt.epoch_index,
+                                                evt.randomness,
+                                            )))
+                                            .await
+                                            .is_err()
+                                        {
+                                            debug!("The receiver has been dropped");
+                                            // The receiver has been dropped
+                                            break;
+                                        }
+                                    }
                                 }
+                                (ATTESTATION_MODULE, CHECKPOINT_REACHED_EVENT) => {
+                                    if let Ok(Some(evt)) = event.as_event::<CheckpointReached>() {
+                                        let (chain_key, checkpoint) = (evt.0, evt.1);
+
+                                        debug!("Checkpoint chain_key: {:?}", chain_key);
+
+                                        // If the filter is not empty, check if the chain_key is in the filter
+                                        if filter != chain_key {
+                                            continue;
+                                        }
+
+                                        let checkpoint: AttestationCheckpoint = checkpoint.into();
+                                        debug!("Checkpoint digest: {:?}", checkpoint.digest);
+
+                                        if sender
+                                            .send(CcEvent::CheckpointReached(chain_key, checkpoint))
+                                            .await
+                                            .is_err()
+                                        {
+                                            // The receiver has been dropped
+                                            break;
+                                        }
+                                    }
+                                }
+                                (ATTESTATION_MODULE, ATTESTATION_INTERVAL_CHANGED_EVENT) => {
+                                    if let Ok(Some(evt)) =
+                                        event.as_event::<AttestationIntervalChanged>()
+                                    {
+                                        let (chain_key, new_interval) = (evt.0, evt.1);
+                                        // If the filter is not empty, check if the chain_key is in the filter
+                                        if filter != chain_key {
+                                            continue;
+                                        }
+                                        debug!(
+                                            "Interval changed for chain_key: {:?}, New interval: {:?}",
+                                            chain_key, new_interval
+                                        );
+
+                                        if sender
+                                            .send(CcEvent::AttestationIntervalChanged(
+                                                chain_key,
+                                                new_interval,
+                                            ))
+                                            .await
+                                            .is_err()
+                                        {
+                                            // The receiver has been dropped
+                                            break;
+                                        }
+                                    }
+                                }
+                                (_m, _e) => (),
                             }
                         }
-                        (RANDOMNESS_MODULE, RANDOMNESS_CHANGED_EVENT) => {
-                            if let Ok(Some(evt)) = event.as_event::<StoreRandomnessForEpoch>() {
-                                debug!(
-                                    "randomness epoch (index: {}, randomnes: {:?})",
-                                    evt.epoch_index, evt.randomness
-                                );
-
-                                if sender
-                                    .send(CcEvent::RandomnessChanged((
-                                        evt.epoch_index,
-                                        evt.randomness,
-                                    )))
-                                    .await
-                                    .is_err()
-                                {
-                                    debug!("The receiver has been dropped");
-                                    // The receiver has been dropped
-                                    break;
-                                }
-                            }
-                        }
-                        (ATTESTATION_MODULE, CHECKPOINT_REACHED_EVENT) => {
-                            if let Ok(Some(evt)) = event.as_event::<CheckpointReached>() {
-                                let (chain_key, checkpoint) = (evt.0, evt.1);
-
-                                debug!("Checkpoint chain_key: {:?}", chain_key);
-
-                                // If the filter is not empty, check if the chain_key is in the filter
-                                if filter != chain_key {
-                                    continue;
-                                }
-
-                                let checkpoint: AttestationCheckpoint = checkpoint.into();
-                                debug!("Checkpoint digest: {:?}", checkpoint.digest);
-
-                                if sender
-                                    .send(CcEvent::CheckpointReached(chain_key, checkpoint))
-                                    .await
-                                    .is_err()
-                                {
-                                    // The receiver has been dropped
-                                    break;
-                                }
-                            }
-                        }
-                        (ATTESTATION_MODULE, ATTESTATION_INTERVAL_CHANGED_EVENT) => {
-                            if let Ok(Some(evt)) = event.as_event::<AttestationIntervalChanged>() {
-                                let (chain_key, new_interval) = (evt.0, evt.1);
-                                // If the filter is not empty, check if the chain_key is in the filter
-                                if filter != chain_key {
-                                    continue;
-                                }
-                                debug!(
-                                    "Interval changed for chain_key: {:?}, New interval: {:?}",
-                                    chain_key, new_interval
-                                );
-
-                                if sender
-                                    .send(CcEvent::AttestationIntervalChanged(
-                                        chain_key,
-                                        new_interval,
-                                    ))
-                                    .await
-                                    .is_err()
-                                {
-                                    // The receiver has been dropped
-                                    break;
-                                }
-                            }
-                        }
-                        (_m, _e) => (),
+                    }
+                    Some(Err(e)) => {
+                        error!(
+                            "Subscription error while fetching next block: {:?}. Panicking!",
+                            e
+                        );
+                        return Err(Error::SubscriptionConnectionLost(e));
+                    }
+                    None => {
+                        info!("Block subscription stream closed by the backend.");
+                        break;
                     }
                 }
             }
-
+            info!("Subscription task finished gracefully.");
             Ok(())
         });
 

@@ -151,6 +151,9 @@ impl Client {
                     // Handle processing checkpoint here
                     checkpoint_chan.send((checkpoint, chain_key))?;
                 }
+                None => {
+                    panic!("Subscription task failed with internal error:",);
+                }
                 _ => (),
             }
         }

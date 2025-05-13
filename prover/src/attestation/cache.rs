@@ -269,7 +269,7 @@ pub async fn sync_cache(
 
     // Run sub in background and allow server to continue doing other work
     let client = cc3_client.clone();
-    let sync_handle = tokio::spawn(async move {
+    let mut sync_handle = tokio::spawn(async move {
         client
             .start_attestation_sub(attestation_tx, checkpoint_tx, chain_key)
             .await
@@ -330,6 +330,9 @@ pub async fn sync_cache(
                 } else {
                     cached_up_to = Some((chain_key, checkpoint.digest));
                 }
+            },
+            _ = &mut sync_handle => {
+                panic!("Sync handle has been dropped, exiting loop");
             }
         }
     }
