@@ -9,10 +9,14 @@ use crate::{
 };
 
 use frame_support::assert_ok;
+use pallet_attestation_poc::Attestations;
+use pallet_prover::test_helpers::{create_dummy_attestation, PROOF_EXAMPLE_DIGEST};
 use pallet_prover_primitives::{LayoutSegment, Query, STARK_PROGRAM_V3_HASH};
 use precompile_utils::testing::*;
 use sp_core::H160;
 use std::str::from_utf8;
+
+const SUPPORTED_CHAIN_KEY: u64 = 1;
 
 // No test of invalid selectors since we have a fallback behavior (deposit).
 fn precompiles() -> Precompiles<Runtime> {
@@ -26,7 +30,7 @@ fn verify_should_revert_when_proof_larger_than_50_mb() {
     let bob: H160 = Bob.into();
 
     let query = Query {
-        chain_id: 1,
+        chain_id: SUPPORTED_CHAIN_KEY,
         height: 1,
         index: 1,
         layout_segments: vec![],
@@ -62,7 +66,7 @@ fn verify_should_revert_when_proof_is_empty() {
     let bob: H160 = Bob.into();
 
     let query = Query {
-        chain_id: 31337,
+        chain_id: SUPPORTED_CHAIN_KEY,
         height: 1,
         index: 0,
         layout_segments: vec![],
@@ -90,7 +94,7 @@ fn verify_should_revert_when_block_number_is_mismatched_between_query_and_the_pr
     let alice: H160 = Alice.into();
 
     let query = Query {
-        chain_id: 31337,
+        chain_id: SUPPORTED_CHAIN_KEY,
         height: 6, // updated proof is generated for a query at block 4, we will set height to 6
         index: 0,
         layout_segments: vec![LayoutSegment {
@@ -131,7 +135,7 @@ fn verify_should_return_zero_when_all_good() {
     let alice: H160 = Alice.into();
 
     let query = Query {
-        chain_id: 31337,
+        chain_id: SUPPORTED_CHAIN_KEY,
         height: 4, // updated proof is generated for a query at block 4
         index: 0,
         layout_segments: vec![LayoutSegment {
@@ -153,6 +157,9 @@ fn verify_should_return_zero_when_all_good() {
                 STARK_PROGRAM_V3_HASH
             ));
 
+            let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
+            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, PROOF_EXAMPLE_DIGEST, attestation);
+
             precompiles()
                 .prepare_test(
                     alice,
@@ -173,7 +180,7 @@ fn get_result_segments_should_error_for_unknown_query_id() {
     // note: not submitted on-chain therefore
     // no ResultSegments available for this query.id()
     let query = Query {
-        chain_id: 31337,
+        chain_id: SUPPORTED_CHAIN_KEY,
         height: 4,
         index: 0,
         layout_segments: vec![LayoutSegment {
@@ -201,7 +208,7 @@ fn get_result_segments_should_work_for_known_query_id() {
     let alice: H160 = Alice.into();
 
     let query = Query {
-        chain_id: 31337,
+        chain_id: SUPPORTED_CHAIN_KEY,
         height: 4,
         index: 0,
         layout_segments: vec![LayoutSegment {

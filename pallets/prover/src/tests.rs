@@ -7,10 +7,14 @@ use pallet_prover_primitives::{
 };
 
 use frame_support::{assert_err, assert_noop, assert_ok};
+use pallet_attestation_poc::Attestations;
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
+use test_helpers::{create_dummy_attestation, PROOF_EXAMPLE_DIGEST};
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, System, Test};
+
+const SUPPORTED_CHAIN_KEY: u64 = 1;
 
 fn prover_configured_in_genesis() -> RuntimeOrigin {
     RuntimeOrigin::signed(PROVER_3)
@@ -23,7 +27,7 @@ fn submit_proof_should_error_when_not_signed() {
 
         let proof = b"".to_vec();
         let query = Query {
-            chain_id: 1,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 1,
             index: 1,
             layout_segments: vec![],
@@ -42,7 +46,7 @@ fn submit_proof_should_error_when_proof_is_empty() {
         System::set_block_number(1);
 
         let query = Query {
-            chain_id: 1,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 1,
             index: 1,
             layout_segments: vec![],
@@ -70,7 +74,7 @@ fn submit_proof_should_error_when_proof_is_not_empty_but_not_valid() {
 
         let proof = b"abcd".to_vec();
         let query = Query {
-            chain_id: 1,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 1,
             index: 1,
             layout_segments: vec![],
@@ -99,7 +103,7 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
 
         // create a correct query
         let query = Query {
-            chain_id: 1,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 4,
             index: 0,
             layout_segments: vec![LayoutSegment {
@@ -107,6 +111,9 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
                 size: 681,
             }],
         };
+
+        let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, PROOF_EXAMPLE_DIGEST, attestation);
 
         assert_ok!(ProverModule::submit_proof(
             RuntimeOrigin::signed(PROVER_3),
@@ -137,7 +144,7 @@ fn submit_proof_should_error_when_stark_metadata_not_set() {
         let proof = vec![0; 10];
 
         let query = Query {
-            chain_id: 1,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 1,
             index: 1,
             layout_segments: vec![],
@@ -169,7 +176,7 @@ fn submit_proof_should_error_when_stark_metadata_version_is_incorrect() {
             .expect("Proof example to be there");
 
         let query = Query {
-            chain_id: 1,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 1,
             index: 1,
             layout_segments: vec![],

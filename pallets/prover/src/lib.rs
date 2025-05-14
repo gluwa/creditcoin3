@@ -12,6 +12,7 @@ mod mock;
 mod tests;
 
 mod benchmarking;
+pub mod test_helpers;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -132,7 +133,7 @@ pub mod pallet {
 
             #[cfg(not(feature = "runtime-benchmarks"))]
             {
-                let (status, result_segments, continuity_proof_len) =
+                let (status, result_segments, continuity_proof_len, continuity_checkpoint_digest) =
                     proof_verifier::host_api::verify_proof(proof, query.clone(), metadata);
 
                 match status {
@@ -145,7 +146,9 @@ pub mod pallet {
                         // continuity_proof_len = len(5..10) = 6 (both borders included),
                         // checkpoint number generated from the proof = 6 - 1 + 6 - 1 = 10
 
-                        if continuity_proof_len.is_none() {
+                        let continuity_proof_len = if let Some(len) = continuity_proof_len {
+                            len
+                        } else {
                             Self::deposit_event(Event::<T>::QueryVerificationFailed(
                                 query_id,
                                 prover.clone(),
@@ -156,43 +159,63 @@ pub mod pallet {
                                 VerifierExitStatus::MissingContinuityProof,
                             );
                             return Err(Error::<T>::MissingContinuityProof.into());
-                        }
+                        };
 
-                        let checkpoint_block_number =
-                            query.height - 1 + continuity_proof_len.unwrap() - 1;
+                        let continuity_checkpoint_digest =
+                            if let Some(digest) = continuity_checkpoint_digest {
+                                digest
+                            } else {
+                                Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                                    query_id,
+                                    prover.clone(),
+                                    VerifierExitStatus::MissingContinuityProof,
+                                ));
+                                QueryResultById::<T>::insert(
+                                    query_id,
+                                    VerifierExitStatus::MissingContinuityProof,
+                                );
+                                return Err(Error::<T>::MissingContinuityProof.into());
+                            };
 
-                        let checkpoint_interval =
-                            T::Checkpoints::get_checkpoint_interval(query.chain_id);
-
-                        let attestation_interval =
-                            T::Attestations::get_attestation_interval(query.chain_id);
+                        let checkpoint_block_number = query.height - 1 + continuity_proof_len - 1;
 
                         let expected_block_number = if let Some(last_checkpoint_number) =
                             T::Checkpoints::get_last_checkpoint_number(query.chain_id)
                         {
-                            if last_checkpoint_number
-                                > query.height + checkpoint_interval * attestation_interval
-                            {
-                                // number of blocks per checkpoint = checkpoint_interval * attestation_interval
-                                // N of the checkpoint that will include the query =
-                                // ceil(query.height / (checkpoint_interval * attestation_interval))
-                                checkpoint_interval
-                                    * attestation_interval
-                                    * (query.height / (checkpoint_interval * attestation_interval)
-                                        + (query.height
-                                            % (checkpoint_interval * attestation_interval)
-                                            != 0) as u64)
+                            // Use a checkpoint if one is available
+                            if last_checkpoint_number >= query.height {
+                                // Get the checkpoint using our digest from the proof. If this fails, then
+                                // the proof is invalid.
+                                let checkpoint = T::Checkpoints::get_checkpoint(
+                                    query.chain_id,
+                                    continuity_checkpoint_digest,
+                                );
+                                if let Some(check) = checkpoint {
+                                    check
+                                } else {
+                                    return Err(Error::<T>::QueryCheckpointMismatch.into());
+                                }
                             } else {
-                                // if we cant rely on a checkpoint, use the same formula as above
-                                // but with attestation interval which is expressed in blocks
-                                attestation_interval
-                                    * (query.height / attestation_interval
-                                        + (query.height % attestation_interval != 0) as u64)
+                                let attestation = T::Attestations::get_attestation(
+                                    query.chain_id,
+                                    continuity_checkpoint_digest,
+                                );
+                                if let Some(att) = attestation {
+                                    att.header_number()
+                                } else {
+                                    return Err(Error::<T>::QueryCheckpointMismatch.into());
+                                }
                             }
                         } else {
-                            attestation_interval
-                                * (query.height / attestation_interval
-                                    + (query.height % attestation_interval != 0) as u64)
+                            let attestation = T::Attestations::get_attestation(
+                                query.chain_id,
+                                continuity_checkpoint_digest,
+                            );
+                            if let Some(att) = attestation {
+                                att.header_number()
+                            } else {
+                                return Err(Error::<T>::QueryCheckpointMismatch.into());
+                            }
                         };
 
                         if checkpoint_block_number != expected_block_number {

@@ -7,12 +7,14 @@ use pallet_prover_primitives::{LayoutSegment, Query, VerifierExitStatus, STARK_P
 use sp_core::H256;
 use sp_std::vec;
 
+const SUPPORTED_CHAIN_KEY: u64 = 1;
+
 benchmarks! {
     submit_proof {
         let who: T::AccountId = account("prover1", 1, 1);
 
         let query = Query {
-            chain_id: 31337,
+            chain_id: SUPPORTED_CHAIN_KEY,
             height: 4,
             index: 0,
             layout_segments: vec![LayoutSegment { offset: 0, size: 681 }],

@@ -20,7 +20,7 @@ pub trait HostApi {
             match command::run_verifier(proof, query, metadata) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {:?}", r);
-                    (0, r.1, Some(r.2))
+                    (0, r.1, Some(r.2), Some(r.3))
                 }
                 Err(e) => (command::VerifierError::status_code(&e), Vec::new(), None),
             }
@@ -30,7 +30,7 @@ pub trait HostApi {
         {
             log::debug!("proof len: {}", proof.len());
             log::warn!("run_verifier is not supported on this architecture.");
-            (0, Vec::new(), None)
+            (0, Vec::new(), None, None)
         }
     }
 }

@@ -252,7 +252,7 @@ pub fn run_verifier(
     proof: Vec<u8>,
     query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
-) -> Result<(String, Vec<ResultSegment>, ContinuityProofLength), VerifierError> {
+) -> Result<(String, Vec<ResultSegment>, ContinuityProofLength, H256), VerifierError> {
     log::debug!("current dir: {:?}", env::current_dir()?.as_os_str());
 
     // Write proof to a temporary JSON file
@@ -321,6 +321,11 @@ pub fn run_verifier(
 
     fs::remove_file(&temp_file_path)?;
 
+    let continuity_checkpoint_digest = H256::from(
+        cairo_verifier_output
+            .continuity_checkpoint_digest
+            .to_bytes_be(),
+    );
     if output.status.success() {
         // Return result segments along with message on success
         let claim_felts = cairo_verifier_output.claim_fields.clone();
@@ -332,6 +337,7 @@ pub fn run_verifier(
             stdout,
             result_segments,
             cairo_verifier_output.continuity_proof_length,
+            continuity_checkpoint_digest,
         ))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

@@ -54,6 +54,7 @@ hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
 pallet-attestation-poc = { workspace = true }
 pallet-babe = { workspace = true }
+pallet-prover = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
 pallet-staking-reward-curve = { workspace = true, default-features = false }

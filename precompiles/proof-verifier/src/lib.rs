@@ -131,6 +131,14 @@ where
                                         exit_status: ExitRevert::Reverted,
                                     })
                                 }
+                                [12, 0, 0, 0] => {
+                                    error!("Checkpoint digest mismatch: {:?}", e);
+                                    let encoded_revert = encode_revert_message("Digest mismatch");
+                                    Err(PrecompileFailure::Revert {
+                                        output: encoded_revert,
+                                        exit_status: ExitRevert::Reverted,
+                                    })
+                                }
                                 [13, 0, 0, 0] => {
                                     error!("Checkpoint block number mismatch: {:?}", e);
                                     let encoded_revert =
