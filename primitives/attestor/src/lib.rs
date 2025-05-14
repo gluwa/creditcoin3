@@ -13,15 +13,6 @@ pub mod api;
 pub mod bls;
 pub mod provider;
 
-// Chain id to chain name mapping
-// Only these are supported for now
-pub const CHAIN_ID_TO_CHAIN_NAME: [(u64, &str); 4] = [
-    (1, "Ethereum"),
-    (31337, "Anvil1"),
-    (11_155_111, "Sepolia ethereum"),
-    (31338, "Anvil2"),
-];
-
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor struct
 pub struct Attestor<AccountId> {
