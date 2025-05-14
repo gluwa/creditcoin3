@@ -23,9 +23,12 @@ use subxt_signer::{
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use cc3::runtime_types::attestor_primitives::{
-    Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
-    SignedAttestation as CcSignedAttestation,
+use cc3::runtime_types::{
+    attestor_primitives::{
+        Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
+        SignedAttestation as CcSignedAttestation,
+    },
+    supported_chains_primitives::SupportedChain as CcSupportedChain,
 };
 
 use attestor_primitives::{
@@ -33,6 +36,7 @@ use attestor_primitives::{
     SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation as RpcAttestation;
+use supported_chains_primitives::SupportedChain;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 
 #[subxt::subxt(
@@ -120,7 +124,7 @@ impl<'a> Client {
         self.signing_keypair.sign(message)
     }
 
-    pub async fn get_chain_key(&self, chain_id: u64, name: String) -> Result<Option<ChainKey>> {
+    pub async fn get_chain_key(&self, chain_id: u64, name: Vec<u8>) -> Result<Option<ChainKey>> {
         let chain_key = self
             .api()
             .await?
@@ -130,11 +134,31 @@ impl<'a> Client {
             .fetch(
                 &cc3::storage()
                     .supported_chains()
-                    .chain_id_and_name_to_uniq_key(chain_id, name.as_bytes()),
+                    .chain_id_and_name_to_uniq_key(chain_id, name),
             )
             .await?;
 
         Ok(chain_key)
+    }
+
+    pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>> {
+        let mut supported_chains: Vec<SupportedChain> = Vec::new();
+        let address = cc3::storage().supported_chains().supported_chains_iter();
+
+        let mut iter = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .iter(address)
+            .await?;
+
+        while let Some(Ok(kv)) = iter.next().await {
+            supported_chains.push(kv.value.into());
+        }
+
+        Ok(supported_chains)
     }
 
     /// Fetches the babe randomness from 2 epochs ago
@@ -656,6 +680,15 @@ impl From<CcAttestationCheckpoint> for AttestationCheckpoint {
         AttestationCheckpoint {
             block_number: checkpoint.block_number,
             digest: sp_core::H256::from(checkpoint.digest.0),
+        }
+    }
+}
+
+impl From<CcSupportedChain> for SupportedChain {
+    fn from(chain: CcSupportedChain) -> Self {
+        SupportedChain {
+            chain_id: chain.chain_id,
+            chain_name: chain.chain_name,
         }
     }
 }

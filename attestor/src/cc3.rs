@@ -9,7 +9,7 @@ use cc_client::{AccountId32, Client as CcClient};
 
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey,
-    SignedAttestation, CHAIN_ID_TO_CHAIN_NAME,
+    SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
@@ -85,16 +85,23 @@ impl<'a> Client {
         // Derive bls key from secret seed
         let bls_keypair = PrivateKey::new(key.as_bytes());
 
-        let chain_name = CHAIN_ID_TO_CHAIN_NAME
+        let supported_chains = cc_client.get_supported_chains().await?;
+
+        let chain_name = supported_chains
             .iter()
-            .find(|(id, _)| *id == chain_id)
-            .expect("Unknown chain id")
-            .1;
+            .find(|chain| chain.chain_id == chain_id)
+            .ok_or(Error::FailedToGetChainName)?
+            .chain_name
+            .clone();
+
+        info!("Chain name: {:?}", chain_name);
 
         let chain_key = cc_client
-            .get_chain_key(chain_id, chain_name.to_string())
+            .get_chain_key(chain_id, chain_name)
             .await?
             .ok_or(Error::FailedToGetChainKey)?;
+
+        info!("Chain key: {:?}", chain_key);
 
         let attestation_interval = cc_client
             .chain_attestation_interval(chain_key)

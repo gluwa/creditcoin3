@@ -29,6 +29,7 @@ attestor-primitives = { workspace = true, features = ["std"] }
 bls-signatures = { workspace = true }
 creditcoin3-attestor-gossip = { workspace = true }
 prover-primitives = { workspace = true, features = ["std"] }
+supported-chains-primitives = { workspace = true }
 vrf = { workspace = true }
 
 # workspace deps

@@ -21,6 +21,8 @@ pub enum Error {
     NotSelected(u64),
     #[error("Failed to get chain key")]
     FailedToGetChainKey,
+    #[error("Failed to get chain name")]
+    FailedToGetChainName,
     #[error("Failed to get attestation interval")]
     FailedToGetAttestationInterval,
     #[error("Invalid BLS key")]

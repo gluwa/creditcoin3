@@ -2079,6 +2079,7 @@ dependencies = [
  "sp-core",
  "subxt",
  "subxt-signer",
+ "supported-chains-primitives",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
