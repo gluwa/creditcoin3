@@ -932,6 +932,7 @@ export default {
             CheckpointsCleared: 'u64',
             CheckpointIntervalChanged: '(u64,u32)',
             ClearedStorageForRemovedChain: 'u64',
+            MaxAttestorsChanged: '(u64,u32)',
         },
     },
     /**

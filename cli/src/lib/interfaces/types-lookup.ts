@@ -1170,6 +1170,8 @@ declare module '@polkadot/types/lookup' {
         readonly asCheckpointIntervalChanged: ITuple<[u64, u32]>;
         readonly isClearedStorageForRemovedChain: boolean;
         readonly asClearedStorageForRemovedChain: u64;
+        readonly isMaxAttestorsChanged: boolean;
+        readonly asMaxAttestorsChanged: ITuple<[u64, u32]>;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1192,7 +1194,8 @@ declare module '@polkadot/types/lookup' {
             | 'PendingAttestationIntervalSet'
             | 'CheckpointsCleared'
             | 'CheckpointIntervalChanged'
-            | 'ClearedStorageForRemovedChain';
+            | 'ClearedStorageForRemovedChain'
+            | 'MaxAttestorsChanged';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (94) */
