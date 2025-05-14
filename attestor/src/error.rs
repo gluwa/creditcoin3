@@ -45,7 +45,7 @@ impl Error {
         matches!(
             self,
             Error::Cclient(cc_client::Error::FailedToCreateProofOfInclusion(_))
-        )
+        ) || matches!(self, Error::NotSelected(_))
     }
 
     #[must_use]
