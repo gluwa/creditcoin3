@@ -204,14 +204,21 @@ export const attestationDatasources: SubstrateRuntimeDatasource =
                     module: 'supportedChains',
                     method: 'ChainRegistered',
                 },
-            }
-            ,
+            },
             {
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleSupportedChainRemoved',
                 filter: {
                     module: 'supportedChains',
                     method: 'ChainRemoved',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleMaxAttestorsChanged',
+                filter: {
+                    module: 'attestation',
+                    method: 'MaxAttestorsChanged',
                 },
             }
         ],

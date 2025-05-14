@@ -227,6 +227,21 @@ type TargetSampleSizeChanged @entity {
     eventNewTargetSampleSize: Int!
 }
 
+type MaxAttestorsChanged @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    who: Account!
+
+    blockNumber: BigInt!
+
+    chainKey: BigInt!
+
+    eventNewMaxSize: Int!
+}
+
 type Bonded @entity {
     """
     id field is always required and must look like this

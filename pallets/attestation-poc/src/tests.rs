@@ -157,6 +157,26 @@ fn set_chain_reward_should_update_storage_and_emit_event() {
 }
 
 #[test]
+fn set_max_attestors_should_update_storage_and_emit_event() {
+    ExtBuilder.build_and_execute(|| {
+        let max_attestors = 200;
+
+        assert_ok!(Attestation::set_max_attestors(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            max_attestors
+        ));
+
+        let from_storage = Attestation::max_attestors(SUPPORTED_CHAIN_KEY);
+        assert_eq!(from_storage, max_attestors);
+
+        System::assert_last_event(
+            crate::Event::MaxAttestorsChanged(SUPPORTED_CHAIN_KEY, max_attestors).into(),
+        );
+    })
+}
+
+#[test]
 fn chill_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(

@@ -425,6 +425,8 @@ pub mod pallet {
         /// A source chain was removed via pallet supported chains. Associated storage
         /// in pallet attestation was cleaned up.
         ClearedStorageForRemovedChain(ChainKey),
+        /// Max attestors changed for a chain
+        MaxAttestorsChanged(ChainKey, u32),
     }
 
     #[pallet::error]
@@ -602,6 +604,9 @@ pub mod pallet {
             ensure_root(origin)?;
 
             MaxAttestors::<T>::insert(chain_key, new_max);
+
+            Self::deposit_event(Event::<T>::MaxAttestorsChanged(chain_key, new_max));
+
             Ok(())
         }
 

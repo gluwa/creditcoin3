@@ -28,6 +28,8 @@ import {
     ChainRegistered,
     SupportedChain,
     ChainRemoved,
+    AttestationChainData,
+    MaxAttestorsChanged,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, updateAllChainsMinBondRequirement } from './initStore';
@@ -121,9 +123,24 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         chainId: BigInt(chainId.toString()),
     });
 
+    // Create attestation chain data
+    const newChain = AttestationChainData.create({
+        id: chainKeyNumber.toString(),
+        chainKey: chainKeyNumber,
+        attestationInterval: 10,
+        checkpointInterval: 10,
+        chainReward: BigInt(0),
+        lastAttestedDigest: '',
+        lastAttestedHeaderNumber: 0,
+        lastCheckpointHeaderNumber: 0,
+        maxSetSize: 100,
+        targetSampleSize: 3,
+        minBondRequirement: BigInt(100),
+    });
+
     logger.info(`New Supported Chain event created at block ${event.block.block.header.number.toString()}`);
 
-    await Promise.all([chainRegistered.save(), suportedChain.save()]);
+    await Promise.all([chainRegistered.save(), suportedChain.save(), newChain.save()]);
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
@@ -163,6 +180,19 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
             `Supported Chains : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain will be removed`,
         );
         await SupportedChain.remove(supportedChain[0].id);
+    }
+
+    // Remove attestationChainData
+    const attestationChainData = await AttestationChainData.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
+    if (isEmpty(attestationChainData)) {
+        logger.error(
+            `AttestationChainData : ${chainKeyStr} not found in db for block number event: ${event.block.block.header.number.toString()}.`,
+        );
+    } else {
+        logger.info(
+            `AttestationChainData : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Attestation chain data will be removed`,
+        );
+        await AttestationChainData.remove(attestationChainData[0].id);
     }
 
     return Promise.resolve();
@@ -850,8 +880,12 @@ export async function handleEventAttestationIntervalChanged(event: SubstrateEven
         interval: parseInt(chainAttestationIntervalType.toString(), 10),
     });
 
+    logger.info(
+        `Going to update chainKey ${chainKeyNumber} with attestationInterval ${chainAttestationIntervalType.toString()}`,
+    );
     const data = await getChainData(chainKeyNumber);
     if (data) {
+        logger.info(`AttestationIntervalChanged event found for chainKey ${chainKeyNumber}`);
         data.attestationInterval = parseInt(chainAttestationIntervalType.toString(), 10);
         await data.save();
     }
@@ -915,4 +949,38 @@ export async function handleCheckpointIntervalChanged(event: SubstrateEvent): Pr
     }
 
     await checkpointIntervalChanged.save();
+}
+
+export async function handleMaxAttestorsChanged(event: SubstrateEvent): Promise<void> {
+    logger.info(`New MaxAttestorsChanged event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, maxSetSize],
+        },
+    } = event;
+
+    const blockNumber: bigint = event.block.block.header.number.toBigInt();
+
+    const from = event.extrinsic?.extrinsic.signer;
+    assert(from, 'Signer is missing');
+
+    const maxAttestorsChanged = MaxAttestorsChanged.create({
+        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        blockNumber,
+        whoId: from.toString(),
+        chainKey: BigInt(chainKey.toString()),
+        eventNewMaxSize: parseInt(maxSetSize.toString(), 10),
+    });
+
+    // Update attestationChainData
+    // TODO: update this to bigint when the refactor kicks in CSUB-1580
+    const chainKeyNumber: number = parseInt(chainKey.toString(), 10);
+    const data = await getChainData(chainKeyNumber);
+    if (data) {
+        data.maxSetSize = parseInt(maxSetSize.toString(), 10);
+        await data.save();
+    }
+
+    await maxAttestorsChanged.save();
 }

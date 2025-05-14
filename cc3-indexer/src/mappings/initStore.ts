@@ -13,7 +13,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastAttestedDigest: '',
         lastAttestedHeaderNumber: 0,
         lastCheckpointHeaderNumber: 0,
-        maxSetSize: 3,
+        maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
@@ -35,7 +35,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastAttestedDigest: '',
         lastAttestedHeaderNumber: 0,
         lastCheckpointHeaderNumber: 0,
-        maxSetSize: 3,
+        maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
@@ -57,7 +57,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastAttestedDigest: '',
         lastAttestedHeaderNumber: 0,
         lastCheckpointHeaderNumber: 0,
-        maxSetSize: 3,
+        maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
@@ -79,7 +79,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastAttestedDigest: '',
         lastAttestedHeaderNumber: 0,
         lastCheckpointHeaderNumber: 0,
-        maxSetSize: 3,
+        maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
