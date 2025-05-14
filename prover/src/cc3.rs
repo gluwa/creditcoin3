@@ -105,15 +105,16 @@ impl<'a> Client {
     }
 
     pub async fn get_chain_key(&self, chain_id: ChainId) -> Result<Option<ChainKey>> {
-        let chain_name = attestor_primitives::CHAIN_ID_TO_CHAIN_NAME
-            .iter()
-            .find(|(id, _)| *id == chain_id)
-            .expect("Unknown chain id")
-            .1;
+        let supported_chains = self.cc_client.get_supported_chains().await?;
 
-        self.cc_client
-            .get_chain_key(chain_id, chain_name.to_string())
-            .await
+        let chain_name = supported_chains
+            .iter()
+            .find(|chain| chain.chain_id == chain_id)
+            .ok_or(anyhow::anyhow!(Error::UnsupportedChain))?
+            .chain_name
+            .clone();
+
+        self.cc_client.get_chain_key(chain_id, chain_name).await
     }
 }
 
