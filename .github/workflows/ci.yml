@@ -1853,6 +1853,11 @@ jobs:
           yarn install
           yarn test:attestation
 
+      - name: Check logs for errors
+        if: always()
+        run: |
+          .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/
+
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
