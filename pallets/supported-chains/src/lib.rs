@@ -26,8 +26,9 @@ pub mod pallet {
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
     use supported_chains_primitives::{
-        chain_removal_listener::ChainRemovalListener, provider::SupportedChainsProvider,
-        SupportedChain,
+        chain_removal_listener::ChainRemovalListener,
+        provider::OnRegisterChainProvider as OnChainRegisteredProvider,
+        provider::SupportedChainsProvider, SupportedChain,
     };
 
     #[pallet::pallet]
@@ -42,6 +43,7 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
         /// Informs other pallets if a supported chain is removed
         type EventListeners: ChainRemovalListener;
+        type ChainRegistrationHandler: OnChainRegisteredProvider;
     }
 
     pub trait WeightInfo {
@@ -170,6 +172,12 @@ pub mod pallet {
             );
 
             ChainKeyValue::<T>::put(chain_key.checked_add(1).ok_or(Error::<T>::Arithmetic)?);
+
+            T::ChainRegistrationHandler::on_register_chain(
+                chain_key.clone(),
+                chain_id,
+                chain_name.as_bytes().to_vec(),
+            );
 
             Self::deposit_event(Event::ChainRegistered {
                 chain_key,

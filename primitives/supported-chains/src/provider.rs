@@ -9,3 +9,7 @@ pub trait SupportedChainsProvider {
     fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainKey>;
     fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain>;
 }
+
+pub trait OnRegisterChainProvider {
+    fn on_register_chain(chain_key: ChainKey, chain_id: ChainId, chain_name: Vec<u8>);
+}

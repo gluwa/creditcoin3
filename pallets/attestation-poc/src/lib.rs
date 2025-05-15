@@ -38,7 +38,7 @@ pub mod pallet {
     use sp_staking::StakingInterface;
     use sp_std::collections::vec_deque::VecDeque;
     use sp_std::{fmt::Debug, vec::Vec};
-    use supported_chains_primitives::provider::SupportedChainsProvider;
+    use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
 
     pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
 
@@ -912,6 +912,13 @@ pub mod pallet {
 
         fn get_attestation_interval(chain_key: ChainKey) -> u64 {
             ChainAttestationInterval::<T>::get(chain_key)
+        }
+    }
+
+    impl<T: Config> OnRegisterChainProvider for Pallet<T> {
+        fn on_register_chain(chain_key: ChainKey, _chain_id: u64, _chain_name: Vec<u8>) {
+            let default_value = T::DefaultTargetSampleSize::get();
+            TargetSampleSize::<T>::insert(chain_key, default_value);
         }
     }
 }
