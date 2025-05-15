@@ -966,6 +966,8 @@ jobs:
           node-version: 20
 
       - name: Start Node 1 - Alice
+        env:
+          RUST_LOG: debug
         run: |
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
@@ -1774,6 +1776,8 @@ jobs:
           path: target/release
 
       - name: Start creditcoin3-node - Alice
+        env:
+          RUST_LOG: debug
         run: |
           mkdir -p /var/tmp/integration-test-attestor-network/
           chmod a+x ./target/release/creditcoin3-node
@@ -2138,6 +2142,7 @@ jobs:
         run: |
           yarn test:integration
         env:
+          RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           PROXY_TYPE: ${{ matrix.proxy_type }}
@@ -2255,6 +2260,8 @@ jobs:
       - run: npm install -g yarn
 
       - name: Start Node 1
+        env:
+          RUST_LOG: debug
         run: |
           # configure the path so we can discover external binaries
           PROVER_PATH=$(readlink -f ./cairo/stone-prover)
@@ -2558,6 +2565,8 @@ jobs:
           done
 
       - name: Start Creditcoin Node 1 - Alice
+        env:
+          RUST_LOG: debug
         run: |
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
@@ -2848,6 +2857,8 @@ jobs:
           path: target/release
 
       - name: Start creditcoin3-node - Alice
+        env:
+          RUST_LOG: debug
         run: |
           mkdir -p /var/tmp/cc3-indexer-testing/
           chmod a+x ./target/release/creditcoin3-node
