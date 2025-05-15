@@ -917,8 +917,18 @@ pub mod pallet {
 
     impl<T: Config> OnRegisterChainProvider for Pallet<T> {
         fn on_register_chain(chain_key: ChainKey, _chain_id: u64, _chain_name: Vec<u8>) {
-            let default_value = T::DefaultTargetSampleSize::get();
-            TargetSampleSize::<T>::insert(chain_key, default_value);
+            TargetSampleSize::<T>::insert(chain_key, T::DefaultTargetSampleSize::get());
+            ChainAttestationInterval::<T>::insert(chain_key, T::DefaultAttestationInterval::get());
+            AttestationCheckpointInterval::<T>::insert(
+                chain_key,
+                T::DefaultAttestationsPerCheckpoint::get(),
+            );
+            ChainReward::<T>::insert(
+                chain_key,
+                BalanceOf::<T>::saturated_from(T::DefaultAttestationInterval::get()),
+            );
+            MaxAttestors::<T>::insert(chain_key, T::MaxAttestationNodes::get());
+            MaxInvulnerables::<T>::insert(chain_key, T::MaxAttestationNodes::get());
         }
     }
 }
