@@ -3,7 +3,7 @@ use sp_core::H256;
 use sp_std::vec::Vec;
 
 pub const PROOF_EXAMPLE_DIGEST_HEX: &str =
-    "1961425310546718893260438760555883585418372007745579061792800243857663376404";
+    "0x2b2e32d2b582efda13f729dca37053131ca3dc693dcfc87e93cfa3b05d734194";
 
 pub fn create_dummy_attestation<AccountId>(
     chain_key: ChainKey,

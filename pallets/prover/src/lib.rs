@@ -193,11 +193,8 @@ pub mod pallet {
                                 if let Some(check) = checkpoint {
                                     check
                                 } else {
-                                    log::error!(
-                                        "No checkpoint for digest: {:?}",
-                                        continuity_checkpoint_digest
-                                    );
-                                    return Err(Error::<T>::QueryCheckpointMismatch.into());
+                                    panic!("Checkpoint not found for digest: {:?}", continuity_checkpoint_digest);
+                                    //return Err(Error::<T>::QueryCheckpointMismatch.into());
                                 }
                             } else {
                                 let attestation = T::Attestations::get_attestation(

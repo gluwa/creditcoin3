@@ -115,9 +115,9 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
         let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
         let mut expected_digest = [0u8; 32];
         hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
-            .expect("example data is 20 bytes of valid hex");
+            .expect("example data is 32 bytes of valid hex");
         let h256_digest = H256::from(expected_digest);
-        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, h256_digest, attestation);
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, H256::zero(), attestation);
 
         assert_ok!(ProverModule::submit_proof(
             RuntimeOrigin::signed(PROVER_3),
