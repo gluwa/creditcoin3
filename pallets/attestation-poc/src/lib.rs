@@ -916,19 +916,42 @@ pub mod pallet {
     }
 
     impl<T: Config> OnRegisterChainProvider for Pallet<T> {
-        fn on_register_chain(chain_key: ChainKey, _chain_id: u64, _chain_name: Vec<u8>) {
-            TargetSampleSize::<T>::insert(chain_key, T::DefaultTargetSampleSize::get());
-            ChainAttestationInterval::<T>::insert(chain_key, T::DefaultAttestationInterval::get());
+        fn on_register_chain(
+            chain_key: ChainKey,
+            _chain_id: u64,
+            _chain_name: Vec<u8>,
+            target_sample_size: Option<u32>,
+            chain_attestation_interval: Option<u64>,
+            attestation_checkpoint_interval: Option<u32>,
+            chain_reward: Option<u128>,
+            max_attestors: Option<u32>,
+            max_invulnerables: Option<u32>,
+        ) {
+            TargetSampleSize::<T>::insert(
+                chain_key,
+                target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
+            );
+            ChainAttestationInterval::<T>::insert(
+                chain_key,
+                chain_attestation_interval.unwrap_or(T::DefaultAttestationInterval::get()),
+            );
             AttestationCheckpointInterval::<T>::insert(
                 chain_key,
-                T::DefaultAttestationsPerCheckpoint::get(),
+                attestation_checkpoint_interval
+                    .unwrap_or(T::DefaultAttestationsPerCheckpoint::get()),
             );
             ChainReward::<T>::insert(
                 chain_key,
-                BalanceOf::<T>::saturated_from(T::DefaultAttestationInterval::get()),
+                BalanceOf::<T>::saturated_from(chain_reward.unwrap_or(0)),
             );
-            MaxAttestors::<T>::insert(chain_key, T::MaxAttestationNodes::get());
-            MaxInvulnerables::<T>::insert(chain_key, T::MaxAttestationNodes::get());
+            MaxAttestors::<T>::insert(
+                chain_key,
+                max_attestors.unwrap_or(T::MaxAttestationNodes::get()),
+            );
+            MaxInvulnerables::<T>::insert(
+                chain_key,
+                max_invulnerables.unwrap_or(T::MaxAttestationNodes::get()),
+            );
         }
     }
 }

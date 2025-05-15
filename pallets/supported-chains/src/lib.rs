@@ -149,6 +149,12 @@ pub mod pallet {
             origin: OriginFor<T>,
             chain_id: ChainId,
             chain_name: String,
+            target_sample_size: Option<u32>,
+            chain_attestation_interval: Option<u64>,
+            attestation_checkpoint_interval: Option<u32>,
+            chain_reward: Option<u128>,
+            max_attestors: Option<u32>,
+            max_invulnerables: Option<u32>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
@@ -177,6 +183,12 @@ pub mod pallet {
                 chain_key.clone(),
                 chain_id,
                 chain_name.as_bytes().to_vec(),
+                target_sample_size,
+                chain_attestation_interval,
+                attestation_checkpoint_interval,
+                chain_reward,
+                max_attestors,
+                max_invulnerables,
             );
 
             Self::deposit_event(Event::ChainRegistered {

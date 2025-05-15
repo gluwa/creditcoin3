@@ -11,5 +11,15 @@ pub trait SupportedChainsProvider {
 }
 
 pub trait OnRegisterChainProvider {
-    fn on_register_chain(chain_key: ChainKey, chain_id: ChainId, chain_name: Vec<u8>);
+    fn on_register_chain(
+        chain_key: ChainKey,
+        chain_id: ChainId,
+        chain_name: Vec<u8>,
+        target_sample_size: Option<u32>,
+        chain_attestation_interval: Option<u64>,
+        attestation_checkpoint_interval: Option<u32>,
+        chain_reward: Option<u128>,
+        max_attestors: Option<u32>,
+        max_invulnerables: Option<u32>,
+    );
 }
