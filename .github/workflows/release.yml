@@ -257,9 +257,8 @@ jobs:
           docker images
 
       - name: Build ${{ github.repository }}:indexer-for-${{ needs.sanity-check.outputs.TAG_NAME }} docker image
-        working-directory: ./cc3-indexer
         run: |
-          tar --create --dereference --exclude-from=.dockerignore . | docker build -t ${{ github.repository }}:indexer-for-${{ github.sha }} -
+          docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ github.sha }} .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
           docker push ${{ github.repository }}:indexer-for-${{ needs.sanity-check.outputs.TAG_NAME }}
