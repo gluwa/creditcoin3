@@ -10,7 +10,7 @@ use frame_support::{assert_err, assert_noop, assert_ok};
 use pallet_attestation_poc::Attestations;
 use sp_core::H256;
 use sp_runtime::traits::BadOrigin;
-use test_helpers::{create_dummy_attestation, PROOF_EXAMPLE_DIGEST};
+use test_helpers::{create_dummy_attestation, PROOF_EXAMPLE_DIGEST_HEX};
 
 use crate::mock::{ExtBuilder, ProverModule, RuntimeOrigin, System, Test};
 
@@ -113,7 +113,11 @@ fn submit_proof_should_ok_and_emit_an_event_when_input_is_valid_and_stark_metada
         };
 
         let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
-        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, PROOF_EXAMPLE_DIGEST, attestation);
+        let mut expected_digest = [0u8; 32];
+        hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
+            .expect("example data is 20 bytes of valid hex");
+        let h256_digest = H256::from(expected_digest);
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, h256_digest, attestation);
 
         assert_ok!(ProverModule::submit_proof(
             RuntimeOrigin::signed(PROVER_3),

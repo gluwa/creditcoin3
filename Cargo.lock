@@ -8467,6 +8467,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "hex",
  "hex-literal",
  "libsecp256k1",
  "log",

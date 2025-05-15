@@ -50,6 +50,7 @@ ethabi = { workspace = true, default-features = false }
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
+hex = { workspace = true }
 hex-literal = { workspace = true }
 libsecp256k1 = { workspace = true }
 pallet-attestation-poc = { workspace = true }

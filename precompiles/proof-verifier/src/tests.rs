@@ -10,10 +10,11 @@ use crate::{
 
 use frame_support::assert_ok;
 use pallet_attestation_poc::Attestations;
-use pallet_prover::test_helpers::{create_dummy_attestation, PROOF_EXAMPLE_DIGEST};
+use pallet_prover::test_helpers::{create_dummy_attestation, PROOF_EXAMPLE_DIGEST_HEX};
 use pallet_prover_primitives::{LayoutSegment, Query, STARK_PROGRAM_V3_HASH};
 use precompile_utils::testing::*;
 use sp_core::H160;
+use sp_core::H256;
 use std::str::from_utf8;
 
 const SUPPORTED_CHAIN_KEY: u64 = 1;
@@ -158,7 +159,11 @@ fn verify_should_return_zero_when_all_good() {
             ));
 
             let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
-            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, PROOF_EXAMPLE_DIGEST, attestation);
+            let mut expected_digest = [0u8; 32];
+            hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
+                .expect("example data is 20 bytes of valid hex");
+            let h256_digest = H256::from(expected_digest);
+            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, h256_digest, attestation);
 
             precompiles()
                 .prepare_test(
