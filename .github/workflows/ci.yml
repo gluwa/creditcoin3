@@ -1815,10 +1815,12 @@ jobs:
           mkdir -p /var/tmp/integration-test-attestor-network/attestors-bob
 
           ./target/release/attestor_zombienet \
+                --verbose \
                 --cc3-key "//Alice" --supported-chain-key 2 \
                 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
           ./target/release/attestor_zombienet \
+                --verbose \
                 --cc3-key "//Bob" --supported-chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
@@ -2897,6 +2899,7 @@ jobs:
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-alice
 
           ./target/release/attestor_zombienet \
+                --verbose \
                 --cc3-key "//Alice" --supported-chain-key 2 \
                 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
@@ -2907,6 +2910,7 @@ jobs:
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
 
           ./target/release/attestor_zombienet \
+                --verbose \
                 --cc3-key "//Bob" --supported-chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-bob/ &
@@ -2951,6 +2955,7 @@ jobs:
 
           chmod a+x ./target/release/prover
           ./target/release/prover \
+            --verbose \
             --cc3-key "//Alice"   \
             --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
             --eth-rpc-url http://127.0.0.1:8141 \
@@ -2973,6 +2978,7 @@ jobs:
 
           chmod a+x ./target/release/prover
           ./target/release/prover \
+            --verbose \
             --cc3-key "//Bob"   \
             --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
             --eth-rpc-url http://127.0.0.1:8242 \
