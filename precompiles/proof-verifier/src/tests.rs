@@ -117,6 +117,13 @@ fn verify_should_revert_when_block_number_is_mismatched_between_query_and_the_pr
                 STARK_PROGRAM_V3_HASH
             ));
 
+            let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
+            let mut expected_digest = [0u8; 32];
+            hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
+                .expect("example data is 32 bytes of valid hex");
+            let h256_digest = H256::from(expected_digest);
+            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, h256_digest, attestation);
+
             precompiles()
                 .prepare_test(
                     alice,
@@ -235,6 +242,13 @@ fn get_result_segments_should_work_for_known_query_id() {
                 3,
                 STARK_PROGRAM_V3_HASH
             ));
+
+            let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
+            let mut expected_digest = [0u8; 32];
+            hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
+                .expect("example data is 32 bytes of valid hex");
+            let h256_digest = H256::from(expected_digest);
+            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, h256_digest, attestation);
 
             assert_ok!(ProverModule::submit_proof(
                 RuntimeOrigin::signed(Alice),
