@@ -76,6 +76,16 @@ pub enum VerifierExitStatus {
     // doesn't exist or the query's layout includes segments o
     // targeted transaction. (dApp's fault)
     QueryOutOfBounds,
+    // ProcessingError: the proof verifier encountered a processing error
+    ProcessingError,
+    // QueryValidationError: underlying error for QueryIdNotValidated
+    QueryValidationError,
+    // QueryIdNotValidated: the proof verifier couldn't validate the query
+    // block number with the continuity proof extracted from the proof
+    QueryBlockNumberMismatch,
+    // MissingContinuityProof: the continuity proof is missing from the proof
+    MissingContinuityProof,
+    // UnknownError: the proof verifier encountered an unknown error
     UnknownError,
 }
 

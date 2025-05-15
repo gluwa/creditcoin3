@@ -1241,11 +1241,17 @@ declare module '@polkadot/types/lookup' {
     interface PalletProverEvent extends Enum {
         readonly isQueryVerified: boolean;
         readonly asQueryVerified: ITuple<[H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
+        readonly isQueryVerificationFailed: boolean;
+        readonly asQueryVerificationFailed: ITuple<[H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
         readonly isStarkProgramMetadataSet: boolean;
         readonly asStarkProgramMetadataSet: ITuple<[u8, H256]>;
         readonly isStarkProgramMetadataRemoved: boolean;
         readonly asStarkProgramMetadataRemoved: u8;
-        readonly type: 'QueryVerified' | 'StarkProgramMetadataSet' | 'StarkProgramMetadataRemoved';
+        readonly type:
+            | 'QueryVerified'
+            | 'QueryVerificationFailed'
+            | 'StarkProgramMetadataSet'
+            | 'StarkProgramMetadataRemoved';
     }
 
     /** @name PalletProverPrimitivesVerifierExitStatus (103) */
@@ -1254,8 +1260,21 @@ declare module '@polkadot/types/lookup' {
         readonly isProofInvalid: boolean;
         readonly isLayoutMismatch: boolean;
         readonly isQueryOutOfBounds: boolean;
+        readonly isProcessingError: boolean;
+        readonly isQueryValidationError: boolean;
+        readonly isQueryBlockNumberMismatch: boolean;
+        readonly isMissingContinuityProof: boolean;
         readonly isUnknownError: boolean;
-        readonly type: 'Success' | 'ProofInvalid' | 'LayoutMismatch' | 'QueryOutOfBounds' | 'UnknownError';
+        readonly type:
+            | 'Success'
+            | 'ProofInvalid'
+            | 'LayoutMismatch'
+            | 'QueryOutOfBounds'
+            | 'ProcessingError'
+            | 'QueryValidationError'
+            | 'QueryBlockNumberMismatch'
+            | 'MissingContinuityProof'
+            | 'UnknownError';
     }
 
     /** @name PalletRandomnessEvent (104) */

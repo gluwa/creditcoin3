@@ -983,6 +983,7 @@ export default {
     PalletProverEvent: {
         _enum: {
             QueryVerified: '(H256,AccountId32,PalletProverPrimitivesVerifierExitStatus)',
+            QueryVerificationFailed: '(H256,AccountId32,PalletProverPrimitivesVerifierExitStatus)',
             StarkProgramMetadataSet: '(u8,H256)',
             StarkProgramMetadataRemoved: 'u8',
         },
@@ -991,7 +992,17 @@ export default {
      * Lookup103: pallet_prover_primitives::VerifierExitStatus
      **/
     PalletProverPrimitivesVerifierExitStatus: {
-        _enum: ['Success', 'ProofInvalid', 'LayoutMismatch', 'QueryOutOfBounds', 'UnknownError'],
+        _enum: [
+            'Success',
+            'ProofInvalid',
+            'LayoutMismatch',
+            'QueryOutOfBounds',
+            'ProcessingError',
+            'QueryValidationError',
+            'QueryBlockNumberMismatch',
+            'MissingContinuityProof',
+            'UnknownError',
+        ],
     },
     /**
      * Lookup104: pallet_randomness::pallet::Event<T>

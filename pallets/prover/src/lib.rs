@@ -89,6 +89,7 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         QueryVerified(H256, T::AccountId, VerifierExitStatus),
+        QueryVerificationFailed(H256, T::AccountId, VerifierExitStatus),
         StarkProgramMetadataSet(u8, H256),
         StarkProgramMetadataRemoved(u8),
     }
@@ -144,10 +145,18 @@ pub mod pallet {
                         // continuity_proof_len = len(5..10) = 6 (both borders included),
                         // checkpoint number generated from the proof = 6 - 1 + 6 - 1 = 10
 
-                        ensure!(
-                            continuity_proof_len.is_some(),
-                            Error::<T>::MissingContinuityProof
-                        );
+                        if continuity_proof_len.is_none() {
+                            Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                                query_id,
+                                prover.clone(),
+                                VerifierExitStatus::MissingContinuityProof,
+                            ));
+                            QueryResultById::<T>::insert(
+                                query_id,
+                                VerifierExitStatus::MissingContinuityProof,
+                            );
+                            return Err(Error::<T>::MissingContinuityProof.into());
+                        }
 
                         let checkpoint_block_number =
                             query.height - 1 + continuity_proof_len.unwrap() - 1;
@@ -186,21 +195,112 @@ pub mod pallet {
                                     + (query.height % attestation_interval != 0) as u64)
                         };
 
-                        ensure!(
-                            checkpoint_block_number == expected_block_number,
-                            Error::<T>::QueryBlockNumberMismatch
-                        );
+                        if checkpoint_block_number != expected_block_number {
+                            Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                                query_id,
+                                prover.clone(),
+                                VerifierExitStatus::QueryBlockNumberMismatch,
+                            ));
+                            QueryResultById::<T>::insert(
+                                query_id,
+                                VerifierExitStatus::QueryBlockNumberMismatch,
+                            );
+                            return Err(Error::<T>::QueryBlockNumberMismatch.into());
+                        }
                         ()
                     }
-                    1..=5 => return Err(Error::<T>::FileError.into()),
-                    6 | 7 => return Err(Error::<T>::ProofParseError.into()),
-                    8 => return Err(Error::<T>::StarkProgramAuthenticationError.into()),
-                    9 => return Err(Error::<T>::VerifierExecutionError.into()),
-                    10 => return Err(Error::<T>::VerifierProcessError.into()),
-                    11 => return Err(Error::<T>::QueryIdNotValidated.into()),
-                    12 => return Err(Error::<T>::QueryOutOfBounds.into()),
-                    13 => return Err(Error::<T>::QueryOffsetMismatch.into()),
-                    _ => return Err(Error::<T>::InvalidProofSubmitted.into()),
+                    1..=5 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover.clone(),
+                            VerifierExitStatus::ProcessingError,
+                        ));
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::ProcessingError);
+                        return Err(Error::<T>::FileError.into());
+                    }
+                    6 | 7 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover.clone(),
+                            VerifierExitStatus::ProcessingError,
+                        ));
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::ProcessingError);
+                        return Err(Error::<T>::ProofParseError.into());
+                    }
+                    8 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover.clone(),
+                            VerifierExitStatus::ProcessingError,
+                        ));
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::ProcessingError);
+                        return Err(Error::<T>::StarkProgramAuthenticationError.into());
+                    }
+                    9 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover.clone(),
+                            VerifierExitStatus::ProcessingError,
+                        ));
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::ProcessingError);
+                        return Err(Error::<T>::VerifierExecutionError.into());
+                    }
+                    10 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover.clone(),
+                            VerifierExitStatus::ProcessingError,
+                        ));
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::ProcessingError);
+                        return Err(Error::<T>::VerifierProcessError.into());
+                    }
+                    11 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover,
+                            VerifierExitStatus::QueryValidationError,
+                        ));
+                        QueryResultById::<T>::insert(
+                            query_id,
+                            VerifierExitStatus::QueryValidationError,
+                        );
+                        return Err(Error::<T>::QueryIdNotValidated.into());
+                    }
+                    12 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover,
+                            VerifierExitStatus::QueryOutOfBounds,
+                        ));
+
+                        QueryResultById::<T>::insert(
+                            query_id,
+                            VerifierExitStatus::QueryOutOfBounds,
+                        );
+                        return Err(Error::<T>::QueryOutOfBounds.into());
+                    }
+                    13 => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover,
+                            VerifierExitStatus::LayoutMismatch,
+                        ));
+
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::LayoutMismatch);
+
+                        return Err(Error::<T>::QueryOffsetMismatch.into());
+                    }
+                    _ => {
+                        Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                            query_id,
+                            prover,
+                            VerifierExitStatus::ProofInvalid,
+                        ));
+
+                        QueryResultById::<T>::insert(query_id, VerifierExitStatus::ProofInvalid);
+
+                        return Err(Error::<T>::InvalidProofSubmitted.into());
+                    }
                 }
 
                 #[cfg(not(feature = "runtime-benchmarks"))]
