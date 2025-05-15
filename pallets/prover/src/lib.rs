@@ -204,7 +204,8 @@ pub mod pallet {
                                 if let Some(att) = attestation {
                                     att.header_number()
                                 } else {
-                                    return Err(Error::<T>::QueryCheckpointMismatch.into());
+                                    panic!("Checkpoint not found for digest: {:?}", continuity_checkpoint_digest);
+                                    //return Err(Error::<T>::QueryCheckpointMismatch.into());
                                 }
                             }
                         } else {
@@ -215,7 +216,8 @@ pub mod pallet {
                             if let Some(att) = attestation {
                                 att.header_number()
                             } else {
-                                return Err(Error::<T>::QueryCheckpointMismatch.into());
+                                panic!("Checkpoint not found for digest: {:?}", continuity_checkpoint_digest);
+                                //return Err(Error::<T>::QueryCheckpointMismatch.into());
                             }
                         };
 
