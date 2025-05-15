@@ -159,11 +159,11 @@ fn verify_should_return_zero_when_all_good() {
             ));
 
             let attestation = create_dummy_attestation(SUPPORTED_CHAIN_KEY, 10u64, None);
-            //let mut expected_digest = [0u8; 32];
-            //hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
-            //    .expect("example data is 32 bytes of valid hex");
-            //let h256_digest = H256::from(expected_digest);
-            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, H256::zero(), attestation);
+            let mut expected_digest = [0u8; 32];
+            hex::decode_to_slice(PROOF_EXAMPLE_DIGEST_HEX, &mut expected_digest)
+                .expect("example data is 32 bytes of valid hex");
+            let h256_digest = H256::from(expected_digest);
+            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, h256_digest, attestation);
 
             precompiles()
                 .prepare_test(
