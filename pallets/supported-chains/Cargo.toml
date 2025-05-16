@@ -22,8 +22,6 @@ supported-chains-primitives = { workspace = true }
 [dev-dependencies]
 sp-core = { workspace = true }
 sp-io = { workspace = true }
-#pallet-attestation-poc = { workspace = true }
-#pallet-balances = { workspace = true }
 
 [features]
 default = ["std"]
@@ -45,6 +43,4 @@ std = [
     "attestor-primitives/std",
     "supported-chains-primitives/std",
     "sp-std/std",
-#    "pallet-attestation-poc/std",
-#    "pallet-balances/std",
 ]
