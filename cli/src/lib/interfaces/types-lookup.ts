@@ -3083,6 +3083,12 @@ declare module '@polkadot/types/lookup' {
         readonly asRegisterChain: {
             readonly chainId: u64;
             readonly chainName: Text;
+            readonly targetSampleSize: Option<u32>;
+            readonly chainAttestationInterval: Option<u64>;
+            readonly attestationCheckpointInterval: Option<u32>;
+            readonly chainReward: Option<u128>;
+            readonly maxAttestors: Option<u32>;
+            readonly maxInvulnerables: Option<u32>;
         } & Struct;
         readonly isRemoveChain: boolean;
         readonly asRemoveChain: {

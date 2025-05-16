@@ -17,7 +17,7 @@ describe('handleSupportedChainRemoved()', () => {
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         await api.tx.sudo
-            .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName))
+            .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName, null, null, null, null, null, null))
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
         await forElapsedBlocks(api, { minBlocks: 1 });
 

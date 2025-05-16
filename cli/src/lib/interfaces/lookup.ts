@@ -2637,6 +2637,12 @@ export default {
             register_chain: {
                 chainId: 'u64',
                 chainName: 'Text',
+                targetSampleSize: 'Option<u32>',
+                chainAttestationInterval: 'Option<u64>',
+                attestationCheckpointInterval: 'Option<u32>',
+                chainReward: 'Option<u128>',
+                maxAttestors: 'Option<u32>',
+                maxInvulnerables: 'Option<u32>',
             },
             remove_chain: {
                 chainKey: 'u64',

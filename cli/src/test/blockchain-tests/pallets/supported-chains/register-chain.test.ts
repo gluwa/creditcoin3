@@ -22,7 +22,18 @@ describe('RegisterChain', (): void => {
 
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
-                .sudo(api.tx.supportedChains.registerChain(chainId, `Test Chain ${chainId}`))
+                .sudo(
+                    api.tx.supportedChains.registerChain(
+                        chainId,
+                        `Test Chain ${chainId}`,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                    ),
+                )
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
