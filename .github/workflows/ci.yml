@@ -223,6 +223,32 @@ jobs:
         run: |
           .github/check-for-duplicate-files.sh
 
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Check for broken symlinks
+        run: |
+          .github/check-for-broken-symlinks.sh
+
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
