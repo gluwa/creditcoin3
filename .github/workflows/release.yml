@@ -267,6 +267,11 @@ jobs:
           docker logout
           docker images
 
+      - name: List docker images
+        if: always()
+        run: |
+          docker images
+
   create-release:
     permissions:
       contents: write
