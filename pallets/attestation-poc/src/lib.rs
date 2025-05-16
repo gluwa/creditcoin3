@@ -931,23 +931,54 @@ pub mod pallet {
                 chain_key,
                 target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
             );
+
+            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
+                chain_key,
+                target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
+            ));
+
             ChainAttestationInterval::<T>::insert(
                 chain_key,
                 chain_attestation_interval.unwrap_or(T::DefaultAttestationInterval::get()),
             );
+
+            Self::deposit_event(Event::<T>::AttestationIntervalChanged(
+                chain_key,
+                chain_attestation_interval.unwrap_or(T::DefaultAttestationInterval::get()),
+            ));
+
             AttestationCheckpointInterval::<T>::insert(
                 chain_key,
                 attestation_checkpoint_interval
                     .unwrap_or(T::DefaultAttestationsPerCheckpoint::get()),
             );
+
+            Self::deposit_event(Event::<T>::CheckpointIntervalChanged(
+                chain_key,
+                attestation_checkpoint_interval
+                    .unwrap_or(T::DefaultAttestationsPerCheckpoint::get()),
+            ));
+
             ChainReward::<T>::insert(
                 chain_key,
                 BalanceOf::<T>::saturated_from(chain_reward.unwrap_or(0)),
             );
+
+            Self::deposit_event(Event::<T>::ChainRewardUpdated(
+                chain_key,
+                BalanceOf::<T>::saturated_from(chain_reward.unwrap_or(0)),
+            ));
+
             MaxAttestors::<T>::insert(
                 chain_key,
                 max_attestors.unwrap_or(T::MaxAttestationNodes::get()),
             );
+
+            Self::deposit_event(Event::<T>::MaxAttestorsChanged(
+                chain_key,
+                max_attestors.unwrap_or(T::MaxAttestationNodes::get()),
+            ));
+
             MaxInvulnerables::<T>::insert(
                 chain_key,
                 max_invulnerables.unwrap_or(T::MaxAttestationNodes::get()),

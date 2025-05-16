@@ -3,6 +3,8 @@ use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::BadOrigin;
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
+fn setup_register_chain() {}
+
 #[test]
 fn register_chain_works() {
     new_test_ext().execute_with(|| {
