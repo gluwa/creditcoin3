@@ -180,7 +180,7 @@ pub mod pallet {
             ChainKeyValue::<T>::put(chain_key.checked_add(1).ok_or(Error::<T>::Arithmetic)?);
 
             T::ChainRegistrationHandler::on_register_chain(
-                chain_key.clone(),
+                chain_key,
                 chain_id,
                 chain_name.as_bytes().to_vec(),
                 target_sample_size,

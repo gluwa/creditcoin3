@@ -254,7 +254,27 @@ impl pallet_supported_chains::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Runtime>;
     type EventListeners = ();
+
+    type ChainRegistrationHandler = DummyRegistrationHandler;
 }
+
+pub struct DummyRegistrationHandler;
+
+impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyRegistrationHandler {
+    fn on_register_chain(
+        _chain_key: ChainKey,
+        _chain_id: ChainId,
+        _chain_name: Vec<u8>,
+        _target_sample_size: Option<u32>,
+        _chain_attestation_interval: Option<u64>,
+        _attestation_checkpoint_interval: Option<u32>,
+        _chain_reward: Option<u128>,
+        _max_attestors: Option<u32>,
+        _max_invulnerables: Option<u32>,
+    ) {
+    }
+}
+
 pub const SLASHING_DISABLING_FACTOR: usize = 3;
 
 pallet_staking_reward_curve::build! {
@@ -357,6 +377,7 @@ impl pallet_session::historical::Config for Runtime {
     type FullIdentificationOf = pallet_staking::ExposureOf<Self>;
 }
 
+use attestor_primitives::{ChainId, ChainKey};
 use sp_staking::EraIndex;
 
 parameter_types! {

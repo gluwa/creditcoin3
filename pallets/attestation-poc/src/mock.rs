@@ -268,6 +268,7 @@ impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
     type EventListeners = Attestation;
+    type ChainRegistrationHandler = Attestation;
 }
 
 impl pallet_randomness::Config for Test {

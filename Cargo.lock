@@ -8492,6 +8492,7 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std",
+ "supported-chains-primitives",
 ]
 
 [[package]]

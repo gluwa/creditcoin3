@@ -162,6 +162,24 @@ impl pallet_supported_chains::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_supported_chains::weights::WeightInfo<Test>;
     type EventListeners = ();
+    type ChainRegistrationHandler = DummyRegistrationHandler;
+}
+
+pub struct DummyRegistrationHandler;
+
+impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyRegistrationHandler {
+    fn on_register_chain(
+        _chain_key: ChainKey,
+        _chain_id: ChainId,
+        _chain_name: Vec<u8>,
+        _target_sample_size: Option<u32>,
+        _chain_attestation_interval: Option<u64>,
+        _attestation_checkpoint_interval: Option<u32>,
+        _chain_reward: Option<u128>,
+        _max_attestors: Option<u32>,
+        _max_invulnerables: Option<u32>,
+    ) {
+    }
 }
 
 parameter_types! {
@@ -218,6 +236,7 @@ parameter_types! {
 }
 
 pub const SLASHING_DISABLING_FACTOR: usize = 3;
+use attestor_primitives::{ChainId, ChainKey};
 use pallet_staking::FixedNominationsQuota;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::traits::OpaqueKeys;

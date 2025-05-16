@@ -23,6 +23,12 @@ mod benchmarks {
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             chain_id,
             chain_name,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
     }
 
@@ -35,7 +41,13 @@ mod benchmarks {
         assert_ok!(SupportedChains::<T>::register_chain(
             root_origin.clone(),
             chain_id,
-            chain_name
+            chain_name,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
         ));
 
         #[extrinsic_call]
