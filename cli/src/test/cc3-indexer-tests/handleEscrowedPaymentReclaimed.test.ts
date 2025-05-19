@@ -115,7 +115,7 @@ describe('handleEscrowedPaymentReclaimed()', () => {
                         last: 1,
                         filter: { chainQueryId: { equalTo: "${queryId}" }},
                     ) {
-                        nodes { id, chainQueryId, chainKey, state, escrowedAmount }
+                        nodes { id, chainQueryId, chainKey, state, escrowedAmount, proverId }
                     }
                 }`,
             );
@@ -128,6 +128,7 @@ describe('handleEscrowedPaymentReclaimed()', () => {
                 // cannot check this b/c the state is updated directly not via submitQueryProof()
                 // and isn't propagated to indexer
                 // expect(node.state).toEqual('InvalidQuery');
+                expect(node.proverId).not.toEqual(null);
             }
         });
     });

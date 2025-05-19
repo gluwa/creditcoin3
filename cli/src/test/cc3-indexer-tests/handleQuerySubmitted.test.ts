@@ -11,6 +11,7 @@ describe('handleQuerySubmitted()', () => {
     let alith: any;
     let initialCount = 0;
     let contractAddress = '';
+    let proverId = '';
     let provider: WebSocketProvider;
     const sampleQuery = {
         chainId: chain_Anvil1_Key,
@@ -40,13 +41,14 @@ describe('handleQuerySubmitted()', () => {
         for (const node of response.data.provers.nodes) {
             if (node.owner === alith.address) {
                 contractAddress = node.contractAddress;
+                proverId = node.id;
                 // NOTE: will operate on contract for last prover deployed for this source chain
             }
         }
         expect(contractAddress.startsWith('0x')).toEqual(true);
 
         response = await graphQLQuery(
-            `query { chainQueries(orderBy: ID_ASC, last: 10) { nodes { id, chainQueryId, chainKey, height, index, layoutSegments, state, estimatedCost, escrowedAmount }}}`,
+            `query { chainQueries(orderBy: ID_ASC, last: 10) { nodes { id, chainQueryId, chainKey, height, index, layoutSegments, state, estimatedCost, escrowedAmount, proverId }}}`,
         );
         initialCount = response.data.chainQueries.nodes.length;
     }, 30_000);
@@ -77,7 +79,7 @@ describe('handleQuerySubmitted()', () => {
 
         it('graphQL returns known ChainQueries entity', async () => {
             const response = await graphQLQuery(
-                `query { chainQueries(orderBy: ID_ASC, last: 10) { nodes { id, chainQueryId, chainKey, height, index, layoutSegments, state, estimatedCost, escrowedAmount }}}`,
+                `query { chainQueries(orderBy: ID_ASC, last: 10) { nodes { id, chainQueryId, chainKey, height, index, layoutSegments, state, estimatedCost, escrowedAmount, proverId }}}`,
             );
             expect(response.data.chainQueries.nodes).toBeTruthy();
             expect(response.data.chainQueries.nodes.length).toBeGreaterThan(initialCount);
@@ -112,6 +114,8 @@ describe('handleQuerySubmitted()', () => {
                     expect(node.state).toEqual('Submitted');
                     expect(BigInt(node.estimatedCost)).toEqual(queryCost);
                     expect(BigInt(node.escrowedAmount)).toEqual(queryCost);
+
+                    expect(node.proverId).toEqual(proverId);
 
                     foundMatch = true;
                 }

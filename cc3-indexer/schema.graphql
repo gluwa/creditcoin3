@@ -525,6 +525,8 @@ type Prover @entity {
     baseFee: BigInt!
 
     timeout: BigInt!
+
+    chainQueries: [ChainQueries] @derivedFrom(field: "prover")
 }
 
 type ChainQueries @entity {
@@ -541,6 +543,8 @@ type ChainQueries @entity {
 
     estimatedCost: BigInt!
     escrowedAmount: BigInt!
+
+    prover: Prover!
 }
 
 enum QueryStatus {

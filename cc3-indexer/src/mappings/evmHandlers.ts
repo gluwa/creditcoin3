@@ -57,10 +57,19 @@ export async function handleQuerySubmitted(event: FrontierEvmEvent<QuerySubmitte
     }
 
     const [queryId, estimatedCost, escrowedAmount, chainQuery] = event.args;
+    const proverContractAddress = event.address;
 
     logger.info(`Query with ID ${queryId} subbmitted`);
 
     const id = `query-${event.blockNumber}-${event.transactionIndex}`;
+
+    const prover = await Prover.getByFields([['contractAddress', '=', proverContractAddress]], { limit: 1 });
+    if (prover.length === 0) {
+        logger.error(
+            `Prover with address ${proverContractAddress} not found. Block number: ${event.blockNumber}, Transaction index: ${event.transactionIndex}`,
+        );
+        return;
+    }
 
     const queryEntity = ChainQueries.create({
         id,
@@ -77,6 +86,7 @@ export async function handleQuerySubmitted(event: FrontierEvmEvent<QuerySubmitte
         state: QueryStatus.Submitted,
         estimatedCost: estimatedCost.toBigInt(),
         escrowedAmount: escrowedAmount.toBigInt(),
+        proverId: prover[0].id,
     });
 
     await queryEntity.save();

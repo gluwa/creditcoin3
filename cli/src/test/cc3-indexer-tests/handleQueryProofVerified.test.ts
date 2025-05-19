@@ -141,7 +141,7 @@ describe('handleQueryProofVerified()', () => {
                         last: 1,
                         filter: { chainQueryId: { equalTo: "${queryId}" }},
                     ) {
-                        nodes { id, chainQueryId, chainKey, height, index, state, escrowedAmount }
+                        nodes { id, chainQueryId, chainKey, height, index, state, escrowedAmount, proverId }
                     }
                 }`,
             );
@@ -159,6 +159,8 @@ describe('handleQueryProofVerified()', () => {
                 // starts with state === 'Submitted'
                 expect(node.state).toEqual('ResultAvailable');
                 expect(BigInt(node.escrowedAmount)).toEqual(queryDetailsOnChain.escrowedAmount);
+
+                expect(node.proverId).not.toEqual(null);
             }
         });
     });
