@@ -1001,6 +1001,7 @@ export default {
             'QueryValidationError',
             'QueryBlockNumberMismatch',
             'MissingContinuityProof',
+            'ContinuityDigestNotFound',
             'UnknownError',
         ],
     },

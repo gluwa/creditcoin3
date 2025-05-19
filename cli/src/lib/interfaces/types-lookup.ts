@@ -1264,6 +1264,7 @@ declare module '@polkadot/types/lookup' {
         readonly isQueryValidationError: boolean;
         readonly isQueryBlockNumberMismatch: boolean;
         readonly isMissingContinuityProof: boolean;
+        readonly isContinuityDigestNotFound: boolean;
         readonly isUnknownError: boolean;
         readonly type:
             | 'Success'
@@ -1274,6 +1275,7 @@ declare module '@polkadot/types/lookup' {
             | 'QueryValidationError'
             | 'QueryBlockNumberMismatch'
             | 'MissingContinuityProof'
+            | 'ContinuityDigestNotFound'
             | 'UnknownError';
     }
 

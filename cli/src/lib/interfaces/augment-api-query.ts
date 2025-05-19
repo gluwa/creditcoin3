@@ -105,6 +105,28 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * A queue containing the digests of attestations to be removed from storage. When the queue fills beyond
+             * AttestationRetentionDuration, we remove attestations from the queue and from the Attestations storage
+             * map.
+             **/
+            attestationRemovalQueues: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<H256>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The duration in number of attestations for which we keep attestations that have already been
+             * condensed in a checkpoint. Keeping these for a time ensures that proofs generated using the
+             * attestations in question remain verifyable long enough to be submitted on-chain.
+             **/
+            attestationRetentionDuration: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             attestations: AugmentedQuery<
                 ApiType,
                 (
