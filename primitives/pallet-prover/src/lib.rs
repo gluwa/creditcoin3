@@ -90,6 +90,9 @@ pub enum VerifierExitStatus {
     QueryBlockNumberMismatch,
     // MissingContinuityProof: the continuity proof is missing from the proof
     MissingContinuityProof,
+    // ContinuityDigestNotFound: the digest of the attestation or checkpoint used
+    // in the proof doesn't match that of any on-chain attestation or checkpoint.
+    ContinuityDigestNotFound,
     // UnknownError: the proof verifier encountered an unknown error
     UnknownError,
 }

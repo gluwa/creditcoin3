@@ -193,6 +193,15 @@ pub mod pallet {
                                 if let Some(check) = checkpoint {
                                     check
                                 } else {
+                                    Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                                        query_id,
+                                        prover.clone(),
+                                        VerifierExitStatus::ContinuityDigestNotFound,
+                                    ));
+                                    QueryResultById::<T>::insert(
+                                        query_id,
+                                        VerifierExitStatus::ContinuityDigestNotFound,
+                                    );
                                     return Err(Error::<T>::QueryCheckpointMismatch.into());
                                 }
                             } else {
@@ -203,6 +212,15 @@ pub mod pallet {
                                 if let Some(att) = attestation {
                                     att.header_number()
                                 } else {
+                                    Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                                        query_id,
+                                        prover.clone(),
+                                        VerifierExitStatus::ContinuityDigestNotFound,
+                                    ));
+                                    QueryResultById::<T>::insert(
+                                        query_id,
+                                        VerifierExitStatus::ContinuityDigestNotFound,
+                                    );
                                     return Err(Error::<T>::QueryCheckpointMismatch.into());
                                 }
                             }
@@ -214,6 +232,15 @@ pub mod pallet {
                             if let Some(att) = attestation {
                                 att.header_number()
                             } else {
+                                Self::deposit_event(Event::<T>::QueryVerificationFailed(
+                                    query_id,
+                                    prover.clone(),
+                                    VerifierExitStatus::ContinuityDigestNotFound,
+                                ));
+                                QueryResultById::<T>::insert(
+                                    query_id,
+                                    VerifierExitStatus::ContinuityDigestNotFound,
+                                );
                                 return Err(Error::<T>::QueryCheckpointMismatch.into());
                             }
                         };
