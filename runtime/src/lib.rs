@@ -877,6 +877,7 @@ parameter_types! {
     pub const CommittmentInterval: u64 = 1000;
     pub const MinBondRequirement: u64 = 100;
     pub const MaxAttestationsPerBlock: u32 = 10;
+    pub const DefaultAttestationRetentionDuration: u32 = 10;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
@@ -898,6 +899,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
+    type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
 }
 
 impl pallet_supported_chains::Config for Runtime {

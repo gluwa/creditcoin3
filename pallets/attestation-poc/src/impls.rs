@@ -740,12 +740,16 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
+        // Queue used to time the removal of attestations for some duration after checkpoint creation
+        let mut attestation_removal_queue: VecDeque<Digest> =
+            AttestationRemovalQueues::<T>::get(chain_key);
+
         // Because checkpointing queue storage is written to after this function
         // returns, it isn't covered by the #[transactional] macro and must be manually
         // rolled back.
         let mut checkpointing_rollback: Vec<Digest> = Vec::new();
         for i in 0..num_to_condense {
-            let to_be_removed: Digest = match queue.pop_front() {
+            let to_be_condensed: Digest = match queue.pop_front() {
                 Some(digest) => digest,
                 None => {
                     for digest in checkpointing_rollback {
@@ -754,10 +758,11 @@ impl<T: Config> Pallet<T> {
                     return Err(Error::<T>::CheckpointCreationError.into());
                 }
             };
-            checkpointing_rollback.push(to_be_removed);
+            checkpointing_rollback.push(to_be_condensed);
+            attestation_removal_queue.push_back(to_be_condensed);
 
             // Until then, removing attestations from storage breaks proving.
-            let removed = match Attestations::<T>::take(chain_key, to_be_removed) {
+            let condensed = match Attestations::<T>::get(chain_key, to_be_condensed) {
                 Some(attestation) => attestation,
                 None => {
                     for digest in checkpointing_rollback {
@@ -769,8 +774,8 @@ impl<T: Config> Pallet<T> {
 
             if i == num_to_condense - 1 {
                 let checkpoint = AttestationCheckpoint {
-                    block_number: removed.header_number(),
-                    digest: removed.digest(),
+                    block_number: condensed.header_number(),
+                    digest: condensed.digest(),
                 };
 
                 Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
@@ -779,6 +784,7 @@ impl<T: Config> Pallet<T> {
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
             }
         }
+        Self::remove_attestations(chain_key, attestation_removal_queue)?;
 
         Ok(())
     }
@@ -855,6 +861,23 @@ impl<T: Config> Pallet<T> {
             log::error!("Aggregated signature is invalid");
             return Err(InherentError::NotValid);
         }
+        Ok(())
+    }
+
+    #[transactional]
+    fn remove_attestations(
+        chain_key: ChainKey,
+        mut attestation_removal_queue: VecDeque<Digest>,
+    ) -> DispatchResult {
+        let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
+        while attestation_removal_queue.len() > retention_duration as usize {
+            if let Some(to_remove) = attestation_removal_queue.pop_front() {
+                Attestations::<T>::take(chain_key, to_remove);
+            } else {
+                return Err(Error::<T>::CheckpointCreationError.into());
+            }
+        }
+        AttestationRemovalQueues::<T>::insert(chain_key, attestation_removal_queue);
         Ok(())
     }
 }

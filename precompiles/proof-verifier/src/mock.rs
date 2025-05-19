@@ -411,6 +411,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
+    type DefaultAttestationRetentionDuration = ConstU32<10>;
 }
 
 // Configure a mock runtime to test the pallet.

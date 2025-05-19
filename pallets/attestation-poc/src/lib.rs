@@ -98,6 +98,9 @@ pub mod pallet {
         /// Number of eras that staked funds must remain bonded for.
         #[pallet::constant]
         type BondingDuration: Get<u32>;
+        /// Default duration in number of attestations for which we keep attestations after they are condensed in a checkpoint.
+        #[pallet::constant]
+        type DefaultAttestationRetentionDuration: Get<u32>;
         /// The access to staking functionality.
         type Staking: StakingInterface<Balance = BalanceOf<Self>, AccountId = Self::AccountId>;
         /// Handler for the unbalanced increment when rewarding a staker.
@@ -314,6 +317,33 @@ pub mod pallet {
     #[pallet::getter(fn checkpoint_clearing_cursors)]
     pub type CheckpointClearingCursors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
+    /// The duration in number of attestations for which we keep attestations that have already been
+    /// condensed in a checkpoint. Keeping these for a time ensures that proofs generated using the
+    /// attestations in question remain verifyable long enough to be submitted on-chain.
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_retention_duration)]
+    pub type AttestationRetentionDuration<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u32,
+        ValueQuery,
+        DefaultAttestationRetentionDuration<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn DefaultAttestationRetentionDuration<T: Config>() -> u32 {
+        T::DefaultAttestationRetentionDuration::get()
+    }
+
+    /// A queue containing the digests of attestations to be removed from storage. When the queue fills beyond
+    /// AttestationRetentionDuration, we remove attestations from the queue and from the Attestations storage
+    /// map.
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_removal_queue)]
+    pub type AttestationRemovalQueues<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
