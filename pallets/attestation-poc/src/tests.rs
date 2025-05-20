@@ -1930,7 +1930,34 @@ fn creating_checkpoint_works() {
         let mut removed_by_checkpoint: Vec<H256> = Vec::new();
         let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
         let mut checkpoint_attestation: Option<SignedAttestation<H256, u64>> = None;
-        for i in 0..(att_per_check * 2 + 1) as usize {
+
+        // First we add a checkpoint + 1 worth of attestations to storage. We later add an additional
+        // 2 checkpoints of attestations to push this first set into the attestation removal queue
+        // This allows us to test whether attestations are appropriately purged after 
+        // AttestationRetentionDuration.
+        for i in 0..att_per_check + 1 {
+            println!("Adding at: {:?}", (att_interval * i as u64) + 1);
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                (att_interval * i as u64) + 1,
+                last_digest,
+            );
+            last_digest = Some(attestation.digest());
+
+            assert_ok!(Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                vec![attestation.clone()].try_into().unwrap()
+            ));
+
+            // All attestations in the AttestationRemovalQueue should be purged after one checkpoint
+            // with default values.
+            removed_by_checkpoint.push(attestation.digest());
+        }
+
+        // Next we add 2 checkpoints of attestations to storage
+        for i in att_per_check + 1..att_per_check * 3 + 1 {
+            println!("Adding at: {:?}", (att_interval * i as u64) + 1);
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
@@ -1945,18 +1972,15 @@ fn creating_checkpoint_works() {
             ));
 
             match i {
-                i if i < att_per_check as usize && i != 0 => {
-                    removed_by_checkpoint.push(attestation.digest());
-                }
-                i if i == att_per_check as usize || i == 0 => {
+                // Checkpoint 2 created when we have submitted 3 checkpoints worth of attestations
+                i if i == att_per_check * 2 => {
                     // End of first checkpoint interval
-                    removed_by_checkpoint.push(attestation.digest());
-                    checkpoint_attestation = Some(attestation);
-                }
-                _ => {
-                    kept_after_checkpoint.push(attestation);
-                }
+                    checkpoint_attestation = Some(attestation.clone());
+                },
+                _ => ()
             }
+            // All attestations condensed in current checkpoint are kept for AttestationRetentionDuration
+            kept_after_checkpoint.push(attestation);
         }
 
         assert_eq!(
