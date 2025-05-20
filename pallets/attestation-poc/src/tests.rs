@@ -1910,33 +1910,21 @@ fn creating_checkpoint_works() {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
         let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
-
         assert_ok!(Attestation::register_attestor(
             attestor.stash.clone(),
             SUPPORTED_CHAIN_KEY,
             attestor.attestor_id,
         ));
-
         assert_ok!(Attestation::attest(
             RuntimeOrigin::signed(attestor.attestor_id),
             SUPPORTED_CHAIN_KEY,
             attestor.public_key,
             attestor.signature
         ));
-
         progress_to_block(5);
-
         let mut last_digest: Option<H256> = None;
-        let mut removed_by_checkpoint: Vec<H256> = Vec::new();
-        let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
         let mut checkpoint_attestation: Option<SignedAttestation<H256, u64>> = None;
-
-        // First we add a checkpoint + 1 worth of attestations to storage. We later add an additional
-        // 2 checkpoints of attestations to push this first set into the attestation removal queue
-        // This allows us to test whether attestations are appropriately purged after 
-        // AttestationRetentionDuration.
-        for i in 0..att_per_check + 1 {
-            println!("Adding at: {:?}", (att_interval * i as u64) + 1);
+        for i in 0..(att_per_check * 2 + 1) as usize {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
@@ -1944,63 +1932,24 @@ fn creating_checkpoint_works() {
                 last_digest,
             );
             last_digest = Some(attestation.digest());
-
-            assert_ok!(Attestation::commit_attestation(
-                RuntimeOrigin::none(),
-                vec![attestation.clone()].try_into().unwrap()
-            ));
-
-            // All attestations in the AttestationRemovalQueue should be purged after one checkpoint
-            // with default values.
-            removed_by_checkpoint.push(attestation.digest());
-        }
-
-        // Next we add 2 checkpoints of attestations to storage
-        for i in att_per_check + 1..att_per_check * 3 + 1 {
-            println!("Adding at: {:?}", (att_interval * i as u64) + 1);
-            let attestation = create_signed_attestation(
-                vec![attestor.clone()],
-                SUPPORTED_CHAIN_KEY,
-                (att_interval * i as u64) + 1,
-                last_digest,
-            );
-            last_digest = Some(attestation.digest());
-
             assert_ok!(Attestation::commit_attestation(
                 RuntimeOrigin::none(),
                 vec![attestation.clone()].try_into().unwrap()
             ));
 
             match i {
-                // Checkpoint 2 created when we have submitted 3 checkpoints worth of attestations
-                i if i == att_per_check * 2 => {
+                i if i == att_per_check as usize => {
                     // End of first checkpoint interval
-                    checkpoint_attestation = Some(attestation.clone());
-                },
-                _ => ()
+                    checkpoint_attestation = Some(attestation);
+                }
+                _ => (),
             }
-            // All attestations condensed in current checkpoint are kept for AttestationRetentionDuration
-            kept_after_checkpoint.push(attestation);
         }
 
         assert_eq!(
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
             att_per_check as usize
         );
-
-        for removed_digest in removed_by_checkpoint {
-            assert_eq!(
-                Attestation::attestations(SUPPORTED_CHAIN_KEY, removed_digest),
-                None
-            );
-        }
-
-        for kept_attestation in kept_after_checkpoint {
-            assert_eq!(
-                Attestation::attestations(SUPPORTED_CHAIN_KEY, kept_attestation.digest()),
-                Some(kept_attestation)
-            )
-        }
 
         let unwrapped_att =
             checkpoint_attestation.expect("Should have been filled to Some in loop.");
@@ -2020,6 +1969,88 @@ fn creating_checkpoint_works() {
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY),
             Some(resulting_checkpoint)
         );
+    })
+}
+
+#[test]
+fn creating_checkpoint_purges_attestations_in_removal_queue() {
+    ExtBuilder.build_and_execute(|| {
+        // Setup state.
+        // 3 checkpoints worth of attestations
+        // 2 checkpoints worth recorded in checkpointing queue
+        // 1 checkpoint worth recorded in removal queue
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
+        let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
+
+        // For this test we assume default values, where attestations per checkpoint == retention duration
+        assert_eq!(
+            att_per_check,
+            Attestation::attestation_retention_duration(SUPPORTED_CHAIN_KEY)
+        );
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        progress_to_block(5);
+
+        let mut last_digest: Option<H256> = None;
+        let mut removed_by_checkpoint: Vec<H256> = Vec::new();
+        let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
+
+        for i in 0..att_per_check * 3 + 1 {
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                (att_interval * i as u64) + 1,
+                last_digest,
+            );
+            last_digest = Some(attestation.digest());
+
+            assert_ok!(Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                vec![attestation.clone()].try_into().unwrap()
+            ));
+
+            match i {
+                i if i < att_per_check + 1 => {
+                    // All attestations in the AttestationRemovalQueue should be purged after one checkpoint
+                    // with default values.
+                    removed_by_checkpoint.push(attestation.digest());
+                }
+                _ => {
+                    // All attestations condensed in current checkpoint are kept for AttestationRetentionDuration
+                    kept_after_checkpoint.push(attestation);
+                }
+            }
+        }
+
+        assert_eq!(
+            Attestation::attestation_removal_queue(SUPPORTED_CHAIN_KEY).len(),
+            att_per_check as usize
+        );
+
+        for removed_digest in removed_by_checkpoint {
+            assert_eq!(
+                Attestation::attestations(SUPPORTED_CHAIN_KEY, removed_digest),
+                None
+            );
+        }
+
+        for kept_attestation in kept_after_checkpoint {
+            assert_eq!(
+                Attestation::attestations(SUPPORTED_CHAIN_KEY, kept_attestation.digest()),
+                Some(kept_attestation)
+            )
+        }
     })
 }
 
