@@ -6,7 +6,7 @@ use sp_core::H256;
 use std::sync::Arc;
 use tokio::{
     sync::mpsc,
-    time::{interval, Duration},
+    time::{interval, Duration, MissedTickBehavior},
 };
 use tracing::{debug, error, info};
 
@@ -149,6 +149,10 @@ impl Server {
 
         // Interval for polling unprocessed queries
         let mut polling_interval = interval(QUERY_POLLING_INTERVAL);
+
+        // Set missed tick behavior to delay, so that missed ticks are delayed rather than skipped,
+        // preventing them from accumulating.
+        polling_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
