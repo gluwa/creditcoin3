@@ -352,8 +352,8 @@ impl GluwaPublicProverContract {
 
         let builder = contract.removeQueryId(query_id.0.into());
 
-        let result = builder.send().await?.watch().await?;
+        let result = builder.send().await?.get_receipt().await?;
 
-        Ok(result.to_string())
+        Ok(result.transaction_hash.to_string())
     }
 }
