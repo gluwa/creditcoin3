@@ -5,6 +5,7 @@ use pallet_prover_primitives::LayoutSegment;
 use rlp::Rlp;
 use scale_info::prelude::format;
 use serde::{Deserialize, Serialize};
+use sp_core::H256;
 use sp_std::{vec, vec::Vec};
 use std::cmp::Ordering;
 use thiserror::Error;
@@ -54,14 +55,12 @@ impl<Q: ClaimQuery> Claim<Q> {
         query: Q,
         payload: Vec<u8>,
     ) -> Result<Self, ClaimQueryFieldError> {
-        //        pub fn try_create(id: ClaimIdentifier, query: Q, rlp: Rlp<'a>) -> Result<Self, ClaimQueryFieldError> {
         let rlp = Rlp::new(&payload[..]);
         let felt_offsets = Self::felt_offsets(&query, &rlp)?;
         Ok(Self {
             id,
             query,
             payload,
-            //                rlp,
             felt_offsets,
         })
     }
@@ -219,6 +218,8 @@ pub struct ClaimSerializable {
     pub id: ClaimIdentifier,
     #[serde(deserialize_with = "deserialize_and_compact_ranges")]
     pub felt_ranges: Vec<Range<usize>>,
+    pub query_id: H256,
+    pub chain_id: u64,
 }
 
 impl ClaimSerializable {
@@ -228,16 +229,6 @@ impl ClaimSerializable {
 
     pub fn felt_ranges(&self) -> &[Range<usize>] {
         &self.felt_ranges
-    }
-}
-
-impl<Q: ClaimQuery> From<&Claim<Q>> for ClaimSerializable {
-    //    impl<Q: ClaimQuery> From<&Claim<'_, Q>> for ClaimSerializable {
-    fn from(claim: &Claim<Q>) -> Self {
-        Self {
-            id: claim.id.clone(),
-            felt_ranges: claim.felt_offsets.to_vec(),
-        }
     }
 }
 

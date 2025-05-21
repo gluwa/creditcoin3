@@ -165,5 +165,7 @@ fn get_serializable(query: &Query) -> ClaimSerializable {
         id: ClaimIdentifier::new(query.height, query.index),
         // Ranges should already come to us compacted and sorted, but we enforce this here
         felt_ranges: prover_primitives::claim::compact_and_sort_ranges(felt_ranges),
+        query_id: query.id(),
+        chain_id: query.chain_id,
     }
 }

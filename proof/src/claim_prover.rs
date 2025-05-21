@@ -149,10 +149,13 @@ impl ClaimProver {
 
     // TODO: make it private, it's public only for dev
     pub fn default_dir(&self) -> String {
+        let chain_id = self.claim.chain_id;
         let hex_block_number = format!("0x{:X}", self.claim.id().block_number());
         let subject_index = self.claim.id().index() as usize;
+        let query_id = self.claim.query_id;
 
-        let partial_dir = &format!("block_{hex_block_number}/{subject_index}",);
+        let partial_dir =
+            &format!("chain_{chain_id}/block_{hex_block_number}/{subject_index}/{query_id}",);
         format!("/var/tmp/creditcoin3/claim-proofs/{partial_dir}")
     }
 
