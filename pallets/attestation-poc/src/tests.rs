@@ -1876,10 +1876,10 @@ fn submitting_attestation_chain_works() {
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).back(),
             Some(&attestation_2.digest())
         );
-        // Attestation_1 became a checkpoint so it was removed from attestations
+        // Attestation_1 became a checkpoint but it is kept in until it reaches the front of AttestationRetentionQueue
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_1.digest()),
-            None
+            Some(attestation_1)
         );
         assert_eq!(
             Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation_2.digest()),
