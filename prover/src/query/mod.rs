@@ -18,6 +18,9 @@ pub type Proof = Vec<u8>;
 /// Query id
 pub type QueryId = H256;
 
+/// Do not force stone proving, instead reuse the stone proof if it exists
+const FORCE_STONE_PROVING: bool = false;
+
 const MAX_RETRIES: u32 = 10;
 
 // todo: calculate this by averaging the last X block times on a source chain
@@ -115,11 +118,8 @@ pub async fn process(
             }
         };
 
-    // Do not force stone proving, instead reuse the stone proof if it exists
-    let force_stone_proving = false;
-
     if stone_proof {
-        let result = proof::cairo_generate_proof(query_prover, stone_proof, force_stone_proving)
+        let result = proof::cairo_generate_proof(query_prover, stone_proof, FORCE_STONE_PROVING)
             .await
             .map_err(|e| {
                 error!(
