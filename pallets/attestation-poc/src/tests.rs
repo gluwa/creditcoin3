@@ -1976,16 +1976,16 @@ fn creating_checkpoint_works() {
 fn creating_checkpoint_purges_attestations_in_removal_queue() {
     ExtBuilder.build_and_execute(|| {
         // Setup state.
-        // 3 checkpoints worth of attestations
+        // 5 checkpoints worth of attestations
         // 2 checkpoints worth recorded in checkpointing queue
-        // 1 checkpoint worth recorded in removal queue
+        // 3 checkpoint worth recorded in removal queue
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
         let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
 
-        // For this test we assume default values, where attestations per checkpoint == retention duration
+        // For this test we assume default values, where attestations per checkpoint * 3 == retention duration
         assert_eq!(
-            att_per_check,
+            att_per_check * 3,
             Attestation::attestation_retention_duration(SUPPORTED_CHAIN_KEY)
         );
 
@@ -2006,7 +2006,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
         let mut removed_by_checkpoint: Vec<H256> = Vec::new();
         let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
 
-        for i in 0..att_per_check * 3 + 1 {
+        for i in 0..att_per_check * 5 + 1 {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
@@ -2022,7 +2022,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
 
             match i {
                 i if i < att_per_check + 1 => {
-                    // All attestations in the AttestationRemovalQueue should be purged after one checkpoint
+                    // First 10 attestations added to the AttestationRemovalQueue should be purged after last checkpoint
                     // with default values.
                     removed_by_checkpoint.push(attestation.digest());
                 }
@@ -2035,7 +2035,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
 
         assert_eq!(
             Attestation::attestation_removal_queue(SUPPORTED_CHAIN_KEY).len(),
-            att_per_check as usize
+            (att_per_check * 3) as usize
         );
 
         for removed_digest in removed_by_checkpoint {

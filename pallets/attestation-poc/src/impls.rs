@@ -215,9 +215,10 @@ impl<T: Config> Pallet<T> {
 
                 Checkpoints::<T>::insert(chain_key, checkpoint.digest, header_number);
                 LastCheckpoint::<T>::insert(chain_key, &checkpoint);
-                // delete first attestation since the first checkpoint is already created
-                // Attestations::<T>::remove(chain_key, digest);
-                // TODO: when CSUB-1600 hits, we should be pruning this one
+                // Add first attestation to removal queue, since first checkpoint was already created
+                AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
+                    queue.push_back(digest);
+                });
             }
             Some(_prev_digest) => {
                 // Add to checkpointing queue
@@ -269,8 +270,10 @@ impl<T: Config> Pallet<T> {
 
             Checkpoints::<T>::insert(chain_key, checkpoint.digest, header_number);
             LastCheckpoint::<T>::insert(chain_key, &checkpoint);
-            // delete first attestation since the first checkpoint is already created
-            Attestations::<T>::remove(chain_key, digest);
+            // Add first attestation to removal queue, since first checkpoint was already created
+            AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
+                queue.push_back(digest);
+            });
             return Ok(());
         }
 

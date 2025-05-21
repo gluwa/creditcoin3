@@ -877,7 +877,12 @@ parameter_types! {
     pub const CommittmentInterval: u64 = 1000;
     pub const MinBondRequirement: u64 = 100;
     pub const MaxAttestationsPerBlock: u32 = 10;
-    pub const DefaultAttestationRetentionDuration: u32 = 10;
+    // Attestation retention duration should result in attestations being retained
+    // for a period >= proving_time. Otherwise, the attestation a proof is based
+    // on may be removed from on-chain storage before the proof is submitted,
+    // causing proof verification to fail.
+    // With 6s source chain block time, 30 attestations = 30 minutes
+    pub const DefaultAttestationRetentionDuration: u32 = 30;
 }
 
 impl pallet_attestation_poc::Config for Runtime {

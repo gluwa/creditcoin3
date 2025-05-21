@@ -242,7 +242,7 @@ parameter_types! {
     pub const DefaultMinBondRequirement: u64 = 10_000;
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
-    pub const DefaultAttestationRetentionDuration: u32 = 10;
+    pub const DefaultAttestationRetentionDuration: u32 = 30;
 }
 
 impl attestation_poc::Config for Test {

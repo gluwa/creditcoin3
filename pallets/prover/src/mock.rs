@@ -210,7 +210,7 @@ impl pallet_attestation_poc::Config for Test {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
-    type DefaultAttestationRetentionDuration = ConstU32<10>;
+    type DefaultAttestationRetentionDuration = ConstU32<30>;
 }
 
 use sp_runtime::curve::PiecewiseLinear;
