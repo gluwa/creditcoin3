@@ -115,8 +115,11 @@ pub async fn process(
             }
         };
 
+    // Do not force stone proving, instead reuse the stone proof if it exists
+    let force_stone_proving = false;
+
     if stone_proof {
-        let result = proof::cairo_generate_proof(query_prover, stone_proof, stone_proof)
+        let result = proof::cairo_generate_proof(query_prover, stone_proof, force_stone_proving)
             .await
             .map_err(|e| {
                 error!(
