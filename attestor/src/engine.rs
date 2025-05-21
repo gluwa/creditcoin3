@@ -415,8 +415,14 @@ impl Engine {
             last_voted_for_block, last_finalized
         );
 
-        let diff = last_voted_for_block.saturating_sub(last_finalized);
-        // If the difference is greater than the allowed drift, we need to restart the engine
+        // Determine drift baseline
+        let baseline = if last_finalized == 0 && self.start_block > 0 {
+            self.start_block
+        } else {
+            last_finalized
+        };
+
+        let diff = last_voted_for_block.saturating_sub(baseline);
         let drifted = diff > (self.checkpoint_blocks().await? * ATTESTATION_CHECKPOINT_WINDOW);
 
         // If we are voting for a block that is behind the last finalized attestation, we need to catch up
@@ -544,7 +550,7 @@ impl Engine {
             .async_retry_create(from_header, from_digest, attestation_header_number)
             .await?;
 
-        debug!(
+        info!(
             "Completed fragment creation for block({})",
             attestation_header_number
         );

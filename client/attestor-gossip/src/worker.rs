@@ -306,7 +306,6 @@ where
             attestation.header_number()
         );
 
-        let best_block_hash = self.backend.blockchain().info().best_hash;
         let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
 
         // Validate the attestation on the last finalized block
@@ -314,7 +313,7 @@ where
             .validate_attestation(finalized_block_hash, &attestation)?;
 
         // Verify the VRF output
-        self.verify_vrf(best_block_hash, &attestation)?;
+        self.verify_vrf(finalized_block_hash, &attestation)?;
 
         // Short circuit if we are not an authority
         if !self.is_authority {
@@ -368,7 +367,7 @@ where
     /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
     fn verify_vrf(
         &mut self,
-        best_hash: B::Hash,
+        at: B::Hash,
         attestation: &Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
         debug!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
@@ -378,14 +377,14 @@ where
         let attestor_id = attestation.attestor_id();
 
         // Get randomness from the attestation
-        let attestation_epoch = attestation.epoch.saturating_sub(2);
+        let attestation_epoch = attestation.proof_of_inclusion.epoch;
         let runtime = self.runtime.runtime_api();
-        let randomness = runtime.randomness_by_epoch_id(best_hash, attestation_epoch)?;
+        let randomness = runtime.randomness_by_epoch_id(at, attestation_epoch)?;
 
         // Here we verify the proof of inclusion
         // based on the round config
         // Get round config at the attestation epoch
-        let round_config = self.get_or_create_round_config(best_hash, chain_key)?;
+        let round_config = self.get_or_create_round_config(at, chain_key)?;
 
         let is_included = vrf::verify_proof_of_inclusion(
             round_config.committee_set_size.into(),
@@ -485,7 +484,7 @@ where
     // Safeguards creation if not exists when the worker is restarted.
     fn get_or_create_round_config(
         &mut self,
-        best_hash: B::Hash,
+        at: B::Hash,
         chain_key: ChainKey,
     ) -> Result<RoundConfig, Error> {
         let round_config = self.state.get_round_config(chain_key);
@@ -496,12 +495,12 @@ where
 
         // Round config is reset, create one
         let runtime_api = self.runtime.runtime_api();
-        let current_epoch = runtime_api.current_epoch(best_hash)?;
+        let current_epoch = runtime_api.current_epoch(at)?;
 
         let round_config = round::create(
             self.runtime.clone(),
             chain_key,
-            best_hash,
+            at,
             current_epoch.epoch_index,
         )?;
         // Update round configuration

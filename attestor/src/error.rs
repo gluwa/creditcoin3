@@ -13,8 +13,6 @@ pub enum Error {
     DoubleVote,
     #[error("Engine is not running")]
     NotRunning,
-    #[error("Failed to create fragment")]
-    FailedToCreateFragment,
     #[error("cclient error: {0}")]
     Cclient(#[from] cc_client::Error),
     #[error("Attestor not selected for header {0}")]
@@ -52,7 +50,7 @@ impl Error {
 
     #[must_use]
     pub fn is_fragment_error(&self) -> bool {
-        matches!(self, Error::FailedToCreateFragment)
+        matches!(self, Error::Continuity(_))
     }
 
     #[must_use]

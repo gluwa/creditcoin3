@@ -94,7 +94,7 @@ impl<'a> Client {
             .chain_name
             .clone();
 
-        info!("Chain name: {:?}", chain_name);
+        info!("Chain name: {:?}", String::from_utf8(chain_name.clone())?);
 
         let chain_key = cc_client
             .get_chain_key(chain_id, chain_name)
@@ -198,11 +198,11 @@ impl<'a> Client {
     }
 
     pub async fn sign_vrf(&self, header_number: u64) -> Result<ProofOfInclusion, Error> {
-        let (randomness, _epoch_index) = self.inner.fetch_babe_randomness_two_epoch_ego().await?;
+        let (randomness, epoch_index) = self.inner.fetch_babe_randomness_two_epoch_ego().await?;
 
         Ok(self
             .inner
-            .sign_babe_vrf(self.get_chain_key(), header_number, randomness)
+            .sign_babe_vrf(self.get_chain_key(), header_number, randomness, epoch_index)
             .await?)
     }
 

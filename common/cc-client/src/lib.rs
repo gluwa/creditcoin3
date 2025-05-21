@@ -331,6 +331,7 @@ impl<'a> Client {
         chain_key: ChainKey,
         header_number: u64,
         randomness: Randomness,
+        epoch_index: u64,
     ) -> Result<ProofOfInclusion, Error> {
         // Get committee set size
         let target_sample_size = self.target_sample_size(chain_key).await?;
@@ -350,6 +351,7 @@ impl<'a> Client {
             &self.pair,
             &self.get_attestor_id(),
             header_number,
+            epoch_index,
         )?;
 
         Ok(proof_of_inclusion)

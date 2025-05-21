@@ -24,6 +24,8 @@ pub struct ProofOfInclusion {
     pub output: Vec<u8>,
     /// The proof associated with the VRF output.
     pub proof: Vec<u8>,
+    /// Epoch in which the proof was created.
+    pub epoch: u64,
 }
 
 /// The context for the VRF
@@ -79,6 +81,7 @@ pub fn make_proof_of_inclusion(
     keys: &sr25519::Pair,
     attestor_id: &AttestorId,
     header_number: u64,
+    epoch: u64,
 ) -> Result<ProofOfInclusion, Error> {
     // Create the transcript
     let transcript = make_transcript(header_number, randomness, attestor_id);
@@ -113,6 +116,7 @@ pub fn make_proof_of_inclusion(
     Ok(ProofOfInclusion {
         output: sig.pre_output.encode(),
         proof: sig.proof.encode(),
+        epoch,
     })
 }
 
@@ -249,6 +253,7 @@ mod tests {
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
         let header_number = 100;
+        let epoch = 1;
 
         let proof_of_inclusion = make_proof_of_inclusion(
             working_set_size,
@@ -257,6 +262,7 @@ mod tests {
             &keys,
             &attestor_id,
             header_number,
+            epoch,
         )
         .unwrap();
 
@@ -281,6 +287,7 @@ mod tests {
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
         let header_number = 100;
+        let epoch = 1;
 
         let res = make_proof_of_inclusion(
             working_set_size,
@@ -289,6 +296,7 @@ mod tests {
             &keys,
             &attestor_id,
             header_number,
+            epoch,
         );
 
         assert_eq!(res, Err(Error::NotSelected));
@@ -304,6 +312,7 @@ mod tests {
         let keys = Pair::from_string("//Alice", None).unwrap();
         let attestor_id = AttestorId::from_public(keys.public().0);
         let header_number = 100;
+        let epoch = 1;
 
         let proof_of_inclusion = make_proof_of_inclusion(
             threshold,
@@ -312,6 +321,7 @@ mod tests {
             &keys,
             &attestor_id,
             header_number,
+            epoch,
         )
         .unwrap();
 
