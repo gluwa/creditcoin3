@@ -212,6 +212,8 @@ type Checkpoints @entity {
     blockNumber: Int!
 
     digest: String!
+
+    timestamp: BigInt!
 }
 
 type TargetSampleSizeChanged @entity {

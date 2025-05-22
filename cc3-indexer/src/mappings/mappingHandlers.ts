@@ -352,6 +352,7 @@ export async function handleEventCheckpointReached(event: SubstrateEvent): Promi
         chainKey: chainKeyNumber,
         blockNumber: checkpoint.blockNumber,
         digest: checkpoint.digest,
+        timestamp: BigInt(event.block.timestamp?.getTime() ?? 0),
     });
     /* eslint-enable */
 
