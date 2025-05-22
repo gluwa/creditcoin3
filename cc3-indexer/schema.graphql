@@ -99,6 +99,8 @@ type Attestations @entity {
     signature: String!
 
     digest: String!
+
+    timestamp: BigInt!
 }
 
 type Attestors @entity {

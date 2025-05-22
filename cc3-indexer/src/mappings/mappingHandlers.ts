@@ -613,6 +613,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
         prevDigest: signedAttestationParsed.attestation.prevDigest ?? '',
         signature: signedAttestationParsed.signature,
         digest: digest.toString(),
+        timestamp: BigInt(event.block.timestamp?.getTime() ?? 0),
     });
     // /* eslint-enable */
 
