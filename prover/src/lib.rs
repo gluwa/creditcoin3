@@ -1,12 +1,14 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use cc_client::AccountId32;
 use either::Either;
 use eth::Client as EthClient;
+use futures::stream::{FuturesUnordered, StreamExt};
 use sp_core::H256;
 use std::sync::Arc;
 use tokio::{
     sync::mpsc,
-    time::{interval, Duration, MissedTickBehavior},
+    task::{self, JoinHandle},
+    time::{interval, Duration, Interval, MissedTickBehavior},
 };
 use tracing::{debug, error, info};
 
@@ -126,7 +128,7 @@ impl Server {
         info!("Starting cache live sync");
         let sync_attestations_cache = attestations_cache.clone();
         let sync_cc3_client = cc3_client.clone();
-        let mut sync_cache_handle = tokio::spawn(async move {
+        let sync_cache_handle = tokio::spawn(async move {
             attestation::cache::sync_cache(
                 chain_key,
                 &sync_attestations_cache,
@@ -154,6 +156,94 @@ impl Server {
         // preventing them from accumulating.
         polling_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        self.handle_ongoing_queries_and_fatal_errors(
+            polling_interval,
+            sync_cache_handle,
+            chain_attestation_interval,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn process_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {
+        if self.config.prover_be_socket_addr.is_some() {
+            return Err(anyhow!(
+                "Tried to prove query locally while in light prover mode."
+            ));
+        };
+        // Create an eth client
+        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
+
+        let r = query::process(
+            eth_client.clone(),
+            &query,
+            &self.attestations_cache,
+            true,
+            chain_attestation_interval,
+        )
+        .await?;
+
+        if let Either::Left(proof) = r {
+            info!("Submitting proof for query: {:?}", query.id());
+            contract::submit_proof(&self.cc3_client, query, proof).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn queue_light_proving_jobs(
+        &self,
+        queries: Vec<Query>,
+        chain_attestation_interval: u64,
+    ) -> Result<Vec<JoinHandle<(Query, Result<Vec<u8>>)>>> {
+        // Create thread safe versions of config strings
+        let prover_be_socket_addr = Arc::new(self.config.prover_be_socket_addr.clone().ok_or(
+            anyhow!("Tried to submit light proving jobs while not in light mode!"),
+        )?);
+        let be_api_key = Arc::new(self.config.be_api_key.clone().ok_or(anyhow!(
+            "We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"
+        ))?);
+        // Create an eth client
+        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
+        let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>>)>> = Vec::new();
+
+        for query in queries {
+            let r = query::process(
+                eth_client.clone(),
+                &query,
+                &self.attestations_cache,
+                true,
+                chain_attestation_interval,
+            )
+            .await?;
+
+            if let Either::Right(stone_proof_public_input) = r {
+                info!("Handling external proof for query: {:?}", query.id());
+                // Cloning handles for config strings
+                let addr_clone = prover_be_socket_addr.clone();
+                let key_clone = be_api_key.clone();
+                proving_job_handles.push(task::spawn(async move {
+                    let proving_result = query::external::handle_proof_order(
+                        query.id(),
+                        stone_proof_public_input,
+                        addr_clone.as_ref(),
+                        key_clone.as_ref(),
+                    )
+                    .await;
+                    (query, proving_result)
+                }));
+            }
+        }
+        Ok(proving_job_handles)
+    }
+
+    async fn handle_ongoing_queries_and_fatal_errors(
+        &mut self,
+        mut polling_interval: Interval,
+        mut sync_cache_handle: JoinHandle<()>,
+        chain_attestation_interval: u64,
+    ) -> Result<()> {
+        let mut light_prover_queries = FuturesUnordered::new();
         loop {
             tokio::select! {
                 _ = polling_interval.tick() => {
@@ -161,18 +251,29 @@ impl Server {
                     match contract::get_unprocessed_queries(&self.cc3_client).await {
                         Ok(unprocessed_queries) => {
                             info!("Found {} unprocessed queries", unprocessed_queries.len());
-                            // get first one
-                            // because we won't process all of them at once
-                            let query = unprocessed_queries.first().cloned();
-                            if let Some(query) = query {
-                                // process the query
-                                info!("Processing unprocessed query: {:?}", query);
-                                if let Err(e) = self
-                                    .process_query(query.clone(), chain_attestation_interval)
-                                    .await
-                                {
-                                    error!("Query processing failed, Error: {e:?}");
-                                    remove_query_id(&self.cc3_client, query.id()).await?;
+                            if self.config.prover_be_socket_addr.is_some() {
+                                match self.queue_light_proving_jobs(unprocessed_queries, chain_attestation_interval).await {
+                                    Ok(new_query_handles) => {
+                                        for query_handle in new_query_handles {
+                                            light_prover_queries.push(query_handle);
+                                        }
+                                    },
+                                    Err(e) => {
+                                        error!("Queuing light proving for queries failed, Error: {e:?}");
+                                    }
+                                };
+                            } else {
+                                // If not light prover, get first one because we won't process all of them at once
+                                let query = unprocessed_queries.first().cloned();
+                                if let Some(query) = query {
+                                    info!("Processing unprocessed query: {:?}", query);
+                                    if let Err(e) = self
+                                        .process_query(query.clone(), chain_attestation_interval)
+                                        .await
+                                    {
+                                        error!("Query processing failed, Error: {e:?}");
+                                        remove_query_id(&self.cc3_client, query.id()).await?;
+                                    }
                                 }
                             }
                         }
@@ -184,45 +285,26 @@ impl Server {
                 _ = &mut sync_cache_handle => {
                     panic!("Sync cache thread aborted.")
                 },
+                Some(result) = light_prover_queries.next() => {
+                    match result {
+                        Ok((query, result_inner)) => {
+                            match result_inner {
+                                Ok(proof) => {
+                                    info!("Submitting proof for query: {:?}", query);
+                                    contract::submit_proof(&self.cc3_client, query, proof).await?;
+                                },
+                                Err(e) => {
+                                    error!("Query processing failed, Error: {e:?}");
+                                    remove_query_id(&self.cc3_client, query.id()).await?;
+                                }
+                            }
+                        },
+                        Err(join_err) => {
+                            panic!("Fatal error, couldn't join query worker task, error: {join_err:?}");
+                        }
+                    }
+                }
             }
         }
-    }
-
-    async fn process_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {
-        // Create an eth client
-        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
-
-        let r = query::process(
-            eth_client.clone(),
-            &query,
-            &self.attestations_cache,
-            self.config.prover_be_socket_addr.is_none(),
-            chain_attestation_interval,
-        )
-        .await?;
-
-        match r {
-            Either::Left(proof) => {
-                info!("Submitting proof for query: {:?}", query.id());
-                contract::submit_proof(&self.cc3_client, query, proof).await?;
-            }
-            Either::Right(stone_proof_public_input) => {
-                info!("Handling external proof for query: {:?}", query.id());
-                let proof = query::external::handle_proof_order(
-                    query.id(),
-                    stone_proof_public_input,
-                    self.config
-                        .prover_be_socket_addr
-                        .as_ref()
-                        .expect("Socket addr is Some if we are in light mode"),
-                    self.config.be_api_key.as_ref().expect("We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"),
-                )
-                .await?;
-                info!("Submitting proof for query: {:?}", query);
-                contract::submit_proof(&self.cc3_client, query, proof).await?;
-            }
-        }
-
-        Ok(())
     }
 }
