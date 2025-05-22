@@ -56,7 +56,10 @@ describe('handleEventBlockAttested()', () => {
                 expect(node.signature.startsWith('0x')).toEqual(true);
                 expect(node.digest.startsWith('0x')).toEqual(true);
                 expect(node.prevDigest.startsWith('0x')).toEqual(true);
-                expect(node.timestamp).toBeGreaterThanOrEqual(0);
+
+                // 0 means that the block timestamp wasn't present, and it defaulted to 0, which is a problem
+                expect(Date.parse(node.timestamp)).toBeGreaterThan(0);
+                expect(Date.parse(node.timestamp)).toBeLessThan(Date.now());
                 lastDigest = node.digest;
 
                 // for each Attestation entity there is at least 1 entry in MapAttestationAttestor

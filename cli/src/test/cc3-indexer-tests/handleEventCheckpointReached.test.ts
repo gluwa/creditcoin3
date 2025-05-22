@@ -43,7 +43,9 @@ describe('handleEventCheckpointReached()', () => {
 
                 expect(node.digest).toBeTruthy();
 
-                expect(node.timestamp).toBeTruthy();
+                // 0 means that the block timestamp wasn't present, and it defaulted to 0, which is a problem
+                expect(Date.parse(node.timestamp)).toBeGreaterThan(0);
+                expect(Date.parse(node.timestamp)).toBeLessThan(Date.now());
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(
@@ -56,7 +58,7 @@ describe('handleEventCheckpointReached()', () => {
                 expect(response2.data.checkpoint.blockNumber).toEqual(node.blockNumber);
                 expect(response2.data.checkpoint.chainKey).toEqual(node.chainKey);
                 expect(response2.data.checkpoint.digest).toEqual(node.digest);
-                expect(response2.data.checkpoint.timestamp).toBeTruthy();
+                expect(response2.data.checkpoint.timestamp).toEqual(node.timestamp);
             }
         });
 
