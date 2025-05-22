@@ -81,7 +81,6 @@ pub async fn handle_proof_order(
 
     // Post work order
     let response = post_work_order(&client, form, prover_be_socket_addr, be_api_key).await?;
-    info!("Work order posted. Response: {:?}", response);
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
@@ -106,10 +105,22 @@ async fn post_work_order(
         .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
 
     match response.status() {
-        reqwest::StatusCode::OK => Ok(response
-            .json::<WorkOrderResponse>()
-            .await
-            .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?),
+        reqwest::StatusCode::OK => {
+            // Printing the response before parsing is useful for debugging. But normally doing so consumes the
+            // response. So we buffer it as bytes first.
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?;
+
+            info!(
+                "Received post_work_order response: {:?}",
+                String::from_utf8_lossy(&bytes)
+            );
+
+            Ok(serde_json::from_slice::<WorkOrderResponse>(&bytes)
+                .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?)
+        }
         other_status => Err(Error::BadProofOrderRequest(other_status.to_string())),
     }
 }
@@ -134,7 +145,8 @@ async fn poll_for_result(
         }
 
         info!(
-            "Result not yet available... Elapsed: {:?}, Timeout: {:?}",
+            "Result not yet available... QueryId: {:?}, Elapsed: {:?}, Timeout: {:?}",
+            query_id,
             start.elapsed().as_secs(),
             timeout.as_secs()
         );

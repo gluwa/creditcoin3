@@ -4,7 +4,7 @@ use either::Either;
 use eth::Client as EthClient;
 use futures::stream::{FuturesUnordered, StreamExt};
 use sp_core::H256;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 use tokio::{
     sync::mpsc,
     task::{self, JoinHandle},
@@ -212,7 +212,7 @@ impl Server {
                 eth_client.clone(),
                 &query,
                 &self.attestations_cache,
-                true,
+                false,
                 chain_attestation_interval,
             )
             .await?;
@@ -244,14 +244,23 @@ impl Server {
         chain_attestation_interval: u64,
     ) -> Result<()> {
         let mut light_prover_queries = FuturesUnordered::new();
+        let mut queued_light_proving_queries: HashSet<H256> = HashSet::new();
         loop {
             tokio::select! {
                 _ = polling_interval.tick() => {
                     info!("Polling unprocessed queries...");
                     match contract::get_unprocessed_queries(&self.cc3_client).await {
-                        Ok(unprocessed_queries) => {
-                            info!("Found {} unprocessed queries", unprocessed_queries.len());
+                        Ok(mut unprocessed_queries) => {
                             if self.config.prover_be_socket_addr.is_some() {
+                                // We don't want to spam the BE with requests for queries we've already requested.
+                                unprocessed_queries.retain(|query| {
+                                    !queued_light_proving_queries.contains(&query.id())
+                                });
+                                info!("Found {} new unprocessed queries", unprocessed_queries.len());
+                                // Save these off to use later without cloning queries
+                                let query_ids: Vec<H256> = unprocessed_queries.iter().map(|query| {
+                                    query.id()
+                                }).collect();
                                 match self.queue_light_proving_jobs(unprocessed_queries, chain_attestation_interval).await {
                                     Ok(new_query_handles) => {
                                         for query_handle in new_query_handles {
@@ -262,6 +271,10 @@ impl Server {
                                         error!("Queuing light proving for queries failed, Error: {e:?}");
                                     }
                                 };
+                                // All queries were successfully queued as light proving jobs.
+                                for query_id in query_ids {
+                                    queued_light_proving_queries.insert(query_id);
+                                }
                             } else {
                                 // If not light prover, get first one because we won't process all of them at once
                                 let query = unprocessed_queries.first().cloned();
@@ -291,10 +304,12 @@ impl Server {
                             match result_inner {
                                 Ok(proof) => {
                                     info!("Submitting proof for query: {:?}", query);
+                                    queued_light_proving_queries.remove(&query.id());
                                     contract::submit_proof(&self.cc3_client, query, proof).await?;
                                 },
                                 Err(e) => {
                                     error!("Query processing failed, Error: {e:?}");
+                                    queued_light_proving_queries.remove(&query.id());
                                     remove_query_id(&self.cc3_client, query.id()).await?;
                                 }
                             }
