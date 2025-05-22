@@ -1,7 +1,7 @@
 use anyhow::Result;
 use engine::AsyncEngine;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 pub mod engine;
 
@@ -12,6 +12,7 @@ mod continuity;
 mod error;
 mod eth_sub;
 mod retry;
+mod sync_state;
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
@@ -74,7 +75,7 @@ impl Server {
                         info!("Going to submit attestation for round: {:?}", round);
                         match engine.submit_attestation(attestation).await {
                             Ok(()) => {
-                                info!("Submitted attestation for round: {:?}", round);
+                                debug!("Submitted attestation for round: {:?}", round);
                             }
                             Err(e) => {
                                 if e.is_not_selected_error() {

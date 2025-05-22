@@ -3,11 +3,18 @@ use sp_core::H256;
 use attestor_primitives::{Attestation, ChainKey};
 use eth::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
+use tracing::debug;
 
 // Create the attestation data from a NewBlock
 #[must_use]
 pub fn create(chain_key: ChainKey, new_block: &OrderedBlock) -> Attestation<H256> {
     let mt = eth::starknet_pedersen_mmr(new_block);
+
+    debug!("Root h256: {:?}", sp_core::H256(mt.root().0.to_bytes_be()));
+    debug!(
+        "Header hash: {:?}",
+        sp_core::H256(*new_block.hash().unwrap())
+    );
     Attestation {
         chain_key,
         header_number: new_block.number(),

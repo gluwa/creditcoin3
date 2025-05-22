@@ -77,14 +77,19 @@ impl<'a> Manager<'a> {
             Felt::from_bytes_be(&prev_digest.0),
         );
 
-        // Start building the fragment for the interval
-        for i in self.start_block..self.end_block + 1 {
-            let block = self.eth_client.get_block(i).await?;
+        // Get all blocks first in parallel
+        // This list is sorted because we provide the futures in order
+        let blocks = futures::future::join_all(
+            (self.start_block..=self.end_block).map(|i| self.eth_client.get_block(i)),
+        )
+        .await;
 
+        // Start building the fragment for the interval
+        for block in blocks {
+            let block = block?;
             let merkle_root = eth::starknet_pedersen_mmr(&block);
             let fragment_block = FragmentBlock::new(block.number(), merkle_root.root().0);
             debug!("appending block to fragment: {:?}", fragment_block);
-
             // If this is the first block in the fragment, we need to construct the block from the previous block
             // In order to set the prev_digest correctly
             // In the other case, the `try_append_block` method on fragment will take care of this if the fragment is not empty

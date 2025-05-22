@@ -18,7 +18,7 @@ use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, Chain
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
 
-use crate::{cc3, ccsub, continuity, error::Error, eth_sub, retry, Config};
+use crate::{cc3, ccsub, continuity, error::Error, eth_sub, retry, sync_state::SyncState, Config};
 
 pub const ATTESTATION_BUFFER_SIZE: usize = 100;
 
@@ -45,14 +45,14 @@ struct Engine {
     receiver: Receiver<AttestationPrimitive<H256>>,
     // Keeps track off all the blocks voted for
     voted_for: BTreeSet<(u64, Digest)>,
-    // Keeps track of the last finalized attestation
-    last_finalized_attestation_header: u64,
     // Keeps track of the current epoch
     current_epoch: u64,
     // Keeps track of the starting block provided by the user
     start_block: u64,
     // Continuity cache
     continuity_cache: continuity::Cache,
+    // Sync state
+    sync_state: SyncState,
 }
 
 enum State {
@@ -84,6 +84,7 @@ pub struct AsyncEngine {
 impl AsyncEngine {
     pub async fn new(config: &Config) -> Result<Self> {
         let eth_client = Client::new(&config.eth_rpc_url, None).await?;
+        let target = eth_client.get_last_block().await?;
         let chain_id = eth_client.chain_id();
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
@@ -95,6 +96,12 @@ impl AsyncEngine {
 
         let (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(ATTESTATION_BUFFER_SIZE);
 
+        let last_finalized_attestation_header = cc3_client
+            .get_last_attestation(chain_key)
+            .await?
+            .map(|attestation| attestation.header_number())
+            .unwrap_or_default();
+
         let engine: Engine = Engine {
             state: State::NotRunning,
             eth_client: eth_client.clone(),
@@ -103,7 +110,7 @@ impl AsyncEngine {
             sender: attestation_tx,
             receiver: attestation_rx,
             voted_for: BTreeSet::new(),
-            last_finalized_attestation_header: 0,
+            sync_state: SyncState::new(last_finalized_attestation_header, target),
             current_epoch: 0,
             start_block: config.start_block,
             continuity_cache: continuity::Cache::new(eth_client.clone()),
@@ -409,8 +416,8 @@ impl Engine {
         debug!("Evaluating voting position...");
 
         let last_voted_for_block = self.voted_for.last().copied().unwrap_or_default().0;
-        let last_finalized = self.last_finalized_attestation_header;
-        info!(
+        let last_finalized = self.sync_state.last_finalized_attestation_header;
+        debug!(
             "Last voted for: {:}, last finalized attestation: {:}",
             last_voted_for_block, last_finalized
         );
@@ -485,7 +492,7 @@ impl Engine {
                 .head_prev_digest()
                 .map_or_else(sp_core::H256::zero, |d| H256::from(d.to_bytes_be())),
         );
-        info!("Previous digest set, {:?}", attestation.prev_digest);
+        debug!("Previous digest set, {:?}", attestation.prev_digest);
 
         // Serialize the fragment to be sent over the wire
         let serialized_fragment =
@@ -522,7 +529,7 @@ impl Engine {
 
         // From which point we want to create a continuity proof
         let (from_header, from_digest) = if let Some(last_attestation) = last_attestation {
-            info!(
+            debug!(
                 "Last finalized attestation found: header_number={}, digest={}",
                 last_attestation.header_number(),
                 last_attestation.digest()
@@ -550,7 +557,7 @@ impl Engine {
             .async_retry_create(from_header, from_digest, attestation_header_number)
             .await?;
 
-        info!(
+        debug!(
             "Completed fragment creation for block({})",
             attestation_header_number
         );
@@ -577,8 +584,6 @@ impl Engine {
     /// Note the last attested header
     /// We keep track of the last attested header to check if we can start the engine again
     async fn note_last_attested_header(&mut self, header: u64) -> Result<(), Error> {
-        self.last_finalized_attestation_header = header;
-
         let last_voted_for = self.voted_for.last().copied().unwrap_or_default().0;
 
         info!(
@@ -605,6 +610,9 @@ impl Engine {
         self.voted_for
             .retain(|(header_number, _)| *header_number > header);
 
+        // Update the sync state
+        self.sync_state.update(header);
+
         Ok(())
     }
 
@@ -621,11 +629,12 @@ impl Engine {
             .await?;
         // If there is a last finalized attestation, we can start the engine from there
         if let Some(last_finalized_attestation) = last_finalized_attestation {
-            self.last_finalized_attestation_header = last_finalized_attestation.header_number();
+            self.sync_state.last_finalized_attestation_header =
+                last_finalized_attestation.header_number();
         }
 
         // By default start from the last attested block OR 0 if there is no attestation and we need to start from the genesis block
-        let mut start_at = self.last_finalized_attestation_header;
+        let mut start_at = self.sync_state.last_finalized_attestation_header;
         // If the provided start block by the user is greater than the last finalized attestation, we need to start from there
         // It also included the case where we need to start from the genesis block
         if self.start_block >= start_at {

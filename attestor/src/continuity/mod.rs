@@ -54,12 +54,12 @@ impl Cache {
             return Err(Error::FailedToCreateFragment);
         }
 
-        info!(
+        debug!(
             "Creating fragment from block {} to {}",
             start_block, end_block
         );
 
-        info!("Cached blocks len: {}", self.blocks.len());
+        debug!("Cached blocks len: {}", self.blocks.len());
 
         let mut missing_ranges = Vec::new();
         let mut range_start = None;
@@ -89,7 +89,7 @@ impl Cache {
                 from_digest
             };
 
-            info!(
+            debug!(
                 "Fetching missing fragment from {} to {}, using prev_digest: {}",
                 missing_start, missing_end, prev_digest
             );
