@@ -21,7 +21,7 @@ describe('handleEventCheckpointReached()', () => {
     describe('when there are checkpoints on chain', () => {
         it('graphQL returns known Checkpoint entities', async () => {
             const response = await graphQLQuery(
-                `query { checkpoints(orderBy: AT_BLOCK_NUMBER_ASC, last: 10) { nodes { id, whoId, atBlockNumber, chainKey, blockNumber, digest }}}`,
+                `query { checkpoints(orderBy: AT_BLOCK_NUMBER_ASC, last: 10) { nodes { id, whoId, atBlockNumber, chainKey, blockNumber, digest, timestamp }}}`,
             );
             expect(response.data.checkpoints.nodes).toBeTruthy();
             expect(response.data.checkpoints.nodes.length).toBeGreaterThanOrEqual(1);
@@ -43,9 +43,11 @@ describe('handleEventCheckpointReached()', () => {
 
                 expect(node.digest).toBeTruthy();
 
+                expect(node.timestamp).toBeTruthy();
+
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(
-                    `query { checkpoint(id: "${node.id}") { id, whoId, atBlockNumber, chainKey, blockNumber, digest } }`,
+                    `query { checkpoint(id: "${node.id}") { id, whoId, atBlockNumber, chainKey, blockNumber, digest, timestamp } }`,
                 );
                 expect(response2.data.checkpoint).toBeTruthy();
                 expect(response2.data.checkpoint.id).toEqual(node.id);
@@ -54,6 +56,7 @@ describe('handleEventCheckpointReached()', () => {
                 expect(response2.data.checkpoint.blockNumber).toEqual(node.blockNumber);
                 expect(response2.data.checkpoint.chainKey).toEqual(node.chainKey);
                 expect(response2.data.checkpoint.digest).toEqual(node.digest);
+                expect(response2.data.checkpoint.timestamp).toBeTruthy();
             }
         });
 

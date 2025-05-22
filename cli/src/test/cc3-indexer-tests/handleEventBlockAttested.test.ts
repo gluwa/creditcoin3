@@ -36,7 +36,7 @@ describe('handleEventBlockAttested()', () => {
 
         it('graphQL returns Attestations entities and keeps MapAttestationAttestor & AttestationChainData in sync', async () => {
             const response = await graphQLQuery(
-                `query { attestations(orderBy: HEADER_NUMBER_ASC, last: 10) { nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest }}}`,
+                `query { attestations(orderBy: HEADER_NUMBER_ASC, last: 10) { nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp }}}`,
             );
             expect(response.data.attestations.nodes).toBeTruthy();
             expect(response.data.attestations.nodes.length).toBeGreaterThan(0);
@@ -56,6 +56,7 @@ describe('handleEventBlockAttested()', () => {
                 expect(node.signature.startsWith('0x')).toEqual(true);
                 expect(node.digest.startsWith('0x')).toEqual(true);
                 expect(node.prevDigest.startsWith('0x')).toEqual(true);
+                expect(node.timestamp).toBeGreaterThanOrEqual(0);
                 lastDigest = node.digest;
 
                 // for each Attestation entity there is at least 1 entry in MapAttestationAttestor
