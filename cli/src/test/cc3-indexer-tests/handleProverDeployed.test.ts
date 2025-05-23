@@ -3,10 +3,15 @@ import { newApi, ApiPromise } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
+import { forElapsedBlocks } from '../utils';
+import solidityJSON = require('../blockchain-tests/artifacts/from-hardhat/ProverForTesting.sol/ProverForTesting.json');
 
 describe('handleEventProverDeployed()', () => {
     let alith: any;
+    let balthathar: any;
     let api: ApiPromise;
+    let contract: any;
+    let contractAddress = '';
 
     beforeAll(async () => {
         const provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
@@ -14,29 +19,54 @@ describe('handleEventProverDeployed()', () => {
         alith = new ethers.Wallet(privateKey).connect(provider);
 
         // NOTE: chain starts with prover for Anvil 1 already running
-
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         const startingBlock = (await getChainStatus(api)).bestNumber;
+
         console.log('**** DEBUG: starting=', startingBlock);
-    }, 30_000);
+
+        // deploy a fake contract so we can assert there's a prover with its address
+        balthathar = new ethers.Wallet((global as any).CREDITCOIN_EVM_PRIVATE_KEY('bob')).connect(provider);
+        const factory = ethers.ContractFactory.fromSolidity(solidityJSON).connect(balthathar);
+        contract = await factory.deploy(
+            // proceeds go to Alith b/c of asserts down below
+            alith.address,
+            11n,
+            1111n,
+            chain_Anvil1_Key,
+            'Prover-for-Balthathar',
+            10, // timeout in seconds
+        );
+        await contract.waitForDeployment();
+        // b/c cc3-indexer records this as lowercase but ethers.js returns it in upper case
+        contractAddress = (await contract.getAddress()).toLowerCase();
+        expect(contractAddress.startsWith('0x')).toEqual(true);
+
+        // give indexer time to process this
+        await forElapsedBlocks(api, { minBlocks: 3 });
+    }, 60_000);
 
     describe('when there are provers running', () => {
         it('graphQL returns known Prover entities', async () => {
             const response = await graphQLQuery(
                 `query { provers(
                     orderBy: ID_ASC,
-                    last: 10,
+                    last: 50,
                     filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }},
                 ) { nodes { id, owner, proceedsAccount, contractAddress, baseCostPerByte, baseFee, chainKey, name }}}`,
             );
             expect(response.data.provers.nodes).toBeTruthy();
-            expect(response.data.provers.nodes.length).toBeGreaterThanOrEqual(1);
+            // min 2: 1x for Alith + 1x for Balthathar
+            expect(response.data.provers.nodes.length).toBeGreaterThanOrEqual(2);
 
+            let proverForBalthathar = false;
             for (const node of response.data.provers.nodes) {
                 // these are EVM style addresses
-                expect(node.owner).toEqual(alith.address);
+                expect([alith.address, balthathar.address]).toContain(node.owner);
                 expect(node.proceedsAccount).toEqual(alith.address);
                 expect(node.contractAddress.startsWith('0x')).toEqual(true);
+                if (node.contractAddress === contractAddress) {
+                    proverForBalthathar = true;
+                }
                 // default values or greater
                 expect(BigInt(node.baseCostPerByte)).toBeGreaterThanOrEqual(10n);
                 expect(BigInt(node.baseFee)).toBeGreaterThanOrEqual(1000n);
@@ -59,6 +89,7 @@ describe('handleEventProverDeployed()', () => {
                 expect(response2.data.prover.chainKey).toEqual(node.chainKey);
                 expect(response2.data.prover.name).toEqual(node.name);
             }
+            expect(proverForBalthathar).toEqual(true);
         });
     });
 });
