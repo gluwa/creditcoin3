@@ -12,6 +12,8 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 const API_KEY: &str = "api-key";
+const POST_WORK_ORDER_RETRIES: u32 = 5;
+const RETRY_SECONDS: u64 = 30;
 
 // Maps proving input file names to corresponding proving request field names
 const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
@@ -54,6 +56,8 @@ enum Error {
     BadProofInputFile(String),
     #[error("Sending request failed. Check that `prover-be-socket-addr` argument is provided and correct. Error: {0}")]
     ReqwestSendError(String),
+    #[error("Attempted to send proving request {0} times. Out of attempts.")]
+    ReqwestSendOutOfRetries(u32),
     #[error("BadProofOrderRequest. Error: {0}")]
     BadProofOrderRequest(String),
     #[error("Couldn't parse work order response. Error: {0}")]
@@ -66,6 +70,8 @@ enum Error {
     BadProofResultRequest(String),
     #[error("Bad proof result response. Error: {0}")]
     BadProofResultResponse(String),
+    #[error("Form preparation failed: {0}")]
+    FormPreparationFailed(String),
 }
 
 /// Handle proof order
@@ -78,15 +84,51 @@ pub async fn handle_proof_order(
     info!("Handling external proof order");
     let client = Client::new();
 
-    let form = prepare_proof_order_form(query_id, &files).await?;
-
-    // Post work order
-    let response = post_work_order(&client, form, prover_be_socket_addr, be_api_key).await?;
+    let response = build_and_post_order_with_retries(
+        &client,
+        query_id,
+        files,
+        prover_be_socket_addr,
+        be_api_key,
+    )
+    .await?;
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
     info!("Work order proof len: {}", proof_bytes.len());
     Ok(proof_bytes)
+}
+
+async fn build_and_post_order_with_retries(
+    client: &Client,
+    query_id: QueryId,
+    files: Vec<PathBuf>,
+    prover_be_socket_addr: &str,
+    be_api_key: &str,
+) -> std::result::Result<WorkOrderResponse, Error> {
+    // Internet connection interruptions should be tolerated, rather than treated as proving failures
+    for i in 0..POST_WORK_ORDER_RETRIES {
+        let form = prepare_proof_order_form(query_id, &files)
+            .await
+            .map_err(|e| Error::FormPreparationFailed(e.to_string()))?;
+        let response_or_err =
+            post_work_order(client, form, prover_be_socket_addr, be_api_key).await;
+        if let Err(error) = response_or_err {
+            match error {
+                Error::ReqwestSendError(message) => {
+                    warn!("Sending proving request to BE failed. Make sure prover has stable internet. Error: {:?}", message);
+                }
+                _ => return Err(error),
+            }
+        } else {
+            return response_or_err;
+        }
+        // Don't delay winding up if this was the last retry
+        if i < POST_WORK_ORDER_RETRIES - 1 {
+            sleep(Duration::from_secs(RETRY_SECONDS)).await;
+        }
+    }
+    Err(Error::ReqwestSendOutOfRetries(POST_WORK_ORDER_RETRIES))
 }
 
 async fn post_work_order(
@@ -136,13 +178,24 @@ async fn poll_for_result(
     );
 
     let timeout = Duration::from_secs(60 * 60); // 60 minutes
-    let interval = Duration::from_secs(30); // Poll every 30 seconds
+    let interval = Duration::from_secs(RETRY_SECONDS); // Poll every 30 seconds
     let start = tokio::time::Instant::now();
 
     while start.elapsed() < timeout {
         // If response is Ok but no proof is supplied, then pipeline is still in progress.
-        if let Some(proof) = get_work_order_result(client, &url).await? {
-            return Ok(proof);
+        let result = get_work_order_result(client, &url).await;
+        match result {
+            Ok(maybe_proof) => {
+                if let Some(proof) = maybe_proof {
+                    return Ok(proof);
+                }
+            }
+            Err(error) => match error {
+                Error::ReqwestSendError(message) => {
+                    warn!("Polling BE for proof result failed. Make sure prover has stable internet. Error: {:?}", message);
+                }
+                _ => return Err(error),
+            },
         }
 
         info!(
