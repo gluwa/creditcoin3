@@ -1,3 +1,4 @@
+import { hexToString } from '@polkadot/util';
 import { Option, U32, U64, U128 } from '@polkadot/types-codec';
 import { SupportedChainsPrimitivesSupportedChain } from '@polkadot/types/lookup';
 import { newApi, ApiPromise } from '../../lib';
@@ -70,6 +71,35 @@ describe('initiateStoreAndDatabase()', () => {
                 // note: this is not per-chain for now
                 const minBondRequirement = (await api.query.attestation.minBondRequirement(node.chainKey)) as U128;
                 expect(node.minBondRequirement).toEqual(minBondRequirement.toString());
+            }
+        }, 15_000);
+
+        it('graphQL returns SupportedChains which match the Creditcoin3 chain storage', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    supportedChains(
+                        orderBy: CHAIN_KEY_ASC,
+                    ) { nodes { id, chainKey, chainName, chainId }}}`,
+            );
+            expect(response.data.supportedChains.nodes).toBeTruthy();
+            // starting with 4 initial chain in Genesis but we'll inspect all currently supported
+            expect(response.data.supportedChains.nodes.length).toBeGreaterThanOrEqual(4);
+
+            for (const node of response.data.supportedChains.nodes) {
+                expect(node.id).toBeTruthy();
+                expect(node.chainKey).toBeGreaterThan(0);
+
+                console.log(`*** DEBUG: inspecting chainKey=${node.chainKey}`);
+
+                // such source exists in on-chain storage
+                const sourceChain = (
+                    (await api.query.supportedChains.supportedChains(
+                        node.chainKey,
+                    )) as Option<SupportedChainsPrimitivesSupportedChain>
+                ).unwrap();
+                // GraphQL & on-chain values match
+                expect(BigInt(node.chainId)).toEqual(sourceChain.chainId.toBigInt());
+                expect(node.chainName).toEqual(hexToString(sourceChain.chainName.toString()));
             }
         }, 15_000);
     });
