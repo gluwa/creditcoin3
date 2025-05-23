@@ -64,7 +64,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     const supportedChain3 = SupportedChain.create({
         id: 'chain_3',
         chainKey: 3,
-        chainName: 'Sepolia Ethereum',
+        chainName: 'Sepolia ethereum',
         chainId: BigInt(11155111),
         at: block.block.header.number.toNumber(),
     });
