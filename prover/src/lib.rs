@@ -33,9 +33,6 @@ pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
 /// `CcClientArc` type
 pub type CcClientArc = Arc<cc3::Client>;
 
-/// `EthClientArc` type
-pub type EthClientArc = Arc<EthClient>;
-
 /// Query polling interval
 /// Defines how often the prover will poll for unprocessed queries
 const QUERY_POLLING_INTERVAL: Duration = Duration::from_secs(60);
@@ -172,10 +169,10 @@ impl Server {
             ));
         };
         // Create an eth client
-        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
+        let eth_client = EthClient::new(&self.config.eth_rpc_url, None).await?;
 
         let r = query::process(
-            eth_client.clone(),
+            eth_client,
             &query,
             &self.attestations_cache,
             true,
@@ -204,7 +201,7 @@ impl Server {
             "We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"
         ))?);
         // Create an eth client
-        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
+        let eth_client = EthClient::new(&self.config.eth_rpc_url, None).await?;
         let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>>)>> = Vec::new();
 
         for query in queries {

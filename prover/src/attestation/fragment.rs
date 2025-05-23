@@ -14,7 +14,7 @@ use pallet_prover_primitives::Query;
 use crate::attestation::create_block_with_prev_digest;
 use crate::postgres::blockwithdigest::BlockWithDigest;
 use crate::postgres::from_storage_type;
-use crate::{postgres, AttestationCacheType, EthClientArc};
+use crate::{postgres, AttestationCacheType};
 
 #[derive(Debug)]
 enum FragmentType {
@@ -62,7 +62,7 @@ pub enum Error {
 // This function will either get the fragment from the cache or create it and store it in the cache
 // The fragment is created by querying the chain for the attestation chain interval and then querying the chain for the attestation fragment
 pub async fn get_for_claim(
-    eth_client: &EthClientArc,
+    eth_client: &Client,
     query: &Query,
     attestation_cache: &AttestationCacheType,
 ) -> std::result::Result<AttestationFragment, Error> {

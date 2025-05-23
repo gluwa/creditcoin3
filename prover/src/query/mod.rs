@@ -1,5 +1,6 @@
 use anyhow::Result;
 use either::Either;
+use eth::Client;
 use sp_core::H256;
 use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
@@ -8,7 +9,7 @@ use tracing::{error, info, warn};
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
-use crate::{attestation::fragment, AttestationCacheType, EthClientArc};
+use crate::{attestation::fragment, AttestationCacheType};
 
 pub mod external;
 
@@ -48,7 +49,7 @@ pub enum Error {
 // - `attestation_cache`: attestation cache
 // - `stone_proof`: whether to generate a stone proof
 pub async fn process(
-    eth_client: EthClientArc,
+    eth_client: Client,
     query: &Query,
     attestation_cache: &AttestationCacheType,
     stone_proof: bool,

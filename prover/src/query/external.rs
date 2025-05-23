@@ -34,6 +34,7 @@ fn get_request_field(file_name: &str) -> Result<String> {
 struct WorkOrderResponse {
     request_id: String,
     query_id: String,
+    message: String,
     status: String,
 }
 
