@@ -13,7 +13,6 @@ use subxt::{
     },
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
-    ext::futures::StreamExt,
     OnlineClient, SubstrateConfig,
 };
 use subxt_signer::{
@@ -337,7 +336,7 @@ impl<'a> Client {
         let target_sample_size = self.target_sample_size(chain_key).await?;
 
         // Get attestor working set size
-        let committee_set_size = self.get_attestor_working_set_size(chain_key).await?;
+        let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
 
         info!(
             "Target set size: {}, committee set size: {}",
@@ -635,21 +634,22 @@ impl<'a> Client {
         Ok(nonce)
     }
 
-    pub async fn get_attestor_working_set_size(&self, chain_key: u64) -> Result<usize, Error> {
-        let address = cc3::storage().attestation().attestors_iter1(chain_key);
+    pub async fn get_attestor_active_set_size(&self, chain_key: u64) -> Result<usize, Error> {
+        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
 
-        let count = self
+        let result = self
             .api()
             .await?
             .storage()
             .at_latest()
             .await?
-            .iter(address)
-            .await?
-            .count()
-            .await;
+            .fetch(&storage_query)
+            .await?;
 
-        Ok(count)
+        match result {
+            Some(result) => Ok(result.len()),
+            None => Ok(0),
+        }
     }
 }
 

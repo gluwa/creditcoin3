@@ -218,6 +218,7 @@ fn make_transcript(
 
 /// Calculates the selection threshold based on the target sample size and the working set size.
 /// This is used to determine the probability of an attestor being selected.
+/// If the working size is one, the threshold is set to `MAX_U128`
 ///
 /// # Arguments
 ///
@@ -228,8 +229,8 @@ fn make_transcript(
 ///
 /// Returns the threshold value as a `u128`.
 fn calculate_threshold(target_sample_size: u128, working_size: u128) -> u128 {
-    if working_size == 0 {
-        return 0;
+    if working_size <= 1 {
+        return MAX_U128;
     }
     // Calculate the threshold
     MAX_U128
@@ -354,24 +355,24 @@ mod tests {
         let working_size = 1;
 
         let threshold = calculate_threshold(target_sample_size, working_size);
-        assert!(threshold > 0);
+        assert_eq!(threshold, MAX_U128);
 
         let target_sample_size = 1;
         let working_size = 1;
 
         let threshold = calculate_threshold(target_sample_size, working_size);
-        assert!(threshold > 0);
+        assert_eq!(threshold, MAX_U128);
 
         let target_sample_size = 0;
         let working_size = 0;
 
         let threshold = calculate_threshold(target_sample_size, working_size);
-        assert_eq!(threshold, 0);
+        assert_eq!(threshold, MAX_U128);
 
         let target_sample_size = 0;
         let working_size = 1;
 
         let threshold = calculate_threshold(target_sample_size, working_size);
-        assert_eq!(threshold, 0);
+        assert_eq!(threshold, MAX_U128);
     }
 }
