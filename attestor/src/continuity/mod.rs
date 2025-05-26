@@ -2,7 +2,7 @@ use anyhow::Result;
 use sp_core::H256;
 use std::collections::BTreeMap;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use attestation_chain::{block::Block, continuity_chain::Manager};
 use eth::Client;
@@ -39,7 +39,7 @@ impl Cache {
     /// Prunes cache by removing blocks older than the specified block number.
     pub fn prune_all_before(&mut self, block_number: u64) {
         // Remove all blocks before the specified block number
-        info!("Pruning cache. Removing blocks older than {}", block_number);
+        debug!("Pruning cache. Removing blocks older than {}", block_number);
         self.blocks.retain(|&k, _| k >= block_number);
     }
 

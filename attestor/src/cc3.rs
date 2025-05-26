@@ -94,14 +94,16 @@ impl<'a> Client {
             .chain_name
             .clone();
 
-        info!("Chain name: {:?}", String::from_utf8(chain_name.clone())?);
-
         let chain_key = cc_client
-            .get_chain_key(chain_id, chain_name)
+            .get_chain_key(chain_id, chain_name.clone())
             .await?
             .ok_or(Error::FailedToGetChainKey)?;
 
-        info!("Chain key: {:?}", chain_key);
+        info!(
+            "⚙️ Configured attestor client for chain: {:?} with key {:?}",
+            String::from_utf8(chain_name.clone())?,
+            chain_key
+        );
 
         let attestation_interval = cc_client
             .chain_attestation_interval(chain_key)

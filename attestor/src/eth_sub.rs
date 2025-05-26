@@ -46,7 +46,7 @@ pub async fn attest_to_heads(
         }
 
         info!(
-            "Crawling historical blocks, from: {} to: {}",
+            "🔎 Crawling historical blocks, from: {} to: {}",
             config.start_block, config.end_block
         );
         // Providing the config will fetch historical blocks

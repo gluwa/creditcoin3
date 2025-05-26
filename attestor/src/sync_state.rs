@@ -86,7 +86,7 @@ impl SyncState {
         let percent_frac = percent % 100;
 
         info!(
-            "Sync Progress: {}.{:02}% ({}/{}) | ETA: {}d {}h {}m {}s",
+            "⌛ Sync Progress: {}.{:02}% ({}/{}) | ETA: {}d {}h {}m {}s",
             percent_whole,
             percent_frac,
             self.last_finalized_attestation_header,

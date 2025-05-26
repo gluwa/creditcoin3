@@ -177,7 +177,7 @@ impl AsyncEngine {
             .insert((attestation.header_number(), attestation.digest()));
 
         info!(
-            "Submitted attestation for round: {:?}, digest: {:?}, epoch: {}",
+            "✉️ Submitted attestation for round: {:?}, digest: {:?}, epoch: {}",
             round,
             attestation.digest(),
             engine.current_epoch
@@ -258,7 +258,7 @@ impl AsyncEngine {
                 return Ok(attestation);
             }
 
-            info!("Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
+            info!("⏱️ Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
                       last_eth_block_number,
                       attestation.header_number + self.maturity_delay);
 
@@ -305,12 +305,12 @@ impl Engine {
 
         let can_attest = self.cc3_client.can_attest().await?;
         if !can_attest {
-            info!("Not allowed to attest in this epoch, waiting until next epoch rotation to reevaluate");
+            info!("🔴 Not allowed to attest in this epoch, waiting until next epoch rotation to reevaluate");
             self.state = State::NotRunning;
             return Ok(());
         }
 
-        info!("Starting attestation engine");
+        info!("🟢 Starting attestation engine");
         let attestation_interval = self.cc3_client.get_attestation_interval();
 
         let cc3_client = self.cc3_client.clone();
@@ -344,7 +344,7 @@ impl Engine {
             )
             .await
             {
-                Ok(()) => info!("Attestation engine stopped"),
+                Ok(()) => info!("🔴 Attestation engine stopped"),
                 Err(e) => error!("Attestation engine stopped with error: {:?}", e),
             }
         }));
@@ -437,7 +437,7 @@ impl Engine {
             // Drain the engine until we are caught up
             while let Some(attestation) = self.next().await {
                 if attestation.header_number >= last_finalized {
-                    info!(
+                    debug!(
                         "Caught up to last finalized attestation: {:}",
                         last_finalized
                     );
@@ -445,9 +445,9 @@ impl Engine {
                 }
             }
         } else if drifted {
-            warn!("Attestation was finalized, but we are ahead with voting. Last voted for: {:}, last finalized attestation: {:}", last_voted_for_block, last_finalized);
+            warn!("⚠️ Attestation was finalized, but we are ahead with voting. Last voted for: {:}, last finalized attestation: {:}", last_voted_for_block, last_finalized);
             info!(
-                "Stopping the engine at last block voted for: {:?}, current epoch: {}",
+                "🛑 Stopping the engine at last block voted for: {:?}, current epoch: {}",
                 last_voted_for_block, self.current_epoch
             );
 
@@ -517,7 +517,7 @@ impl Engine {
         attestation_header_number: u64,
     ) -> Result<continuity::AttestationFragment, Error> {
         if attestation_header_number == 0 {
-            info!("Creating default continuity proof for header number 0");
+            info!("🛠️ Creating default continuity proof for header number 0");
             return Ok(continuity::AttestationFragment::default());
         }
 
@@ -586,7 +586,7 @@ impl Engine {
     async fn note_last_attested_header(&mut self, header: u64) -> Result<(), Error> {
         let last_voted_for = self.voted_for.last().copied().unwrap_or_default().0;
 
-        info!(
+        debug!(
             "Last finalized attestation: {:}, last voted for: {:}",
             header, last_voted_for
         );
@@ -599,7 +599,7 @@ impl Engine {
             && self.state.is_halted()
         {
             info!(
-                "Chain caught up, resuming attestation engine at block: {:}",
+                "🟢 Chain caught up, resuming attestation engine at block: {:}",
                 last_voted_for
             );
             let start_at = last_voted_for + self.attestation_interval();
@@ -619,7 +619,7 @@ impl Engine {
     /// Note the epoch change
     /// If the epoch changes and we are not running, we need to reevaluate the engine
     async fn note_epoch_change(&mut self, epoch: u64) -> Result<(), Error> {
-        info!("Noting current epoch: {}", epoch);
+        debug!("Noting current epoch: {}", epoch);
         self.current_epoch = epoch;
 
         // Grab the last finalized attestation
@@ -649,14 +649,14 @@ impl Engine {
             State::Halted(halted_at) => {
                 // If we exceed the maximum epochs halted, we need to restart the engine
                 if epoch >= halted_at + MAX_EPOCHS_HALTED {
-                    info!("Engine is halted, but enough epochs have passed, restarting");
+                    info!("🫱 Engine is halted, but enough epochs have passed, restarting");
                     // Clear the voted for list
                     self.voted_for.clear();
                     // Start the engine again
                     self.start(start_at).await?;
                     return Ok(());
                 }
-                info!("Engine is halted, but not enough epochs have passed, waiting");
+                info!("✋ Engine is halted, but not enough epochs have passed, waiting");
             }
             // In case we are not running or stopped, we need to start the engine
             _ => {

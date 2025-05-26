@@ -40,13 +40,13 @@ impl CclientSub {
             match event {
                 CcEvent::RandomnessChanged((epoch, randomness)) => {
                     info!(
-                        "Randomness changed. Epoch: {}, Randomness: {}",
+                        "🕒 Epoch rotated. Epoch: {}, Randomness: {}",
                         epoch,
                         hex::encode(randomness)
                     );
 
                     let event = Event::RandomnessChanged((epoch, randomness));
-                    info!("Locking engine for event");
+                    debug!("Locking engine for event");
                     engine.note_cc_event(event).await?;
                 }
 
@@ -56,7 +56,10 @@ impl CclientSub {
                         continue;
                     }
 
-                    info!("Attestation interval updated. New interval: {}", interval);
+                    info!(
+                        "📢 Attestation interval updated. New interval: {}",
+                        interval
+                    );
                     let event = Event::AttestationIntervalChanged((ck, interval));
                     engine.note_cc_event(event).await?;
                 }

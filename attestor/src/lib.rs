@@ -46,7 +46,7 @@ impl Server {
     pub async fn run(&mut self) -> Result<()> {
         let mut engine = AsyncEngine::new(&self.config).await?;
         engine.start(self.config.eth_start_block).await?;
-        info!("Started attestation engine");
+        debug!("Started attestation engine");
 
         // Create a task for ccsub and monitor it
         let ccsub = ccsub::CclientSub::new(engine.clone());
@@ -72,7 +72,7 @@ impl Server {
                 maybe_attestation = engine.next() => {
                     if let Some(attestation) = maybe_attestation {
                         let round = attestation.round();
-                        info!("Going to submit attestation for round: {:?}", round);
+                        debug!("Going to submit attestation for round: {:?}", round);
                         match engine.submit_attestation(attestation).await {
                             Ok(()) => {
                                 debug!("Submitted attestation for round: {:?}", round);
@@ -92,7 +92,7 @@ impl Server {
                             }
                         }
                     } else {
-                        info!("No attestation to submit, sleeping for 6 seconds");
+                        debug!("No attestation to submit, sleeping for 6 seconds");
                         sleep(std::time::Duration::from_secs(6)).await;
                     }
                 }
