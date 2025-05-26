@@ -40,7 +40,7 @@ impl SyncState {
     }
 
     /// Update the state with a new finalized header
-    pub fn update(&mut self, new_finalized: u64) {
+    pub fn update(&mut self, new_finalized: u64, new_target: u64) {
         let now = Instant::now();
 
         let blocks_advanced = new_finalized.saturating_sub(self.last_finalized);
@@ -58,6 +58,7 @@ impl SyncState {
         }
 
         self.last_finalized_attestation_header = new_finalized;
+        self.target_header = new_target;
         self.log_progress();
     }
 

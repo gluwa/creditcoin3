@@ -611,7 +611,8 @@ impl Engine {
             .retain(|(header_number, _)| *header_number > header);
 
         // Update the sync state
-        self.sync_state.update(header);
+        let last_eth_height = self.eth_client.get_last_block().await?;
+        self.sync_state.update(header, last_eth_height);
 
         Ok(())
     }
