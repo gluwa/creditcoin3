@@ -384,6 +384,7 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
             new_min_bond_requirement,
         )
     }

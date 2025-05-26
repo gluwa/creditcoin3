@@ -32,7 +32,7 @@ import {
     MaxAttestorsChanged,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
-import { getChainData, updateAllChainsMinBondRequirement } from './initStore';
+import { getChainData } from './initStore';
 
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
     logger.info(`New Attestors Elected event found at block ${event.block.block.header.number.toString()}`);
@@ -755,7 +755,7 @@ export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent
 
     const {
         event: {
-            data: [amount],
+            data: [chainKey, amount],
         },
     } = event;
 
@@ -766,13 +766,20 @@ export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent
 
     const minBondRequirementUpdated = MinBondRequirementUpdated.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        chainKey: BigInt(chainKey.toString()),
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
         amount: (amount as Balance).toBigInt(),
     });
 
-    await updateAllChainsMinBondRequirement((amount as Balance).toBigInt());
+    // Get attestationChainData
+    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainData = await getChainData(chainKeyNumber);
+    if (chainData) {
+        chainData.minBondRequirement = (amount as Balance).toBigInt();
+        await chainData?.save();
+    }
 
     await minBondRequirementUpdated.save();
 }

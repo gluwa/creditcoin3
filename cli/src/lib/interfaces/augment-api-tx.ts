@@ -171,8 +171,11 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, u32]
             >;
             setMinBondRequirement: AugmentedSubmittable<
-                (minBondRequirement: u128 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
-                [u128]
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    minBondRequirement: u128 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u128]
             >;
             setPayee: AugmentedSubmittable<
                 (

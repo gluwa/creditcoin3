@@ -1157,7 +1157,7 @@ declare module '@polkadot/types/lookup' {
             readonly attestors: Vec<AccountId32>;
         } & Struct;
         readonly isMinBondRequirementUpdated: boolean;
-        readonly asMinBondRequirementUpdated: u128;
+        readonly asMinBondRequirementUpdated: ITuple<[u64, u128]>;
         readonly isChainRewardUpdated: boolean;
         readonly asChainRewardUpdated: ITuple<[u64, u128]>;
         readonly isAttestationIntervalChanged: boolean;
@@ -3025,6 +3025,7 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isSetMinBondRequirement: boolean;
         readonly asSetMinBondRequirement: {
+            readonly chainKey: u64;
             readonly minBondRequirement: u128;
         } & Struct;
         readonly isSetChainReward: boolean;

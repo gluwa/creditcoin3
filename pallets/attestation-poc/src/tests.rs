@@ -58,7 +58,7 @@ impl Attestor {
 fn set_min_bond_requirement_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::set_min_bond_requirement(RuntimeOrigin::none(), 200),
+            Attestation::set_min_bond_requirement(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY, 200),
             BadOrigin
         );
     })
@@ -68,7 +68,11 @@ fn set_min_bond_requirement_should_error_when_not_signed() {
 fn set_min_bond_requirement_should_error_when_not_signed_by_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::set_min_bond_requirement(RuntimeOrigin::signed(ATTESTOR_1), 200),
+            Attestation::set_min_bond_requirement(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                200
+            ),
             BadOrigin
         );
     })
@@ -77,18 +81,21 @@ fn set_min_bond_requirement_should_error_when_not_signed_by_root() {
 #[test]
 fn set_min_bond_requirement_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        let min_bond_requirement = Attestation::min_bond_requirement();
+        let min_bond_requirement = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
         assert_eq!(min_bond_requirement, 10_000);
 
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
             200
         ));
 
-        let min_bond_requirement = Attestation::min_bond_requirement();
+        let min_bond_requirement = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
         assert_eq!(min_bond_requirement, 200);
 
-        System::assert_last_event(crate::Event::MinBondRequirementUpdated(200).into());
+        System::assert_last_event(
+            crate::Event::MinBondRequirementUpdated(SUPPORTED_CHAIN_KEY, 200).into(),
+        );
     })
 }
 
@@ -270,7 +277,7 @@ fn register_attestor_should_create_ledger_and_emit_event() {
         assert_eq!(attestor.bls_public_key, None);
         assert_eq!(attestor.status, AttestorStatus::Idle);
 
-        let min_bond_requirement = MinBondRequirement::<Test>::get();
+        let min_bond_requirement = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
 
         let ledger = Ledger::<Test>::get(STASH_1);
         assert!(ledger.is_some());
@@ -297,6 +304,7 @@ fn register_attestor_without_sufficient_funds_should_fail() {
         // Set min bond
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
             100_000_000_000
         ));
 
@@ -322,6 +330,7 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
         // Balance of Stash 3 is 100_000
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
             60_000
         ));
 
@@ -354,7 +363,7 @@ fn registering_multiple_attestor_increases_locked_balance() {
             att.attestor_id,
         ));
 
-        let min_bond_requirement = MinBondRequirement::<Test>::get();
+        let min_bond_requirement = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
 
         let locked_balance = Attestation::get_locked_balance(&STASH_3);
         assert_eq!(locked_balance, min_bond_requirement);
@@ -392,7 +401,7 @@ fn registering_dergegistering_multiple_attestor_increases_decreases_locked_balan
             att.attestor_id,
         ));
 
-        let min_bond_requirement = MinBondRequirement::<Test>::get();
+        let min_bond_requirement = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
 
         let locked_balance = Attestation::get_locked_balance(&STASH_3);
         assert_eq!(locked_balance, min_bond_requirement);
@@ -612,7 +621,7 @@ fn stash_ledger_schould_increase_when_registering_multiple_attestors() {
             att.attestor_id,
         ));
 
-        let min_bond_requirement = MinBondRequirement::<Test>::get();
+        let min_bond_requirement = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
 
         let ledger = Ledger::<Test>::get(STASH_1);
         assert!(ledger.is_some());
@@ -2169,7 +2178,7 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
             attestor.attestor_id,
         ));
 
-        let min_bond_requirement = Attestation::min_bond_requirement();
+        let min_bond_requirement = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
 
         let ledger = Ledger::<Test>::get(STASH_1);
         assert!(ledger.is_some());
@@ -2242,7 +2251,7 @@ fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
             attestor.attestor_id,
         ));
 
-        let min_bond_requirement = Attestation::min_bond_requirement();
+        let min_bond_requirement = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
 
         let ledger = Ledger::<Test>::get(STASH_1);
         assert!(ledger.is_some());
@@ -2286,7 +2295,7 @@ fn removing_attestor_and_withdrawing_fails_if_not_waited_long_enough() {
             attestor.attestor_id,
         ));
 
-        let min_bond_requirement = Attestation::min_bond_requirement();
+        let min_bond_requirement = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
 
         let ledger = Ledger::<Test>::get(STASH_1);
         assert!(ledger.is_some());

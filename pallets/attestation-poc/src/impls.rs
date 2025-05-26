@@ -68,20 +68,20 @@ impl<T: Config> Pallet<T> {
         // Make sure the stash can pay for the registration
         let stash_balance = Self::get_free_balance(&stash);
         ensure!(
-            stash_balance >= Self::min_bond_requirement(),
+            stash_balance >= Self::min_bond_requirement(chain_key),
             Error::<T>::InsufficientBalance
         );
 
         // Create a new ledger for the attestor
         // With minimum bond requirement
         let ledger: AttestorLedger<T> =
-            AttestorLedger::new(stash.clone(), Self::min_bond_requirement());
+            AttestorLedger::new(stash.clone(), Self::min_bond_requirement(chain_key));
 
         // Default to stash as payee
         // If bond fails, it means it's already bonded and there is already an attestor(s) registerd by this stash
         // In this case, we just bond extra to the stash
         if ledger.bond(RewardDestination::Stash).is_err() {
-            Self::bond_extra(&stash)?;
+            Self::bond_extra(chain_key, &stash)?;
         } else {
             // Would fail if account has no provider.
             frame_system::Pallet::<T>::inc_consumers(&stash)?;
@@ -89,7 +89,7 @@ impl<T: Config> Pallet<T> {
             // Emit event
             Self::deposit_event(Event::<T>::Bonded {
                 stash,
-                amount: Self::min_bond_requirement(),
+                amount: Self::min_bond_requirement(chain_key),
             });
         }
 
@@ -125,7 +125,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Get the min bond requirement for the attestor
-        let bond = Self::min_bond_requirement();
+        let bond = Self::min_bond_requirement(chain_key);
 
         let mut ledger = Self::ledger(&stash).ok_or(Error::<T>::NotStash)?;
         // Value is the minimum of the bond and the active amount
@@ -410,8 +410,8 @@ impl<T: Config> Pallet<T> {
 
 /// NON-CALL FUNCTIONS ///
 impl<T: Config> Pallet<T> {
-    pub(super) fn bond_extra(stash: &T::AccountId) -> DispatchResult {
-        let bond = Self::min_bond_requirement();
+    pub(super) fn bond_extra(chain_key: ChainKey, stash: &T::AccountId) -> DispatchResult {
+        let bond = Self::min_bond_requirement(chain_key);
 
         let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
 

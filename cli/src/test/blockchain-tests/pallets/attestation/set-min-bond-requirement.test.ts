@@ -1,6 +1,7 @@
 import { BN } from '@polkadot/util';
 import { newApi, ApiPromise, KeyringPair, MICROUNITS_PER_CTC } from '../../../../lib';
 import { extractFee } from '../../../utils';
+import { chain_Anvil2_Key } from '../supported-chains/consts';
 
 describe('SetMinBondRequirement', (): void => {
     let api: ApiPromise;
@@ -23,7 +24,7 @@ describe('SetMinBondRequirement', (): void => {
             // WARNING: setMinBondRequirement() is global, not per supported chain !
             // This may lead to unwanted side effects in other test scenarios
             const unsubscribe = api.tx.sudo
-                .sudo(api.tx.attestation.setMinBondRequirement(minBond))
+                .sudo(api.tx.attestation.setMinBondRequirement(chain_Anvil2_Key, minBond))
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })

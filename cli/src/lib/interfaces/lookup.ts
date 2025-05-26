@@ -925,7 +925,7 @@ export default {
                 chainKey: 'u64',
                 attestors: 'Vec<AccountId32>',
             },
-            MinBondRequirementUpdated: 'u128',
+            MinBondRequirementUpdated: '(u64,u128)',
             ChainRewardUpdated: '(u64,u128)',
             AttestationIntervalChanged: '(u64,u64)',
             PendingAttestationIntervalSet: '(u64,u64)',
@@ -2598,6 +2598,7 @@ export default {
                 attestationsPerCheckpoint: 'u32',
             },
             set_min_bond_requirement: {
+                chainKey: 'u64',
                 minBondRequirement: 'u128',
             },
             set_chain_reward: {

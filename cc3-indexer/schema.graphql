@@ -390,6 +390,10 @@ type MinBondRequirementUpdated @entity {
     """
     id: ID!
     """
+    The ChainKey of the attestation chain
+    """
+    chainKey: BigInt!
+    """
     New value of MinBondRequirementUpdated that was updated by root
     """
     amount: BigInt!

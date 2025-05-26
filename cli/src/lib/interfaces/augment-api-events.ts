@@ -91,7 +91,7 @@ declare module '@polkadot/api-base/types/events' {
              * Max attestors changed for a chain
              **/
             MaxAttestorsChanged: AugmentedEvent<ApiType, [u64, u32]>;
-            MinBondRequirementUpdated: AugmentedEvent<ApiType, [u128]>;
+            MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
             PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
             RewardClaimed: AugmentedEvent<
                 ApiType,

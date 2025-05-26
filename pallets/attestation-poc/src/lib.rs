@@ -271,8 +271,14 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn min_bond_requirement)]
-    pub type MinBondRequirement<T: Config> =
-        StorageValue<_, BalanceOf<T>, ValueQuery, DefaultMinBondRequirement<T>>;
+    pub type MinBondRequirement<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        BalanceOf<T>,
+        ValueQuery,
+        DefaultMinBondRequirement<T>,
+    >;
 
     #[pallet::type_value]
     pub fn DefaultMinBondRequirement<T: Config>() -> BalanceOf<T> {
@@ -440,7 +446,7 @@ pub mod pallet {
             chain_key: ChainKey,
             attestors: Vec<T::AccountId>,
         },
-        MinBondRequirementUpdated(BalanceOf<T>),
+        MinBondRequirementUpdated(ChainKey, BalanceOf<T>),
         ChainRewardUpdated(ChainKey, BalanceOf<T>),
 
         /// Note a change in the attestation interval for a source chain. Also notes the
@@ -752,13 +758,17 @@ pub mod pallet {
         #[pallet::weight(<T as Config>::WeightInfo::set_min_bond_requirement())]
         pub fn set_min_bond_requirement(
             origin: OriginFor<T>,
+            chain_key: ChainKey,
             min_bond_requirement: BalanceOf<T>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            MinBondRequirement::<T>::set(min_bond_requirement);
+            MinBondRequirement::<T>::set(chain_key, min_bond_requirement);
 
-            Self::deposit_event(Event::<T>::MinBondRequirementUpdated(min_bond_requirement));
+            Self::deposit_event(Event::<T>::MinBondRequirementUpdated(
+                chain_key,
+                min_bond_requirement,
+            ));
 
             Ok(())
         }

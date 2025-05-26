@@ -224,8 +224,12 @@ declare module '@polkadot/api-base/types/storage' {
                 QueryableStorageEntry<ApiType, [u64]>;
             maxInvulnerables: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
-            minBondRequirement: AugmentedQuery<ApiType, () => Observable<u128>, []> &
-                QueryableStorageEntry<ApiType, []>;
+            minBondRequirement: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u128>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Where the reward payment should be made. Keyed by stash.
              *
