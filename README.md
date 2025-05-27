@@ -2,6 +2,20 @@
 
 A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart contracts.
 
+## Supported operating system
+
+The only supported OS is Linux / x86_64 - see the `runs-on:` sections in
+`.github/workflows/ci.yml` for the actual distro/version used during testing.
+
+**WARNING:** this repository makes heavy use of symbolic links to account for
+inter-dependencies between various components and to avoid artifacts in different
+directories diverging from one another. This works well on Linux and MacOS, however
+symbolic links are not supported on Windows!  If you see a symlink file being removed
+by git and replaced by its content that is most likely the reason.
+
+This is a mistake and should be corrected before merging!
+
+
 ## Dev environment setup
 
 To install tools & binaries used during development execute:
