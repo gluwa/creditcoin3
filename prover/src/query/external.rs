@@ -51,7 +51,7 @@ struct PipelineStatusResponse {
 }
 
 #[derive(Debug, Error)]
-enum Error {
+pub enum Error {
     #[error("The following file has no request field mapping: {0}")]
     BadProofInputFile(String),
     #[error("Sending request failed. Check that `prover-be-socket-addr` argument is provided and correct. Error: {0}")]
@@ -64,7 +64,7 @@ enum Error {
     BadProofOrderResponse(String),
     #[error("Timeout reached: Result not available within 60 minutes")]
     ProvingPipelineTimeout,
-    #[error("Proof generation failed")]
+    #[error("The Prover BE deleted our proving job completely rather than setting it to a failed state. This indicates the issue is with the prover BE and not with our query.")]
     ProofGenerationFailed,
     #[error("Bad proof result request. StatusCode: {0}")]
     BadProofResultRequest(String),
@@ -80,7 +80,7 @@ pub async fn handle_proof_order(
     files: Vec<PathBuf>,
     prover_be_socket_addr: &str,
     be_api_key: &str,
-) -> Result<Proof> {
+) -> Result<Proof, Error> {
     info!("Handling external proof order");
     let client = Client::new();
 

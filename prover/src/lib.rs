@@ -11,6 +11,7 @@ use tokio::{
     time::{interval, Duration, Interval, MissedTickBehavior},
 };
 use tracing::{debug, error, info};
+use query::external::Error as LightProvingError;
 
 use attestation::cache::AttestationCache;
 
@@ -192,7 +193,7 @@ impl Server {
         &self,
         queries: Vec<Query>,
         chain_attestation_interval: u64,
-    ) -> Result<Vec<JoinHandle<(Query, Result<Vec<u8>>)>>> {
+    ) -> Result<Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>>> {
         // Create thread safe versions of config strings
         let prover_be_socket_addr = Arc::new(self.config.prover_be_socket_addr.clone().ok_or(
             anyhow!("Tried to submit light proving jobs while not in light mode!"),
@@ -202,7 +203,7 @@ impl Server {
         ))?);
         // Create an eth client
         let eth_client = EthClient::new(&self.config.eth_rpc_url, None).await?;
-        let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>>)>> = Vec::new();
+        let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>> = Vec::new();
 
         for query in queries {
             let r = query::process(
@@ -306,8 +307,12 @@ impl Server {
                                 },
                                 Err(e) => {
                                     error!("Query processing failed, Error: {e:?}");
-                                    queued_light_proving_queries.remove(&query.id());
-                                    remove_query_id(&self.cc3_client, query.id()).await?;
+                                    if let LightProvingError::ProofGenerationFailed = e {
+                                        panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip and deleting associated queries. Fix prover BE then restart.");
+                                    } else {
+                                        queued_light_proving_queries.remove(&query.id());
+                                        remove_query_id(&self.cc3_client, query.id()).await?;
+                                    }
                                 }
                             }
                         },
