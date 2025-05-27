@@ -151,7 +151,7 @@ describe('handleQueryProofVerified()', () => {
             for (const node of response.data.chainQueries.nodes) {
                 expect(node.id).toBeTruthy();
                 expect(node.chainQueryId).toEqual(queryId);
-                expect(node.chainKey).toEqual(chain_Anvil1_Key);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
 
                 expect(BigInt(node.height)).toEqual(BigInt(sampleQuery.height));
                 expect(BigInt(node.index)).toEqual(BigInt(sampleQuery.index));

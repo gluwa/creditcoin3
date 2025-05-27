@@ -74,7 +74,7 @@ export async function handleQuerySubmitted(event: FrontierEvmEvent<QuerySubmitte
     const queryEntity = ChainQueries.create({
         id,
         chainQueryId: queryId.toString(),
-        chainKey: chainQuery.chainId.toNumber(),
+        chainKey: chainQuery.chainId.toBigInt(),
         height: chainQuery.height.toBigInt(),
         index: chainQuery.index.toBigInt(),
         layoutSegments: chainQuery.layoutSegments.map((segment) => {

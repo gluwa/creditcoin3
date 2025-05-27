@@ -83,7 +83,7 @@ describe('handleEventAttestorChilled()', () => {
                 expect(node.whoId).toEqual(bob.address);
                 expect(node.blockNumber).toBeGreaterThan(startingBlock);
                 expect(node.attestorId).toEqual(attestor.address);
-                expect(node.chainKey).toEqual(chain_Anvil2_Key);
+                expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
             }

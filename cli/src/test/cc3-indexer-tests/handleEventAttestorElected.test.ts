@@ -49,7 +49,7 @@ describe('handleEventAttestorElected()', () => {
                         last: 10,
                         filter: {
                             epoch: { equalTo: "${currentEpoch}"},
-                            chainKey: { equalTo: ${chain_Anvil1_Key}},
+                            chainKey: { equalTo: "${chain_Anvil1_Key}"},
                         }
                     ) { nodes { id, epoch, chainKey, attestorId }}
                 }`,
@@ -62,7 +62,7 @@ describe('handleEventAttestorElected()', () => {
             for (const node of response.data.attestorsElecteds.nodes) {
                 expect(node.id).toBeTruthy();
                 expect(BigInt(node.epoch)).toEqual(currentEpoch);
-                expect(node.chainKey).toEqual(chain_Anvil1_Key);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
 
                 const response2 = await graphQLQuery(
@@ -82,7 +82,7 @@ describe('handleEventAttestorElected()', () => {
                     attestors(
                         orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10,
                         filter: {
-                            chainKey: { equalTo: ${chain_Anvil1_Key}},
+                            chainKey: { equalTo: "${chain_Anvil1_Key}"},
                         }
                     ) { nodes { id, attestorId, lastUpdateBlockNumber, status }}
                 }`,

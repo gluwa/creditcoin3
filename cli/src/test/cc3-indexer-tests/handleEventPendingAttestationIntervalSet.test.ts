@@ -11,7 +11,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
     const newInterval = randomIntBetween(10, 100);
-    let newChainKey = 0;
+    let newChainKey = 0n;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -25,8 +25,8 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
         // will fail if the query returns None
         newChainKey = (await api.query.supportedChains.chainIdAndNameToUniqKey(newChainId, newChainName))
             .unwrap()
-            .toNumber();
-        expect(newChainKey).toBeGreaterThan(0);
+            .toBigInt();
+        expect(newChainKey).toBeGreaterThan(0n);
     }, 30_000);
 
     afterAll(async () => {
@@ -62,7 +62,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
                 expect(node.blockNumber).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(node.chainKey).toEqual(newChainKey);
+                expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.interval).toEqual(newInterval);
                 expect(node.whoId).toEqual(root.address);
             }

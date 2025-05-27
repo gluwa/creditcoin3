@@ -45,7 +45,7 @@ describe('handleEventBlockAttested()', () => {
             let lastDigest = '';
             for (const node of response.data.attestations.nodes) {
                 expect(node.id).toBeTruthy();
-                expect(node.chainKey).toEqual(chain_Anvil1_Key);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(node.headerNumber).toBeGreaterThanOrEqual(0);
                 lastHeaderNumber = node.headerNumber;
 
@@ -87,7 +87,7 @@ describe('handleEventBlockAttested()', () => {
                     attestationChainData(
                         orderBy: CHAIN_KEY_ASC,
                         last: 1,
-                        filter: { chainKey: { equalTo: ${chain_Anvil1_Key} }}
+                        filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }}
                     ) { nodes { id, lastAttestedDigest, lastAttestedHeaderNumber }}
                 }`,
             );

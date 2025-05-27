@@ -30,7 +30,7 @@ describe('handleEventCheckpointReached()', () => {
             let checkpointBlockNumber = 0;
             for (const node of response.data.checkpoints.nodes) {
                 // we only have active attestors for Anvil 1
-                expect(node.chainKey).toEqual(chain_Anvil1_Key);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 // commit_attestation() contains ensure_none(origin)?;
                 // whoId is Origin::none()
                 expect(node.whoId).toBeTruthy();
@@ -68,7 +68,7 @@ describe('handleEventCheckpointReached()', () => {
                 `query { attestationChainData(orderBy: CHAIN_KEY_ASC, last: 10) { nodes { id, chainKey, lastCheckpointHeaderNumber }}}`,
             );
             for (const node of response.data.attestationChainData.nodes) {
-                if (node.chainKey === chain_Anvil1_Key) {
+                if (node.chainKey === chain_Anvil1_Key.toString()) {
                     foundMatch = true;
                     expect(node.lastCheckpointHeaderNumber).toEqual(lastBlockNumber);
                 }

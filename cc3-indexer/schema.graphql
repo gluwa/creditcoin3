@@ -5,7 +5,7 @@
 type AttestationChainData @entity {
     id: ID!
     # The chain key of the attestation chain
-    chainKey: Int! @index
+    chainKey: BigInt! @index
     # Chain reward
     chainReward: BigInt!
     # Minimum bond requirement
@@ -86,7 +86,7 @@ type Attestations @entity {
     """
     id: ID!
 
-    chainKey: Int! @index
+    chainKey: BigInt! @index
 
     headerNumber: Int!
 
@@ -109,7 +109,7 @@ type Attestors @entity {
     """
     id: ID!
 
-    chainKey: Int! @index
+    chainKey: BigInt! @index
 
     attestor: Account! @index
 
@@ -132,7 +132,7 @@ type AttestorsElected @entity {
 
     epoch: BigInt!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 }
@@ -145,7 +145,7 @@ type AttestorRegistered @entity {
 
     stash: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 
@@ -160,7 +160,7 @@ type AttestorUnregistered @entity {
 
     who: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 
@@ -175,7 +175,7 @@ type InvulnerableRegistered @entity {
 
     who: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 
@@ -190,7 +190,7 @@ type InvulnerableUnregistered @entity {
 
     who: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 
@@ -207,7 +207,7 @@ type Checkpoints @entity {
 
     atBlockNumber: Int!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     blockNumber: Int!
 
@@ -226,7 +226,7 @@ type TargetSampleSizeChanged @entity {
 
     blockNumber: Int!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     eventNewTargetSampleSize: Int!
 }
@@ -341,7 +341,7 @@ type RewardPaid @entity {
 
     who: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     amount: BigInt!
 
@@ -360,7 +360,7 @@ type AttestorActivated @entity {
 
     date: Date
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 
@@ -379,7 +379,7 @@ type AttestorChilled @entity {
 
     date: Date
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     attestor: Account!
 }
@@ -419,7 +419,7 @@ type ChainRewardUpdated @entity {
     """
     amount: BigInt!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     """
     The block height of the transfer
@@ -447,7 +447,7 @@ type CheckpointsCleared @entity {
     """
     date: Date
 
-    chainKey: Int!
+    chainKey: BigInt!
 }
 
 type ClearedStorageForRemovedChain @entity {
@@ -462,7 +462,7 @@ type ClearedStorageForRemovedChain @entity {
 
     who: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 }
 
 type AttestationIntervalChanged @entity {
@@ -475,7 +475,7 @@ type AttestationIntervalChanged @entity {
 
     date: Date
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     interval: Int!
 }
@@ -490,7 +490,7 @@ type CheckpointIntervalChanged @entity {
 
     date: Date
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     interval: Int!
 }
@@ -507,7 +507,7 @@ type PendingAttestationIntervalSet @entity {
 
     who: Account!
 
-    chainKey: Int!
+    chainKey: BigInt!
 
     interval: Int!
 }
@@ -543,7 +543,7 @@ type ChainQueries @entity {
     """
     id: ID!
     chainQueryId: String! @index
-    chainKey: Int!
+    chainKey: BigInt!
     height: BigInt!
     index: BigInt!
     layoutSegments: [LayoutSegment]
@@ -613,7 +613,7 @@ type ProceedsWithdrawn @entity {
 type SupportedChain @entity {
     id: ID!
     # Chain key
-    chainKey: Int! @index
+    chainKey: BigInt! @index
     # Chain id
     chainId: BigInt! @index
     # Chain name
@@ -625,7 +625,7 @@ type SupportedChain @entity {
 type ChainRegistered @entity {
     id: ID!
     # Chain key
-    chainKey: Int! @index
+    chainKey: BigInt! @index
     # Chain id
     chainId: BigInt! @index
     # Chain name
@@ -639,7 +639,7 @@ type ChainRegistered @entity {
 type ChainRemoved @entity {
     id: ID!
     # Chain key
-    chainKey: Int! @index
+    chainKey: BigInt! @index
     # Chain id
     chainId: BigInt! @index
     # Chain name

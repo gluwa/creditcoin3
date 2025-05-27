@@ -64,7 +64,7 @@ describe('handleEventAttestorRegistered()', () => {
 
             let foundMatch = false;
             for (const node of response.data.attestorRegistereds.nodes) {
-                expect([chain_Anvil1_Key, chain_Anvil2_Key]).toContain(node.chainKey);
+                expect([chain_Anvil1_Key.toString(), chain_Anvil2_Key.toString()]).toContain(node.chainKey);
                 expect(node.blockNumber).toBeGreaterThan(0);
                 expect(node.attestorId).toBeTruthy();
                 // match what's registered on-chain
@@ -103,7 +103,7 @@ describe('handleEventAttestorRegistered()', () => {
 
             let foundMatch = false;
             for (const node of response.data.attestors.nodes) {
-                expect([chain_Anvil1_Key, chain_Anvil2_Key]).toContain(node.chainKey);
+                expect([chain_Anvil1_Key.toString(), chain_Anvil2_Key.toString()]).toContain(node.chainKey);
                 expect(node.lastUpdateBlockNumber).toBeGreaterThan(0);
                 expect(node.status).toBeGreaterThan(0);
                 expect(node.attestorId).toBeTruthy();

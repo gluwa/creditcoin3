@@ -45,7 +45,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
 
     const chainKeyStr = chainKey.toString();
     const epochStr = epoch.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
     const epochNumber = parseInt(epochStr, 10);
 
     const saveEntityList = [];
@@ -102,7 +102,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
 
@@ -156,7 +156,7 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
 
@@ -213,7 +213,7 @@ export async function handleEventAttestorRegistered(event: SubstrateEvent): Prom
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const attestorRegistered = AttestorRegistered.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -249,7 +249,7 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const attestorUnregistered = AttestorUnregistered.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -282,7 +282,7 @@ export async function handleEventInvulnerableRegistered(event: SubstrateEvent): 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const invulnerableRegistered = InvulnerableRegistered.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -310,7 +310,7 @@ export async function handleEventInvulnerableUnregistered(event: SubstrateEvent)
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const invulnerableUnregistered = InvulnerableUnregistered.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -342,7 +342,7 @@ export async function handleEventCheckpointReached(event: SubstrateEvent): Promi
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     /* eslint-disable @typescript-eslint/naming-convention */
     const checkpointReached = Checkpoints.create({
@@ -380,7 +380,7 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
     const newTargetSampleSizeNumber = parseInt(newTargetSampleSize.toString(), 10);
 
     /* eslint-disable @typescript-eslint/naming-convention */
@@ -409,7 +409,7 @@ function isEmpty(value: any): boolean {
     return false;
 }
 
-async function checkAndGetAttestor(id: string, attestorId: string, chainKey: number): Promise<Attestors> {
+async function checkAndGetAttestor(id: string, attestorId: string, chainKey: bigint): Promise<Attestors> {
     const attestor = await Attestors.getByFields(
         [
             ['attestorId', '=', attestorId],
@@ -568,7 +568,7 @@ export async function handleEventRewardPaid(event: SubstrateEvent): Promise<void
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const rewardPaid = RewardPaid.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -595,7 +595,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
     logger.info(`Block Attested ${signedAttestation.toString()}`);
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const signedAttestationParsed = parseSignedAttestation(signedAttestation.toString());
     logger.info(`Block Attested signature is ${signedAttestationParsed.signature}`);
@@ -645,7 +645,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
 }
 
 interface Attestation {
-    chainKey: number;
+    chainKey: bigint;
     headerNumber: number;
     headerHash: string;
     root: string;
@@ -687,7 +687,7 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     let blsPublicKeyStr = '';
     if (blsPublicKey) {
@@ -731,7 +731,7 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const blockNumber: number = event.block.block.header.number.toNumber();
 
     const chainKeyStr = chainKey.toString();
-    const chainKeyNumber = parseInt(chainKeyStr, 10);
+    const chainKeyNumber = BigInt(chainKeyStr);
 
     const attestorChilled = AttestorChilled.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -774,7 +774,7 @@ export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent
     });
 
     // Get attestationChainData
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
     const chainData = await getChainData(chainKeyNumber);
     if (chainData) {
         chainData.minBondRequirement = (amount as Balance).toBigInt();
@@ -798,7 +798,7 @@ export async function handleEventChainRewardUpdated(event: SubstrateEvent): Prom
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const chainRewardUpdated = ChainRewardUpdated.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -829,7 +829,7 @@ export async function handleEventCheckpointsCleared(event: SubstrateEvent): Prom
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const checkpointsCleared = CheckpointsCleared.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -852,7 +852,7 @@ export async function handleEventClearedStorageForRemovedChain(event: SubstrateE
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
@@ -879,7 +879,7 @@ export async function handleEventAttestationIntervalChanged(event: SubstrateEven
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const attestationIntervalChanged = AttestationIntervalChanged.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -913,7 +913,7 @@ export async function handleEventPendingAttestationIntervalSet(event: SubstrateE
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
@@ -941,7 +941,7 @@ export async function handleCheckpointIntervalChanged(event: SubstrateEvent): Pr
 
     const blockNumber: number = event.block.block.header.number.toNumber();
 
-    const chainKeyNumber = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
 
     const checkpointIntervalChanged = CheckpointIntervalChanged.create({
         id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
@@ -983,8 +983,7 @@ export async function handleMaxAttestorsChanged(event: SubstrateEvent): Promise<
     });
 
     // Update attestationChainData
-    // TODO: update this to bigint when the refactor kicks in CSUB-1580
-    const chainKeyNumber: number = parseInt(chainKey.toString(), 10);
+    const chainKeyNumber = BigInt(chainKey.toString());
     const data = await getChainData(chainKeyNumber);
     if (data) {
         data.maxSetSize = parseInt(maxSetSize.toString(), 10);

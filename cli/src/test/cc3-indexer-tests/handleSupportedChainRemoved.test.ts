@@ -10,7 +10,7 @@ describe('handleSupportedChainRemoved()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
-    let newChainKey = 0;
+    let newChainKey = 0n;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -24,15 +24,15 @@ describe('handleSupportedChainRemoved()', () => {
         // will fail if the query returns None
         newChainKey = (await api.query.supportedChains.chainIdAndNameToUniqKey(newChainId, newChainName))
             .unwrap()
-            .toNumber();
-        expect(newChainKey).toBeGreaterThan(0);
+            .toBigInt();
+        expect(newChainKey).toBeGreaterThan(0n);
 
         // there should be a SupportedChain entity for this new chain
         await forElapsedBlocks(api, { minBlocks: 3 });
         const response = await graphQLQuery(
             `query {
                 supportedChains(
-                    filter: { chainKey: { equalTo: ${newChainKey} }},
+                    filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
                 ) { nodes { id, at, chainKey, chainName, chainId }}}`,
         );
@@ -42,7 +42,7 @@ describe('handleSupportedChainRemoved()', () => {
         for (const node of response.data.supportedChains.nodes) {
             expect(node.id).toBeTruthy();
             // note: inspecting only last record
-            expect(node.chainKey).toEqual(newChainKey);
+            expect(BigInt(node.chainKey)).toEqual(newChainKey);
             expect(node.chainName).toEqual(newChainName);
             expect(BigInt(node.chainId)).toEqual(newChainId);
         }
@@ -68,7 +68,7 @@ describe('handleSupportedChainRemoved()', () => {
             const response = await graphQLQuery(
                 `query {
                     chainRemoveds(
-                        filter: { chainKey: { equalTo: ${newChainKey} }},
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
                     ) { nodes { id, at, chainKey, chainName, chainId, whoId }}}`,
             );
@@ -79,7 +79,7 @@ describe('handleSupportedChainRemoved()', () => {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
                 expect(node.at).toBeGreaterThanOrEqual(startingBlock);
-                expect(node.chainKey).toEqual(newChainKey);
+                expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
                 expect(node.whoId).toEqual(root.address);
@@ -90,7 +90,7 @@ describe('handleSupportedChainRemoved()', () => {
             const response = await graphQLQuery(
                 `query {
                     supportedChains(
-                        filter: { chainKey: { equalTo: ${newChainKey} }},
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
                         last: 1,
                     ) { nodes { id, at, chainKey, chainName, chainId }}}`,
             );

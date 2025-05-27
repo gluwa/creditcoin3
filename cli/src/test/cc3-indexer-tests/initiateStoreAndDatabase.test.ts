@@ -87,7 +87,7 @@ describe('initiateStoreAndDatabase()', () => {
 
             for (const node of response.data.supportedChains.nodes) {
                 expect(node.id).toBeTruthy();
-                expect(node.chainKey).toBeGreaterThan(0);
+                expect(BigInt(node.chainKey)).toBeGreaterThan(0n);
 
                 console.log(`*** DEBUG: inspecting chainKey=${node.chainKey}`);
 

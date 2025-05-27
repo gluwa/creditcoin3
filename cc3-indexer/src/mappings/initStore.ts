@@ -6,7 +6,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 
     const chain1 = AttestationChainData.create({
         id: 'chain_1',
-        chainKey: 1,
+        chainKey: BigInt(1),
         attestationInterval: 10,
         checkpointInterval: 10,
         chainReward: BigInt(1000),
@@ -19,7 +19,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     });
     const supportedChain1 = SupportedChain.create({
         id: 'chain_1',
-        chainKey: 1,
+        chainKey: BigInt(1),
         chainName: 'Ethereum',
         chainId: BigInt(1),
         at: block.block.header.number.toNumber(),
@@ -28,7 +28,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 
     const chain2 = AttestationChainData.create({
         id: 'chain_2',
-        chainKey: 2,
+        chainKey: BigInt(2),
         attestationInterval: 10,
         checkpointInterval: 10,
         chainReward: BigInt(1000),
@@ -41,7 +41,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     });
     const supportedChain2 = SupportedChain.create({
         id: 'chain_2',
-        chainKey: 2,
+        chainKey: BigInt(2),
         chainName: 'Anvil1',
         chainId: BigInt(31337),
         at: block.block.header.number.toNumber(),
@@ -50,7 +50,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 
     const chain3 = AttestationChainData.create({
         id: 'chain_3',
-        chainKey: 3,
+        chainKey: BigInt(3),
         attestationInterval: 10,
         checkpointInterval: 10,
         chainReward: BigInt(1000),
@@ -63,7 +63,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     });
     const supportedChain3 = SupportedChain.create({
         id: 'chain_3',
-        chainKey: 3,
+        chainKey: BigInt(3),
         chainName: 'Sepolia ethereum',
         chainId: BigInt(11155111),
         at: block.block.header.number.toNumber(),
@@ -72,7 +72,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 
     const chain4 = AttestationChainData.create({
         id: 'chain_4',
-        chainKey: 4,
+        chainKey: BigInt(4),
         attestationInterval: 10,
         checkpointInterval: 10,
         chainReward: BigInt(1000),
@@ -85,7 +85,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     });
     const supportedChain4 = SupportedChain.create({
         id: 'chain_4',
-        chainKey: 4,
+        chainKey: BigInt(4),
         chainName: 'Anvil2',
         chainId: BigInt(31338),
         at: block.block.header.number.toNumber(),
@@ -94,7 +94,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
 }
 
 // Getter
-export async function getChainData(chainKey: number): Promise<AttestationChainData | null> {
+export async function getChainData(chainKey: bigint): Promise<AttestationChainData | null> {
     const a = await AttestationChainData.getByChainKey(chainKey, { limit: 1 });
     return a[0];
 }

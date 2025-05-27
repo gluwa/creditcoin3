@@ -89,7 +89,7 @@ describe('handleQuerySubmitted()', () => {
                 expect(node.id).toBeTruthy();
                 expect(node.chainQueryId).toBeTruthy();
                 expect(node.chainQueryId.startsWith('0x')).toEqual(true);
-                expect(node.chainKey).toEqual(chain_Anvil1_Key);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
 
                 if (node.chainQueryId === queryId) {
                     expect(BigInt(node.height)).toEqual(BigInt(sampleQuery.height));

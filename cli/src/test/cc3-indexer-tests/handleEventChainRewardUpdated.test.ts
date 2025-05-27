@@ -46,7 +46,7 @@ describe('handleEventChainRewardUpdated()', () => {
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.whoId).toEqual(root.address);
                 expect(BigInt(node.amount)).toEqual(newRewardAmount);
-                expect(node.chainKey).toEqual(chain_Anvil2_Key);
+                expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
             }
         });
 
@@ -56,7 +56,7 @@ describe('handleEventChainRewardUpdated()', () => {
                     attestationChainData(
                         orderBy: CHAIN_KEY_ASC,
                         last: 1,
-                        filter: { chainKey: { equalTo: ${chain_Anvil2_Key} }},
+                        filter: { chainKey: { equalTo: "${chain_Anvil2_Key}" }},
                     ) {
                         nodes { id, chainReward }
                     }

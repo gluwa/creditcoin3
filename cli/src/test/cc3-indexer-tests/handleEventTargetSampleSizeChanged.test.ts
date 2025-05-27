@@ -14,7 +14,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
-    let newChainKey = 0;
+    let newChainKey = 0n;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -24,11 +24,11 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             `query { attestationChainData(orderBy: CHAIN_KEY_ASC, last: 10) { nodes { id, chainKey, targetSampleSize }}}`,
         );
         for (const node of response.data.attestationChainData.nodes) {
-            if (node.chainKey === chain_Anvil1_Key) {
+            if (node.chainKey === chain_Anvil1_Key.toString()) {
                 targetSampleSize_Anvil1 = node.targetSampleSize;
             }
 
-            if (node.chainKey === chain_Anvil2_Key) {
+            if (node.chainKey === chain_Anvil2_Key.toString()) {
                 targetSampleSize_Anvil2 = node.targetSampleSize;
             }
         }
@@ -44,7 +44,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
         // will fail if the query returns None
         newChainKey = (await api.query.supportedChains.chainIdAndNameToUniqKey(newChainId, newChainName))
             .unwrap()
-            .toNumber();
+            .toBigInt();
         expect(newChainKey).toBeGreaterThan(0);
 
         // there should be a SupportedChain entity for this new chain
@@ -52,7 +52,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
         response = await graphQLQuery(
             `query {
                 supportedChains(
-                    filter: { chainKey: { equalTo: ${newChainKey} }},
+                    filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
                 ) { nodes { id, at, chainKey, chainName, chainId }}}`,
         );
@@ -84,7 +84,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             const response = await graphQLQuery(
                 `query { targetSampleSizeChangeds(
                     orderBy: BLOCK_NUMBER_ASC,
-                    filter: { chainKey: { equalTo: ${newChainKey} }},
+                    filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
                 ) { nodes { id, blockNumber, whoId, chainKey, eventNewTargetSampleSize }}}`,
             );
@@ -95,7 +95,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                 expect(node.blockNumber).toBeGreaterThanOrEqual(startingBlock);
                 expect(node.whoId).toEqual(root.address);
                 expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);
-                expect(node.chainKey).toEqual(newChainKey);
+                expect(BigInt(node.chainKey)).toEqual(newChainKey);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(
@@ -116,7 +116,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             const response = await graphQLQuery(
                 `query { attestationChainData(
                     orderBy: CHAIN_KEY_ASC,
-                    filter: { chainKey: { equalTo: ${newChainKey} }},
+                    filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
                 ) { nodes { id, chainKey, targetSampleSize }}}`,
             );
@@ -124,7 +124,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             expect(response.data.attestationChainData.nodes.length).toEqual(1);
 
             for (const node of response.data.attestationChainData.nodes) {
-                expect(node.chainKey).toEqual(newChainKey);
+                expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.targetSampleSize).toEqual(newTargetSampleSize);
             }
         });

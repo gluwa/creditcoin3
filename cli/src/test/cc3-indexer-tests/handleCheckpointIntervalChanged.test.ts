@@ -44,7 +44,7 @@ describe('handleCheckpointIntervalChanged()', () => {
                 expect(node.blockNumber).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(node.chainKey).toEqual(chain_Anvil2_Key);
+                expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
                 expect(node.interval).toEqual(newInterval);
             }
         });
@@ -55,7 +55,7 @@ describe('handleCheckpointIntervalChanged()', () => {
                     attestationChainData(
                         orderBy: CHAIN_KEY_ASC,
                         last: 1,
-                        filter: { chainKey: { equalTo: ${chain_Anvil2_Key} }},
+                        filter: { chainKey: { equalTo: "${chain_Anvil2_Key}" }},
                     ) {
                         nodes { id, checkpointInterval }
                     }

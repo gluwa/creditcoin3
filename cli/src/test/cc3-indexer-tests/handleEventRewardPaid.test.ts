@@ -29,7 +29,7 @@ describe('handleEventRewardPaid()', () => {
 
             for (const node of response.data.rewardPaids.nodes) {
                 // we don't have active attestors for Anvil 2
-                expect(node.chainKey).toEqual(chain_Anvil1_Key);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(BigInt(node.amount)).toBeGreaterThan(0);
                 expect(node.stashId).toBeTruthy();
                 // only Alice has active attestors
