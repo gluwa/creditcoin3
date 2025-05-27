@@ -2,6 +2,21 @@
 
 A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart contracts.
 
+## Major components
+
+The following directories correspond to major components:
+
+- `attestor/` and `attestor_zombienet/`
+- `cairo/`
+- `cc3-indexer/`
+- `cli/`
+- `pallets/` and `precompiles/`
+- `prover/` and `common/eth/contracts/`
+- `query-cli/`
+
+See individual README files for more information
+
+
 ## Supported operating system
 
 The only supported OS is Linux / x86_64 - see the `runs-on:` sections in

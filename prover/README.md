@@ -83,3 +83,14 @@ The most recent prover network prototype makes use of an Azure Data Factory Pipe
 
 Repo Link: https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE?path=/README.md
 Azure resource group: https://portal.azure.com/#@gluwa.com/resource/subscriptions/3d91f14a-f591-496b-a3d1-f198b84caaa3/resourceGroups/minhplayground/overview
+
+## Testing
+
+As of now there isn't a dedicated CI job for prover. It is exercised as a requirement for several
+other CI jobs and on occasion we asserts against facts related to this component.
+
+Testing for the `Prover.sol` smart contract is executed as part of the
+`docs-smart-contract-development-with-hardhat:` CI job defined inside `.github/workflows/ci.yml`.
+
+The entry-point for this testing is `npx hardhat test` and the test suite location is under
+`docs/smart-contract-development/with-hardhat/test/`.

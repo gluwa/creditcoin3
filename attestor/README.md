@@ -168,3 +168,13 @@ cd scripts/
 npm install
 node Transfer.js
 ```
+
+
+## Testing
+
+The primary CI job for attestator network is `integration-test-attestator-network:`
+inside `.github/workflows/ci.yml`. It simulates ingestion of two source chains and performs sanity checks
+against the number of events seen.
+
+The entry-point for the test suite is `test:attestation` in `cli/package.json` and the primary test suite
+location is under `cli/src/test/attestation-tests/`.
