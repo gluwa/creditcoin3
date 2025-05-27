@@ -16,13 +16,13 @@ describe('handleEventAttestorElected()', () => {
 
     describe('when there are elected attestors', () => {
         let currentEpoch = 0n;
-        let epochStart = 0;
+        let epochStart = 0n;
 
         beforeAll(async () => {
             currentEpoch = (await api.query.babe.epochIndex()).toBigInt();
             expect(currentEpoch).toBeGreaterThan(0);
 
-            epochStart = (await api.query.babe.epochStart())[1].toNumber();
+            epochStart = (await api.query.babe.epochStart())[1].toBigInt();
             expect(epochStart).toBeGreaterThan(0);
 
             // initial setup already has at least 3 attestors for Anvil 1
@@ -93,7 +93,7 @@ describe('handleEventAttestorElected()', () => {
             for (const node of response.data.attestors.nodes) {
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
                 // attestor was last updated when it was elected
-                expect(node.lastUpdateBlockNumber).toEqual(epochStart);
+                expect(BigInt(node.lastUpdateBlockNumber)).toEqual(epochStart);
                 expect(node.status).toEqual(3);
             }
         });

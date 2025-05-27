@@ -69,7 +69,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
             let foundMatch = false;
             for (const node of response.data.invulnerableUnregistereds.nodes) {
                 expect([chain_Anvil1_Key.toString(), chain_Anvil2_Key.toString()]).toContain(node.chainKey);
-                expect(node.blockNumber).toBeGreaterThan(0);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
                 expect(node.attestorId).toBeTruthy();
                 if (node.attestorId === attestor.address) {
                     foundMatch = true;

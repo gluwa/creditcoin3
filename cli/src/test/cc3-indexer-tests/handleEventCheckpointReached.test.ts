@@ -4,14 +4,14 @@ import { graphQLQuery } from './common';
 
 describe('handleEventCheckpointReached()', () => {
     let api: ApiPromise;
-    let lastBlockNumber: number;
+    let lastBlockNumber: bigint;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
 
         const lastCheckpoint = await api.query.attestation.lastCheckpoint(chain_Anvil1_Key);
         expect(lastCheckpoint.isSome).toBeTruthy();
-        lastBlockNumber = lastCheckpoint.unwrap().blockNumber.toNumber();
+        lastBlockNumber = lastCheckpoint.unwrap().blockNumber.toBigInt();
     }, 30_000);
 
     afterAll(async () => {
@@ -26,8 +26,8 @@ describe('handleEventCheckpointReached()', () => {
             expect(response.data.checkpoints.nodes).toBeTruthy();
             expect(response.data.checkpoints.nodes.length).toBeGreaterThanOrEqual(1);
 
-            let onChainBlockNumber = 0;
-            let checkpointBlockNumber = 0;
+            let onChainBlockNumber = 0n;
+            let checkpointBlockNumber = 0n;
             for (const node of response.data.checkpoints.nodes) {
                 // we only have active attestors for Anvil 1
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
@@ -36,10 +36,10 @@ describe('handleEventCheckpointReached()', () => {
                 expect(node.whoId).toBeTruthy();
 
                 // these increase for every entity
-                expect(node.atBlockNumber).toBeGreaterThan(onChainBlockNumber);
-                onChainBlockNumber = node.atBlockNumber;
-                expect(node.blockNumber).toBeGreaterThanOrEqual(checkpointBlockNumber);
-                checkpointBlockNumber = node.blockNumber;
+                expect(BigInt(node.atBlockNumber)).toBeGreaterThan(onChainBlockNumber);
+                onChainBlockNumber = BigInt(node.atBlockNumber);
+                expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(checkpointBlockNumber);
+                checkpointBlockNumber = BigInt(node.blockNumber);
 
                 expect(node.digest).toBeTruthy();
 
@@ -70,7 +70,7 @@ describe('handleEventCheckpointReached()', () => {
             for (const node of response.data.attestationChainData.nodes) {
                 if (node.chainKey === chain_Anvil1_Key.toString()) {
                     foundMatch = true;
-                    expect(node.lastCheckpointHeaderNumber).toEqual(lastBlockNumber);
+                    expect(BigInt(node.lastCheckpointHeaderNumber)).toEqual(lastBlockNumber);
                 }
             }
             expect(foundMatch).toEqual(true);

@@ -57,7 +57,7 @@ describe('handleEventBonded()', () => {
                 // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(node.blockNumber).toBeGreaterThan(0);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(

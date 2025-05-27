@@ -7,7 +7,7 @@ import { graphQLQuery } from './common';
 describe('handleCheckpointIntervalChanged()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     const newInterval = randomIntBetween(7, 21);
 
     beforeAll(async () => {
@@ -21,8 +21,8 @@ describe('handleCheckpointIntervalChanged()', () => {
 
     describe('when attestations per checkpoint is changed', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             // NOTE: by defauilt it is 10
             await api.tx.sudo
@@ -41,7 +41,7 @@ describe('handleCheckpointIntervalChanged()', () => {
             for (const node of response.data.checkpointIntervalChangeds.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());

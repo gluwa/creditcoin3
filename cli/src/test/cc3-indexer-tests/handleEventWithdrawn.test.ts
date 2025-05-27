@@ -9,7 +9,7 @@ describe('handleEventWithdrawn()', () => {
     let api: ApiPromise;
     let bob: KeyringPair;
     let attestor: any;
-    let startingBlock: number;
+    let startingBlock: bigint;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -41,7 +41,7 @@ describe('handleEventWithdrawn()', () => {
 
     describe('when funds are withdrawn', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
 
             await api.tx.attestation
                 .withdrawUnbonded()
@@ -65,14 +65,14 @@ describe('handleEventWithdrawn()', () => {
                 // WARNING: cannot match attestorId b/c this value isn't recorded
                 // best we can do is match stashId and look for record added in blocks
                 // *AFTER* this test has started
-                if (node.stashId === bob.address && node.blockNumber > startingBlock) {
+                if (node.stashId === bob.address && BigInt(node.blockNumber) > startingBlock) {
                     foundMatch = true;
                 }
                 // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
                 // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(node.blockNumber).toBeGreaterThan(0);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(

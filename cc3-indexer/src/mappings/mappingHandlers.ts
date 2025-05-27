@@ -47,6 +47,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
     const epochStr = epoch.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
     const epochNumber = parseInt(epochStr, 10);
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const saveEntityList = [];
 
@@ -58,7 +59,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
             const accountStr = account.toString();
 
             const attestorsElected = AttestorsElected.create({
-                id: `${event.block.block.header.number.toNumber()}-${event.idx}-${index}`,
+                id: `${blockNumber}-${event.idx}-${index}`,
                 epoch: BigInt(epochNumber),
                 chainKey: chainKeyNumber,
                 attestorId: accountStr,
@@ -66,26 +67,22 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
 
             saveEntityList.push(attestorsElected.save());
 
-            const id = `${event.block.block.header.number.toNumber()}-${event.idx}-${index}`;
+            const id = `${blockNumber}-${event.idx}-${index}`;
             const attestorEntity = await checkAndGetAttestor(id, accountStr, chainKeyNumber);
-            attestorEntity.lastUpdateBlockNumber = event.block.block.header.number.toNumber();
+            attestorEntity.lastUpdateBlockNumber = event.block.block.header.number.toBigInt();
             attestorEntity.status = 3;
 
             saveEntityList.push(attestorEntity.save());
         }
     } else {
-        logger.error(`Attestors is not a valid at: ${event.block.block.header.number.toString()}`);
+        logger.error(`Attestors is not a valid at: ${blockNumber}`);
     }
 
     try {
         await Promise.all(saveEntityList);
-        logger.info(
-            `All attestors have been dynamically added and saved at block: ${event.block.block.header.number.toString()}`,
-        );
+        logger.info(`All attestors have been dynamically added and saved at block: ${blockNumber}`);
     } catch (error) {
-        logger.error(
-            `An error occurred while saving attestorsElected at block: ${event.block.block.header.number.toString()}`,
-        );
+        logger.error(`An error occurred while saving attestorsElected at block: ${blockNumber}`);
     }
 }
 
@@ -99,7 +96,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
@@ -107,7 +104,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
 
     const chainRegistered = ChainRegistered.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
@@ -131,14 +128,14 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         checkpointInterval: 10,
         chainReward: BigInt(0),
         lastAttestedDigest: '',
-        lastAttestedHeaderNumber: 0,
-        lastCheckpointHeaderNumber: 0,
+        lastAttestedHeaderNumber: BigInt(0),
+        lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
     });
 
-    logger.info(`New Supported Chain event created at block ${event.block.block.header.number.toString()}`);
+    logger.info(`New Supported Chain event created at block ${blockNumber}`);
 
     await Promise.all([chainRegistered.save(), suportedChain.save(), newChain.save()]);
 }
@@ -153,7 +150,7 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
@@ -161,7 +158,7 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     const hexDecodedChainName = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
 
     const chainRemoved = ChainRemoved.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
@@ -172,12 +169,10 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
 
     const supportedChain = await SupportedChain.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
     if (isEmpty(supportedChain)) {
-        logger.error(
-            `Supported Chains : ${chainKeyStr} not found in db for block number event: ${event.block.block.header.number.toString()}.`,
-        );
+        logger.error(`Supported Chains : ${chainKeyStr} not found in db for block number event: ${blockNumber}.`);
     } else {
         logger.info(
-            `Supported Chains : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Supported chain will be removed`,
+            `Supported Chains : ${chainKeyStr} found in db for block number event: ${blockNumber}. Supported chain will be removed`,
         );
         await SupportedChain.remove(supportedChain[0].id);
     }
@@ -185,12 +180,10 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     // Remove attestationChainData
     const attestationChainData = await AttestationChainData.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
     if (isEmpty(attestationChainData)) {
-        logger.error(
-            `AttestationChainData : ${chainKeyStr} not found in db for block number event: ${event.block.block.header.number.toString()}.`,
-        );
+        logger.error(`AttestationChainData : ${chainKeyStr} not found in db for block number event: ${blockNumber}.`);
     } else {
         logger.info(
-            `AttestationChainData : ${chainKeyStr} found in db for block number event: ${event.block.block.header.number.toString()}. Attestation chain data will be removed`,
+            `AttestationChainData : ${chainKeyStr} found in db for block number event: ${blockNumber}. Attestation chain data will be removed`,
         );
         await AttestationChainData.remove(attestationChainData[0].id);
     }
@@ -210,26 +203,26 @@ export async function handleEventAttestorRegistered(event: SubstrateEvent): Prom
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const attestorRegistered = AttestorRegistered.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         stashId: from.toString(),
         blockNumber,
         attestorId: attestor.toString(),
         chainKey: chainKeyNumber,
     });
 
-    const id = `${event.block.block.header.number.toNumber()}-${event.idx}`;
+    const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.stashId = from.toString();
     attestorEntity.status = 1;
 
-    logger.info(`New AttestorEntity event created at block ${event.block.block.header.number.toString()}`);
+    logger.info(`New AttestorEntity event created at block ${blockNumber}`);
 
     await Promise.all([attestorRegistered.save(), attestorEntity.save()]);
 }
@@ -246,20 +239,20 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const attestorUnregistered = AttestorUnregistered.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         blockNumber,
         attestorId: attestor.toString(),
         chainKey: chainKeyNumber,
     });
 
-    const id = `${event.block.block.header.number.toNumber()}-${event.idx}`;
+    const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.status = 2;
@@ -279,13 +272,13 @@ export async function handleEventInvulnerableRegistered(event: SubstrateEvent): 
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const invulnerableRegistered = InvulnerableRegistered.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         blockNumber,
         attestorId: attestor.toString(),
@@ -307,13 +300,13 @@ export async function handleEventInvulnerableUnregistered(event: SubstrateEvent)
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const invulnerableUnregistered = InvulnerableUnregistered.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         blockNumber,
         attestorId: attestor.toString(),
@@ -339,14 +332,14 @@ export async function handleEventCheckpointReached(event: SubstrateEvent): Promi
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     /* eslint-disable @typescript-eslint/naming-convention */
     const checkpointReached = Checkpoints.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         atBlockNumber: blockNumber,
         chainKey: chainKeyNumber,
@@ -377,7 +370,7 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
@@ -385,7 +378,7 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
 
     /* eslint-disable @typescript-eslint/naming-convention */
     const targetSampleSizeChanged = TargetSampleSizeChanged.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         blockNumber,
         chainKey: chainKeyNumber,
@@ -422,7 +415,7 @@ async function checkAndGetAttestor(id: string, attestorId: string, chainKey: big
             id: id.toLowerCase(),
             attestorId,
             chainKey,
-            lastUpdateBlockNumber: 0,
+            lastUpdateBlockNumber: BigInt(0),
             status: 0,
             stashId: '',
             blsPublicKey: '',
@@ -432,7 +425,7 @@ async function checkAndGetAttestor(id: string, attestorId: string, chainKey: big
 }
 
 interface AttestationCheckpointData {
-    blockNumber: number;
+    blockNumber: bigint;
     digest: string;
 }
 
@@ -462,10 +455,10 @@ export async function handleEventBonded(event: SubstrateEvent): Promise<void> {
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const bonded = Bonded.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
@@ -488,10 +481,10 @@ export async function handleEventUnbonded(event: SubstrateEvent): Promise<void> 
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const unbonded = Unbonded.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
@@ -514,10 +507,10 @@ export async function handleEventWithdrawn(event: SubstrateEvent): Promise<void>
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const withdrawn = Withdrawn.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
@@ -540,10 +533,10 @@ export async function handleEventRewardClaimed(event: SubstrateEvent): Promise<v
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const rewardClaimed = RewardClaimed.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
@@ -566,12 +559,12 @@ export async function handleEventRewardPaid(event: SubstrateEvent): Promise<void
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
     const rewardPaid = RewardPaid.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
@@ -600,9 +593,9 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
     const signedAttestationParsed = parseSignedAttestation(signedAttestation.toString());
     logger.info(`Block Attested signature is ${signedAttestationParsed.signature}`);
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
-    const attestationId = `${event.block.block.header.number.toNumber()}-${event.idx}`;
+    const attestationId = `${blockNumber}-${event.idx}`;
 
     // /* eslint-disable @typescript-eslint/naming-convention */
     const blockAttested = Attestations.create({
@@ -620,7 +613,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
 
     const saveEntityList = [blockAttested.save()];
     for (let index = 0; index < signedAttestationParsed.attestors.length; index++) {
-        const id = `${event.block.block.header.number.toNumber()}-${event.idx}-${index}`;
+        const id = `${blockNumber}-${event.idx}-${index}`;
         const attestor = signedAttestationParsed.attestors[index];
         const attestorEntity = await checkAndGetAttestor(id, attestor, chainKeyNumber);
         const blockAttestor = MapAttestationAttestor.create({
@@ -632,7 +625,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
         logger.info(`Saved map for attestor ${attestor} and attestation ${attestationId} at block ${blockNumber}`);
     }
 
-    logger.info(`Block Attested event stored at block ${event.block.block.header.number.toString()}`);
+    logger.info(`Block Attested event stored at block ${blockNumber}`);
 
     const chainData = await getChainData(chainKeyNumber);
     if (chainData) {
@@ -646,7 +639,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
 
 interface Attestation {
     chainKey: bigint;
-    headerNumber: number;
+    headerNumber: bigint;
     headerHash: string;
     root: string;
     prevDigest: string;
@@ -684,21 +677,19 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     let blsPublicKeyStr = '';
     if (blsPublicKey) {
-        logger.info(
-            `blsPublicKey at block ${event.block.block.header.number.toString()} is ${blsPublicKey.toString()}`,
-        );
+        logger.info(`blsPublicKey at block ${blockNumber} is ${blsPublicKey.toString()}`);
         blsPublicKeyStr = blsPublicKey.toString();
     }
 
     const attestorActivated = AttestorActivated.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         blockNumber,
         attestorId: attestor.toString(),
@@ -707,7 +698,7 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
         blsPublicKey: blsPublicKeyStr,
     });
 
-    const id = `${event.block.block.header.number.toNumber()}-${event.idx}`;
+    const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.status = 4;
@@ -728,13 +719,13 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
     const chainKeyNumber = BigInt(chainKeyStr);
 
     const attestorChilled = AttestorChilled.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         whoId: from.toString(),
         blockNumber,
         attestorId: attestor.toString(),
@@ -742,7 +733,7 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
         date: event.block.timestamp,
     });
 
-    const id = `${event.block.block.header.number.toNumber()}-${event.idx}`;
+    const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.status = 5;
@@ -762,10 +753,10 @@ export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const minBondRequirementUpdated = MinBondRequirementUpdated.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         chainKey: BigInt(chainKey.toString()),
         blockNumber,
         date: event.block.timestamp,
@@ -796,12 +787,12 @@ export async function handleEventChainRewardUpdated(event: SubstrateEvent): Prom
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
     const chainRewardUpdated = ChainRewardUpdated.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
@@ -827,12 +818,12 @@ export async function handleEventCheckpointsCleared(event: SubstrateEvent): Prom
         },
     } = event;
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
     const checkpointsCleared = CheckpointsCleared.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
@@ -850,7 +841,7 @@ export async function handleEventClearedStorageForRemovedChain(event: SubstrateE
         },
     } = event;
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
@@ -858,7 +849,7 @@ export async function handleEventClearedStorageForRemovedChain(event: SubstrateE
     assert(from, 'Signer is missing');
 
     const clearedStorageForRemovedChain = ClearedStorageForRemovedChain.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
@@ -877,12 +868,12 @@ export async function handleEventAttestationIntervalChanged(event: SubstrateEven
         },
     } = event;
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
     const attestationIntervalChanged = AttestationIntervalChanged.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
@@ -911,7 +902,7 @@ export async function handleEventPendingAttestationIntervalSet(event: SubstrateE
         },
     } = event;
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
@@ -919,7 +910,7 @@ export async function handleEventPendingAttestationIntervalSet(event: SubstrateE
     assert(from, 'Signer is missing');
 
     const pendingAttestationIntervalSet = PendingAttestationIntervalSet.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
@@ -939,12 +930,12 @@ export async function handleCheckpointIntervalChanged(event: SubstrateEvent): Pr
         },
     } = event;
 
-    const blockNumber: number = event.block.block.header.number.toNumber();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyNumber = BigInt(chainKey.toString());
 
     const checkpointIntervalChanged = CheckpointIntervalChanged.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
@@ -969,13 +960,13 @@ export async function handleMaxAttestorsChanged(event: SubstrateEvent): Promise<
         },
     } = event;
 
-    const blockNumber: bigint = event.block.block.header.number.toBigInt();
+    const blockNumber = event.block.block.header.number.toBigInt();
 
     const from = event.extrinsic?.extrinsic.signer;
     assert(from, 'Signer is missing');
 
     const maxAttestorsChanged = MaxAttestorsChanged.create({
-        id: `${event.block.block.header.number.toNumber()}-${event.idx}`,
+        id: `${blockNumber}-${event.idx}`,
         blockNumber,
         whoId: from.toString(),
         chainKey: BigInt(chainKey.toString()),

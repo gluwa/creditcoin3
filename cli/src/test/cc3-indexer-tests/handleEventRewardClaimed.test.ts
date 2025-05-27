@@ -7,7 +7,7 @@ describe('handleEventRewardClaimed()', () => {
     let api: ApiPromise;
     let alice: KeyringPair;
     let expectedReward: bigint;
-    let startingBlock: number;
+    let startingBlock: bigint;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -19,14 +19,14 @@ describe('handleEventRewardClaimed()', () => {
         expectedReward = BigInt(accumulatedRewards.unwrap().toString());
         expect(expectedReward).toBeGreaterThan(0);
 
-        startingBlock = (await getChainStatus(api)).bestNumber;
+        startingBlock = BigInt((await getChainStatus(api)).bestNumber);
 
         let foundMatch = false;
         const response = await graphQLQuery(
             `query { rewardClaimeds (orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, amount, stashId, whoId, date, blockNumber }}}`,
         );
         for (const node of response.data.rewardClaimeds.nodes) {
-            if (node.stashId === alice.address && node.blockNumber >= startingBlock) {
+            if (node.stashId === alice.address && BigInt(node.blockNumber) >= startingBlock) {
                 foundMatch = true;
             }
         }
@@ -62,7 +62,7 @@ describe('handleEventRewardClaimed()', () => {
                 // WARNING: cannot match attestorId b/c this value isn't recorded
                 // best we can do is match stashId and look for record added in blocks
                 // *AFTER* this test has started
-                if (node.stashId === alice.address && node.blockNumber >= startingBlock) {
+                if (node.stashId === alice.address && BigInt(node.blockNumber) >= startingBlock) {
                     foundMatch = true;
                     expect(BigInt(node.amount)).toBeGreaterThanOrEqual(expectedReward);
                 }
@@ -70,7 +70,7 @@ describe('handleEventRewardClaimed()', () => {
                 // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(node.blockNumber).toBeGreaterThan(0);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(

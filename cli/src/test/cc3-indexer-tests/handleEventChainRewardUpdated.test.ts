@@ -7,7 +7,7 @@ import { graphQLQuery } from './common';
 describe('handleEventChainRewardUpdated()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     const newRewardAmount = BigInt(randomIntBetween(500, 1000));
 
     beforeAll(async () => {
@@ -21,8 +21,8 @@ describe('handleEventChainRewardUpdated()', () => {
 
     describe('when new chain reward is set', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             // NOTE: by defauilt it is 1000
             await api.tx.sudo
@@ -41,7 +41,7 @@ describe('handleEventChainRewardUpdated()', () => {
             for (const node of response.data.chainRewardUpdateds.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.whoId).toEqual(root.address);

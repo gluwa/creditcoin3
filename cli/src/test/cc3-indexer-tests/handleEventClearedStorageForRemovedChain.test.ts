@@ -6,7 +6,7 @@ import { graphQLQuery } from './common';
 describe('handleEventClearedStorageForRemovedChain()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     // unique integer to serve as chain id during testing
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
@@ -34,8 +34,8 @@ describe('handleEventClearedStorageForRemovedChain()', () => {
 
     describe('when a supported chain is removed', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             await api.tx.sudo
                 .sudo(api.tx.supportedChains.removeChain(newChainKey, true))
@@ -53,7 +53,7 @@ describe('handleEventClearedStorageForRemovedChain()', () => {
             for (const node of response.data.clearedStorageForRemovedChains.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);

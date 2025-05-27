@@ -19,9 +19,9 @@ type AttestationChainData @entity {
     # Max set size
     maxSetSize: Int!
     # Last checkpoint header number
-    lastCheckpointHeaderNumber: Int!
+    lastCheckpointHeaderNumber: BigInt!
     # Last attested header number
-    lastAttestedHeaderNumber: Int!
+    lastAttestedHeaderNumber: BigInt!
     # Last attested digest
     lastAttestedDigest: String!
 }
@@ -38,7 +38,7 @@ type Transfer @entity {
     """
     The block height of the transfer
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
     """
     The date of the transfer
     """
@@ -88,7 +88,7 @@ type Attestations @entity {
 
     chainKey: BigInt! @index
 
-    headerNumber: Int!
+    headerNumber: BigInt!
 
     headerHash: String!
 
@@ -115,7 +115,7 @@ type Attestors @entity {
 
     stash: Account! @index
 
-    lastUpdateBlockNumber: Int!
+    lastUpdateBlockNumber: BigInt!
     """
     1 - Registred, 2 Unregistered, 3 - Elected, 4 - Activated, 5 - Chilled
     """
@@ -149,7 +149,7 @@ type AttestorRegistered @entity {
 
     attestor: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 }
 
 type AttestorUnregistered @entity {
@@ -164,7 +164,7 @@ type AttestorUnregistered @entity {
 
     attestor: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 }
 
 type InvulnerableRegistered @entity {
@@ -179,7 +179,7 @@ type InvulnerableRegistered @entity {
 
     attestor: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 }
 
 type InvulnerableUnregistered @entity {
@@ -194,7 +194,7 @@ type InvulnerableUnregistered @entity {
 
     attestor: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 }
 
 type Checkpoints @entity {
@@ -205,11 +205,11 @@ type Checkpoints @entity {
 
     who: Account!
 
-    atBlockNumber: Int!
+    atBlockNumber: BigInt!
 
     chainKey: BigInt!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     digest: String!
 
@@ -224,7 +224,7 @@ type TargetSampleSizeChanged @entity {
 
     who: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     chainKey: BigInt!
 
@@ -255,7 +255,7 @@ type Bonded @entity {
     """
     The block height when it happened
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -275,7 +275,7 @@ type Unbonded @entity {
     """
     The block height when it happened
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -295,7 +295,7 @@ type Withdrawn @entity {
     """
     The block height when it happened
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -315,7 +315,7 @@ type RewardClaimed @entity {
     """
     The block height when it happened
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -335,7 +335,7 @@ type RewardPaid @entity {
     """
     The block height when it happened
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -356,7 +356,7 @@ type AttestorActivated @entity {
 
     who: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -375,7 +375,7 @@ type AttestorChilled @entity {
 
     who: Account!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -400,7 +400,7 @@ type MinBondRequirementUpdated @entity {
     """
     The block height of the transfer
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
     """
     The date of the transfer
     """
@@ -424,7 +424,7 @@ type ChainRewardUpdated @entity {
     """
     The block height of the transfer
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
     """
     The date of the transfer
     """
@@ -441,7 +441,7 @@ type CheckpointsCleared @entity {
     """
     The block height of the transfer
     """
-    blockNumber: Int!
+    blockNumber: BigInt!
     """
     The date of the transfer
     """
@@ -456,7 +456,7 @@ type ClearedStorageForRemovedChain @entity {
     """
     id: ID!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -471,7 +471,7 @@ type AttestationIntervalChanged @entity {
     """
     id: ID!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -486,7 +486,7 @@ type CheckpointIntervalChanged @entity {
     """
     id: ID!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -501,7 +501,7 @@ type PendingAttestationIntervalSet @entity {
     """
     id: ID!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     date: Date
 
@@ -588,7 +588,7 @@ type EscrowPaymentReclaimed @entity {
     """
     id: ID!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     who: String!
 
@@ -601,7 +601,7 @@ type ProceedsWithdrawn @entity {
     """
     id: ID!
 
-    blockNumber: Int!
+    blockNumber: BigInt!
 
     who: String!
 
@@ -619,7 +619,7 @@ type SupportedChain @entity {
     # Chain name
     chainName: String!
     # At Block
-    at: Int!
+    at: BigInt!
 }
 
 type ChainRegistered @entity {
@@ -631,7 +631,7 @@ type ChainRegistered @entity {
     # Chain name
     chainName: String!
     # At Block
-    at: Int!
+    at: BigInt!
     # account that registered chain
     who: Account!
 }
@@ -645,7 +645,7 @@ type ChainRemoved @entity {
     # Chain name
     chainName: String!
     # At Block
-    at: Int!
+    at: BigInt!
     # account that removed chain
     who: Account!
 }

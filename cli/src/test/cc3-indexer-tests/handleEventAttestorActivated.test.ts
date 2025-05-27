@@ -33,7 +33,7 @@ describe('handleEventAttestorActivated()', () => {
     });
 
     describe('when new attestor is activated', () => {
-        let startingBlock = 0;
+        let startingBlock = 0n;
 
         beforeAll(async () => {
             // make sure attestor is reported as registered
@@ -66,8 +66,8 @@ describe('handleEventAttestorActivated()', () => {
             const blsPublicKey = blsSecretKey.public_key().as_bytes();
             const proofOfPossession = blsSecretKey.sign(blsPublicKey);
 
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             // NOTE: now start attesting and observe GraphQL responses below
             await api.tx.attestation
@@ -89,7 +89,7 @@ describe('handleEventAttestorActivated()', () => {
             for (const node of response.data.attestorActivateds.nodes) {
                 expect(node.id).toBeTruthy();
                 expect(node.whoId).toEqual(attestor.address);
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
@@ -115,7 +115,7 @@ describe('handleEventAttestorActivated()', () => {
 
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
-                expect(node.lastUpdateBlockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
                 // 4 - Activated; 3 - Elected (if epoch changed meanwhile)
                 expect([3, 4]).toContain(node.status);
                 expect(node.blsPublicKey.startsWith('0x')).toEqual(true);

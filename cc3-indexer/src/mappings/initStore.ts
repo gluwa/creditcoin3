@@ -11,8 +11,8 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
-        lastAttestedHeaderNumber: 0,
-        lastCheckpointHeaderNumber: 0,
+        lastAttestedHeaderNumber: BigInt(0),
+        lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
@@ -22,7 +22,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         chainKey: BigInt(1),
         chainName: 'Ethereum',
         chainId: BigInt(1),
-        at: block.block.header.number.toNumber(),
+        at: block.block.header.number.toBigInt(),
     });
     await Promise.all([chain1.save(), supportedChain1.save()]);
 
@@ -33,8 +33,8 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
-        lastAttestedHeaderNumber: 0,
-        lastCheckpointHeaderNumber: 0,
+        lastAttestedHeaderNumber: BigInt(0),
+        lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
@@ -44,7 +44,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         chainKey: BigInt(2),
         chainName: 'Anvil1',
         chainId: BigInt(31337),
-        at: block.block.header.number.toNumber(),
+        at: block.block.header.number.toBigInt(),
     });
     await Promise.all([chain2.save(), supportedChain2.save()]);
 
@@ -55,8 +55,8 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
-        lastAttestedHeaderNumber: 0,
-        lastCheckpointHeaderNumber: 0,
+        lastAttestedHeaderNumber: BigInt(0),
+        lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
@@ -66,7 +66,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         chainKey: BigInt(3),
         chainName: 'Sepolia ethereum',
         chainId: BigInt(11155111),
-        at: block.block.header.number.toNumber(),
+        at: block.block.header.number.toBigInt(),
     });
     await Promise.all([chain3.save(), supportedChain3.save()]);
 
@@ -77,8 +77,8 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
-        lastAttestedHeaderNumber: 0,
-        lastCheckpointHeaderNumber: 0,
+        lastAttestedHeaderNumber: BigInt(0),
+        lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
@@ -88,7 +88,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         chainKey: BigInt(4),
         chainName: 'Anvil2',
         chainId: BigInt(31338),
-        at: block.block.header.number.toNumber(),
+        at: block.block.header.number.toBigInt(),
     });
     await Promise.all([chain4.save(), supportedChain4.save()]);
 }

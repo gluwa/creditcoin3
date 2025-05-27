@@ -41,13 +41,13 @@ describe('handleEventBlockAttested()', () => {
             expect(response.data.attestations.nodes).toBeTruthy();
             expect(response.data.attestations.nodes.length).toBeGreaterThan(0);
 
-            let lastHeaderNumber = 0;
+            let lastHeaderNumber = 0n;
             let lastDigest = '';
             for (const node of response.data.attestations.nodes) {
                 expect(node.id).toBeTruthy();
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
-                expect(node.headerNumber).toBeGreaterThanOrEqual(0);
-                lastHeaderNumber = node.headerNumber;
+                expect(BigInt(node.headerNumber)).toBeGreaterThanOrEqual(0n);
+                lastHeaderNumber = BigInt(node.headerNumber);
 
                 expect(node.headerHash.startsWith('0x')).toEqual(true);
                 // next 2 fields are essentially empty
@@ -78,7 +78,7 @@ describe('handleEventBlockAttested()', () => {
                 // ^^^ this is just a many-to-many mapping table. Not sure how to assert that
                 // the relationships are the correct ones!
             }
-            expect(lastHeaderNumber).toBeGreaterThan(0);
+            expect(lastHeaderNumber).toBeGreaterThan(0n);
             expect(lastDigest).not.toEqual('');
 
             // this was updated
@@ -92,7 +92,7 @@ describe('handleEventBlockAttested()', () => {
                 }`,
             );
             expect(chainDataResponse.data.attestationChainData.nodes[0].lastAttestedDigest).toEqual(lastDigest);
-            expect(chainDataResponse.data.attestationChainData.nodes[0].lastAttestedHeaderNumber).toEqual(
+            expect(BigInt(chainDataResponse.data.attestationChainData.nodes[0].lastAttestedHeaderNumber)).toEqual(
                 lastHeaderNumber,
             );
         });

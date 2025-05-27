@@ -29,7 +29,7 @@ describe('handleEventAttestorChilled()', () => {
     });
 
     describe('when attestor is chilled', () => {
-        let startingBlock = 0;
+        let startingBlock = 0n;
 
         beforeAll(async () => {
             // make sure attestor is reported as registered
@@ -58,8 +58,8 @@ describe('handleEventAttestorChilled()', () => {
             }
             expect(foundMatch).toEqual(false);
 
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             // NOTE: now chill and observe GraphQL responses below
             await api.tx.attestation
@@ -81,7 +81,7 @@ describe('handleEventAttestorChilled()', () => {
             for (const node of response.data.attestorChilleds.nodes) {
                 expect(node.id).toBeTruthy();
                 expect(node.whoId).toEqual(bob.address);
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
@@ -106,7 +106,7 @@ describe('handleEventAttestorChilled()', () => {
 
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
-                expect(node.lastUpdateBlockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
                 expect(node.status).toEqual(5);
             }
         });

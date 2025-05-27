@@ -76,7 +76,7 @@ describe('handleEventAttestorUnregistered()', () => {
             let foundMatch = false;
             for (const node of response.data.attestorUnregistereds.nodes) {
                 expect([chain_Anvil1_Key.toString(), chain_Anvil2_Key.toString()]).toContain(node.chainKey);
-                expect(node.blockNumber).toBeGreaterThan(0);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
                 expect(node.attestorId).toBeTruthy();
                 if (node.attestorId === attestor.address) {
                     foundMatch = true;
@@ -103,7 +103,7 @@ describe('handleEventAttestorUnregistered()', () => {
 
             let foundMatch = false;
             for (const node of response.data.attestors.nodes) {
-                expect(node.lastUpdateBlockNumber).toBeGreaterThan(0);
+                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(0n);
 
                 if (node.attestorId === attestor.address) {
                     foundMatch = true;

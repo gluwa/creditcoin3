@@ -7,7 +7,7 @@ import { graphQLQuery } from './common';
 describe('handleEventAttestationIntervalChanged()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     // avoid the default of 10
     const newInterval = randomIntBetween(11, 21);
     // unique integer to serve as chain id during testing
@@ -41,8 +41,8 @@ describe('handleEventAttestationIntervalChanged()', () => {
 
     describe('when new chain attestation interval is set', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             // NOTE: by defauilt it is 10
             await api.tx.sudo
@@ -65,7 +65,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
             for (const node of response.data.attestationIntervalChangeds.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);

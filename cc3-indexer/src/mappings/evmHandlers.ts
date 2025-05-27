@@ -167,7 +167,7 @@ export async function handleEscrowedPaymentReclaimed(
 
     const reclaimedPayment = EscrowPaymentReclaimed.create({
         id: `${event.blockNumber}-${event.transactionIndex}`,
-        blockNumber: event.blockNumber,
+        blockNumber: BigInt(event.blockNumber),
         who: event.address,
         amount: escrowedAmount.toBigInt(),
     });
@@ -201,7 +201,7 @@ export async function handleProceedsWithdrawn(event: FrontierEvmEvent<ProceedsWi
 
     const withdrawn = ProceedsWithdrawn.create({
         id: `${event.blockNumber}-${event.transactionIndex}`,
-        blockNumber: event.blockNumber,
+        blockNumber: BigInt(event.blockNumber),
         who: event.address,
         proceedsAccount,
         amount: amount.toBigInt(),

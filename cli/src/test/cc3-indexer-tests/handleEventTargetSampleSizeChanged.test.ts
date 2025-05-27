@@ -7,7 +7,7 @@ import { graphQLQuery } from './common';
 describe('handleEventTargetSampleSizeChanged()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     let targetSampleSize_Anvil1 = 0;
     let targetSampleSize_Anvil2 = 0;
     const newTargetSampleSize = 14;
@@ -70,7 +70,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
 
     describe('when target sample size for a chain changes', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
 
             await api.tx.sudo
                 .sudo(api.tx.attestation.setTargetSampleSize(newChainKey, newTargetSampleSize))
@@ -92,7 +92,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             expect(response.data.targetSampleSizeChangeds.nodes.length).toEqual(1);
 
             for (const node of response.data.targetSampleSizeChangeds.nodes) {
-                expect(node.blockNumber).toBeGreaterThanOrEqual(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(startingBlock);
                 expect(node.whoId).toEqual(root.address);
                 expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);

@@ -7,7 +7,7 @@ import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/c
 describe('handleEventMinBondRequirementUpdated()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     const newMinBondAmount = BigInt(randomIntBetween(50, 100));
 
     beforeAll(async () => {
@@ -21,8 +21,8 @@ describe('handleEventMinBondRequirementUpdated()', () => {
 
     describe('when min bond amount is updated', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
-            expect(startingBlock).toBeGreaterThan(0);
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
 
             // NOTE: by defauilt it is 100
             await api.tx.sudo
@@ -41,7 +41,7 @@ describe('handleEventMinBondRequirementUpdated()', () => {
             for (const node of response.data.minBondRequirementUpdateds.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
-                expect(node.blockNumber).toBeGreaterThan(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.whoId).toEqual(root.address);

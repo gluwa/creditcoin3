@@ -6,7 +6,7 @@ import { graphQLQuery } from './common';
 describe('handleSupportedChainRemoved()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: number;
+    let startingBlock: bigint;
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
@@ -54,7 +54,7 @@ describe('handleSupportedChainRemoved()', () => {
 
     describe('when a supported chain is removed', () => {
         beforeAll(async () => {
-            startingBlock = (await getChainStatus(api)).bestNumber;
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0);
 
             await api.tx.sudo
@@ -78,7 +78,7 @@ describe('handleSupportedChainRemoved()', () => {
             for (const node of response.data.chainRemoveds.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
-                expect(node.at).toBeGreaterThanOrEqual(startingBlock);
+                expect(BigInt(node.at)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
