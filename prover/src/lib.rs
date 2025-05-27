@@ -308,7 +308,7 @@ impl Server {
                                 Err(e) => {
                                     error!("Query processing failed, Error: {e:?}");
                                     if let LightProvingError::ProofGenerationFailed = e {
-                                        panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip and deleting associated queries. Fix prover BE then restart.");
+                                        panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
                                     } else {
                                         queued_light_proving_queries.remove(&query.id());
                                         remove_query_id(&self.cc3_client, query.id()).await?;
