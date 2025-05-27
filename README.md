@@ -73,6 +73,23 @@ $ ./target/release/creditcoin3-node --dev --sealing=manual
 $ ./target/release/creditcoin3-node --dev --sealing=instant
 ```
 
+## Recommended development workflow
+
+To minimize back-and-forth on pull requests it is recommended that developers would execute
+a number of checks locally before pushing a PR:
+
+1. `cargo fmt` and `cargo test` and `cargo clippy` when working on any component written in Rust
+2. `yarn format` and `yarn lint` and `yarn typecheck` when working on any component written in TypeScript
+3. Execute the primary test(s) for the affected component - see individual README files for more information
+
+
+It is also advisable that pull requests be:
+
+1. relatively small and related to a single feature / change request so they are easier to review
+2. up-to-date aka rebased onto latest development branch
+3. not contain "Merge" commits
+
+
 ### Docker Based Development
 
 Optionally, you can build and run creditcoin3-node within Docker directly.
