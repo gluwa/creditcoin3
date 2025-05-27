@@ -26,4 +26,19 @@ if [ -n "$TOML_FILES" ]; then
     fi
 fi
 
-exit $RESULT
+for TARGET_DIR in "cc3-indexer" "cli" "docs/smart-contract-development/with-hardhat"; do
+    if [ -n "$(git diff --cached --name-only $TARGET_DIR)" ]; then
+        pushd "$TARGET_DIR" || exit 2
+        yarn check-format
+        RESULT=$?
+        popd || exit 3
+
+        if [ "$RESULT" != "0" ]; then
+            echo "INFO: pre-commit: yarn check-format failed in $TARGET_DIR"
+            echo "FAIL: pre-commit: aborting the commit"
+            exit $RESULT
+        fi
+    fi
+done
+
+exit 0
