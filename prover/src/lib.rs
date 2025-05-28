@@ -8,7 +8,7 @@ use sp_core::H256;
 use std::{collections::HashSet, sync::Arc};
 use tokio::{
     sync::mpsc,
-    task::{self, JoinHandle, JoinError},
+    task::{self, JoinError, JoinHandle},
     time::{interval, Duration, Interval, MissedTickBehavior},
 };
 use tracing::{debug, error, info};
@@ -308,7 +308,7 @@ impl Server {
     }
 
     async fn stand_alone_prove_unprocessed_query(
-        &self, 
+        &self,
         chain_attestation_interval: u64,
         unprocessed_queries: Vec<Query>,
     ) -> Result<()> {
@@ -317,7 +317,7 @@ impl Server {
         if let Some(query) = query {
             info!("Processing unprocessed query: {:?}", query);
             if let Err(e) = self
-            .stone_proof_query(query.clone(), chain_attestation_interval)
+                .stone_proof_query(query.clone(), chain_attestation_interval)
                 .await
             {
                 error!("Query processing failed, Error: {e:?}");
@@ -341,7 +341,7 @@ impl Server {
                         let query_id = query.id();
                         contract::submit_proof(&self.cc3_client, query, proof).await?;
                         queued_light_proving_queries.remove(&query_id);
-                    },
+                    }
                     Err(e) => {
                         error!("Query processing failed, Error: {e:?}");
                         if let LightProvingError::ProofGenerationFailed = e {
@@ -355,7 +355,7 @@ impl Server {
                     }
                 }
                 Ok(())
-            },
+            }
             Err(join_err) => {
                 panic!("Fatal error, couldn't join query worker task, error: {join_err:?}");
             }
