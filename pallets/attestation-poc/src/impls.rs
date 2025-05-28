@@ -72,6 +72,17 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InsufficientBalance
         );
 
+        // Get some amount to fund the attestor
+        let amount: BalanceOf<T> = Self::min_bond_requirement(chain_key);
+
+        // Fund the attestor key
+        T::Currency::transfer(
+            &stash,
+            &attestor_id,
+            amount,
+            frame_support::traits::ExistenceRequirement::AllowDeath,
+        )?;
+
         // Create a new ledger for the attestor
         // With minimum bond requirement
         let ledger: AttestorLedger<T> =
