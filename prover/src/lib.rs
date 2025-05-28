@@ -3,15 +3,15 @@ use cc_client::AccountId32;
 use either::Either;
 use eth::Client as EthClient;
 use futures::stream::{FuturesUnordered, StreamExt};
+use query::external::Error as LightProvingError;
 use sp_core::H256;
 use std::{collections::HashSet, sync::Arc};
 use tokio::{
     sync::mpsc,
-    task::{self, JoinHandle},
+    task::{self, JoinHandle, JoinError},
     time::{interval, Duration, Interval, MissedTickBehavior},
 };
 use tracing::{debug, error, info};
-use query::external::Error as LightProvingError;
 
 use attestation::cache::AttestationCache;
 
@@ -163,7 +163,7 @@ impl Server {
         Ok(())
     }
 
-    async fn process_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {
+    async fn stone_proof_query(&self, query: Query, chain_attestation_interval: u64) -> Result<()> {
         if self.config.prover_be_socket_addr.is_some() {
             return Err(anyhow!(
                 "Tried to prove query locally while in light prover mode."
@@ -195,15 +195,16 @@ impl Server {
         chain_attestation_interval: u64,
     ) -> Result<Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>>> {
         // Create thread safe versions of config strings
-        let prover_be_socket_addr = Arc::new(self.config.prover_be_socket_addr.clone().ok_or(
-            anyhow!("Tried to submit light proving jobs while not in light mode!"),
-        )?);
-        let be_api_key = Arc::new(self.config.be_api_key.clone().ok_or(anyhow!(
+        let prover_be_socket_addr = self.config.prover_be_socket_addr.clone().ok_or(anyhow!(
+            "Tried to submit light proving jobs while not in light mode!"
+        ))?;
+        let be_api_key = self.config.be_api_key.clone().ok_or(anyhow!(
             "We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"
-        ))?);
+        ))?;
         // Create an eth client
         let eth_client = EthClient::new(&self.config.eth_rpc_url, None).await?;
-        let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>> = Vec::new();
+        let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>> =
+            Vec::new();
 
         for query in queries {
             let r = query::process(
@@ -248,44 +249,11 @@ impl Server {
                 _ = polling_interval.tick() => {
                     info!("Polling unprocessed queries...");
                     match contract::get_unprocessed_queries(&self.cc3_client).await {
-                        Ok(mut unprocessed_queries) => {
+                        Ok(unprocessed_queries) => {
                             if self.config.prover_be_socket_addr.is_some() {
-                                // We don't want to spam the BE with requests for queries we've already requested.
-                                unprocessed_queries.retain(|query| {
-                                    !queued_light_proving_queries.contains(&query.id())
-                                });
-                                info!("Found {} new unprocessed queries", unprocessed_queries.len());
-                                // Save these off to use later without cloning queries
-                                let query_ids: Vec<H256> = unprocessed_queries.iter().map(|query| {
-                                    query.id()
-                                }).collect();
-                                match self.queue_light_proving_jobs(unprocessed_queries, chain_attestation_interval).await {
-                                    Ok(new_query_handles) => {
-                                        for query_handle in new_query_handles {
-                                            light_prover_queries.push(query_handle);
-                                        }
-                                    },
-                                    Err(e) => {
-                                        error!("Queuing light proving for queries failed, Error: {e:?}");
-                                    }
-                                };
-                                // All queries were successfully queued as light proving jobs.
-                                for query_id in query_ids {
-                                    queued_light_proving_queries.insert(query_id);
-                                }
+                                self.light_prove_unprocessed_queries(chain_attestation_interval, unprocessed_queries, &mut queued_light_proving_queries, &mut light_prover_queries).await;
                             } else {
-                                // If not light prover, get first one because we won't process all of them at once
-                                let query = unprocessed_queries.first().cloned();
-                                if let Some(query) = query {
-                                    info!("Processing unprocessed query: {:?}", query);
-                                    if let Err(e) = self
-                                        .process_query(query.clone(), chain_attestation_interval)
-                                        .await
-                                    {
-                                        error!("Query processing failed, Error: {e:?}");
-                                        remove_query_id(&self.cc3_client, query.id()).await?;
-                                    }
-                                }
+                                self.stand_alone_prove_unprocessed_query(chain_attestation_interval, unprocessed_queries).await?;
                             }
                         }
                         Err(e) => {
@@ -297,34 +265,99 @@ impl Server {
                     panic!("Sync cache thread aborted.")
                 },
                 Some(result) = light_prover_queries.next() => {
-                    match result {
-                        Ok((query, result_inner)) => {
-                            match result_inner {
-                                Ok(proof) => {
-                                    info!("Submitting proof for query: {:?}", query);
-                                    // Prevent unnecessary clone
-                                    let query_id = query.id();
-                                    contract::submit_proof(&self.cc3_client, query, proof).await?;
-                                    queued_light_proving_queries.remove(&query_id);
-                                },
-                                Err(e) => {
-                                    error!("Query processing failed, Error: {e:?}");
-                                    if let LightProvingError::ProofGenerationFailed = e {
-                                        panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
-                                    } else {
-                                        // Prevent unnecessary clone
-                                        let query_id = query.id();
-                                        remove_query_id(&self.cc3_client, query.id()).await?;
-                                        queued_light_proving_queries.remove(&query_id);
-                                    }
-                                }
-                            }
-                        },
-                        Err(join_err) => {
-                            panic!("Fatal error, couldn't join query worker task, error: {join_err:?}");
+                    self.handle_finished_light_proving_job(result, &mut queued_light_proving_queries).await?;
+                }
+            }
+        }
+    }
+
+    async fn light_prove_unprocessed_queries(
+        &self,
+        chain_attestation_interval: u64,
+        mut unprocessed_queries: Vec<Query>,
+        queued_light_proving_queries: &mut HashSet<H256>,
+        light_prover_queries: &mut FuturesUnordered<
+            JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>,
+        >,
+    ) {
+        // We don't want to spam the BE with requests for queries we've already requested.
+        unprocessed_queries.retain(|query| !queued_light_proving_queries.contains(&query.id()));
+        info!(
+            "Found {} new unprocessed queries",
+            unprocessed_queries.len()
+        );
+        // Save these off to use later without cloning queries
+        let query_ids: Vec<H256> = unprocessed_queries.iter().map(|query| query.id()).collect();
+        match self
+            .queue_light_proving_jobs(unprocessed_queries, chain_attestation_interval)
+            .await
+        {
+            Ok(new_query_handles) => {
+                for query_handle in new_query_handles {
+                    light_prover_queries.push(query_handle);
+                }
+            }
+            Err(e) => {
+                error!("Queuing light proving for queries failed, Error: {e:?}");
+            }
+        };
+        // All queries were successfully queued as light proving jobs.
+        for query_id in query_ids {
+            queued_light_proving_queries.insert(query_id);
+        }
+    }
+
+    async fn stand_alone_prove_unprocessed_query(
+        &self, 
+        chain_attestation_interval: u64,
+        unprocessed_queries: Vec<Query>,
+    ) -> Result<()> {
+        // If not light prover, get first one because we won't process all of them at once
+        let query = unprocessed_queries.first().cloned();
+        if let Some(query) = query {
+            info!("Processing unprocessed query: {:?}", query);
+            if let Err(e) = self
+            .stone_proof_query(query.clone(), chain_attestation_interval)
+                .await
+            {
+                error!("Query processing failed, Error: {e:?}");
+                remove_query_id(&self.cc3_client, query.id()).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_finished_light_proving_job(
+        &self,
+        result: Result<(Query, Result<Vec<u8>, LightProvingError>), JoinError>,
+        queued_light_proving_queries: &mut HashSet<H256>,
+    ) -> Result<()> {
+        match result {
+            Ok((query, result_inner)) => {
+                match result_inner {
+                    Ok(proof) => {
+                        info!("Submitting proof for query: {:?}", query);
+                        // Prevent unnecessary clone
+                        let query_id = query.id();
+                        contract::submit_proof(&self.cc3_client, query, proof).await?;
+                        queued_light_proving_queries.remove(&query_id);
+                    },
+                    Err(e) => {
+                        error!("Query processing failed, Error: {e:?}");
+                        if let LightProvingError::ProofGenerationFailed = e {
+                            panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
+                        } else {
+                            // Prevent unnecessary clone
+                            let query_id = query.id();
+                            remove_query_id(&self.cc3_client, query.id()).await?;
+                            queued_light_proving_queries.remove(&query_id);
                         }
                     }
                 }
+                Ok(())
+            },
+            Err(join_err) => {
+                panic!("Fatal error, couldn't join query worker task, error: {join_err:?}");
             }
         }
     }

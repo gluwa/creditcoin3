@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const API_KEY: &str = "api-key";
 const POST_WORK_ORDER_RETRIES: u32 = 5;
@@ -108,9 +108,7 @@ async fn build_and_post_order_with_retries(
 ) -> std::result::Result<WorkOrderResponse, Error> {
     // Internet connection interruptions should be tolerated, rather than treated as proving failures
     for i in 0..POST_WORK_ORDER_RETRIES {
-        let form = prepare_proof_order_form(query_id, &files)
-            .await
-            .map_err(|e| Error::FormPreparationFailed(e.to_string()))?;
+        let form = prepare_proof_order_form(query_id, &files).await?;
         let response_or_err =
             post_work_order(client, form, prover_be_socket_addr, be_api_key).await;
         if let Err(error) = response_or_err {
@@ -156,7 +154,7 @@ async fn post_work_order(
                 .await
                 .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?;
 
-            info!(
+            debug!(
                 "Received post_work_order response: {:?}",
                 String::from_utf8_lossy(&bytes)
             );
@@ -239,20 +237,22 @@ async fn get_work_order_result(
 async fn prepare_proof_order_form(
     query_id: QueryId,
     files: &Vec<PathBuf>,
-) -> Result<reqwest::multipart::Form> {
+) -> Result<reqwest::multipart::Form, Error> {
     // Prepare each file for the multipart form
     let mut form = reqwest::multipart::Form::new();
     for file in files {
-        let file_content = tokio::fs::read(&file).await?;
+        let file_content = tokio::fs::read(&file)
+            .await
+            .map_err(|e| Error::FormPreparationFailed(e.to_string()))?;
         let filename = file
             .file_name()
             .ok_or("Invalid file name")
-            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?;
+            .map_err(|e| Error::FormPreparationFailed(e.to_string()))?;
 
         let filename_string = filename
             .to_str()
             .ok_or("Invalid file name")
-            .map_err(|_e| anyhow::anyhow!("Failed to parse file"))?
+            .map_err(|e| Error::FormPreparationFailed(e.to_string()))?
             .to_string();
 
         let request_field = match get_request_field(&filename_string) {
