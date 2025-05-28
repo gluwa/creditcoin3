@@ -53,6 +53,8 @@ struct Engine {
     continuity_cache: continuity::Cache,
     // Sync state
     sync_state: SyncState,
+    // Maturity delay
+    maturity_delay: u64,
 }
 
 enum State {
@@ -77,7 +79,6 @@ impl State {
 pub struct AsyncEngine {
     inner: Arc<Mutex<Engine>>,
     eth_client: Client,
-    maturity_delay: u64,
     pub chain_key: ChainKey,
 }
 
@@ -114,12 +115,12 @@ impl AsyncEngine {
             current_epoch: 0,
             start_block: config.start_block,
             continuity_cache: continuity::Cache::new(eth_client.clone()),
+            maturity_delay: config.maturity_delay,
         };
 
         Ok(Self {
             inner: Arc::new(Mutex::new(engine)),
             eth_client,
-            maturity_delay: config.maturity_delay,
             chain_key,
         })
     }
@@ -140,13 +141,14 @@ impl AsyncEngine {
             return None;
         }
 
+        let maturity_delay = engine.maturity_delay;
         debug!("Getting next attestation");
         let attestation = engine.receiver.recv().await;
         drop(engine);
 
         if let Some(attestation) = attestation {
             return Some(
-                self.mature_block(attestation)
+                self.mature_block(attestation, maturity_delay)
                     .await
                     .expect("Failed to mature block"),
             );
@@ -239,6 +241,7 @@ impl AsyncEngine {
     async fn mature_block(
         &self,
         attestation: AttestationPrimitive<sp_core::H256>,
+        delay: u64,
     ) -> Result<AttestationPrimitive<sp_core::H256>> {
         // Check if we can mature the block
         let check_interval = tokio::time::Duration::from_secs(10);
@@ -254,13 +257,13 @@ impl AsyncEngine {
             };
 
             // If the attestation is mature, return it
-            if attestation.header_number <= last_eth_block_number - self.maturity_delay {
+            if attestation.header_number <= last_eth_block_number - delay {
                 return Ok(attestation);
             }
 
             info!("⏱️ Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
                       last_eth_block_number,
-                      attestation.header_number + self.maturity_delay);
+                      attestation.header_number + delay);
 
             // Wait for check interval before checking again
             sleep(check_interval).await;
@@ -612,7 +615,10 @@ impl Engine {
 
         // Update the sync state
         let last_eth_height = self.eth_client.get_last_block().await?;
-        self.sync_state.update(header, last_eth_height);
+        // Only update the sync state if we are actually behind (2 * maturity delay)
+        if header + self.maturity_delay * 2 < last_eth_height {
+            self.sync_state.update(header, last_eth_height);
+        }
 
         Ok(())
     }

@@ -147,7 +147,7 @@ impl<'a> Client {
             }
         }
 
-        info!("Attestator ready to start!");
+        debug!("Attestor ready to start!");
 
         Ok(())
     }

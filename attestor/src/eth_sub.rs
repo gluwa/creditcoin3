@@ -72,7 +72,7 @@ pub async fn attest_to_heads(
             }
             Err(e) => {
                 if matches!(e, eth::Error::EndOfSubscription) {
-                    info!("Done crawling historical blocks, switching to new heads subscription");
+                    debug!("Done crawling historical blocks, switching to new heads subscription");
                     subscription = eth_client.open_subscription(None, attestation_interval)?;
                 } else {
                     error!("Error fetching block: {:?}", e);
