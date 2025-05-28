@@ -7,7 +7,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     const chain1 = AttestationChainData.create({
         id: 'chain_1',
         chainKey: BigInt(1),
-        attestationInterval: 10,
+        attestationInterval: BigInt(10),
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
@@ -29,7 +29,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     const chain2 = AttestationChainData.create({
         id: 'chain_2',
         chainKey: BigInt(2),
-        attestationInterval: 10,
+        attestationInterval: BigInt(10),
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
@@ -51,7 +51,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     const chain3 = AttestationChainData.create({
         id: 'chain_3',
         chainKey: BigInt(3),
-        attestationInterval: 10,
+        attestationInterval: BigInt(10),
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',
@@ -73,7 +73,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     const chain4 = AttestationChainData.create({
         id: 'chain_4',
         chainKey: BigInt(4),
-        attestationInterval: 10,
+        attestationInterval: BigInt(10),
         checkpointInterval: 10,
         chainReward: BigInt(1000),
         lastAttestedDigest: '',

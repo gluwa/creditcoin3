@@ -11,7 +11,7 @@ type AttestationChainData @entity {
     # Minimum bond requirement
     minBondRequirement: BigInt!
     # Attestation interval
-    attestationInterval: Int!
+    attestationInterval: BigInt!
     # Checkpoint interval
     checkpointInterval: Int!  # this-is-expected
     # Target sample size
@@ -477,7 +477,7 @@ type AttestationIntervalChanged @entity {
 
     chainKey: BigInt!
 
-    interval: Int!
+    interval: BigInt!
 }
 
 type CheckpointIntervalChanged @entity {
@@ -509,7 +509,7 @@ type PendingAttestationIntervalSet @entity {
 
     chainKey: BigInt!
 
-    interval: Int!
+    interval: BigInt!
 }
 
 type Prover @entity {

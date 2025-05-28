@@ -47,8 +47,8 @@ describe('initiateStoreAndDatabase()', () => {
 
                 const attestationInterval = (
                     (await api.query.attestation.chainAttestationInterval(node.chainKey)) as U64
-                ).toNumber();
-                expect(node.attestationInterval).toEqual(attestationInterval);
+                ).toBigInt();
+                expect(BigInt(node.attestationInterval)).toEqual(attestationInterval);
 
                 const checkpointInterval = (
                     (await api.query.attestation.attestationCheckpointInterval(node.chainKey)) as U32

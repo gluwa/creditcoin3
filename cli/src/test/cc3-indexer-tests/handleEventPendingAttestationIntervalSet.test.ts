@@ -10,7 +10,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
     // unique integer to serve as chain id during testing
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
-    const newInterval = randomIntBetween(10, 100);
+    const newInterval = BigInt(randomIntBetween(10, 100));
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -63,7 +63,7 @@ describe('handleEventPendingAttestationIntervalSet()', () => {
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
-                expect(node.interval).toEqual(newInterval);
+                expect(BigInt(node.interval)).toEqual(newInterval);
                 expect(node.whoId).toEqual(root.address);
             }
         });

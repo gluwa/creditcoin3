@@ -124,7 +124,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const newChain = AttestationChainData.create({
         id: chainKeyNumber.toString(),
         chainKey: chainKeyNumber,
-        attestationInterval: 10,
+        attestationInterval: BigInt(10),
         checkpointInterval: 10,
         chainReward: BigInt(0),
         lastAttestedDigest: '',
@@ -877,7 +877,7 @@ export async function handleEventAttestationIntervalChanged(event: SubstrateEven
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
-        interval: parseInt(chainAttestationIntervalType.toString(), 10),
+        interval: BigInt(chainAttestationIntervalType.toString()),
     });
 
     logger.info(
@@ -886,7 +886,7 @@ export async function handleEventAttestationIntervalChanged(event: SubstrateEven
     const data = await getChainData(chainKeyNumber);
     if (data) {
         logger.info(`AttestationIntervalChanged event found for chainKey ${chainKeyNumber}`);
-        data.attestationInterval = parseInt(chainAttestationIntervalType.toString(), 10);
+        data.attestationInterval = BigInt(chainAttestationIntervalType.toString());
         await data.save();
     }
 
@@ -914,7 +914,7 @@ export async function handleEventPendingAttestationIntervalSet(event: SubstrateE
         blockNumber,
         date: event.block.timestamp,
         chainKey: chainKeyNumber,
-        interval: parseInt(chainAttestationIntervalType.toString(), 10),
+        interval: BigInt(chainAttestationIntervalType.toString()),
         whoId: from.toString(),
     });
 

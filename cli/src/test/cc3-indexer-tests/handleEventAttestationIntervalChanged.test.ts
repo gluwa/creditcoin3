@@ -9,7 +9,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
     let root: KeyringPair;
     let startingBlock: bigint;
     // avoid the default of 10
-    const newInterval = randomIntBetween(11, 21);
+    const newInterval = BigInt(randomIntBetween(11, 21));
     // unique integer to serve as chain id during testing
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
@@ -69,7 +69,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
-                expect(node.interval).toEqual(newInterval);
+                expect(BigInt(node.interval)).toEqual(newInterval);
             }
         });
 
@@ -87,7 +87,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
             );
             expect(response.data.attestationChainData.nodes.length).toEqual(1);
             for (const node of response.data.attestationChainData.nodes) {
-                expect(node.attestationInterval).toEqual(newInterval);
+                expect(BigInt(node.attestationInterval)).toEqual(newInterval);
             }
         });
     });
