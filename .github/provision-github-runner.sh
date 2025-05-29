@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eo pipefail
+
 mkdir actions-runner
 pushd actions-runner || exit 1
 

@@ -51,22 +51,28 @@ done
 SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
+# make sure we have ssh connectivity first by retrying multiple times
+echo "INFO: checking for ssh connectivity ..."
+until ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" cat /etc/os-release; do
+  echo "DEBUG: retrying ssh connection ..."
+  sleep 30
+done
+
 # explicitly upgrade before doing anything else to prevent accidental restarts
-until ssh -i ~/.ssh/id_rsa \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/apply-ubuntu-upgrades.sh; do
-  echo "DEBUG: retrying ssh connection ..."
-  sleep 30
-done
+echo "INFO: attempting Ubuntu upgrade ..."
+ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/apply-ubuntu-upgrades.sh
 
-until ssh -i ~/.ssh/id_rsa \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/install-docker-engine-from-upstream.sh; do
-  echo "DEBUG: retrying ssh connection ..."
-  sleep 30
-done
+# WARNING: commands below won't be retried if they fail b/c we want to
+# detect such failures and not continue further
+set -euo pipefail
 
-until ssh -i ~/.ssh/id_rsa \
+echo "INFO: installing upstream Docker Engine ..."
+ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/install-docker-engine-from-upstream.sh
+
+echo "INFO: provisioning GitHub runner ..."
+ssh -i ~/.ssh/id_rsa \
   -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh; do
-  echo "DEBUG: retrying ssh connection ..."
-  sleep 30
-done
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh
