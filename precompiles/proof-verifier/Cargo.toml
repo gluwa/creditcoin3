@@ -51,8 +51,6 @@ derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
 hex = { workspace = true }
-hex-literal = { workspace = true }
-libsecp256k1 = { workspace = true }
 pallet-attestation-poc = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-prover = { workspace = true }
@@ -62,7 +60,6 @@ pallet-staking-reward-curve = { workspace = true, default-features = false }
 pallet-supported-chains = { workspace = true }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
 serde = { workspace = true }
-sha3 = { workspace = true }
 sp-staking = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
@@ -92,4 +89,5 @@ std = [
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",
+    "pallet-babe/std",
 ]
