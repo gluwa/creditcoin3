@@ -287,7 +287,7 @@ impl Server {
             unprocessed_queries.len()
         );
         // Save these off to use later without cloning queries
-        let query_ids: Vec<H256> = unprocessed_queries.iter().map(|query| query.id()).collect();
+        let query_ids: Vec<H256> = unprocessed_queries.iter().map(Query::id).collect();
         match self
             .queue_light_proving_jobs(unprocessed_queries, chain_attestation_interval)
             .await
