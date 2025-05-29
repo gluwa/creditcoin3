@@ -86,8 +86,8 @@ std = [
     "pallet-supported-chains/std",
     "attestor-primitives/std",
     "pallet-attestation-poc/std",
+    "pallet-babe/std",
     "sp-staking/std",
     "pallet-staking/std",
     "supported-chains-primitives/std",
-    "pallet-babe/std",
 ]
