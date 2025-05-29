@@ -89,7 +89,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
         // Allow resubmission of queries that have timed out or have default state (Uninitialized)
-        if (!(queries[queryId].state == QueryState.Uninitialized || isQueryTimedOut(queryId))) {
+        if (queries[queryId].state == QueryState.ResultAvailable || !(queries[queryId].state == QueryState.Uninitialized || isQueryTimedOut(queryId))) {
             revert("Query already exists");
         }
 
