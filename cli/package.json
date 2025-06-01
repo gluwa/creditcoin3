@@ -51,12 +51,12 @@
         "typescript": "^5.8.2"
     },
     "dependencies": {
-        "@polkadot/api": "15.9.3",
-        "@polkadot/types-augment": "15.9.3",
+        "@polkadot/api": "16.1.1",
+        "@polkadot/types-augment": "16.1.1",
         "bls-signatures-bindings": "^0.2.0",
         "cli-table3": "^0.6.3",
-        "commander": "^12.1.0",
-        "ethers": "^6.13.5",
+        "commander": "^14.0.0",
+        "ethers": "^6.14.3",
         "execa": "5.1.1",
         "js-guid": "^1.0.0",
         "prompts": "^2.4.2",
