@@ -30,7 +30,7 @@
         "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests"
     },
     "devDependencies": {
-        "@polkadot/typegen": "15.9.2",
+        "@polkadot/typegen": "16.1.1",
         "@types/jest": "^29.5.8",
         "@types/prompts": "^2.4.8",
         "@typescript-eslint/eslint-plugin": "^8.29.0",
