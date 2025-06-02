@@ -32,7 +32,7 @@
         "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --verbose --runInBand --forceExit src/test/cc3-indexer-tests"
     },
     "devDependencies": {
-        "@polkadot/typegen": "15.9.3",
+        "@polkadot/typegen": "16.1.1",
         "@types/graphqurl": "^1.0.3",
         "@types/jest": "^29.5.8",
         "@types/prompts": "^2.4.8",
