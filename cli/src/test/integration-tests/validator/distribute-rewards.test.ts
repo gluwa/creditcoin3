@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../utils';
+import { testIf, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -7,9 +7,9 @@ import {
     waitEras,
     ALICE_NODE_URL,
     CLIBuilder,
-} from './helpers';
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
-import { getBalance } from '../../lib/balance';
+} from '../helpers';
+import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { getBalance } from '../../../lib/balance';
 
 describe('distribute-rewards', () => {
     let startingEra: number;

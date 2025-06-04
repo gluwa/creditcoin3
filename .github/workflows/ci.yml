@@ -2170,7 +2170,7 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          yarn test:integration
+          yarn test:validator-cli
         env:
           RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}

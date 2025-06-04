@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../utils';
+import { testIf, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -6,8 +6,8 @@ import {
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
-} from './helpers';
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
+} from '../helpers';
+import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 
 describe('set-keys', () => {
     let api: ApiPromise;

@@ -1,9 +1,9 @@
 import { commandSync } from 'execa';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { CLI_PATH, randomTestAccount, ALICE_NODE_URL, BOB_NODE_URL } from './helpers';
-import { describeIf } from '../utils';
-import { parseSubstrateAddress, parseEVMAddress } from '../../commands/options';
-import { substrateAddressToEvmAddress } from '../../lib/evm/address';
+import { CLI_PATH, randomTestAccount, ALICE_NODE_URL, BOB_NODE_URL } from '../helpers';
+import { describeIf } from '../../utils';
+import { parseSubstrateAddress, parseEVMAddress } from '../../../commands/options';
+import { substrateAddressToEvmAddress } from '../../../lib/evm/address';
 
 describeIf(
     process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',

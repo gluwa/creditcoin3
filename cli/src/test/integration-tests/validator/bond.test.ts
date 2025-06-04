@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../utils';
+import { testIf, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -7,10 +7,10 @@ import {
     ALICE_NODE_URL,
     CLIBuilder,
     setMinBondConfig,
-} from './helpers';
-import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
-import { getBalance } from '../../lib/balance';
-import { parseAmount } from '../../commands/options';
+} from '../helpers';
+import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
+import { getBalance } from '../../../lib/balance';
+import { parseAmount } from '../../../commands/options';
 
 describe('bond', () => {
     let api: ApiPromise;

@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../utils';
+import { testIf, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -7,11 +7,11 @@ import {
     waitEras,
     ALICE_NODE_URL,
     CLIBuilder,
-} from './helpers';
-import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
-import { getBalance } from '../../lib/balance';
-import { getValidatorStatus, validatorStatusTable } from '../../lib/staking/validatorStatus';
-import { parseAmount } from '../../commands/options';
+} from '../helpers';
+import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
+import { getBalance } from '../../../lib/balance';
+import { getValidatorStatus, validatorStatusTable } from '../../../lib/staking/validatorStatus';
+import { parseAmount } from '../../../commands/options';
 
 async function nextUnbondingInMs(validatorAddress: string, api: ApiPromise) {
     const status = await validatorStatusTable(await getValidatorStatus(validatorAddress, api), api, false);

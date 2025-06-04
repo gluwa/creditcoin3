@@ -6,9 +6,9 @@ import {
     randomFundedAccount,
     randomTestAccount,
     CLIBuilder,
-} from './helpers';
-import { describeIf } from '../utils';
-import { newApi, ApiPromise, BN, KeyringPair } from '../../lib';
+} from '../helpers';
+import { describeIf } from '../../utils';
+import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
 
 describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'Proxy functionality', () => {
     let api: ApiPromise;

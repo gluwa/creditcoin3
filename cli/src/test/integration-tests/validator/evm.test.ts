@@ -1,14 +1,14 @@
-import { signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from './helpers';
-import { ApiPromise, KeyringPair, newApi } from '../../lib';
-import { CallerKeyring } from '../../lib/account/keyring';
-import { randomEvmAccount } from './evmHelpers';
-import { getEVMBalanceOf } from '../../lib/evm/balance';
-import { convertWsToHttp } from '../../lib/evm/rpc';
-import { substrateAddressToEvmAddress } from '../../lib/evm/address';
-import { getBalance } from '../../lib/balance';
-import { parseAmount } from '../../commands/options';
-import { describeIf } from '../utils';
+import { signSendAndWatchCcKeyring } from '../../../lib/tx';
+import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from '../helpers';
+import { ApiPromise, KeyringPair, newApi } from '../../../lib';
+import { CallerKeyring } from '../../../lib/account/keyring';
+import { randomEvmAccount } from '../evmHelpers';
+import { getEVMBalanceOf } from '../../../lib/evm/balance';
+import { convertWsToHttp } from '../../../lib/evm/rpc';
+import { substrateAddressToEvmAddress } from '../../../lib/evm/address';
+import { getBalance } from '../../../lib/balance';
+import { parseAmount } from '../../../commands/options';
+import { describeIf } from '../../utils';
 
 describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'EVM Commands', () => {
     let api: ApiPromise;

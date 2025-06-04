@@ -1,8 +1,8 @@
 import { mnemonicValidate } from '@polkadot/util-crypto';
-import { BN, newApi, ApiPromise, KeyringPair } from '../../lib';
-import { getBalance, printBalance } from '../../lib/balance';
-import { parseHexStringInternal } from '../../lib/parsing';
-import { getValidatorStatus } from '../../lib/staking/validatorStatus';
+import { BN, newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { getBalance, printBalance } from '../../../lib/balance';
+import { parseHexStringInternal } from '../../../lib/parsing';
+import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
 import {
     ALICE_NODE_URL,
     BOB_NODE_URL,
@@ -15,9 +15,9 @@ import {
     setUpProxy,
     tearDownProxy,
     CLIBuilder,
-} from './helpers';
-import { describeIf, sleep } from '../utils';
-import { parseAmount } from '../../commands/options';
+} from '../helpers';
+import { describeIf, sleep } from '../../utils';
+import { parseAmount } from '../../../commands/options';
 
 describeIf(
     process.env.EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO === 'yes' &&

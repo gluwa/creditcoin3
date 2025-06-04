@@ -1,17 +1,17 @@
-import { testIf, sleep } from '../utils';
+import { testIf, sleep } from '../../utils';
 import {
     initAliceKeyring,
-    increaseValidatorCount,
     randomFundedAccount,
     setUpProxy,
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
-} from './helpers';
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
-import { getValidatorStatus } from '../../lib/staking/validatorStatus';
+} from '../helpers';
+import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
+import { getBalance } from '../../../lib/balance';
+import { parseAmount } from '../../../commands/options';
 
-describe('chill', () => {
+describe('unbond', () => {
     let api: ApiPromise;
     let caller: any;
     let proxy: any;
@@ -44,51 +44,37 @@ describe('chill', () => {
         await api.disconnect();
     });
 
-    describe('when NOT validating', () => {
+    describe('when NOT bonded', () => {
         testIf(
             process.env.PROXY_ENABLED === undefined ||
                 process.env.PROXY_ENABLED === 'no' ||
                 (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
-            'should error with validator not validating message',
+            'should error with validator not bonded message',
             () => {
                 try {
-                    CLI('chill');
+                    CLI('unbond --amount 100');
                 } catch (error: any) {
                     expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain('Cannot perform action, validator is not validating');
+                    expect(error.stderr).toContain('Cannot perform action, validator is not bonded');
                 }
             },
         );
     });
 
-    describe('when ALREADY actively validating', () => {
-        beforeAll(async () => {
-            await increaseValidatorCount(api, sudoSigner);
-        }, 30_000);
-
-        beforeEach(async () => {
-            // bond before calling validate
-            let result = nonProxiedCli(`bond --amount 900`);
+    describe('when ALREADY bonded', () => {
+        beforeEach(() => {
+            // bond before calling unbond
+            const result = nonProxiedCli(`bond --amount 123`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
-
-            // signal validation intention
-            result = nonProxiedCli('validate --commission 90');
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain('Transaction included at block');
-
-            // wait 2 seconds for nodes to sync
-            await sleep(2000);
-            const status = await getValidatorStatus(caller.address, api);
-            expect(status?.validating).toBe(true);
-        }, 200_000);
+        });
 
         testIf(
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
                 try {
-                    CLI('chill');
+                    CLI('unbond --amount 123');
                 } catch (error: any) {
                     expect(error.exitCode).toEqual(1);
                     expect(error.stderr).toContain(
@@ -104,7 +90,7 @@ describe('chill', () => {
             'should error with proxy.NotProxy message',
             () => {
                 try {
-                    CLI('chill');
+                    CLI('unbond --amount 123');
                 } catch (error: any) {
                     expect(error.exitCode).toEqual(1);
                     expect(error.stdout).toContain(
@@ -118,17 +104,33 @@ describe('chill', () => {
             process.env.PROXY_ENABLED === undefined ||
                 process.env.PROXY_ENABLED === 'no' ||
                 (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
-            'should cause validator to stop validating',
+            'should be able to unbond',
             async () => {
-                const result = CLI('chill');
+                const zero = new BN(0);
+                const oneHundred = parseAmount('100');
+                const hundred23 = parseAmount('123');
+
+                const oldBalance = await getBalance(caller.address, api);
+                expect(oldBalance.unbonding.toString()).toBe(zero.toString());
+
+                let result = CLI('unbond --amount 100');
                 expect(result.exitCode).toEqual(0);
                 expect(result.stdout).toContain('Transaction included at block');
 
                 // wait 2 seconds for nodes to sync
                 await sleep(2000);
+                const newBalance = await getBalance(caller.address, api);
+                expect(newBalance.unbonding.toString()).toBe(oneHundred.toString());
 
-                const status = await getValidatorStatus(caller.address, api);
-                expect(status?.validating).toBe(false);
+                // unbond again
+                result = CLI('unbond --amount 23');
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Transaction included at block');
+
+                // wait 2 seconds for nodes to sync
+                await sleep(2000);
+                const newerBalance = await getBalance(caller.address, api);
+                expect(newerBalance.unbonding.toString()).toBe(hundred23.toString());
             },
             60_000,
         );

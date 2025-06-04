@@ -26,7 +26,7 @@
         "typecheck": "tsc --noEmit",
         "prepare": "yarn build",
         "test:unit": "jest --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts src/test/unit-tests",
-        "test:integration": "jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests",
+        "test:validator-cli": "jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --coverage --collectCoverageFrom=src/**/*.ts --forceExit src/test/integration-tests/validator/",
         "test:attestation": "jest --config src/test/attestation-tests.config.ts --verbose --runInBand --forceExit src/test/attestation-tests",
         "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests",
         "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --verbose --runInBand --forceExit src/test/cc3-indexer-tests"

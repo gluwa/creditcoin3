@@ -41,5 +41,5 @@ node dist/cli.js balance --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNeh
 The primary CI jobs for cli are `unit-test-cli:` and `integration-test-cli:`
 inside `.github/workflows/ci.yml`. The later exercises the cli command from the POV of a validator.
 
-The entry-points are `test:unit` and `test:integration` in `cli/package.json` and the primary test suite
+The entry-points are `test:unit` and `test:validator-cli` in `cli/package.json` and the primary test suite
 locations are under `cli/src/test/unit-tests/` and `cli/src/test/integration-tests/`.

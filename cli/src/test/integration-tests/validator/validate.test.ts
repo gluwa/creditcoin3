@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../utils';
+import { testIf, sleep } from '../../utils';
 import {
     initAliceKeyring,
     increaseValidatorCount,
@@ -8,9 +8,9 @@ import {
     ALICE_NODE_URL,
     CLIBuilder,
     setMinBondConfig,
-} from './helpers';
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
-import { getValidatorStatus } from '../../lib/staking/validatorStatus';
+} from '../helpers';
+import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
 
 describe('validate', () => {
     let api: ApiPromise;

@@ -1,5 +1,5 @@
-import { ALICE_NODE_URL, randomTestAccount, CLIBuilder } from './helpers';
-import { newApi, ApiPromise } from '../../lib';
+import { ALICE_NODE_URL, randomTestAccount, CLIBuilder } from '../helpers';
+import { newApi, ApiPromise } from '../../../lib';
 
 describe('status', () => {
     let api: ApiPromise;

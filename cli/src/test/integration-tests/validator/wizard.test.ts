@@ -7,10 +7,10 @@ import {
     ALICE_NODE_URL,
     CLIBuilder,
     setMinBondConfig,
-} from './helpers';
-import { testIf, sleep } from '../utils';
-import { getValidatorStatus } from '../../lib/staking/validatorStatus';
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
+} from '../helpers';
+import { testIf, sleep } from '../../utils';
+import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
+import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 
 describe('wizard', () => {
     let api: ApiPromise;

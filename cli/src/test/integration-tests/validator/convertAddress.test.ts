@@ -1,7 +1,7 @@
 import { commandSync } from 'execa';
-import { describeIf } from '../utils';
-import { ALICE_NODE_URL, BOB_NODE_URL, CLI_PATH } from './helpers';
-import { initEthKeyringPair, initKeyringPair } from '../../lib/account/keyring';
+import { describeIf } from '../../utils';
+import { ALICE_NODE_URL, BOB_NODE_URL, CLI_PATH } from '../helpers';
+import { initEthKeyringPair, initKeyringPair } from '../../../lib/account/keyring';
 
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 

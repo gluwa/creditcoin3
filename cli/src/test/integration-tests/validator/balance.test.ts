@@ -1,5 +1,5 @@
-import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from './helpers';
-import { newApi, ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '../../lib';
+import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from '../helpers';
+import { newApi, ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '../../../lib';
 
 describe('balance', () => {
     let api: ApiPromise;
