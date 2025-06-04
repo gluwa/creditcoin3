@@ -3136,3 +3136,282 @@ jobs:
         env:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  deploy-runner-attestor-cli:
+    needs:
+      - build-creditcoin-node-for-testing
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: runner-attestor-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
+          # doesn't evaluate the $GITHUB_RUN_ID reference
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Provision VM
+        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
+        run: |
+          .github/provision-linode-vm.sh
+        env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
+          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}-attestor-cli
+          LC_PROXY_ENABLED: ${{ matrix.proxy }}
+          LC_PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          LC_PROXY_TYPE: ${{ matrix.proxy_type }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}-attestor-cli
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+
+      - name: Upload Linode logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linode-attestor-cli-${{ matrix.proxy }}-${{ matrix.secret }}-${{ matrix.proxy_type }}-logs
+          path: retry*.json
+
+  attestor-cli-testing:
+    needs:
+      - build-creditcoin-node-for-testing
+      - deploy-runner-attestor-cli
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: attestor-cli-testing / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    runs-on:
+      [
+        self-hosted,
+        "workflow-${{ github.run_id }}-attestor-cli",
+        "proxy-${{ matrix.proxy }}",
+        "secret-${{ matrix.secret }}",
+        "type-${{ matrix.proxy_type }}",
+      ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v4
+        with:
+          name: creditcoin-node-for-testing-ci
+          path: target/release
+
+      - name: Download attestor binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: attestor-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node in order to update typedefs
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for nodes to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Check that Creditcoin chain has ETH blocks
+        working-directory: ./cli
+        run: |
+          yarn build
+          node dist/scripts/eth-check.js ws://127.0.0.1:9944
+
+      - name: Auto-update typedefs
+        working-directory: ./cli
+        run: |
+          ./get-metadata.sh
+
+          # kill the node b/c the tests will launch their own processes
+          killall -9 creditcoin3-node
+
+          yarn build:types
+          yarn format
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff
+          echo "======================================="
+
+      # note: potentially rebuilds with newer type definitions
+      - name: Build creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn build
+
+      - name: Run integration tests
+        working-directory: ./cli
+        run: |
+          yarn test:attestor-cli
+        env:
+          RUST_LOG: debug
+          PROXY_ENABLED: ${{ matrix.proxy }}
+          PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          PROXY_TYPE: ${{ matrix.proxy_type }}
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+      - name: Upload logs from Alice and Bob
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alice-and-Bob-logs-for-attestor-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          path: /tmp/creditcoin3-node-*.std*
+
+      # keep this always as the last step
+      - name: Schedule self-hosted shutdown
+        if: always()
+        run: |
+          # unreliable
+          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
+
+  rm-gh-runner-attestor-cli:
+    runs-on: ubuntu-24.04
+    needs:
+      - attestor-cli-testing
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # runners for integration-test-cli-jobs
+          - proxy: no
+
+          - proxy: yes
+            secret: no-funds
+
+          - proxy: yes
+            secret: not-a-proxy
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: Staking
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: NonTransfer
+
+          - proxy: yes
+            secret: valid-proxy
+            proxy_type: All
+
+    name: remove-attestor-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}-attestor-cli
