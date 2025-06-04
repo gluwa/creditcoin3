@@ -149,7 +149,7 @@ pub async fn get_erc20_transfer_segments(
         .map_err(|e| anyhow!("Adding to field failed: {:?}", e))?;
 
     // Get fields from the transfer event
-    query_builder
+    let event_builder_result = query_builder
         .event_builder(
             "Transfer".into(),
             |_log, _event, _log_index| {
@@ -165,8 +165,14 @@ pub async fn get_erc20_transfer_segments(
                 Ok(())
             },
         )
-        .await
-        .map_err(|e| anyhow!("Adding event fields failed: {:?}", e))?;
+        .await;
+    if let Err(e) = event_builder_result {
+        if let QueryBuilderError::FailedToFindEventByNameOrSignature(_) = e {
+            return Err(anyhow!("No ERC20 Transfer found in transaction. Did you provide the correct transaction hash?"));
+        } else {
+            return Err(anyhow!("Adding event fields failed: {:?}", e));
+        }
+    }
 
     let layout_segments = query_builder
         .get_selected_offsets()
