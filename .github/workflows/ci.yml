@@ -67,6 +67,7 @@ jobs:
         run: |
           docker exec creditcoin-validator which creditcoin
           docker exec creditcoin-validator creditcoin wizard --help
+          docker exec creditcoin-validator creditcoin attestor --help
 
       - name: Sanity check for chainspecs inside the container
         run: |
@@ -403,6 +404,7 @@ jobs:
           which creditcoin
           creditcoin help
           creditcoin wizard --help
+          creditcoin attestor --help
 
   sanity-test-solidity:
     runs-on: ubuntu-24.04
