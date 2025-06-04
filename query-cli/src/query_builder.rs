@@ -179,3 +179,63 @@ pub async fn get_erc20_transfer_segments(
 
     Ok(layout_segments)
 }
+
+/// Gets the layout segments corresponding to relevant fields of a
+/// smart contract call which resulted in an ERC20 transfer. Will
+/// fail when used on transactions with more than one resulting
+/// transfer event.
+///
+/// Fields:
+/// Rx - Status
+/// Tx - From
+/// Tx - To
+/// Tx - Value (Amount)
+pub async fn get_native_token_transfer_segments(
+    network: Network,
+    tx: Transaction,
+    rx: TransactionReceipt,
+) -> Result<Vec<LayoutSegment>> {
+    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx)
+        .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
+
+    match network {
+        Network::Sepolia(_) | Network::Ethereum(_) => {
+            let abi_provider = BlockscoutAbiProvider { network };
+            query_builder.set_abi_provider(Box::new(abi_provider));
+        }
+        Network::Local(_) => {
+            let abi_provider = PocAbiProvider();
+            query_builder.set_abi_provider(Box::new(abi_provider));
+        }
+        _ => {
+            return Err(anyhow!(
+                "Unsupported network for ERC20 transfer segments: {:?}",
+                network
+            ));
+        }
+    }
+
+    query_builder
+        .add_static_field(QueryableFields::RxStatus)
+        .map_err(|e| anyhow!("Adding status field failed: {:?}", e))?;
+    query_builder
+        .add_static_field(QueryableFields::TxFrom)
+        .map_err(|e| anyhow!("Adding from field failed: {:?}", e))?;
+    query_builder
+        .add_static_field(QueryableFields::TxTo)
+        .map_err(|e| anyhow!("Adding to field failed: {:?}", e))?;
+    query_builder
+        .add_static_field(QueryableFields::TxValue)
+        .map_err(|e| anyhow!("Adding value field failed: {:?}", e))?;
+
+    let layout_segments = query_builder
+        .get_selected_offsets()
+        .iter()
+        .map(|(offset, size)| LayoutSegment {
+            offset: *offset as u64,
+            size: *size as u64,
+        })
+        .collect::<Vec<LayoutSegment>>();
+
+    Ok(layout_segments)
+}

@@ -169,7 +169,7 @@ Select:
 - Local chain
 - block number: 348
 - transaction hash: 0x584ee77611d71f6bd4c1459f08da01b80208ab04a4f3c67c26207b02765a1cd1
-- all data
+- Native token transfer data
 
 Now the prover should run the query and prove it. The result is submitted back to the cli and eventually it exits.
 
