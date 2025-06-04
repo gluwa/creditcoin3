@@ -1,4 +1,5 @@
 use super::*;
+use crate::impls::ONE_UNIT;
 use crate::ledger::AttestorLedger;
 use crate::mock::*;
 use attestor_primitives::{
@@ -305,7 +306,7 @@ fn register_attestor_without_sufficient_funds_should_fail() {
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
-            100_000_000_000
+            10_000_000_000_000_000_000
         ));
 
         let att = Attestor::new(STASH_3, ATTESTOR_1);
@@ -323,15 +324,15 @@ fn register_attestor_without_sufficient_funds_should_fail() {
 fn register_attestor_without_sufficient_funds_should_fail_2() {
     ExtBuilder.build_and_execute(|| {
         let free_balance = Attestation::get_free_balance(&STASH_3);
-        // 100_000 balance - 500 existential deposit
-        assert_eq!(free_balance, 99500);
+        // 1_000_000_000_000_000_000 balance - 500 existential deposit
+        assert_eq!(free_balance, 999_999_999_999_999_500);
 
         // Set min bond
-        // Balance of Stash 3 is 100_000
+        // Balance of Stash 3 is 1_000_000_000_000_000_000
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
-            60_000
+            600_000_000_000_000_000
         ));
 
         let att = Attestor::new(STASH_3, ATTESTOR_1);
@@ -342,7 +343,7 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
         ));
 
         let free_balance = Attestation::get_free_balance(&STASH_3);
-        assert_eq!(free_balance, 39500);
+        assert_eq!(free_balance + ONE_UNIT as u128, 399_999_999_999_999_500);
 
         // We should not be able to register another attestor because we don't have enough funds
         let att = Attestor::new(STASH_3, ATTESTOR_2);
@@ -2641,7 +2642,7 @@ fn claim_rewards_should_error_when_no_reward() {
         );
 
         let new_balance = Balances::free_balance(STASH_1);
-        assert_eq!(new_balance, initial_balance);
+        assert_eq!(new_balance + ONE_UNIT as u128, initial_balance);
     });
 }
 
@@ -2670,7 +2671,7 @@ fn claim_rewards_should_not_update_balance_when_reward_is_zero() {
         assert_ok!(Attestation::claim_rewards(attestor.stash),);
 
         let new_balance = Balances::free_balance(STASH_1);
-        assert_eq!(new_balance, initial_balance);
+        assert_eq!(new_balance + ONE_UNIT as u128, initial_balance);
     });
 }
 
@@ -2705,7 +2706,7 @@ fn claim_rewards_should_not_update_balance_when_payee_is_none() {
         assert_ok!(Attestation::claim_rewards(attestor.stash),);
 
         let new_balance = Balances::free_balance(STASH_1);
-        assert_eq!(new_balance, initial_balance);
+        assert_eq!(new_balance + ONE_UNIT as u128, initial_balance);
     });
 }
 
@@ -2743,7 +2744,10 @@ fn claim_rewards_should_update_balance_when_payee_is_another_account() {
         // assert that reward was paid to STASH_2, not STASH_1
         let new_balance_for_stash_1 = Balances::free_balance(STASH_1);
         let new_balance_for_stash_2 = Balances::free_balance(STASH_2);
-        assert_eq!(new_balance_for_stash_1, initial_balance_for_stash_1);
+        assert_eq!(
+            new_balance_for_stash_1 + ONE_UNIT as u128,
+            initial_balance_for_stash_1
+        );
         assert_eq!(new_balance_for_stash_2, initial_balance_for_stash_2 + 5000);
 
         // emitted event is still related to STASH_1 b/c they are the one
@@ -2790,7 +2794,7 @@ fn claim_rewards_should_update_balance_when_payee_is_stash() {
 
         // assert that reward was paid to STASH_1
         let new_balance = Balances::free_balance(STASH_1);
-        assert_eq!(new_balance, initial_balance + 4000);
+        assert_eq!(new_balance + ONE_UNIT as u128, initial_balance + 4000);
 
         // emitted event is related to STASH_1
         System::assert_last_event(
@@ -2834,7 +2838,7 @@ fn claim_rewards_should_update_stash_balance_when_payee_not_found() {
 
         // assert that reward was paid to STASH_1
         let new_balance = Balances::free_balance(STASH_1);
-        assert_eq!(new_balance, initial_balance + 6000);
+        assert_eq!(new_balance + ONE_UNIT as u128, initial_balance + 6000);
 
         // emitted event is related to STASH_1
         System::assert_last_event(
@@ -2889,7 +2893,10 @@ fn claim_rewards_should_update_balance_and_emit_event() {
         assert_ok!(Attestation::claim_rewards(attestor.stash));
 
         let new_balance = Balances::free_balance(STASH_1);
-        assert_eq!(new_balance, initial_balance + chain_reward);
+        assert_eq!(
+            new_balance + ONE_UNIT as u128,
+            initial_balance + chain_reward
+        );
 
         System::assert_last_event(
             crate::Event::RewardClaimed {

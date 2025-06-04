@@ -31,6 +31,8 @@ use crate::{
 
 use super::pallet::*;
 
+pub const ONE_UNIT: u64 = 100_000_000_000_000_000;
+
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
     /// Inserts an attestor and sets the default status to Idle
@@ -73,7 +75,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Get some amount to fund the attestor
-        let amount: BalanceOf<T> = Self::min_bond_requirement(chain_key);
+        let amount: BalanceOf<T> = ONE_UNIT.into();
 
         // Fund the attestor key
         T::Currency::transfer(
