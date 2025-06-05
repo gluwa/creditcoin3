@@ -11,7 +11,7 @@ use crate::Client;
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
-    providers::{Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder, WsConnect},
     sol,
 };
 use attestor_primitives::ChainKey;
@@ -255,11 +255,18 @@ impl GluwaPublicProverContract {
             query_id
         );
 
-        let provider = ProviderBuilder::new().on_http(client.get_url());
+        let web_socket_url = client
+            .get_url()
+            .as_str()
+            .replace("http://", "ws://")
+            .replace("https://", "wss://");
+        let provider = ProviderBuilder::new()
+            .on_ws(WsConnect::new(web_socket_url))
+            .await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
-        let sub = contract.QueryProofVerified_filter().watch().await?;
+        let sub = contract.QueryProofVerified_filter().subscribe().await?;
         let mut stream = sub.into_stream();
 
         info!("Subscribed to proof verification");
