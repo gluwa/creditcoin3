@@ -187,9 +187,7 @@ pub async fn get_erc20_transfer_segments(
 }
 
 /// Gets the layout segments corresponding to relevant fields of a
-/// smart contract call which resulted in an ERC20 transfer. Will
-/// fail when used on transactions with more than one resulting
-/// transfer event.
+/// native token transfer on an EVM chain.
 ///
 /// Fields:
 /// Rx - Status
