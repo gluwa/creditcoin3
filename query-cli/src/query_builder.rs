@@ -155,6 +155,7 @@ pub async fn get_erc20_transfer_segments(
             |_log, _event, _log_index| {
                 true // No filter applied. We take whatever `Transfer` log is available
             },
+            true, // We want to take the first transfer event if multiple pass our filter
             |builder| {
                 builder
                     .add_address()?
@@ -195,29 +196,17 @@ pub async fn get_erc20_transfer_segments(
 /// Tx - To
 /// Tx - Value (Amount)
 pub async fn get_native_token_transfer_segments(
-    network: Network,
+    _network: Network,
     tx: Transaction,
     rx: TransactionReceipt,
 ) -> Result<Vec<LayoutSegment>> {
     let mut query_builder = QueryBuilder::create_from_transaction(tx, rx)
         .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
 
-    match network {
-        Network::Sepolia(_) | Network::Ethereum(_) => {
-            let abi_provider = BlockscoutAbiProvider { network };
-            query_builder.set_abi_provider(Box::new(abi_provider));
-        }
-        Network::Local(_) => {
-            let abi_provider = PocAbiProvider();
-            query_builder.set_abi_provider(Box::new(abi_provider));
-        }
-        _ => {
-            return Err(anyhow!(
-                "Unsupported network for ERC20 transfer segments: {:?}",
-                network
-            ));
-        }
-    }
+    // For native token transfers we know the abi provider will never be used, since the transaction
+    // in question doesn't interact with smart contracts. So we use our default PocAbiProvider
+    let abi_provider = PocAbiProvider();
+    query_builder.set_abi_provider(Box::new(abi_provider));
 
     query_builder
         .add_static_field(QueryableFields::RxStatus)

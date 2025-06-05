@@ -2104,9 +2104,9 @@ dependencies = [
 
 [[package]]
 name = "ccnext-query-builder"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "347dde26fe86eced33d1e063d11a74248e72d81eec82fa827bc8100249287103"
+checksum = "6aca65988ba50f3596b216e1b0a330cadf46915360ff61c6d0c292592425c6a7"
 dependencies = [
  "alloy",
  "alloy-json-abi",
