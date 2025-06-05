@@ -538,6 +538,7 @@ pub mod pallet {
                 .maybe_cursor;
                 CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
 
+                // note: may be triggered multiple times when removing a large amount of checkpoints
                 Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
 
                 // Cleared checkpoints for 1 chain

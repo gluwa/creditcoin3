@@ -962,8 +962,17 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
                 None,
             )
             .maybe_cursor;
-            // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
-            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+
+            if maybe_cursor.is_some() {
+                // more checkpoints left to be removed
+                // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
+                // and CheckpointsCleared event will be dispatched inside on_initialize()
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            } else {
+                // all checkpoints were removed in the call above, trigger the event here
+                // b/c on_initialize() won't do that
+                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
+            }
         }
 
         Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
