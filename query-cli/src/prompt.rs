@@ -126,7 +126,7 @@ fn prompt_for_network() -> Result<Network> {
         _ => {
             // exit
             println!("Invalid choice. Exiting.");
-            return Err(anyhow::anyhow!("Invalid network choice"));
+            Err(anyhow::anyhow!("Invalid network choice"))
         }
     }
 }
