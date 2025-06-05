@@ -240,7 +240,7 @@ impl GluwaPublicProverContract {
             .submitQuery(query, principal)
             .value(U256::from(cost));
 
-        let result = builder.send().await?.watch().await?;
+        let result = builder.send().await?.get_receipt().await?.transaction_hash;
 
         Ok(result.to_string())
     }

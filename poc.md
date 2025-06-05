@@ -159,7 +159,6 @@ cargo run -- \
   --cc3-rpc-url http://localhost:9944 \
   --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
-  --eth-rpc-url http://localhost:8545
 ```
 
 > You will need to provide an Infura API key if you want to connect to a remote Ethereum or Sepolia node. The cli will prompt you for an api key.
