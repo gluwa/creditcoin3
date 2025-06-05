@@ -18,15 +18,10 @@ describe('handleEventCheckpointsCleared()', () => {
             await forElapsedBlocks(api, { minBlocks: 2 });
             const lastCheckpoint = await api.query.attestation.lastCheckpoint(chain_Anvil3_Key);
 
-            if (lastCheckpoint.isSome) {
-                const checkpointData = lastCheckpoint.unwrap();
-
-                // Brad says you need 2 checkpoints worth of attestations before the first
-                // checkpoint is actually created therefore wait a min of 200 blocks
-                hasCheckpoints = checkpointData.blockNumber.toBigInt() > 200n;
-            }
+            // exit setup at the first checkpoint found
+            hasCheckpoints = lastCheckpoint.isSome;
         }
-    }, 1_500_000); // ~ 300 blocks
+    }, 600_000); // max 120 blocks
 
     afterAll(async () => {
         await api.disconnect();
