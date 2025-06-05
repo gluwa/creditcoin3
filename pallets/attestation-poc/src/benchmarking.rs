@@ -30,7 +30,7 @@ pub struct Attestor<T: frame_system::Config> {
 
 /// Grab a funded user with max Balance.
 pub fn create_funded_user_with_balance<T: Config>(string: &'static str, n: u32) -> T::AccountId {
-    let balance = BalanceOf::<T>::try_from(900_000_000_000_000u128)
+    let balance = BalanceOf::<T>::try_from(1_000_000_000_000_000_000u128)
         .map_err(|_| "balance expected to be a u128")
         .unwrap();
 
