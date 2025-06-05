@@ -3137,9 +3137,18 @@ jobs:
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
           LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
 
-  deploy-runner-attestor-cli:
+  # preceeds all of the attestor-cli jobs so that we can
+  # easily trigger all of them when something fails
+  trigger-attestor-cli:
     needs:
       - build-creditcoin-node-for-testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+  deploy-runner-attestor-cli:
+    needs:
+      - trigger-attestor-cli
     timeout-minutes: 15
     strategy:
       fail-fast: false
