@@ -16,17 +16,11 @@ mod tests;
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
 pub struct QueryCli {
-    #[arg(long)]
-    eth_rpc_url: Option<String>,
-
     #[arg(long, required = true, default_value = "http://localhost:9944")]
     cc3_rpc_url: String,
 
     #[arg(long, required = true)]
     cc3_evm_private_key: String,
-
-    #[arg(long)]
-    infura_api_key: Option<String>,
 
     #[arg(long, required = true)]
     prover_contract_address: String,
@@ -64,12 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let prompt: PromptOutput = prompt().expect("Failed to prompt user");
 
-    let infura_api_key = args.infura_api_key.ok_or_else(|| {
-        anyhow::anyhow!("Please provide an Infura API key (--infura-api-key 'somekey')")
-    })?;
-
-    let query_eth_client =
-        Client::new(&prompt.network.url(infura_api_key, args.eth_rpc_url), None).await?;
+    let query_eth_client = Client::new(&prompt.network.url(), None).await?;
 
     let block = query_eth_client.get_block(prompt.height).await?;
     // Get tx index
@@ -154,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 pub async fn submit_default_query(args: QueryCli) -> Result<()> {
     let query = Query {
-        chain_id: Network::Sepolia.id(),
+        chain_id: 2, // Local network
         height: 6493200,
         index: 75,
         layout_segments: vec![LayoutSegment {
@@ -170,10 +159,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
         query, query_id
     );
 
-    let eth_rpc_url = args.eth_rpc_url.unwrap_or_else(|| {
-        debug!("Using default eth rpc url");
-        "http://localhost:8545".to_string()
-    });
+    let eth_rpc_url = "http://localhost:8545".to_string(); // Local Ethereum node URL
 
     // Initialize the Ethereum client for ccnext and the contract
     let eth_client = Client::new(&eth_rpc_url, Some(&args.cc3_evm_private_key)).await?;
@@ -203,25 +189,28 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
 
 #[derive(Debug, Clone)]
 enum Network {
-    Sepolia,
-    Ethereum,
-    Local,
+    Sepolia(String),
+    Ethereum(String),
+    Local(String),
+    Custom(u64, String),
 }
 
 impl Network {
-    pub fn url(&self, api_key: String, custom_url: Option<String>) -> String {
+    pub fn url(&self) -> String {
         match self {
-            Network::Sepolia => format!("https://sepolia.infura.io/v3/{api_key}"),
-            Network::Ethereum => format!("https://mainnet.infura.io/v3/{api_key}"),
-            Network::Local => custom_url.expect("Custom URL required for local network"),
+            Network::Sepolia(api_key) => format!("https://sepolia.infura.io/v3/{api_key}"),
+            Network::Ethereum(api_key) => format!("https://mainnet.infura.io/v3/{api_key}"),
+            Network::Local(url) => url.clone(),
+            Network::Custom(_, url) => url.clone(),
         }
     }
 
     pub fn id(&self) -> u64 {
         match self {
-            Network::Ethereum => 1,
-            Network::Local => 2,
-            Network::Sepolia => 3,
+            Network::Sepolia(_) => 6,
+            Network::Ethereum(_) => 1,
+            Network::Local(_) => 2,
+            Network::Custom(id, _) => *id,
         }
     }
 }
@@ -248,7 +237,8 @@ fn prompt() -> Result<PromptOutput> {
     println!("1. Sepolia");
     println!("2. Ethereum");
     println!("3. Local");
-    print!("Enter your choice (1, 2 or 3): ");
+    println!("4. Custom (provide ID and URL)");
+    print!("Enter your choice (1, 2, 3 or 4): ");
     io::stdout().flush().unwrap(); // Flush stdout to ensure the prompt is shown
 
     let mut network_choice = String::new();
@@ -257,12 +247,66 @@ fn prompt() -> Result<PromptOutput> {
         .expect("Failed to read input");
 
     let network = match network_choice.trim() {
-        "1" => Network::Sepolia,
-        "2" => Network::Ethereum,
-        "3" => Network::Local,
+        "1" => {
+            print!("Enter Sepolia Infura API key: ");
+            io::stdout().flush().unwrap();
+
+            let mut api_key_input = String::new();
+            io::stdin()
+                .read_line(&mut api_key_input)
+                .expect("Failed to read input");
+
+            Network::Sepolia(api_key_input.trim().to_string())
+        }
+        "2" => {
+            print!("Enter Ethereum Infura API key: ");
+            io::stdout().flush().unwrap();
+
+            let mut api_key_input = String::new();
+            io::stdin()
+                .read_line(&mut api_key_input)
+                .expect("Failed to read input");
+
+            Network::Ethereum(api_key_input.trim().to_string())
+        }
+        "3" => {
+            print!("Enter local network URL (EX: http://localhost:8545): ");
+            io::stdout().flush().unwrap();
+
+            let mut url_input = String::new();
+            io::stdin()
+                .read_line(&mut url_input)
+                .expect("Failed to read input");
+
+            Network::Local(url_input.trim().to_string())
+        }
+        "4" => {
+            print!("Enter custom network ID: ");
+            io::stdout().flush().unwrap();
+
+            let mut id_input = String::new();
+            io::stdin()
+                .read_line(&mut id_input)
+                .expect("Failed to read input");
+            let id: u64 = id_input
+                .trim()
+                .parse()
+                .expect("Please enter a valid number");
+
+            print!("Enter custom network URL: ");
+            io::stdout().flush().unwrap();
+
+            let mut url_input = String::new();
+            io::stdin()
+                .read_line(&mut url_input)
+                .expect("Failed to read input");
+
+            Network::Custom(id, url_input.trim().to_string())
+        }
         _ => {
-            println!("Invalid choice. Defaulting to Sepolia.");
-            Network::Sepolia
+            // exit
+            println!("Invalid choice. Exiting.");
+            return Err(anyhow::anyhow!("Invalid network choice"));
         }
     };
 

@@ -96,7 +96,7 @@ mkdir artifacts
 
 Install and run cairo environment:
 
-First time on machine: 
+First time on machine:
 ```sh
 python3.10 -m venv ~/cairo_venv
 ```
@@ -159,11 +159,10 @@ cargo run -- \
   --cc3-rpc-url http://localhost:9944 \
   --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
-  --infura-api-key "somekey" \
   --eth-rpc-url http://localhost:8545
 ```
 
-> You can leave the infura-api-key value like the example one if you are using a local chain.
+> You will need to provide an Infura API key if you want to connect to a remote Ethereum or Sepolia node. The cli will prompt you for an api key.
 
 Select:
 
@@ -205,7 +204,6 @@ cargo run -- \
   --cc3-rpc-url https://rpc.ccnext-devnet.creditcoin.network \
   --eth-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --contract-address 0x21cb3940e6ba5284e1750f1109131a8e8062b9f1 \
-  --infura-api-key "somekey" \
   --eth-rpc-url https://anvil.ccnext-devnet.creditcoin.network
 ```
 
@@ -214,13 +212,13 @@ Now you can wait for the prover to finish proving the query.
 ## 10. Running the Prover in Light Mode
 
 When run in light mode, the prover only schedules and provides inputs for proving jobs.
-The actual proving work is delegated to an Azure data pipeline mediated by a 
+The actual proving work is delegated to an Azure data pipeline mediated by a
 prover-be-api server. That server will soon be hosted on Kubernetes for devnet, but for
 now you need to build and launch your own with docker.
 
 To set up the prover-be-api server, clone the code base found [here](https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE). Then follow the steps in its readme [here](https://dev.azure.com/gluwa/Gluwa/_git/CCNext.StoneProver.BE?path=/CCNext.StoneProver.BE.API/README.md).
 
-Note the exposed socket address of your prover-be-api server. In place of "http:// localhost:55644" below, use the socket exposed by your target prover-be-api instance. 
+Note the exposed socket address of your prover-be-api server. In place of "http:// localhost:55644" below, use the socket exposed by your target prover-be-api instance.
 
 In light mode you must also provide a UUID api key for requests sent to the prover backend server with the argument `--be-api-key`. Api keys are managed by the prover BE server administrator. So you need to ask them for a key. If you are launching your own BE server, then you need to look up or create a valid api key for your server.
 

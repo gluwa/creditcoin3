@@ -33,8 +33,8 @@ impl AbiProvider for BlockscoutAbiProvider {
     async fn get_abi(&self, contract_address: String) -> Result<String, QueryBuilderError> {
         let client = Client::new();
         let url = match self.network {
-            Network::Ethereum => BLOCKSCOUT_ETH_URL,
-            Network::Sepolia => BLOCKSCOUT_SEPOLIA_URL,
+            Network::Ethereum(_) => BLOCKSCOUT_ETH_URL,
+            Network::Sepolia(_) => BLOCKSCOUT_SEPOLIA_URL,
             _ => {
                 return Err(QueryBuilderError::ContractAbiRetrievalFailed {
                     contract_addr: contract_address.clone(),
@@ -122,13 +122,19 @@ pub async fn get_erc20_transfer_segments(
         .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
 
     match network {
-        Network::Sepolia | Network::Ethereum => {
+        Network::Sepolia(_) | Network::Ethereum(_) => {
             let abi_provider = BlockscoutAbiProvider { network };
             query_builder.set_abi_provider(Box::new(abi_provider));
         }
-        Network::Local => {
+        Network::Local(_) => {
             let abi_provider = PocAbiProvider();
             query_builder.set_abi_provider(Box::new(abi_provider));
+        }
+        _ => {
+            return Err(anyhow!(
+                "Unsupported network for ERC20 transfer segments: {:?}",
+                network
+            ));
         }
     }
 
