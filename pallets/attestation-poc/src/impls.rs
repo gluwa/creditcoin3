@@ -82,7 +82,7 @@ impl<T: Config> Pallet<T> {
             &stash,
             &attestor_id,
             amount,
-            frame_support::traits::ExistenceRequirement::AllowDeath,
+            frame_support::traits::ExistenceRequirement::KeepAlive,
         )?;
 
         // Create a new ledger for the attestor
