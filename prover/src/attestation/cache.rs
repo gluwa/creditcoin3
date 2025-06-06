@@ -283,7 +283,7 @@ pub async fn sync_cache(
     // Wait on the channels for new attestations and checkpoints
     loop {
         tokio::select! {
-            maybe_historical_sync_done = historical_sync_rx.recv(), if historical_sync_complete == false => {
+            maybe_historical_sync_done = historical_sync_rx.recv(), if !historical_sync_complete => {
                 if let Some(()) = maybe_historical_sync_done {
                     // Mark new height that we are CachedUpTo
                     if let Some(cached_up_to) = cached_up_to {
