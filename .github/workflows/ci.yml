@@ -891,6 +891,20 @@ jobs:
           name: creditcoin-node-for-testing-${{ matrix.target }}
           path: target/release/creditcoin3-node
 
+      - name: Install subkey
+        if: matrix.target == 'ci'
+        uses: gluwa/cargo@dev
+        with:
+          command: install
+          args: --locked --git https://github.com/paritytech/polkadot-sdk subkey
+
+      - name: Upload subkey binary
+        if: matrix.target == 'ci'
+        uses: actions/upload-artifact@v4
+        with:
+          name: subkey
+          path: ~/.cargo/bin/subkey
+
       - name: Upload attestor binaries
         uses: actions/upload-artifact@v4
         with:
@@ -3279,8 +3293,20 @@ jobs:
           name: attestor-for-testing-ci
           path: target/release
 
+      - name: Download subkey binary
+        uses: actions/download-artifact@v4
+        with:
+          name: subkey
+          path: ~/.cargo/bin
+
       - name: Start creditcoin3-node in order to update typedefs
         run: |
+          chmod a+x ./target/release/attestor
+
+          chmod a+x ~/.cargo/bin/subkey
+          sudo cp ~/.cargo/bin/subkey /usr/local/bin
+          subkey --version
+
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
             --chain dev \
@@ -3291,6 +3317,16 @@ jobs:
       - name: Wait for nodes to start
         run: |
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # first install it
+          curl -L https://foundry.paradigm.xyz | bash
+          ~/.foundry/bin/foundryup
+
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -3370,8 +3406,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Alice-and-Bob-logs-for-attestor-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
-          path: /tmp/creditcoin3-node-*.std*
+          name: logs-for-attestor-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          path: |
+            /tmp/attestor-*.std*
+            /tmp/creditcoin3-node-*.std*
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
