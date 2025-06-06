@@ -25,13 +25,13 @@ async function unregisterAttestorAction(options: OptionValues) {
     const attestorStatus = await api.query.attestation.attestors(chainKey, attestor);
     if (attestorStatus.isNone) {
         console.log(`Address ${attestor} is not an attestor`);
-        process.exit(0);
+        process.exit(1);
     }
 
     const status = attestorStatus.unwrap().status;
     if (status.isActive) {
         console.log(`Address ${attestor} status is Active. Please chill the attestor first`);
-        process.exit(0);
+        process.exit(1);
     }
     console.log(`Address ${attestor} status is Chill`);
     console.log(`Calling unregister attestor extrinsic for ${attestor} on chain ${chainKey}`);
