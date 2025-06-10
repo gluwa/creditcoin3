@@ -386,7 +386,10 @@ describe('CreditcoinPublicProver', function () {
 
                 const proof = new Uint8Array(32);
                 // mark proof as invalid
-                await prover.mock_setVerifierResult(result);
+                await prover.mock_setVerifierResult({
+                    status: result,
+                    resultSegments: [],
+                });
                 await expect(prover.connect(owner).submitQueryProof(queryId, proof))
                     .to.emit(prover, 'QueryProofVerified')
                     .withArgs(queryId, [], expectedState);
@@ -636,7 +639,7 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
-    describe('getQueryResultSegments()', function () {
+    describe('getQueryDetails(), result segments', function () {
         it('Should revert when query result not available yet', async function () {
             const receipt = await (
                 await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
@@ -647,9 +650,7 @@ describe('CreditcoinPublicProver', function () {
             // explicitly set the state: QueryState.TimedOut
             await prover.connect(owner).mock_setQueryState(queryId, 3);
 
-            await expect(prover.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
-                'Query result not available',
-            );
+            await expect(prover.connect(user).getQueryDetails(queryId)).to.be.revertedWith('No such query');
         });
 
         it('Should return query result segments', async function () {
@@ -662,13 +663,35 @@ describe('CreditcoinPublicProver', function () {
             // explicitly set the state: QueryState.ResultAvailable
             await prover.connect(owner).mock_setQueryState(queryId, 2);
             const expectedSegment = { offset: 1n, abiBytes: new Uint8Array(32) };
-            await prover.connect(owner).mock_pushQueryResultSegment(expectedSegment);
-
+            // mock queryDetails just so we have result segments to look for in the GraphQL output later
+            await (
+                await prover.connect(owner).mock_pushQueryDetails(
+                    // QueryId 0
+                    queryId,
+                    // QueryDetails
+                    {
+                        // Result available
+                        state: 2,
+                        query: {
+                            chainId: 1,
+                            height: 12345678,
+                            index: 0,
+                            layoutSegments: [],
+                        },
+                        escrowedAmount: '1000000000000000000',
+                        principal: '0x1234567890abcdef1234567890abcdef12345678',
+                        estimatedCost: '25000000000000000',
+                        timestamp: '0',
+                        resultSegments: [expectedSegment],
+                    },
+                )
+            ).wait();
             // doesn't crash
-            const result = await prover.connect(user).getQueryResultSegments(queryId);
-            expect(result).to.have.lengthOf(1);
+            const result = await prover.connect(user).getQueryDetails(queryId);
+            const resultSegments = result.resultSegments;
+            expect(resultSegments).to.have.lengthOf(1);
 
-            const [offset, abiBytes] = result[0];
+            const [offset, abiBytes] = resultSegments[0];
             expect(offset).to.equal(expectedSegment.offset);
             expect(abiBytes).to.equal('0x0000000000000000000000000000000000000000000000000000000000000000');
         });
@@ -694,9 +717,7 @@ describe('CreditcoinPublicProver', function () {
             // explicitly set the state: QueryState.ResultAvailable
             await contract.connect(owner).mock_setQueryState(queryId, 2);
 
-            await expect(contract.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
-                'Reverted on purpose',
-            );
+            await expect(contract.connect(user).getQueryDetails(queryId)).to.be.revertedWith('No such query');
         });
 
         it('Should revert when verifier.get_query_result_segments() errors', async function () {
@@ -720,9 +741,7 @@ describe('CreditcoinPublicProver', function () {
             // explicitly set the state: QueryState.ResultAvailable
             await contract.connect(owner).mock_setQueryState(queryId, 2);
 
-            await expect(contract.connect(user).getQueryResultSegments(queryId)).to.be.revertedWith(
-                'Errored on purpose',
-            );
+            await expect(contract.connect(user).getQueryDetails(queryId)).to.be.revertedWith('No such query');
         });
     });
 

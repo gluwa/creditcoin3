@@ -581,22 +581,8 @@ declare module '@polkadot/api-base/types/errors' {
             [key: string]: AugmentedError<ApiType>;
         };
         prover: {
-            FileError: AugmentedError<ApiType>;
-            InvalidProofSubmitted: AugmentedError<ApiType>;
-            MissingContinuityProof: AugmentedError<ApiType>;
-            ProofParseError: AugmentedError<ApiType>;
-            QueryBlockNumberMismatch: AugmentedError<ApiType>;
-            QueryCheckpointMismatch: AugmentedError<ApiType>;
-            QueryIdNotValidated: AugmentedError<ApiType>;
-            QueryOffsetMismatch: AugmentedError<ApiType>;
-            QueryOutOfBounds: AugmentedError<ApiType>;
-            ResultSegmentsExceedMaxSize: AugmentedError<ApiType>;
-            StarkProgramAuthenticationError: AugmentedError<ApiType>;
             StarkProgramMetadataAlreadySet: AugmentedError<ApiType>;
             StarkProgramMetadataNotFound: AugmentedError<ApiType>;
-            StarkProgramMetadataNotSet: AugmentedError<ApiType>;
-            VerifierExecutionError: AugmentedError<ApiType>;
-            VerifierProcessError: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

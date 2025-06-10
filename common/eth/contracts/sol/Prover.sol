@@ -6,7 +6,11 @@ import "./Ownable.sol";
 
 address constant PROOF_VERIFIER_ADDRESS = 0x0000000000000000000000000000000000000Be9;
 
-contract CreditcoinPublicProver is Ownable {
+interface ICreditcoinPublicProver {
+    function getQueryDetails(bytes32 queryId) external view returns (QueryDetails memory queryDetails);
+}
+
+contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     mapping(QueryId => QueryDetails) public queries;
     QueryId[] public queryIds;
     Balance totalEscrowBalance;
@@ -142,18 +146,12 @@ contract CreditcoinPublicProver is Ownable {
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_verify(QueryId queryId, bytes calldata proof) external virtual returns (uint64) {
-        return verifier.verify(proof, queries[queryId].query);
-    }
-
-    // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_get_result_segments(QueryId queryId)
-        internal
-        view
+    function _call_verifier_verify(QueryId queryId, bytes calldata proof)
+        external
         virtual
-        returns (ResultSegment[] memory)
+        returns (VerifierResult memory)
     {
-        return verifier.get_result_segments(queryId);
+        return verifier.verify(proof, queries[queryId].query);
     }
 
     function _getRevertReason(bytes memory revertData) internal pure returns (string memory) {
@@ -176,36 +174,44 @@ contract CreditcoinPublicProver is Ownable {
             revert("Query has timed out");
         }
 
-        // Start proof verification
-        try this._call_verifier_verify(queryId, proof) {
-            // Calculate the prover's fee
-            // Transfer the prover's fee to the prover
-            uint256 proverFee = Balance.unwrap(queries[queryId].escrowedAmount);
+        VerifierResult memory verifier_result = this._call_verifier_verify(queryId, proof);
 
-            totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
+        if (verifier_result.status != VerifierExitStatus.Success) {
+            // queries[queryId].state = QueryState.InvalidQuery;
 
-            // Send to proceedsAccount
-            payable(proceedsAccount).transfer(proverFee);
+            string memory reason;
+            if (verifier_result.status == VerifierExitStatus.ProofInvalid) {
+                reason = "Proof verification failed";
+            } else if (verifier_result.status == VerifierExitStatus.LayoutMismatch) {
+                reason = "Layout mismatch in proof";
+            } else if (verifier_result.status == VerifierExitStatus.QueryOutOfBounds) {
+                reason = "Query out of bounds";
+            } else {
+                reason = "Unknown verifier exit status";
+            }
 
-            queries[queryId].escrowedAmount = Balance.wrap(0);
-
-            queries[queryId].state = QueryState.ResultAvailable;
-
-            ResultSegment[] memory resultSegments = _call_verifier_get_result_segments(queryId);
-
-            // Emit event with query ID, proof, and state
-            emit QueryProofVerified(queryId, resultSegments, queries[queryId].state);
-
-            return resultSegments;
-        } catch (bytes memory revertData) {
-            queries[queryId].state = QueryState.InvalidQuery;
-
-            string memory reason = _getRevertReason(revertData);
-
-            emit QueryProofVerificationFailed(queryId, reason);
-
-            revert(string(abi.encodePacked("Proof verification failed: ", reason)));
+            // emit QueryProofVerificationFailed(queryId, reason);
+            revert(reason);
         }
+
+        // Calculate the prover's fee
+        // Transfer the prover's fee to the prover
+        uint256 proverFee = Balance.unwrap(queries[queryId].escrowedAmount);
+
+        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
+
+        // Send to proceedsAccount
+        payable(proceedsAccount).transfer(proverFee);
+
+        queries[queryId].escrowedAmount = Balance.wrap(0);
+
+        queries[queryId].state = QueryState.ResultAvailable;
+        setQueryResults(queryId, verifier_result.resultSegments);
+
+        // Emit event with query ID, proof, and state
+        emit QueryProofVerified(queryId, verifier_result.resultSegments, queries[queryId].state);
+
+        return verifier_result.resultSegments;
     }
 
     function withdrawProceeds() public onlyOwner {
@@ -259,26 +265,36 @@ contract CreditcoinPublicProver is Ownable {
         }
     }
 
-    function getQueryResultSegments(QueryId queryId) public view returns (ResultSegment[] memory) {
-        QueryState state = queries[queryId].state;
-        require(state == QueryState.ResultAvailable, "Query result not available");
-
-        ResultSegment[] memory resultSegments = _call_verifier_get_result_segments(queryId);
-
-        return resultSegments;
-    }
-
     function isQueryTimedOut(QueryId queryId) public view returns (bool) {
         return block.timestamp > queries[queryId].timestamp + timeout;
+    }
+
+    function getQueryDetails(bytes32 queryId)
+        external
+        view
+        virtual
+        override
+        returns (QueryDetails memory queryDetails)
+    {
+        queryDetails = queries[QueryId.wrap(queryId)];
+        require(queryDetails.state != QueryState.Uninitialized, "No such query");
+        return queryDetails;
+    }
+
+    // Necessary to satisfy compiler
+    function setQueryResults(QueryId queryId, ResultSegment[] memory resultSegments) private {
+        delete queries[queryId].resultSegments; // clear existing storage array
+
+        for (uint256 i = 0; i < resultSegments.length; i++) {
+            queries[queryId].resultSegments.push(resultSegments[i]); // push each element
+        }
     }
 }
 
 /// @title QueryVerifierContract interface
 /// @notice This interface defines the functions and events for interacting with the QueryVerifierContract.
 interface QueryVerifierContract {
-    function verify(bytes calldata proof, ChainQuery calldata query) external returns (uint64);
-
-    function get_result_segments(QueryId queryId) external view returns (ResultSegment[] memory);
+    function verify(bytes calldata proof, ChainQuery calldata query) external returns (VerifierResult memory);
 }
 
 event ProverDeployed(

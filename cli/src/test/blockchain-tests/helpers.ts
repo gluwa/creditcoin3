@@ -2,16 +2,44 @@ import { ethers } from 'ethers';
 import { readFile } from 'fs/promises';
 import path from 'path';
 
-// matches artifacts/valid_proof.json
+// matches artifacts/proof_example_erc20.json
 export const validQuery = {
-    chainId: 31337, // not checked by Cairo
-    height: 4,
+    chainId: 1, // not checked by Cairo
+    height: 23,
     index: 0,
     // note: must be `layout` when sending to verify() precompile
     layoutSegments: [
         {
-            offset: 0,
-            size: 681,
+            offset: 448,
+            size: 32,
+        },
+        {
+            offset: 192,
+            size: 32,
+        },
+        {
+            offset: 224,
+            size: 32,
+        },
+        {
+            offset: 800,
+            size: 32,
+        },
+        {
+            offset: 928,
+            size: 32,
+        },
+        {
+            offset: 960,
+            size: 32,
+        },
+        {
+            offset: 992,
+            size: 32,
+        },
+        {
+            offset: 1056,
+            size: 32,
         },
     ],
 };

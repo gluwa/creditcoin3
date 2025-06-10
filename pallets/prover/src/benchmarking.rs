@@ -3,33 +3,10 @@
 use super::{Pallet as Prover, *};
 use frame_benchmarking::{account, benchmarks};
 use frame_system::RawOrigin;
-use pallet_prover_primitives::{LayoutSegment, Query, VerifierExitStatus, STARK_PROGRAM_V2_HASH};
+use pallet_prover_primitives::STARK_PROGRAM_V2_HASH;
 use sp_core::H256;
-use sp_std::vec;
-
-const SUPPORTED_CHAIN_KEY: u64 = 1;
 
 benchmarks! {
-    submit_proof {
-        let who: T::AccountId = account("prover1", 1, 1);
-
-        let query = Query {
-            chain_id: SUPPORTED_CHAIN_KEY,
-            height: 4,
-            index: 0,
-            layout_segments: vec![LayoutSegment { offset: 0, size: 681 }],
-        };
-        let query_id = query.id();
-
-        let proof = vec![0; 745676];
-
-        let _ = Prover::<T>::set_stark_program_metadata(RawOrigin::Root.into(), 2, STARK_PROGRAM_V2_HASH);
-
-    }: _(RawOrigin::Signed(who.clone()), proof, query)
-    verify {
-        assert_eq!(QueryResultById::<T>::get(query_id), Some(VerifierExitStatus::Success));
-    }
-
     set_stark_program_metadata {
         let who: T::AccountId = account("root", 0, 0);
         let program_auth_hash = [0u8; 32];

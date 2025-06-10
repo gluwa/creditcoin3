@@ -35,7 +35,6 @@ import type {
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsCommissionClaimPermission,
     PalletNominationPoolsPoolState,
-    PalletProverPrimitivesVerifierExitStatus,
     PalletStakingForcing,
     PalletStakingRewardDestination,
     PalletStakingValidatorPrefs,
@@ -666,11 +665,6 @@ declare module '@polkadot/api-base/types/events' {
             [key: string]: AugmentedEvent<ApiType>;
         };
         prover: {
-            QueryVerificationFailed: AugmentedEvent<
-                ApiType,
-                [H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]
-            >;
-            QueryVerified: AugmentedEvent<ApiType, [H256, AccountId32, PalletProverPrimitivesVerifierExitStatus]>;
             StarkProgramMetadataRemoved: AugmentedEvent<ApiType, [u8]>;
             StarkProgramMetadataSet: AugmentedEvent<ApiType, [u8, H256]>;
             /**

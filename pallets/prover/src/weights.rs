@@ -36,42 +36,6 @@ use core::marker::PhantomData;
 /// Weight functions for `pallet_prover`.
 pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
-	/// Storage: `Prover::Provers` (r:1 w:0)
-	/// Proof: `Prover::Provers` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Prover::ProverClaims` (r:1 w:0)
-	/// Proof: `Prover::ProverClaims` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Prover::ClaimSourceByHash` (r:1 w:0)
-	/// Proof: `Prover::ClaimSourceByHash` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Prover::ProversChainPriceConfigurations` (r:1 w:0)
-	/// Proof: `Prover::ProversChainPriceConfigurations` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::Locks` (r:1 w:1)
-	/// Proof: `Balances::Locks` (`max_values`: None, `max_size`: Some(1299), added: 3774, mode: `MaxEncodedLen`)
-	/// Storage: `Balances::Freezes` (r:1 w:0)
-	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(49), added: 2524, mode: `MaxEncodedLen`)
-	/// Storage: `System::Account` (r:2 w:2)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
-	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Prover::ClaimResultByHash` (r:0 w:1)
-	/// Proof: `Prover::ClaimResultByHash` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn submit_proof() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1026`
-		//  Estimated: `6196`
-		// Minimum execution time: 112_000_000 picoseconds.
-		Weight::from_parts(426_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 6196))
-			.saturating_add(T::DbWeight::get().reads(13))
-			.saturating_add(T::DbWeight::get().writes(6))
-	}
 	/// Storage: `Prover::StarkProgramMetadata` (r:1 w:1)
 	/// Proof: `Prover::StarkProgramMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::info;
 
-use pallet_prover_primitives::{LayoutSegment, Query};
+use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use sp_core::H256;
 
 use crate::Client;
@@ -26,13 +26,6 @@ pub const GAS_LIMIT: u64 = 50_000_000;
 
 /// Prover contract proof
 pub type Proof = Vec<u8>;
-
-/// Result segment
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-pub struct ResultSegment {
-    pub offset: U256,
-    pub abi_bytes: Vec<u8>,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
 pub struct GluwaPublicProverContract {
@@ -279,8 +272,8 @@ impl GluwaPublicProverContract {
                     .resultSegments
                     .into_iter()
                     .map(|r| ResultSegment {
-                        offset: r.offset,
-                        abi_bytes: r.abiBytes.into(),
+                        offset: u64::from_be_bytes(r.offset.to_be_bytes()),
+                        bytes: H256::from_slice(r.abiBytes.to_vec().as_slice()),
                     })
                     .collect());
             }

@@ -7,7 +7,8 @@ use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_io::hashing::keccak_256;
 use sp_runtime_interface::pass_by::PassByCodec;
-use sp_std::vec::Vec;
+use sp_std::vec;
+use sp_std::{self, vec::Vec};
 
 // duplicate with constants in StarkProgramMetadataStorage
 // primitives/prover/src/stark_program_auth.rs, CSUB-1303
@@ -45,16 +46,70 @@ pub struct Query {
     pub layout_segments: Vec<LayoutSegment>,
 }
 
+impl Query {
+    pub fn id(&self) -> H256 {
+        let query = self.clone();
+        H256::from(keccak_256(&encode_arguments(query)))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec)]
 pub struct LayoutSegment {
     pub offset: u64,
     pub size: u64,
 }
 
+// note: the proof example has changed, the proof_example_erc20.json file is now
+// in correspondence with the provided query and metadata
+// (block 23, index 0, ERC20 Transfer data layout).
+// Thus the proof is valid for this query, and should be verified against
+// it successfully.
+pub fn get_test_query() -> Query {
+    Query {
+        chain_id: 1,
+        height: 23,
+        index: 0,
+        layout_segments: vec![
+            LayoutSegment {
+                offset: 448,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 192,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 224,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 800,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 928,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 960,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 992,
+                size: 32,
+            },
+            LayoutSegment {
+                offset: 1056,
+                size: 32,
+            },
+        ],
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Codec)]
 pub struct ResultSegment {
     pub offset: u64,
-    pub bytes: Vec<u8>,
+    pub bytes: H256,
 }
 
 pub type ContinuityProofLength = u64;
@@ -66,40 +121,3 @@ pub type VerifierResponse = (
     Option<ContinuityProofLength>,
     Option<H256>,
 );
-
-#[derive(Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash)]
-pub enum VerifierExitStatus {
-    // Success: proof verifies and requested byte ranges could
-    // from the proof.
-    Success,
-    // ProofInvalid: proof verifier couldn't verify the proof.
-    ProofInvalid,
-    // LayoutMismatch: CCNode couldn't extract the bytes indic
-    // from the submitted proof bytes. (Prover's fault)
-    LayoutMismatch,
-    // QueryOutOfBounds: the proof shows that either the targe
-    // doesn't exist or the query's layout includes segments o
-    // targeted transaction. (dApp's fault)
-    QueryOutOfBounds,
-    // ProcessingError: the proof verifier encountered a processing error
-    ProcessingError,
-    // QueryValidationError: underlying error for QueryIdNotValidated
-    QueryValidationError,
-    // QueryIdNotValidated: the proof verifier couldn't validate the query
-    // block number with the continuity proof extracted from the proof
-    QueryBlockNumberMismatch,
-    // MissingContinuityProof: the continuity proof is missing from the proof
-    MissingContinuityProof,
-    // ContinuityDigestNotFound: the digest of the attestation or checkpoint used
-    // in the proof doesn't match that of any on-chain attestation or checkpoint.
-    ContinuityDigestNotFound,
-    // UnknownError: the proof verifier encountered an unknown error
-    UnknownError,
-}
-
-impl Query {
-    pub fn id(&self) -> H256 {
-        let query = self.clone();
-        H256::from(keccak_256(&encode_arguments(query)))
-    }
-}

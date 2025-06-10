@@ -306,9 +306,14 @@ pub struct StoneProofJson {
     pub proof_hex: Box<str>,
     pub public_input: PublicInput,
     pub proof_parameters: serde_json::value::Value,
-    pub annotations: serde_json::value::Value,
-    pub prover_config: serde_json::value::Value,
-    pub private_input: serde_json::value::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prover_config: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_input: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -324,15 +329,15 @@ impl StoneProof {
     }
 
     pub fn strip_off_annotations(&mut self) -> &mut Self {
-        self.proof_mut().annotations = serde_json::value::Value::Null;
+        self.proof_mut().annotations = None;
         self
     }
     pub fn strip_off_prover_config(&mut self) -> &mut Self {
-        self.proof_mut().prover_config = serde_json::value::Value::Null;
+        self.proof_mut().prover_config = None;
         self
     }
     pub fn strip_off_private_input(&mut self) -> &mut Self {
-        self.proof_mut().private_input = serde_json::value::Value::Null;
+        self.proof_mut().private_input = None;
         self
     }
 

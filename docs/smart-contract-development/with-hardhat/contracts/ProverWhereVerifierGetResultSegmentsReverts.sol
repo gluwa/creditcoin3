@@ -5,9 +5,8 @@ import "hardhat/console.sol";
 import "./ProverForTesting.sol";
 
 contract ProverWhereVerifierGetResultSegmentsReverts is ProverForTesting {
-    function _call_verifier_get_result_segments(QueryId) internal pure override returns (ResultSegment[] memory) {
-        revert("Reverted on purpose");
-    }
+    // TODO: Maybe replace this with ProverWhereGetQueryDetailsReverts. But the precompile is no longer called under the hood,
+    // so this checking may be unnecessary.
 
     constructor(
         address _proceedsAccount,

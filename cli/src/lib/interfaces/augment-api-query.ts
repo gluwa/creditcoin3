@@ -46,8 +46,6 @@ import type {
     PalletNominationPoolsPoolMember,
     PalletNominationPoolsRewardPool,
     PalletNominationPoolsSubPools,
-    PalletProverPrimitivesResultSegment,
-    PalletProverPrimitivesVerifierExitStatus,
     PalletProxyAnnouncement,
     PalletProxyProxyDefinition,
     PalletStakingActiveEraInfo,
@@ -1018,18 +1016,6 @@ declare module '@polkadot/api-base/types/storage' {
             [key: string]: QueryableStorageEntry<ApiType>;
         };
         prover: {
-            queryResultById: AugmentedQuery<
-                ApiType,
-                (arg: H256 | string | Uint8Array) => Observable<Option<PalletProverPrimitivesVerifierExitStatus>>,
-                [H256]
-            > &
-                QueryableStorageEntry<ApiType, [H256]>;
-            resultSegmentsById: AugmentedQuery<
-                ApiType,
-                (arg: H256 | string | Uint8Array) => Observable<Option<Vec<PalletProverPrimitivesResultSegment>>>,
-                [H256]
-            > &
-                QueryableStorageEntry<ApiType, [H256]>;
             starkProgramMetadata: AugmentedQuery<
                 ApiType,
                 (arg: u8 | AnyNumber | Uint8Array) => Observable<H256>,

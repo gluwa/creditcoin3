@@ -24,8 +24,20 @@ struct LayoutSegment {
 }
 
 struct ResultSegment {
-    uint256 offset; // potentially not need due to ordering i
+    uint256 offset; // potentially not needed due to ordering
     bytes abiBytes;
+}
+
+enum VerifierExitStatus {
+    Success,
+    ProofInvalid,
+    LayoutMismatch,
+    QueryOutOfBounds
+}
+
+struct VerifierResult {
+    VerifierExitStatus status;
+    ResultSegment[] resultSegments;
 }
 
 /// @title ProofVerifierContract interface
@@ -37,11 +49,5 @@ interface QueryVerifierContract {
     function verify(
         bytes calldata proof,
         Query calldata query
-    ) external returns (uint64);
-
-    /// @notice Retrieve result segments for the given query_id if present in pallet-prover
-    /// @param queryId, the id of the query for which we are retrieving result segments
-    function get_result_segments(
-        QueryId queryId
-    ) external view returns (ResultSegment[] memory);
+    ) external returns (VerifierResult memory);
 }

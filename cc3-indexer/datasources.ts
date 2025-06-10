@@ -262,7 +262,7 @@ export const proverDatasource: FrontierEvmDatasource = {
                 kind: "substrate/FrontierEvmEvent",
                 filter: {
                     topics: [
-                        "QueryProofVerified(bytes32,(uint256,bytes)[],uint8)",
+                        "QueryProofVerified(bytes32,(uint256,bytes32)[],uint8)",
                     ],
                 }
             },

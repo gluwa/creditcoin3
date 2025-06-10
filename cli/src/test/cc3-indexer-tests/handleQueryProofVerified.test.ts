@@ -91,10 +91,36 @@ describe('handleQueryProofVerified()', () => {
 
         beforeAll(async () => {
             // verifier precompile result already defaults to 0 in the contract
-            // await (await contract.mock_setVerifierResult(0)).wait();
+            await (
+                await contract.mock_setVerifierResult({
+                    status: 0,
+                    resultSegments: [{ offset: 444n, abiBytes: new Uint8Array(32) }],
+                })
+            ).wait();
 
-            // mock resultSegments just so we have something to look for in the GraphQL output later
-            await (await contract.mock_pushQueryResultSegment({ offset: 444n, abiBytes: new Uint8Array(32) })).wait();
+            // mock queryDetails just so we have result segments to look for in the GraphQL output later
+            await (
+                await contract.mock_pushQueryDetails(
+                    // QueryId 0
+                    new Uint8Array(32),
+                    // QueryDetails
+                    {
+                        // Result available
+                        state: 2,
+                        query: {
+                            chainId: 1,
+                            height: 12345678,
+                            index: 0,
+                            layoutSegments: [],
+                        },
+                        escrowedAmount: '1000000000000000000',
+                        principal: '0x1234567890abcdef1234567890abcdef12345678',
+                        estimatedCost: '25000000000000000',
+                        timestamp: '0',
+                        resultSegments: [{ offset: 444n, abiBytes: new Uint8Array(32) }],
+                    },
+                )
+            ).wait();
 
             // simulate proof submission and observe results
             const proof = new Uint8Array(32);

@@ -18,8 +18,11 @@ use utils::{
 
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ClaimValidationError {
-    #[error("Query ID mismatch: expected {0}, found {1}")]
-    QueryIdNotValidated(u64, u64),
+    #[error("Failed to hash query layoutsegments: {0}")]
+    FailedToHashLayoutsegments(String),
+
+    #[error("Query tx ID mismatch: expected {0}, found {1}")]
+    QueryTransactionIdMismatch(u64, u64),
 
     #[error("Field at range {0:?} not validated: value {1:?} doesn't match expected value {2:?}")]
     FieldNotValidated(Range<usize>, Vec<u8>, Vec<u8>),
@@ -35,6 +38,9 @@ pub enum ClaimValidationError {
 
     #[error("Prover provided an out-of-bounds witness for query index {0}")]
     QueryOutOfBounds(u64),
+
+    #[error("Query layout segments error: {0}")]
+    QueryLayoutSegmentsError(String),
 }
 
 pub type ClaimIdentifier = BlockItemIdentifier;
@@ -118,7 +124,7 @@ impl<Q: ClaimQuery> Claim<Q> {
                 }
             }
             // claim id not validated, not out-of-bounds case
-            Ordering::Less => Err(QueryIdNotValidated(
+            Ordering::Less => Err(QueryTransactionIdMismatch(
                 self.id.index(),
                 proof_public_input.claim_index,
             )),

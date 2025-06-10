@@ -1,6 +1,5 @@
 use super::QueryId;
 use anyhow::Result;
-use cc_client::cc3::prover::calls::types::submit_proof::Proof;
 use hex::ToHex;
 use reqwest::header::{HeaderName, ACCEPT};
 use reqwest::Client;
@@ -73,6 +72,8 @@ pub enum Error {
     #[error("Form preparation failed: {0}")]
     FormPreparationFailed(String),
 }
+
+type Proof = Vec<u8>;
 
 /// Handle proof order
 pub async fn handle_proof_order(

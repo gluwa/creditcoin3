@@ -59,7 +59,6 @@ import type {
     PalletNominationPoolsConfigOpU128,
     PalletNominationPoolsConfigOpU32,
     PalletNominationPoolsPoolState,
-    PalletProverPrimitivesQuery,
     PalletStakingPalletConfigOpPerbill,
     PalletStakingPalletConfigOpPercent,
     PalletStakingPalletConfigOpU128,
@@ -1930,17 +1929,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     programAuthHash: H256 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u8, H256]
-            >;
-            submitProof: AugmentedSubmittable<
-                (
-                    proof: Bytes | string | Uint8Array,
-                    query:
-                        | PalletProverPrimitivesQuery
-                        | { chainId?: any; height?: any; index?: any; layoutSegments?: any }
-                        | string
-                        | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [Bytes, PalletProverPrimitivesQuery]
             >;
             /**
              * Generic tx

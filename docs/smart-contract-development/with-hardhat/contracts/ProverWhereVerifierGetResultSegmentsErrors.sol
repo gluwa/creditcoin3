@@ -5,10 +5,8 @@ import "hardhat/console.sol";
 import "./ProverForTesting.sol";
 
 contract ProverWhereVerifierGetResultSegmentsErrors is ProverForTesting {
-    function _call_verifier_get_result_segments(QueryId) internal pure override returns (ResultSegment[] memory) {
-        require(true == false, "Errored on purpose");
-        return new ResultSegment[](0);
-    }
+    // TODO: Maybe replace this with ProverWhereGetQueryDetailsErrors. But the precompile is no longer called under the hood,
+    // so this checking may be unnecessary.
 
     constructor(
         address _proceedsAccount,

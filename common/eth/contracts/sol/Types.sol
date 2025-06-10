@@ -25,7 +25,7 @@ struct ResultEvidence {
 
 struct ResultSegment {
     uint256 offset; // potentially not need due to ordering i
-    bytes abiBytes;
+    bytes32 abiBytes;
 }
 
 struct QueryDetails {
@@ -35,6 +35,7 @@ struct QueryDetails {
     address principal;
     Balance estimatedCost;
     uint256 timestamp;
+    ResultSegment[] resultSegments;
 }
 
 enum QueryState {
@@ -62,4 +63,9 @@ enum VerifierExitStatus {
     // doesn't exist or the query's layout includes segments o
     // targeted transaction. (dApp's fault)
     QueryOutOfBounds
+}
+
+struct VerifierResult {
+    VerifierExitStatus status;
+    ResultSegment[] resultSegments;
 }

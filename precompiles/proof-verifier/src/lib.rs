@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "runtime-benchmarks"))]
+use attestor_primitives::provider::{AttestationProvider, CheckpointProvider};
 use core::marker::PhantomData;
 use ethabi::{encode, Token};
 use fp_evm::{ExitRevert, PrecompileFailure, PrecompileHandle};
@@ -7,13 +9,12 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use log::error;
+use log::{error, info};
 use pallet_evm::AddressMapping;
-use pallet_prover::ResultSegmentsById;
+use pallet_prover::StarkProgramMetadata;
 use pallet_prover_primitives::{Query, ResultSegment};
-use precompile_utils::prelude::*;
+use precompile_utils::{prelude::*, solidity::Codec};
 use sp_core::H256;
-use sp_runtime::{format, DispatchError};
 use sp_std::vec::Vec;
 
 #[cfg(test)]
@@ -40,6 +41,12 @@ fn encode_revert_message(message: &str) -> Vec<u8> {
     revert_with_selector
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Codec)]
+pub struct VerifyResult {
+    pub status: u8, // 0: Success, 1: ProofInvalid, 2: LayoutMismatch, 3: OutOfBounds
+    pub result_segments: Vec<ResultSegment>,
+}
+
 #[precompile_utils::precompile]
 impl<Runtime> ProofVerifierPrecompile<Runtime>
 where
@@ -57,138 +64,231 @@ where
         handle: &mut impl PrecompileHandle,
         proof: BoundedBytes<ConstU50MB>,
         query: Query,
-    ) -> EvmResult<u64> {
+    ) -> EvmResult<VerifyResult> {
         handle.record_log_costs_manual(3, 32)?;
 
-        let query_id = query.id();
+        let proof_bytes: Vec<u8> = proof.into();
 
-        // Build call with origin.
+        if proof_bytes.is_empty() {
+            error!("Empty proof submitted");
+            let encoded_revert = encode_revert_message("Invalid proof submitted");
+            return Err(PrecompileFailure::Revert {
+                output: encoded_revert,
+                exit_status: ExitRevert::Reverted,
+            });
+        }
+
+        let metadata: Vec<(u8, H256)> = StarkProgramMetadata::<Runtime>::iter().collect();
+        if metadata.is_empty() {
+            error!("Verification failed: Stark program metadata not set");
+            let encoded_revert = encode_revert_message("Stark program metadata not set");
+            return Err(PrecompileFailure::Revert {
+                output: encoded_revert,
+                exit_status: ExitRevert::Reverted,
+            });
+        }
+
+        #[cfg(not(feature = "runtime-benchmarks"))]
         {
-            let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
+            let (status, result_segments, continuity_proof_len, continuity_checkpoint_digest) =
+                proof_verifier::host_api::verify_proof(proof_bytes, query.clone(), metadata);
 
-            let result = RuntimeHelper::<Runtime>::try_dispatch(
-                handle,
-                Some(origin).into(),
-                pallet_prover::Call::<Runtime>::submit_proof {
-                    proof: proof.clone().into(),
-                    query,
-                },
-                0,
+            let status = Self::handle_error_status(
+                status,
+                continuity_proof_len,
+                continuity_checkpoint_digest,
+                &query,
+            )?;
+
+            info!("Proof verification completed for query: {:?}", query.id());
+            info!("Proof verification status: {}", status);
+            info!("Result segments: {:?}", result_segments);
+
+            log3(
+                handle.context().address,
+                SELECTOR_LOG_PROOF_SUBMITTED,
+                handle.context().caller,
+                query.id(),
+                solidity::encode_event_data(result_segments.clone()),
+            )
+            .record(handle)?;
+
+            Ok(VerifyResult {
+                status,
+                result_segments,
+            })
+        }
+
+        #[cfg(feature = "runtime-benchmarks")]
+        {
+            let result = proof_verifier::host_benchmark_api::verify_proof(
+                proof_bytes,
+                query.clone(),
+                metadata,
             );
-
-            // Instead of erroring out, we propagate status codes to the prover smart contract
-            // and let it deal with them.
-            // 0. Success, 1. ProofInvalid, 2. LayoutMismatch, 3. OutOfBounds
-            match result {
-                Ok(_) => {
-                    log3(
-                        handle.context().address,
-                        SELECTOR_LOG_PROOF_SUBMITTED,
-                        handle.context().caller,
-                        query_id,
-                        solidity::encode_event_data(proof),
-                    )
-                    .record(handle)?;
-
-                    Ok(0)
-                }
-                Err(e) => match e {
-                    TryDispatchError::Evm(_) => {
-                        let encoded_revert = encode_revert_message("EVM dispatch error");
-                        Err(PrecompileFailure::Revert {
-                            output: encoded_revert,
-                            exit_status: ExitRevert::Reverted,
-                        })
-                    }
-                    TryDispatchError::Substrate(dispatch_error) => match dispatch_error {
-                        DispatchError::Module(module_error) => {
-                            let error = module_error.error;
-                            match error {
-                                [0, 0, 0, 0] => {
-                                    error!("Invalid proof submitted: {:?}", e);
-                                    let encoded_revert =
-                                        encode_revert_message("Invalid proof submitted");
-                                    Err(PrecompileFailure::Revert {
-                                        output: encoded_revert,
-                                        exit_status: ExitRevert::Reverted,
-                                    })
-                                }
-                                [11, 0, 0, 0] => {
-                                    error!("Query layout mismatch: {:?}", e);
-                                    let encoded_revert =
-                                        encode_revert_message("Query layout mismatch");
-                                    Err(PrecompileFailure::Revert {
-                                        output: encoded_revert,
-                                        exit_status: ExitRevert::Reverted,
-                                    })
-                                }
-                                [10, 0, 0, 0] => {
-                                    error!("Query out of bounds: {:?}", e);
-                                    let encoded_revert =
-                                        encode_revert_message("Query out of bounds");
-                                    Err(PrecompileFailure::Revert {
-                                        output: encoded_revert,
-                                        exit_status: ExitRevert::Reverted,
-                                    })
-                                }
-                                [12, 0, 0, 0] => {
-                                    error!("Checkpoint digest mismatch: {:?}", e);
-                                    let encoded_revert = encode_revert_message("Digest mismatch");
-                                    Err(PrecompileFailure::Revert {
-                                        output: encoded_revert,
-                                        exit_status: ExitRevert::Reverted,
-                                    })
-                                }
-                                [13, 0, 0, 0] => {
-                                    error!("Checkpoint block number mismatch: {:?}", e);
-                                    let encoded_revert =
-                                        encode_revert_message("Checkpoint block number mismatch");
-                                    Err(PrecompileFailure::Revert {
-                                        output: encoded_revert,
-                                        exit_status: ExitRevert::Reverted,
-                                    })
-                                }
-                                _ => {
-                                    error!("Failed to dispatch submit_proof: {:?}", e);
-                                    let encoded_revert =
-                                        encode_revert_message("Failed to dispatch submit_proof");
-                                    Err(PrecompileFailure::Revert {
-                                        output: encoded_revert,
-                                        exit_status: ExitRevert::Reverted,
-                                    })
-                                }
-                            }
-                        }
-                        _ => {
-                            error!("Failed to dispatch submit_proof: {:?}", e);
-                            let encoded_revert =
-                                encode_revert_message("Failed to dispatch submit_proof");
-                            Err(PrecompileFailure::Revert {
-                                output: encoded_revert,
-                                exit_status: ExitRevert::Reverted,
-                            })
-                        }
-                    },
-                },
+            if !result {
+                error!("Proof verification failed: Invalid proof submitted");
+                let encoded_revert = crate::encode_revert_message("Invalid proof submitted");
+                Err(PrecompileFailure::Revert {
+                    output: encoded_revert,
+                    exit_status: ExitRevert::Reverted,
+                })
+            } else {
+                info!("Proof verification completed for query: {:?}", query.id());
+                Ok(VerifyResult {
+                    status: 0,
+                    result_segments: sp_std::vec![],
+                })
             }
         }
     }
 
-    #[precompile::view]
-    #[precompile::public("get_result_segments(bytes32)")]
-    fn get_result_segments(
-        _handle: &mut impl PrecompileHandle,
-        query_id: H256,
-    ) -> EvmResult<Vec<ResultSegment>> {
-        let result_segments: Option<_> = ResultSegmentsById::<Runtime>::get(query_id);
-        if let Some(segments) = result_segments {
-            Ok(Vec::from(segments))
-        } else {
-            let err = format!("Result segments not found for query: {:?}", query_id);
-            error!("{}", err);
-            return Err(PrecompileFailure::Error {
-                exit_status: fp_evm::ExitError::Other(sp_std::borrow::Cow::Owned(err)),
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    fn check_continuity_proof(
+        continuity_proof_len: Option<u64>,
+        continuity_checkpoint_digest: Option<H256>,
+    ) -> Result<(u64, H256), PrecompileFailure> {
+        if continuity_proof_len.is_none() || continuity_checkpoint_digest.is_none() {
+            error!("Missing continuity proof or checkpoint digest");
+            let encoded_revert =
+                encode_revert_message("Missing continuity proof or checkpoint digest");
+            return Err(PrecompileFailure::Revert {
+                output: encoded_revert,
+                exit_status: ExitRevert::Reverted,
             });
+        }
+
+        Ok((
+            continuity_proof_len.unwrap(),
+            continuity_checkpoint_digest.unwrap(),
+        ))
+    }
+
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    fn check_continuity_block_number(
+        continuity_proof_len: u64,
+        continuity_checkpoint_digest: H256,
+        query: &Query,
+    ) -> Result<(), PrecompileFailure> {
+        let checkpoint_block_number = query.height - 1 + continuity_proof_len - 1;
+
+        let expected_block_number = if let Some(last_checkpoint_number) =
+            <Runtime as pallet_prover::Config>::Checkpoints::get_last_checkpoint_number(
+                query.chain_id,
+            ) {
+            // Use a checkpoint if one is available
+            if last_checkpoint_number >= query.height {
+                // Fetch checkpoint block number
+                Self::get_block_number_or_revert(
+                    query.chain_id,
+                    continuity_checkpoint_digest,
+                    true,
+                )?
+            } else {
+                // Fetch attestation if last checkpoint is before the query height
+                Self::get_block_number_or_revert(
+                    query.chain_id,
+                    continuity_checkpoint_digest,
+                    false,
+                )?
+            }
+        } else {
+            // Fetch attestation if no checkpoints are available
+            Self::get_block_number_or_revert(query.chain_id, continuity_checkpoint_digest, false)?
+        };
+
+        if checkpoint_block_number != expected_block_number {
+            error!(
+                "Continuity proof block number mismatch: expected {}, got {}",
+                expected_block_number, checkpoint_block_number
+            );
+            let encoded_revert = encode_revert_message("Continuity proof block number mismatch");
+            return Err(PrecompileFailure::Revert {
+                output: encoded_revert,
+                exit_status: ExitRevert::Reverted,
+            });
+        };
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    fn get_block_number_or_revert(
+        chain_id: u64,
+        continuity_checkpoint_digest: H256,
+        fetch_checkpoint: bool,
+    ) -> Result<u64, PrecompileFailure> {
+        let result = if fetch_checkpoint {
+            <Runtime as pallet_prover::Config>::Checkpoints::get_checkpoint(
+                chain_id,
+                continuity_checkpoint_digest,
+            )
+            .map(Ok)
+            .unwrap_or_else(|| Err("Continuity Checkpoint digest not found"))
+        } else {
+            <Runtime as pallet_prover::Config>::Attestations::get_attestation(
+                chain_id,
+                continuity_checkpoint_digest,
+            )
+            .map(|att| Ok(att.header_number()))
+            .unwrap_or_else(|| Err("Continuity Attestation digest not found"))
+        };
+
+        match result {
+            Ok(val) => Ok(val),
+            Err(msg) => {
+                error!("{}", msg);
+                let encoded_revert = encode_revert_message(msg);
+                Err(PrecompileFailure::Revert {
+                    output: encoded_revert,
+                    exit_status: ExitRevert::Reverted,
+                })
+            }
+        }
+    }
+
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    fn handle_error_status(
+        status: u8,
+        continuity_proof_len: Option<u64>,
+        continuity_checkpoint_digest: Option<H256>,
+        query: &Query,
+    ) -> Result<u8, PrecompileFailure> {
+        match status {
+            0 => {
+                let (continuity_proof_len, continuity_checkpoint_digest) =
+                    Self::check_continuity_proof(
+                        continuity_proof_len,
+                        continuity_checkpoint_digest,
+                    )?;
+
+                Self::check_continuity_block_number(
+                    continuity_proof_len,
+                    continuity_checkpoint_digest,
+                    query,
+                )?;
+
+                Ok(0)
+            }
+            _ => {
+                let error_msg = match status {
+                    1..=7 => "Proof verification failed: ProcessError",
+                    8 => "Proof verification failed: StarkMetadataMismatch",
+                    12 => "Proof verification failed: QueryOutOfBounds",
+                    13 => "Proof verification failed: QueryOffsetsMismatch",
+                    17 => "Proof verification failed: QueryLayoutSegmentsError",
+                    18 => "Proof verification failed: QueryTransactionIdMismatch",
+                    _ => "Proof verification failed: InvalidProofSubmitted",
+                };
+
+                error!("{}", error_msg);
+                let encoded_revert = encode_revert_message(error_msg);
+
+                Err(PrecompileFailure::Revert {
+                    output: encoded_revert,
+                    exit_status: ExitRevert::Reverted,
+                })
+            }
         }
     }
 }

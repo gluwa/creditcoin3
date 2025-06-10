@@ -133,6 +133,7 @@ runtime-benchmarks = [
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
     "pallet-randomness/runtime-benchmarks",
+    "pallet-evm-precompile-proof-verifier/runtime-benchmarks",
 ]
 std = [
     "parity-scale-codec/std",
