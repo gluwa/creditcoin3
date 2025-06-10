@@ -468,6 +468,28 @@ impl<'a> Client {
         }))
     }
 
+    pub async fn get_last_checkpoint(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        let storage_query = cc3::storage().attestation().last_checkpoint(chain_key);
+
+        Ok(self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?
+            .map(|checkpoint| {
+                AttestationCheckpoint {
+                    block_number: checkpoint.block_number,
+                    digest: Digest::from_slice(&checkpoint.digest.0),
+                }
+            }))
+    }
+
     pub async fn get_attestations_for_chain(
         &self,
         chain_key: ChainKey,

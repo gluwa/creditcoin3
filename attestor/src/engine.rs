@@ -97,10 +97,8 @@ impl AsyncEngine {
 
         let (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(ATTESTATION_BUFFER_SIZE);
 
-        let last_finalized_attestation_header = cc3_client
-            .get_last_attestation(chain_key)
+        let (_, last_finalized_header) = get_last_finalized(&cc3_client, chain_key)
             .await?
-            .map(|attestation| attestation.header_number())
             .unwrap_or_default();
 
         let engine: Engine = Engine {
@@ -111,7 +109,7 @@ impl AsyncEngine {
             sender: attestation_tx,
             receiver: attestation_rx,
             voted_for: BTreeSet::new(),
-            sync_state: SyncState::new(last_finalized_attestation_header, target),
+            sync_state: SyncState::new(last_finalized_header, target),
             current_epoch: 0,
             start_block: config.start_block,
             continuity_cache: continuity::Cache::new(eth_client.clone()),
@@ -292,17 +290,14 @@ impl Engine {
             return Ok(());
         }
 
-        // If the start block is 0, we need to get the last finalized attestation
+        // If the start block is 0, we need to get the last attested source block
         // and start from there
         if start_block == 0 {
-            // get last finalized attestation
-            let last_finalized = self
-                .cc_client()
-                .get_last_attestation(self.chain_key())
-                .await?;
+            // Get last attested source chain block number
+            let result = get_last_finalized(&self.cc3_client, self.chain_key()).await?;
 
-            if let Some(last_finalized) = last_finalized {
-                start_block = last_finalized.header_number() + self.attestation_interval();
+            if let Some((_, last_finalized)) = result {
+                start_block = last_finalized + self.attestation_interval();
             }
         }
 
@@ -419,7 +414,7 @@ impl Engine {
         debug!("Evaluating voting position...");
 
         let last_voted_for_block = self.voted_for.last().copied().unwrap_or_default().0;
-        let last_finalized = self.sync_state.last_finalized_attestation_header;
+        let last_finalized = self.sync_state.last_finalized_attested_header;
         debug!(
             "Last voted for: {:}, last finalized attestation: {:}",
             last_voted_for_block, last_finalized
@@ -524,31 +519,24 @@ impl Engine {
             return Ok(continuity::AttestationFragment::default());
         }
 
-        // Get last finalized attestation
-        let last_attestation = self
-            .cc_client()
-            .get_last_attestation(self.chain_key())
-            .await?;
+        // Get last attested source chain block number
+        let result = get_last_finalized(&self.cc3_client, self.chain_key()).await?;
 
         // From which point we want to create a continuity proof
-        let (from_header, from_digest) = if let Some(last_attestation) = last_attestation {
+        let (from_header, from_digest) = if let Some((digest, header_number)) = result {
             debug!(
-                "Last finalized attestation found: header_number={}, digest={}",
-                last_attestation.header_number(),
-                last_attestation.digest()
+                "Last finalized source block found: header_number={}, digest={}",
+                header_number, digest
             );
-            // Last finalized attestation + 1 because the last finalized one is accessible on the receiving nodes
-            // Only if the last attestation is genesis, we need to start from the genesis block
-            if last_attestation.header_number() == 0 {
+            // Last attested source block + 1 because the last attested one is accessible on the receiving nodes
+            // Only if the last attested is genesis, we need to start from the genesis block
+            if header_number == 0 {
                 (0, H256::zero())
             } else {
-                (
-                    last_attestation.header_number().saturating_add(1),
-                    last_attestation.digest(),
-                )
+                (header_number.saturating_add(1), digest)
             }
         } else {
-            warn!("No last attestation found, starting from configured starting block");
+            warn!("No last finalized source block found, starting from configured starting block");
             // Treating provided start block as genesis block
             (self.start_block, H256::zero())
         };
@@ -629,19 +617,16 @@ impl Engine {
         debug!("Noting current epoch: {}", epoch);
         self.current_epoch = epoch;
 
-        // Grab the last finalized attestation
-        let last_finalized_attestation = self
-            .cc3_client
-            .get_last_attestation(self.chain_key())
-            .await?;
-        // If there is a last finalized attestation, we can start the engine from there
-        if let Some(last_finalized_attestation) = last_finalized_attestation {
-            self.sync_state.last_finalized_attestation_header =
-                last_finalized_attestation.header_number();
+        // Get last attested source chain block number
+        let maybe_last_attested = get_last_finalized(&self.cc3_client, self.chain_key()).await?;
+
+        // If there is a last attested source block, we can start the engine from there
+        if let Some((_, header_number)) = maybe_last_attested {
+            self.sync_state.last_finalized_attested_header = header_number;
         }
 
         // By default start from the last attested block OR 0 if there is no attestation and we need to start from the genesis block
-        let mut start_at = self.sync_state.last_finalized_attestation_header;
+        let mut start_at = self.sync_state.last_finalized_attested_header;
         // If the provided start block by the user is greater than the last finalized attestation, we need to start from there
         // It also included the case where we need to start from the genesis block
         if self.start_block >= start_at {
@@ -701,4 +686,24 @@ async fn subscribe_to_new_heads_task(
         attestation_interval,
     )
     .await?)
+}
+
+// Handles the edge case where we are beginning attestation after calling `import_checkpoints` for a source chain.
+// In such a case, there may be a finalized checkpoint even when there are no finalized attestations.
+async fn get_last_finalized(
+    cc3_client: &cc3::Client,
+    chain_key: ChainKey,
+) -> Result<Option<(Digest, u64)>, Error> {
+    if let Some(last_attestation) = cc3_client.get_last_attestation(chain_key).await? {
+        Ok(Some((
+            last_attestation.digest(),
+            last_attestation.header_number(),
+        )))
+    } else {
+        if let Some(last_checkpoint) = cc3_client.get_last_checkpoint(chain_key).await? {
+            Ok(Some((last_checkpoint.digest, last_checkpoint.block_number)))
+        } else {
+            Ok(None)
+        }
+    }
 }

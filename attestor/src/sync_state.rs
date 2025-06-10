@@ -15,7 +15,7 @@ use tracing::info;
 /// - `average_block_time_ms`: The smoothed average block time in milliseconds.
 pub struct SyncState {
     initial_header: u64,
-    pub last_finalized_attestation_header: u64,
+    pub last_finalized_attested_header: u64,
     target_header: u64,
     last_update_time: Instant,
     last_finalized: u64,
@@ -31,7 +31,7 @@ impl SyncState {
     pub fn new(initial: u64, target: u64) -> Self {
         Self {
             initial_header: initial,
-            last_finalized_attestation_header: initial,
+            last_finalized_attested_header: initial,
             target_header: target,
             last_update_time: Instant::now(),
             last_finalized: initial,
@@ -57,17 +57,16 @@ impl SyncState {
             self.last_update_time = now;
         }
 
-        self.last_finalized_attestation_header = new_finalized;
+        self.last_finalized_attested_header = new_finalized;
         self.target_header = new_target;
         self.log_progress();
     }
 
     /// Log current progress and ETA
     fn log_progress(&self) {
-        let blocks_done = (self.last_finalized_attestation_header - self.initial_header) as u128;
+        let blocks_done = (self.last_finalized_attested_header - self.initial_header) as u128;
         let total_blocks = (self.target_header - self.initial_header) as u128;
-        let blocks_remaining =
-            (self.target_header - self.last_finalized_attestation_header) as u128;
+        let blocks_remaining = (self.target_header - self.last_finalized_attested_header) as u128;
 
         if total_blocks == 0 {
             info!("Invalid sync range.");
@@ -90,7 +89,7 @@ impl SyncState {
             "⌛ Sync Progress: {}.{:02}% ({}/{}) | ETA: {}d {}h {}m {}s",
             percent_whole,
             percent_frac,
-            self.last_finalized_attestation_header,
+            self.last_finalized_attested_header,
             self.target_header,
             days,
             hours,
