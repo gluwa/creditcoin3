@@ -4,6 +4,7 @@ use frame_support::{
     transactional,
 };
 use log::debug;
+use sp_core::H256;
 use sp_runtime::{
     traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
     ArithmeticError,
@@ -802,6 +803,41 @@ impl<T: Config> Pallet<T> {
         }
         Self::remove_attestations(chain_key, attestation_removal_queue)?;
 
+        Ok(())
+    }
+
+    #[transactional]
+    pub(crate) fn do_import_checkpoints(
+        chain_key: ChainKey,
+        checkpoints: Vec<AttestationCheckpoint>,
+    ) -> DispatchResult {
+        ensure!(
+            checkpoints.len() <= MAX_CHECKPOINTS_IMPORTED_PER_CALL as usize,
+            Error::<T>::TooManyCheckpointsToImport
+        );
+
+        // Create last_checkpoint tracker
+        let mut last_checkpoint = if let Some(last_checkpoint) = LastCheckpoint::<T>::get(chain_key)
+        {
+            last_checkpoint
+        } else {
+            // Avoid checks for existance in loop by populating with value that will be replaced
+            AttestationCheckpoint {
+                block_number: 0,
+                digest: H256::zero(),
+            }
+        };
+
+        for checkpoint in checkpoints {
+            if checkpoint.block_number >= last_checkpoint.block_number {
+                last_checkpoint = checkpoint.clone();
+            }
+            Checkpoints::<T>::insert(chain_key, checkpoint.digest, checkpoint.block_number);
+
+            Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+        }
+
+        LastCheckpoint::<T>::insert(chain_key, last_checkpoint);
         Ok(())
     }
 }

@@ -11,8 +11,8 @@ use sp_std::vec;
 use sp_std::vec::Vec;
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, BlsPublicKey, BlsSignature, ChainAttestationIntervalType,
-    ChainKey, SignedAttestation,
+    Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
+    ChainAttestationIntervalType, ChainKey, SignedAttestation,
 };
 
 const DEV_CHAIN_KEY: ChainKey = 1;
@@ -545,6 +545,24 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn import_checkpoints() {
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)
+            .map(|i| AttestationCheckpoint {
+                block_number: i as u64,
+                digest: H256::from([i; 32]),
+            })
+            .collect();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            mock_checkpoints,
+        )
     }
 
     #[benchmark]
