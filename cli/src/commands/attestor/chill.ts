@@ -25,18 +25,18 @@ async function chillAction(options: OptionValues) {
     const attestorByChain = await api.query.attestation.attestors(chainKey, attestor);
     if (attestorByChain.isNone) {
         console.log(`There is not attestor ${attestor} for chain ${chainKey}`);
-        process.exit(0);
+        process.exit(1);
     }
     const attestorByChainValue = attestorByChain.unwrap();
 
     if (attestorByChainValue.stash.toString() !== keyring.pair.address) {
         console.log(`Attestor ${attestor} is not owned by the keyring account ${keyring.pair.address}`);
-        process.exit(0);
+        process.exit(1);
     }
 
     if (attestorByChainValue.status.isIdle) {
         console.log(`Attestor ${attestor} is already chilled`);
-        process.exit(0);
+        process.exit(1);
     }
 
     const chillAttestorTx = api.tx.attestation.chill(chainKey, attestor);
