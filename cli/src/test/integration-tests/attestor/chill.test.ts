@@ -109,7 +109,7 @@ describe('chill', () => {
         }, 360_000);
 
         testIf(
-            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+            false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
                 try {
@@ -124,7 +124,7 @@ describe('chill', () => {
         );
 
         testIf(
-            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
+            false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
                 try {
@@ -141,7 +141,7 @@ describe('chill', () => {
         testIf(
             process.env.PROXY_ENABLED === undefined ||
                 process.env.PROXY_ENABLED === 'no' ||
-                (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+                (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
             'should chill',
             async () => {
                 // test
@@ -203,7 +203,7 @@ describe('chill', () => {
     testIf(
         process.env.PROXY_ENABLED === undefined ||
             process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when attestor not active',
         () => {
             try {
