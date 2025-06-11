@@ -22,8 +22,8 @@ async function showStashBalanceAction(options: OptionValues) {
     const ledger = await api.query.attestation.ledger(address);
 
     if (ledger.isNone) {
-        console.log(`No ledger found for ${address}`);
-        process.exit(0);
+        console.error(`No ledger found for ${address}`);
+        process.exit(1);
     }
 
     let canWithdraw = 0;
