@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::debug;
 
@@ -21,6 +22,8 @@ pub enum Error {
     Eth(#[from] EthError),
     #[error("Attestation fragment block error: {0}")]
     BlockError(#[from] BlockError),
+    #[error("MMR computation join error: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 pub struct Manager<'a> {
@@ -84,15 +87,28 @@ impl<'a> Manager<'a> {
         )
         .await;
 
+        // Handle errors and collect blocks
+        let collected_blocks: Vec<_> = blocks.into_iter().collect::<Result<_, _>>()?;
+
+        // Now spawn MMR computations in parallel threads
+        let blocks_with_roots = stream::iter(collected_blocks)
+            .map(|block| {
+                let end_block = self.end_block;
+                tokio::task::spawn_blocking(move || {
+                    debug!("Merkleization of block {}/{}", block.number(), end_block);
+                    let root = eth::starknet_pedersen_mmr(&block);
+                    (block, root)
+                })
+            })
+            .buffered(10)
+            .collect::<Vec<_>>()
+            .await;
+
         // Start building the fragment for the interval
-        for block in blocks {
-            let block = block?;
-            let merkle_root = eth::starknet_pedersen_mmr(&block);
+        for block_with_root in blocks_with_roots {
+            let (block, merkle_root) = block_with_root?;
+
             let fragment_block = FragmentBlock::new(block.number(), merkle_root.root().0);
-            debug!("appending block to fragment: {:?}", fragment_block);
-            // If this is the first block in the fragment, we need to construct the block from the previous block
-            // In order to set the prev_digest correctly
-            // In the other case, the `try_append_block` method on fragment will take care of this if the fragment is not empty
             let fragment_block = if fragment.is_empty() {
                 debug!("Constructing first block from previous block");
                 FragmentBlock::new_from_prev(
@@ -104,6 +120,10 @@ impl<'a> Manager<'a> {
                 fragment_block
             };
 
+            debug!(
+                "Appending block number: {} with root: {:?}",
+                fragment_block.block_number, fragment_block.root
+            );
             fragment.try_append_block(fragment_block)?;
         }
 

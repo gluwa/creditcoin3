@@ -63,7 +63,7 @@ base64 = "0.22.1"
 cc-client = { workspace = true }
 dotenv = "0.15.0"
 eth = { workspace = true }
-mmr = { workspace = true }
+mmr = { workspace = true, features = ["par_mmr"] }
 pallet-prover-primitives = { workspace = true }
 proof = { workspace = true }
 prover-primitives = { workspace = true }

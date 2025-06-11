@@ -1459,6 +1459,7 @@ dependencies = [
  "sp-core",
  "starknet-crypto",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
  "utils",
 ]

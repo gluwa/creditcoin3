@@ -23,4 +23,5 @@ utils = { path = "../../common/utils" }
 attestor-primitives = { workspace = true }
 eth = { workspace = true }
 sp-core = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
 tracing = { workspace = true }
