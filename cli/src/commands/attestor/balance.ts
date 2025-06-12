@@ -17,8 +17,6 @@ async function showStashBalanceAction(options: OptionValues) {
 
     const address = options.substrateAddress as string;
 
-    const balanceAll = await getBalancesAll(address, api);
-
     const ledger = await api.query.attestation.ledger(address);
 
     if (ledger.isNone) {
@@ -46,6 +44,7 @@ async function showStashBalanceAction(options: OptionValues) {
 
     const unclaimedRewardsStash = await api.query.attestation.accumulatedRewards(address);
     const unclaimedRewardsStashValue = unclaimedRewardsStash.unwrapOrDefault();
+    const balanceAll = await getBalancesAll(address, api);
 
     const table = new Table({});
 
