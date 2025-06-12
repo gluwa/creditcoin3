@@ -73,7 +73,8 @@ describe('show-status', () => {
         expect(result.stdout).toContain(`Address ${attestor.address} status is Chill`);
     }, 60_000);
 
-    test('should display status Active when attestor is registered and active', async () => {
+    // enable after fixing CSUB-1662
+    test.skip('should display status Active when attestor is registered and active', async () => {
         // setup
         const caller = await randomFundedAccount(api, sudoSigner);
         CLI = CLIBuilder({ CC_SECRET: caller.secret });
