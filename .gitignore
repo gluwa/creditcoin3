@@ -32,6 +32,10 @@ attestor_zombienet/config.yaml
 cairo/scripts/verify_merkle_proof_compiled.json
 cairo/lang/cpu_air_params.json
 
+# Attestor
+attestor/scripts/.env
+attestor/scripts/checkpoints.json
+
 # Prover
 prover/claims/*.json
 prover/artifacts/*.json
