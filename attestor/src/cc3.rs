@@ -8,7 +8,8 @@ use tracing::{debug, error, info};
 use cc_client::{AccountId32, Client as CcClient};
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainId, ChainKey, SignedAttestation
+    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorId, BlsPublicKey,
+    BlsSignature, ChainId, ChainKey, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
@@ -226,11 +227,7 @@ impl<'a> Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<AttestationCheckpoint>, Error> {
-        Ok(self
-            .inner
-            .get_last_checkpoint(chain_key)
-            .await?
-        )
+        Ok(self.inner.get_last_checkpoint(chain_key).await?)
     }
 
     pub async fn get_checkpoint_interval(&self) -> Result<u32, Error> {

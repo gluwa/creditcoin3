@@ -95,5 +95,6 @@ On success no file differences will be printed
 ### 5. Attest On Top of Imported Checkpoints
 
 No special steps here. Simply register and run attestors as normal for the chain_key you
-imported checkpoints to. The resulting attestor sync process should take a much shorter time
-than it otherwise would.
+imported checkpoints to.
+
+The resulting attestor sync process should take a much shorter time than it otherwise would.

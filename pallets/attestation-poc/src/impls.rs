@@ -815,6 +815,12 @@ impl<T: Config> Pallet<T> {
             checkpoints.len() <= MAX_CHECKPOINTS_IMPORTED_PER_CALL as usize,
             Error::<T>::TooManyCheckpointsToImport
         );
+        // Attesting should start after all checkpoints are imported.
+        // Otherwise we introduce poorly defined behavior.
+        ensure!(
+            LastDigest::<T>::get(chain_key).is_none(),
+            Error::<T>::AttestationFoundWhileImporting
+        );
 
         // Create last_checkpoint tracker
         let mut last_checkpoint = if let Some(last_checkpoint) = LastCheckpoint::<T>::get(chain_key)

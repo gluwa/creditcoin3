@@ -482,11 +482,9 @@ impl<'a> Client {
             .await?
             .fetch(&storage_query)
             .await?
-            .map(|checkpoint| {
-                AttestationCheckpoint {
-                    block_number: checkpoint.block_number,
-                    digest: Digest::from_slice(&checkpoint.digest.0),
-                }
+            .map(|checkpoint| AttestationCheckpoint {
+                block_number: checkpoint.block_number,
+                digest: Digest::from_slice(&checkpoint.digest.0),
             }))
     }
 

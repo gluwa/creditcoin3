@@ -699,11 +699,9 @@ async fn get_last_finalized(
             last_attestation.digest(),
             last_attestation.header_number(),
         )))
+    } else if let Some(last_checkpoint) = cc3_client.get_last_checkpoint(chain_key).await? {
+        Ok(Some((last_checkpoint.digest, last_checkpoint.block_number)))
     } else {
-        if let Some(last_checkpoint) = cc3_client.get_last_checkpoint(chain_key).await? {
-            Ok(Some((last_checkpoint.digest, last_checkpoint.block_number)))
-        } else {
-            Ok(None)
-        }
+        Ok(None)
     }
 }

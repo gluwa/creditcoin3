@@ -527,6 +527,8 @@ pub mod pallet {
         InvalidTargetSampleSize,
         // Tried to import too many checkpoints in a single call.
         TooManyCheckpointsToImport,
+        // Tried to import checkpoints for chain key that already has attestations.
+        AttestationFoundWhileImporting,
     }
 
     #[pallet::hooks]
