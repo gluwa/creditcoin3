@@ -4,6 +4,12 @@ const { hexToU8a } = require('@polkadot/util');
 const fs = require('fs');
 
 const BATCH_SIZE = 100;
+const MAX_RETRIES = 10;
+const RETRY_DELAY_MS = 6000;
+
+async function delay(ms) {
+    return new Promise((res) => setTimeout(res, ms));
+}
 
 async function main() {
     // Import configurations from .env file
@@ -48,16 +54,29 @@ async function main() {
         const call = api.tx.attestation.importCheckpoints(chainKey, checkpointVec);
         const sudoCall = api.tx.sudo.sudo(call);
 
-        console.log(`Submitting batch ${i / BATCH_SIZE + 1}...`);
-        const unsub = await sudoCall.signAndSend(sudo, (result) => {
-            if (result.status.isInBlock) {
-                console.log(`📦 Batch included in block: ${result.status.asInBlock}`);
-                unsub();
-            } else if (result.isError) {
-                console.error('❌ Transaction failed');
-                unsub();
+        let attempt = 0;
+        while (attempt < MAX_RETRIES) {
+            console.log(`Submitting batch ${i / BATCH_SIZE + 1}, attempt ${attempt + 1}...`);
+            try {
+                const unsub = await sudoCall.signAndSend(sudo, (result) => {
+                    if (result.status.isInBlock) {
+                        console.log(`📦 Batch included in block: ${result.status.asInBlock}`);
+                        unsub();
+                    } else if (result.isError) {
+                        console.error('❌ Transaction error reported');
+                        unsub();
+                    }
+                });
+                break; // exit retry loop if no exception
+            } catch (err) {
+                console.error(`⚠️ Error submitting batch: ${err.message}`);
+                attempt++;
+                if (attempt >= MAX_RETRIES) {
+                    throw new Error(`❌ Failed to submit batch after ${MAX_RETRIES} attempts`);
+                }
+                await delay(RETRY_DELAY_MS);
             }
-        });
+        }
 
         await new Promise((res) => setTimeout(res, 6000));
     }

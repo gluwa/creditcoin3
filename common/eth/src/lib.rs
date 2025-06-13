@@ -45,8 +45,8 @@ pub enum Error {
     TransactionsReceiptsMismatch(u64),
     #[error("Not full transactions fetched for block {0}")]
     NotFullTransactionsFetched(u64),
-    #[error("Failed to get chain id")]
-    FailedToGetChainId,
+    #[error("Failed to get chain id, Error: {0}")]
+    FailedToGetChainId(String),
     #[error("Ethereum RPC error {0}")]
     EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
     #[error("Client error {0}")]
@@ -228,7 +228,7 @@ impl Client {
 
         let chain_id = http.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
-            Error::FailedToGetChainId
+            Error::FailedToGetChainId(e.to_string())
         })?;
 
         Ok(Self {
@@ -379,7 +379,7 @@ impl Client {
     pub async fn get_chain_id(&self) -> Result<u64, Error> {
         self.http.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
-            Error::FailedToGetChainId
+            Error::FailedToGetChainId(e.to_string())
         })
     }
 }
