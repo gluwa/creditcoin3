@@ -36,6 +36,7 @@ declare module '@polkadot/api-base/types/consts' {
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
+            maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;
             maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const
