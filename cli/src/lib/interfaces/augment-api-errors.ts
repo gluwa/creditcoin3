@@ -26,6 +26,7 @@ declare module '@polkadot/api-base/types/errors' {
             AlreadyAttestor: AugmentedError<ApiType>;
             AlreadyBonded: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
+            AttestationFoundWhileImporting: AugmentedError<ApiType>;
             /**
              * The attestor list is at the max size allowed by the current configuration
              **/
@@ -63,6 +64,7 @@ declare module '@polkadot/api-base/types/errors' {
             NoSupportedChains: AugmentedError<ApiType>;
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;
+            TooManyCheckpointsToImport: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

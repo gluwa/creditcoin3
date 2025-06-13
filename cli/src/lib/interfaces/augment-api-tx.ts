@@ -39,6 +39,7 @@ import type {
     Permill,
 } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -119,6 +120,20 @@ declare module '@polkadot/api-base/types/submittable' {
                           )[],
                 ) => SubmittableExtrinsic<ApiType>,
                 [Vec<AttestorPrimitivesSignedAttestation>]
+            >;
+            importCheckpoints: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    checkpoints:
+                        | Vec<AttestorPrimitivesAttestationCheckpoint>
+                        | (
+                              | AttestorPrimitivesAttestationCheckpoint
+                              | { blockNumber?: any; digest?: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, Vec<AttestorPrimitivesAttestationCheckpoint>]
             >;
             registerAttestor: AugmentedSubmittable<
                 (
