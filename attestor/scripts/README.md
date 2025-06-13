@@ -28,9 +28,9 @@ Create file `attestor/scripts/.env` with contents:
 ```
 MNEMONIC=<your sudo mnemonic here>
 SOURCE_CHAIN=<source chain web socket url here>
-TARGET_CHAIN=<target chain web socket here>
+DESTINATION_CHAIN=<target chain web socket here>
 CHAIN_KEY_ON_SOURCE=<chain key of chain for which to copy checkpoints>
-CHAIN_KEY_ON_TARGET=<chain key of chain to insert checkpoints into>
+CHAIN_KEY_ON_DESTINATION=<chain key of chain to insert checkpoints into>
 ```
 Note: The mnemonic stored here should correspond to an account with sudo access
 on the target chain.
@@ -39,9 +39,9 @@ EX:
 ```sh
 MNEMONIC="//Alice"
 SOURCE_CHAIN="wss://rpc.ccnext-devnet.creditcoin.network"
-TARGET_CHAIN="ws://127.0.0.1:9944"
+DESTINATION_CHAIN="ws://127.0.0.1:9944"
 CHAIN_KEY_ON_SOURCE=2
-CHAIN_KEY_ON_TARGET=2
+CHAIN_KEY_ON_DESTINATION=2
 ```
 
 ### 2. Run ExportCheckpoints.js
@@ -75,10 +75,10 @@ Change the file written to on this line to `checkpoints2.json`:
 fs.writeFileSync('checkpoints.json', JSON.stringify(sortedCheckpoints, null, 2));
 ```
 
-Change `SOURCE_CHAIN` in .env to match `TARGET_CHAIN`:
+Change `SOURCE_CHAIN` in .env to match `DESTINATION_CHAIN`:
 ```
 SOURCE_CHAIN="ws://127.0.0.1:9944"
-TARGET_CHAIN="ws://127.0.0.1:9944"
+DESTINATION_CHAIN="ws://127.0.0.1:9944"
 ```
 
 Export checkpoints:

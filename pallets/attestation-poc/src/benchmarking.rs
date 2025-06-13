@@ -561,7 +561,7 @@ mod benchmarks {
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
-            mock_checkpoints,
+            mock_checkpoints.try_into().unwrap(),
         )
     }
 

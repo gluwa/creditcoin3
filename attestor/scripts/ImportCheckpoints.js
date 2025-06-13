@@ -17,17 +17,17 @@ async function main() {
     if (!mnemonic) {
         throw new Error('MNEMONIC not found in .env file');
     }
-    const targetChain = process.env.TARGET_CHAIN;
-    if (!targetChain) {
-        throw new Error('TARGET_CHAIN not found in .env file');
+    const destinationChain = process.env.DESTINATION_CHAIN;
+    if (!destinationChain) {
+        throw new Error('DESTINATION_CHAIN not found in .env file');
     }
-    const chainKey = process.env.CHAIN_KEY_ON_TARGET;
+    const chainKey = process.env.CHAIN_KEY_ON_DESTINATION;
     if (!chainKey) {
-        throw new Error('CHAIN_KEY not found in .env file');
+        throw new Error('CHAIN_KEY_ON_DESTINATION not found in .env file');
     }
 
     // Get api and keyring
-    const provider = new WsProvider(targetChain);
+    const provider = new WsProvider(destinationChain);
     const api = await ApiPromise.create({ provider });
 
     const keyring = new Keyring({ type: 'sr25519' });
@@ -51,7 +51,9 @@ async function main() {
             });
         });
 
-        const call = api.tx.attestation.importCheckpoints(chainKey, checkpointVec);
+        const boundedVec = api.createType('BoundedVec<AttestorPrimitivesAttestationCheckpoint, 100>', checkpointVec);
+
+        const call = api.tx.attestation.importCheckpoints(chainKey, boundedVec);
         const sudoCall = api.tx.sudo.sudo(call);
 
         let attempt = 0;

@@ -41,7 +41,6 @@ pub mod pallet {
     use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
 
     pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
-    pub const MAX_CHECKPOINTS_IMPORTED_PER_CALL: u8 = 100;
 
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
@@ -125,6 +124,8 @@ pub mod pallet {
 
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
+        #[pallet::constant]
+        type MaxCheckpointsImportedPerCall: Get<u32>;
     }
 
     pub trait WeightInfo {
@@ -525,8 +526,6 @@ pub mod pallet {
         InvalidAttestationsPerCheckpoint,
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
-        // Tried to import too many checkpoints in a single call.
-        TooManyCheckpointsToImport,
         // Tried to import checkpoints for chain key that already has attestations.
         AttestationFoundWhileImporting,
     }
@@ -875,7 +874,7 @@ pub mod pallet {
         pub fn import_checkpoints(
             origin: OriginFor<T>,
             chain_key: ChainKey,
-            checkpoints: Vec<AttestationCheckpoint>,
+            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 

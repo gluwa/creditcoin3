@@ -412,6 +412,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = ConstU32<30>;
+    type MaxCheckpointsImportedPerCall = ConstU32<100>;
 }
 
 // Configure a mock runtime to test the pallet.

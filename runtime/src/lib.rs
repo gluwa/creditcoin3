@@ -883,6 +883,7 @@ parameter_types! {
     // causing proof verification to fail.
     // With 6s source chain block time, 30 attestations = 30 minutes
     pub const DefaultAttestationRetentionDuration: u32 = 30;
+    pub const MaxCheckpointsImportedPerCall: u32 = 100;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
@@ -905,6 +906,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
+    type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
 }
 
 impl pallet_supported_chains::Config for Runtime {

@@ -211,6 +211,7 @@ impl pallet_attestation_poc::Config for Test {
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = ConstU32<30>;
+    type MaxCheckpointsImportedPerCall = ConstU32<100>;
 }
 
 use sp_runtime::curve::PiecewiseLinear;

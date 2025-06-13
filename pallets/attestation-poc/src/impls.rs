@@ -809,12 +809,8 @@ impl<T: Config> Pallet<T> {
     #[transactional]
     pub(crate) fn do_import_checkpoints(
         chain_key: ChainKey,
-        checkpoints: Vec<AttestationCheckpoint>,
+        checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
     ) -> DispatchResult {
-        ensure!(
-            checkpoints.len() <= MAX_CHECKPOINTS_IMPORTED_PER_CALL as usize,
-            Error::<T>::TooManyCheckpointsToImport
-        );
         // Attesting should start after all checkpoints are imported.
         // Otherwise we introduce poorly defined behavior.
         ensure!(

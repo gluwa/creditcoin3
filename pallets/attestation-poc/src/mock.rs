@@ -243,6 +243,7 @@ parameter_types! {
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const DefaultAttestationRetentionDuration: u32 = 30;
+    pub const MaxCheckpointsImportedPerCall: u32 = 100;
 }
 
 impl attestation_poc::Config for Test {
@@ -264,6 +265,7 @@ impl attestation_poc::Config for Test {
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
+    type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
 }
 
 impl pallet_supported_chains::Config for Test {
