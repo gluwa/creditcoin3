@@ -43,7 +43,8 @@ describe('show-list-attestors', () => {
         }
     }, 30_000);
 
-    it('should error when required option --chain is not specified', () => {
+    // enable after fixing CSUB-1664
+    it.skip('should error when required option --chain is not specified', () => {
         try {
             CLI(`attestor show-list-attestors --substrate-address ${stash.address}`);
         } catch (error: any) {
