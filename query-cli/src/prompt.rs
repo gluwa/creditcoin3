@@ -98,6 +98,10 @@ fn prompt_for_network() -> Result<Network> {
                 .read_line(&mut url_input)
                 .expect("Failed to read input");
 
+            if url_input.trim().is_empty() {
+                url_input = "http://localhost:8545".to_string();
+            }
+
             Ok(Network::Local(url_input.trim().to_string()))
         }
         "4" => {
