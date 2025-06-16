@@ -1,19 +1,71 @@
 # cc3-indexer
 
-cc3-indexer
+## Installation
 
-1. add into schema.graphql your database entity to store
-1a. If changing public prover contract, then run build.sh in common/eth/contracts
-2. yarn codegen
-3. yarn build
-4. project.ts -> new handler
-5. yarn build
-6. mappingHandlers.ts -> add code how to parse, and store
-7. remove docker running container
-8. remove data/postgress folder
-9. yarn build
-10. yarn start:docker
-11. if you change the .env file with a new source of blockchain url you need!!!! remove images to have a new so you would not get an stragne error like docker errors. VERY important!!! remove image!!!
+```
+yarn install
+```
+
+## Build
+
+```
+yarn build
+```
+
+## Start
+
+```
+yarn start:docker
+```
+
+If you are targetting local instance, the indexer will crash with:
+
+```
+subquery-node-1   | 2025-06-13T11:26:19.870Z <api> ERROR Failed to init ws://host.docker.internal:9944/: Error: Value of ChainId does not match across all endpoints
+subquery-node-1   |
+subquery-node-1   |        Expected: 0xaf63a9d9e894c1988c58a4a4d5c6b353a2c427f957e142909a70baac5fd47628
+subquery-node-1   |        Actual: 0x36a8d8ddb80c319b819671e5b9d4aa2f0fbc4245cf3b96244156fc6e6e32d93f
+subquery-node-1   | 2025-06-13T11:26:19.870Z <nestjs> ERROR undefined Error: All endpoints failed to initialize. Please add healthier endpoints
+subquery-node-1   | Cause: AggregateError: All promises were rejected
+```
+
+Replace `CHAIN_ID` in `.env` with the chain ID of your local instance, e.g. `0x36a8d8ddb80c319b819671e5b9d4aa2f0fbc4245cf3b96244156fc6e6e32d93f` and rebuild:
+
+```
+yarn build
+yarn start:docker
+```
+
+## Development flow
+
+### Changes to types or schema
+
+If you change types or schema, you need to follow these steps:
+
+1. Update the `schema.graphql` file with your changes.
+2. Run `yarn codegen` to generate the TypeScript types from the updated schema.
+3. Run `yarn build` to compile the TypeScript code.
+
+### Adding or updating a handler
+
+If you want to add a new handler or update an existing one, follow these steps:
+
+1. Create or update the handler in `datasources.ts` to define how to process the data.
+2. Implement the logic for the handler in `src/mappings` to parse and store the data.
+3. Add the new handler to `mappingHandlers.ts` to register it with the indexer.
+
+### Changing env
+
+If you change the `.env` file, you need to rebuild the project to apply the changes.
+
+### Reset data
+
+If you want to reset the data in the indexer, you can do so by running:
+
+```
+docker compose down
+yarn start:docker
+```
 
 ## Testing
 
