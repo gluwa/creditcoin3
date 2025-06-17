@@ -97,6 +97,27 @@ pub async fn insert(
     Ok(())
 }
 
+pub async fn insert_many(
+    connection: &mut AsyncPgConnection,
+    checkpoints: &[AttestationCheckpoint],
+) -> Result<(), Error> {
+    diesel::insert_into(attestation_checkpoint_table)
+        .values(checkpoints)
+        .on_conflict_do_nothing()
+        .execute(connection)
+        .await
+        .map_err(|e| {
+            if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
+                // Only conflicts on (chain_key, block_number) are left unhandled
+                Error::DuplicateChainKeyAndBlockNumber
+            } else {
+                Error::Other(e)
+            }
+        })?;
+
+    Ok(())
+}
+
 /// Checkpoints equal to the claim block number are excluded via `.lt()`. This is because claims
 /// in checkpoint blocks are considered to be at the end of the preceeding interval rather than
 /// the start of the following one.

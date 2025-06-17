@@ -18,7 +18,7 @@ use crate::{
         blockwithdigest,
         cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
         db::PgPool,
-        from_storage_type, to_storage_type,
+        from_storage_type,
     },
     AttestationCacheType, CcClientArc,
 };
@@ -141,6 +141,22 @@ where
             postgres::to_storage_type(chain_key),
         )
         .await?;
+
+        Ok(())
+    }
+
+    pub async fn insert_many_checkpoints(
+        &self,
+        chain_key: ChainKey,
+        checkpoints: &[AttestationCheckpoint],
+    ) -> Result<()> {
+        let mut connection = self.pool.get().await?;
+        let db_checkpoints: Vec<DbCheckpoint> = checkpoints
+            .iter()
+            .map(|c| DbCheckpoint::from_on_chain(c, chain_key))
+            .collect();
+
+        attestationcheckpoint::insert_many(&mut connection, &db_checkpoints).await?;
 
         Ok(())
     }
@@ -358,7 +374,7 @@ pub async fn build_historical_cache_for_chain(
     cc3_client: CcClientArc,
     done_building_cache: UnboundedSender<()>,
 ) -> Result<()> {
-    info!("Building historical cache for chain: {}", chain);
+    debug!("Building historical cache for chain: {}", chain);
     let last_digest = cc3_client.fetch_last_digest(chain).await?;
 
     if let Some(digest) = last_digest {
@@ -389,7 +405,7 @@ pub async fn build_historical_cache_for_chain(
             );
         }
 
-        info!("Starting to sync from: {}", digest);
+        debug!("Starting to sync from: {}", digest);
         digest
     } else {
         warn!("No historical attestations found for chain: {}", chain);
@@ -400,14 +416,14 @@ pub async fn build_historical_cache_for_chain(
     let client_clone = cc3_client.clone();
     let cache_clone = attestations_cache.clone();
     let attestations_handle = tokio::spawn(async move {
-        info!("Spawned task for caching historical attestations",);
+        debug!("Spawned task for caching historical attestations",);
         if let Err(e) = cache_historical_attestations(client_clone, cache_clone, chain).await {
             panic!("Error caching historical attestations: {e:?}");
         }
     });
 
     let checkpoints_handle = tokio::spawn(async move {
-        info!("Spawned task for caching historical checkpoints",);
+        debug!("Spawned task for caching historical checkpoints",);
         if let Err(e) = cache_historical_checkpoints(cc3_client, attestations_cache, chain).await {
             panic!("Error caching historical checkpoints: {e:?}");
         }
@@ -443,7 +459,7 @@ async fn cache_historical_attestations(
 
         if !exists_in_cache {
             // Insert the attestation into the cache
-            info!(
+            debug!(
                 "Inserting attestation with digest({}) for chain key: {}, blocknumber: {} into cache",
                 attestation.attestation.digest(),
                 attestation.chain_key(),
@@ -461,49 +477,31 @@ async fn cache_historical_checkpoints(
     attestations_cache: AttestationCacheType,
     chain_key: ChainKey,
 ) -> Result<()> {
+    // Expensive call
     let checkpoints = cc3_client.get_checkpoints_for_chain(chain_key).await?;
     // Checkpoint with highest block number will be used to mark
     // the point up to which our cache is complete.
     let highest_checkpoint = if let Some(checkpoint) = checkpoints.first() {
+        info!(
+            "Found highest checkpoint with block number: {} for chain key: {}",
+            checkpoint.block_number, chain_key
+        );
         checkpoint.clone()
     } else {
         info!("No historical checkpoints to cache.");
         return Ok(());
     };
 
-    // All checkpoints prior to this one don't need to be cached. We already have them!
-    let cached_up_to = attestations_cache.currently_cached_up_to(chain_key).await?;
+    // Store all checkpoints in the cache
+    attestations_cache
+        .insert_many_checkpoints(chain_key, &checkpoints)
+        .await?;
 
-    for checkpoint in checkpoints {
-        if Some((to_storage_type(chain_key), checkpoint.digest).into()) == cached_up_to {
-            info!(
-                "Current digest matches the last digest up to which we have already cached all checkpoints {}. Stopping fetching more historical checkpoints",
-                checkpoint.digest
-            );
-            attestations_cache
-                .mark_cached_up_to(chain_key, highest_checkpoint.digest)
-                .await?;
-            return Ok(());
-        }
-
-        // Check if checkpoint is already cached
-        let exists_in_cache = attestations_cache
-            .checkpoint_digest_exists(checkpoint.digest)
-            .await?;
-
-        // Insert checkpoint into cache if not present
-        if !exists_in_cache {
-            info!(
-                "Inserting checkpoint with digest({}) for chain: {}, blocknumber: {} into cache",
-                checkpoint.digest, chain_key, checkpoint.block_number,
-            );
-            attestations_cache
-                .insert_checkpoint(checkpoint, chain_key)
-                .await?;
-        }
-    }
-
-    info!("Reached the front of the chain, stopping fetching more historical checkpoints");
+    info!(
+        "Cached {} historical checkpoints for chain key: {}",
+        checkpoints.len(),
+        chain_key
+    );
     attestations_cache
         .mark_cached_up_to(chain_key, highest_checkpoint.digest)
         .await?;
