@@ -306,31 +306,24 @@ where
             attestation.header_number()
         );
 
-        let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
-
-        // Validate the attestation on the last finalized block
-        self.attestation_validator
-            .validate_attestation(finalized_block_hash, &attestation)?;
-
-        // Verify the VRF output
-        self.verify_vrf(finalized_block_hash, &attestation)?;
-
         // Short circuit if we are not an authority
         if !self.is_authority {
             metric_inc!(self.metrics, attestor_no_authority_found_in_store);
             debug!(target: LOG_TARGET, "📝 Not an authority, skipping counting votes");
-            return Ok(());
+            // Do validate the vote before returning
+            return self.validate_vote(&attestation);
         }
 
-        // Add the attestation to the round
+        // First we import the vote.
         let import_result = self.state.note_vote(attestation.clone())?;
 
+        // in cases where the vote is already imported or stale we don't validate it further because we don't have to
         let round = attestation.round();
-
         match import_result {
             VoteImportResult::DoubleVote => {
                 warn!(target: LOG_TARGET, "📝 Double vote detected");
                 metric_inc!(self.metrics, attestor_equivocation_votes);
+                return Err(Error::DoubleVote);
             }
             VoteImportResult::Ok => {
                 metric_set!(
@@ -338,14 +331,18 @@ where
                     attestor_best_voted,
                     attestation.header_number()
                 );
-                debug!(target: LOG_TARGET, "📝 Attestation added to round");
+                info!(target: LOG_TARGET, "📝 Attestation added to round");
+                // Validate the vote
+                return self.validate_vote(&attestation);
             }
             VoteImportResult::Stale => {
-                debug!(target: LOG_TARGET, "📝 Stale vote detected");
+                info!(target: LOG_TARGET, "📝 Stale vote detected");
                 metric_inc!(self.metrics, attestor_stale_votes);
+                return Err(Error::StaleVote);
             }
             VoteImportResult::RoundConcluded => {
-                debug!(target: LOG_TARGET, "📝 Round concluded");
+                info!(target: LOG_TARGET, "📝 Round concluded");
+                self.validate_vote(&attestation)?;
                 // Submit attestation
                 match self.try_submit_attestation(attestation) {
                     Ok(()) => {
@@ -359,6 +356,38 @@ where
                 self.state.clear_votes(round.0, round.1);
             }
         }
+        Ok(())
+    }
+
+    // Validate the vote
+    // This function is responsible for validating the vote
+    // It will check if the vote is valid, and if it is, it will verify the VRF output
+    // If the vote is not valid, it will remove the vote from the state
+    fn validate_vote(
+        &mut self,
+        attestation: &Attestation<HashFor<B>, AccountId>,
+    ) -> Result<(), Error> {
+        let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
+
+        // Validate attestation
+        if let Err(e) = self
+            .attestation_validator
+            .validate_attestation(finalized_block_hash, attestation)
+        {
+            error!(target: LOG_TARGET, "📝 Error validating attestation: {:?}", e);
+            self.state.remove_vote(attestation)?;
+            return Err(e);
+        }
+        debug!(target: LOG_TARGET, "📝 Attestation validated successfully");
+
+        // Verify VRF output
+        if let Err(e) = self.verify_vrf(finalized_block_hash, attestation) {
+            error!(target: LOG_TARGET, "📝 Error verifying VRF output: {:?}", e);
+            self.state.remove_vote(attestation)?;
+            return Err(e);
+        }
+        debug!(target: LOG_TARGET, "📝 VRF output verified successfully");
+
         Ok(())
     }
 

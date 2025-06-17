@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, info};
 use sp_core::H256;
 use std::collections::{BTreeMap, HashMap};
 
@@ -49,7 +49,7 @@ impl<H, A> Default for VoteRound<H, A> {
 
 impl<H, A> VoteRound<H, A>
 where
-    H: Clone + AsRef<[u8]>,
+    H: Clone + AsRef<[u8]> + PartialEq + Eq,
     A: Clone + PartialEq + Eq + std::hash::Hash + std::fmt::Debug + Into<[u8; 32]>,
 {
     pub fn init(attestation: Attestation<H, A>, epoch: EpochIndex) -> Self {
@@ -196,10 +196,14 @@ where
         let attestor_id = attestation.attestor.clone();
         // Check if the chain_key exists in the block_attestations
         if let Some(vote_round) = self.chain_head_votes.get_mut(&chain_key) {
-            let old_vote = vote_round.add_vote(attestation, round_config.current_epoch);
-            if old_vote.is_some() {
-                warn!(target: LOG_TARGET, "📝 Attestor({:?}) voted for round {:?} again", attestor_id, (chain_key, header_number));
-                return Ok(VoteImportResult::DoubleVote);
+            let old_vote = vote_round.add_vote(attestation.clone(), round_config.current_epoch);
+            if let Some(old_vote) = old_vote {
+                if old_vote == attestation {
+                    // If the vote is the same, we can return DoubleVote
+                    // Otherwise it means the vote is different and we can proceed
+                    debug!(target: LOG_TARGET, "📝 Attestor({:?}) already voted for round {:?}, header number: {}", attestor_id, (chain_key, header_number), header_number);
+                    return Ok(VoteImportResult::DoubleVote);
+                }
             }
         } else {
             // Insert new attestation if it doesn't exist
@@ -215,6 +219,20 @@ where
         }
 
         Ok(VoteImportResult::Ok)
+    }
+
+    pub fn remove_vote(&mut self, attestation: &Attestation<H, AccountId>) -> Result<(), Error> {
+        let chain_key = attestation.chain_key();
+        let header_number = attestation.header_number();
+        let attestor_id = attestation.attestor.clone();
+
+        if let Some(vote_round) = self.chain_head_votes.get_mut(&chain_key) {
+            if let Some(votes) = vote_round.header_votes.get_mut(&header_number) {
+                votes.remove(&attestor_id);
+                return Ok(());
+            }
+        }
+        Err(Error::AttestationHeaderNumberInvalid)
     }
 
     /// Check if the round can be concluded

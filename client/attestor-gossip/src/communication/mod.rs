@@ -111,4 +111,8 @@ pub enum Error {
     RoundAlreadyConcluded,
     #[error("Attestation round config not found")]
     RoundConfigNotFound,
+    #[error("Double vote detected")]
+    DoubleVote,
+    #[error("Stale vote detected")]
+    StaleVote,
 }
