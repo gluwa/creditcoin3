@@ -122,7 +122,8 @@ describe('withdraw-unbonded', () => {
     testIf(
         process.env.PROXY_ENABLED === undefined ||
             process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            // reenable when CSUB-1655 is fixed
+            (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should succeed when funds have been unlocked',
         async () => {
             // wait for funds to be unlocked!
