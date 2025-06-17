@@ -29,8 +29,8 @@ async function withdrawUnbondedAction(options: OptionValues) {
 
     const currentEra = await api.query.staking.currentEra();
     if (currentEra.isNone) {
-        console.log('Current era is not available');
-        process.exit(0);
+        console.error('Current era is not available');
+        process.exit(1);
     }
     const currentEraValue = currentEra.unwrap();
 
