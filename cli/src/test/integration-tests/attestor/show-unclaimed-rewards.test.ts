@@ -100,7 +100,7 @@ describe('show-unclaimed-rewards', () => {
         // wait again for rewards to accumulate
         await waitEras(2, api);
 
-        // alice has accumulated some rewards already
+        // stash has accumulated some rewards already
         const accumulatedRewards = await api.query.attestation.accumulatedRewards(stash.address);
         expect(accumulatedRewards.isSome).toBeTruthy();
         const expectedReward = BigInt(accumulatedRewards.unwrap().toString());
