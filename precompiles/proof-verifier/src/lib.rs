@@ -172,29 +172,30 @@ where
     ) -> Result<(), PrecompileFailure> {
         let checkpoint_block_number = query.height - 1 + continuity_proof_len - 1;
 
-        let expected_block_number = if let Some(last_checkpoint_number) =
-            <Runtime as pallet_prover::Config>::Checkpoints::get_last_checkpoint_number(
+        // Always try to get a matching attestation first. The proof may have been generated using an
+        // attestation, even if there is now a checkpoint at that height.
+        let expected_block_number = if let Some(matching_attestation) =
+            <Runtime as pallet_prover::Config>::Attestations::get_attestation(
                 query.chain_id,
+                continuity_checkpoint_digest,
             ) {
-            // Use a checkpoint if one is available
-            if last_checkpoint_number >= query.height {
-                // Fetch checkpoint block number
-                Self::get_block_number_or_revert(
-                    query.chain_id,
-                    continuity_checkpoint_digest,
-                    true,
-                )?
-            } else {
-                // Fetch attestation if last checkpoint is before the query height
-                Self::get_block_number_or_revert(
-                    query.chain_id,
-                    continuity_checkpoint_digest,
-                    false,
-                )?
-            }
+            matching_attestation.attestation.header_number
         } else {
-            // Fetch attestation if no checkpoints are available
-            Self::get_block_number_or_revert(query.chain_id, continuity_checkpoint_digest, false)?
+            // On error, try to get a matching checkpoint instead
+            if let Some(number) = <Runtime as pallet_prover::Config>::Checkpoints::get_checkpoint(
+                query.chain_id,
+                continuity_checkpoint_digest,
+            ) {
+                number
+            } else {
+                let message = "Continuity digest doesn't match any attestation or checkpoint";
+                error!("{}", message);
+                let encoded_revert = encode_revert_message(message);
+                return Err(PrecompileFailure::Revert {
+                    output: encoded_revert,
+                    exit_status: ExitRevert::Reverted,
+                });
+            }
         };
 
         if checkpoint_block_number != expected_block_number {
@@ -210,41 +211,6 @@ where
         };
 
         Ok(())
-    }
-
-    #[cfg(not(feature = "runtime-benchmarks"))]
-    fn get_block_number_or_revert(
-        chain_id: u64,
-        continuity_checkpoint_digest: H256,
-        fetch_checkpoint: bool,
-    ) -> Result<u64, PrecompileFailure> {
-        let result = if fetch_checkpoint {
-            <Runtime as pallet_prover::Config>::Checkpoints::get_checkpoint(
-                chain_id,
-                continuity_checkpoint_digest,
-            )
-            .map(Ok)
-            .unwrap_or_else(|| Err("Continuity Checkpoint digest not found"))
-        } else {
-            <Runtime as pallet_prover::Config>::Attestations::get_attestation(
-                chain_id,
-                continuity_checkpoint_digest,
-            )
-            .map(|att| Ok(att.header_number()))
-            .unwrap_or_else(|| Err("Continuity Attestation digest not found"))
-        };
-
-        match result {
-            Ok(val) => Ok(val),
-            Err(msg) => {
-                error!("{}", msg);
-                let encoded_revert = encode_revert_message(msg);
-                Err(PrecompileFailure::Revert {
-                    output: encoded_revert,
-                    exit_status: ExitRevert::Reverted,
-                })
-            }
-        }
     }
 
     #[cfg(not(feature = "runtime-benchmarks"))]
