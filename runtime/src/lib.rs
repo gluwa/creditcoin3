@@ -882,7 +882,7 @@ parameter_types! {
     // on may be removed from on-chain storage before the proof is submitted,
     // causing proof verification to fail.
     // With 6s source chain block time, 30 attestations = 30 minutes
-    pub const DefaultAttestationRetentionDuration: u32 = 30;
+    pub const DefaultAttestationRetentionDuration: u32 = 120;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
 }
 

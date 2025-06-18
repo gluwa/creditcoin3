@@ -242,7 +242,7 @@ parameter_types! {
     pub const DefaultMinBondRequirement: u64 = 10_000;
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
-    pub const DefaultAttestationRetentionDuration: u32 = 30;
+    pub const DefaultAttestationRetentionDuration: u32 = 120;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
 }
 
