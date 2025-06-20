@@ -1985,6 +1985,8 @@ fn creating_checkpoint_works() {
 #[test]
 fn creating_checkpoint_purges_attestations_in_removal_queue() {
     ExtBuilder.build_and_execute(|| {
+        let checkpoints_in_retention = 12;
+        let checkpoints_to_create = checkpoints_in_retention + 2;
         // Setup state.
         // 5 checkpoints worth of attestations
         // 2 checkpoints worth recorded in checkpointing queue
@@ -1993,9 +1995,9 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
         let att_interval = Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY);
         let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
 
-        // For this test we assume default values, where attestations per checkpoint * 3 == retention duration
+        // For this test we assume default values, where attestations per checkpoint * 12 == retention duration
         assert_eq!(
-            att_per_check * 3,
+            att_per_check * checkpoints_in_retention,
             Attestation::attestation_retention_duration(SUPPORTED_CHAIN_KEY)
         );
 
@@ -2016,7 +2018,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
         let mut removed_by_checkpoint: Vec<H256> = Vec::new();
         let mut kept_after_checkpoint: Vec<SignedAttestation<H256, u64>> = Vec::new();
 
-        for i in 0..att_per_check * 5 + 1 {
+        for i in 0..att_per_check * checkpoints_to_create + 1 {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
@@ -2045,7 +2047,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
 
         assert_eq!(
             Attestation::attestation_removal_queue(SUPPORTED_CHAIN_KEY).len(),
-            (att_per_check * 3) as usize
+            (att_per_check * checkpoints_in_retention) as usize
         );
 
         for removed_digest in removed_by_checkpoint {
