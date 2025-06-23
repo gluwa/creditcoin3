@@ -167,6 +167,13 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
             },
+            AttestationChainConfiguration {
+                chain_key: 5,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                chain_reward: 1000,
+                target_sample_size: 3,
+            },
         ],
     );
 
@@ -235,6 +242,13 @@ pub fn local_testnet_config() -> ChainSpec {
             },
             AttestationChainConfiguration {
                 chain_key: 4,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                chain_reward: 1000,
+                target_sample_size: 3,
+            },
+            AttestationChainConfiguration {
+                chain_key: 5,
                 attestation_interval: 10,
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
@@ -419,6 +433,9 @@ fn testnet_genesis(
                 (11155111, "Sepolia ethereum".as_bytes().to_vec()),
                 // 4. Anvil network two
                 (31338, "Anvil2".as_bytes().to_vec()),
+                // 4. Anvil network three // Due to a restart of the anvil network on devnet
+                // This makes it so the the devnet anvil endpoint is still compatible with local dev setup
+                (31339, "Anvil3".as_bytes().to_vec()),
             ],
             _phantom: Default::default(),
         },
