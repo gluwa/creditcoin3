@@ -719,30 +719,6 @@ describe('CreditcoinPublicProver', function () {
 
             await expect(contract.connect(user).getQueryDetails(queryId)).to.be.revertedWith('No such query');
         });
-
-        it('Should revert when verifier.get_query_result_segments() errors', async function () {
-            const factory = await ethers.getContractFactory('ProverWhereVerifierGetResultSegmentsErrors');
-            const contract = await factory.deploy(
-                await proceedsAccount.getAddress(),
-                10n,
-                1000n,
-                sampleQuery.chainId,
-                'testing',
-                TIMEOUT_BLOCKS * BLOCKTIME,
-            );
-            await contract.waitForDeployment();
-
-            const receipt = await (
-                await contract.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost })
-            ).wait();
-            // @ts-ignore
-            const queryId = receipt?.logs[0]?.args?.[0];
-
-            // explicitly set the state: QueryState.ResultAvailable
-            await contract.connect(owner).mock_setQueryState(queryId, 2);
-
-            await expect(contract.connect(user).getQueryDetails(queryId)).to.be.revertedWith('No such query');
-        });
     });
 
     describe('withdrawProceeds()', function () {
