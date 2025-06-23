@@ -216,7 +216,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         queries[queryId].escrowedAmount = Balance.wrap(0);
 
         queries[queryId].state = QueryState.ResultAvailable;
-        setQueryResults(queryId, verifier_result.resultSegments);
+        setQueryResultSegments(queryId, verifier_result.resultSegments);
 
         // Emit event with query ID, proof, and state
         emit QueryProofVerified(queryId, verifier_result.resultSegments, queries[queryId].state);
@@ -292,7 +292,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     }
 
     // Necessary to satisfy compiler
-    function setQueryResults(QueryId queryId, ResultSegment[] memory resultSegments) private {
+    function setQueryResultSegments(QueryId queryId, ResultSegment[] memory resultSegments) private {
         delete queries[queryId].resultSegments; // clear existing storage array
 
         for (uint256 i = 0; i < resultSegments.length; i++) {
