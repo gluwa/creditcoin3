@@ -15,7 +15,7 @@ npx hardhat ignition deploy ./ignition/modules/Lock.ts
 ## Important
 
 Creditcoin's documentation can be found at
-<https://cc3-docs.creditcoin.network/smart-contract-guides/hardhat-smart-contract-development>.
+<https://docs.creditcoin.org/smart-contract-guides/hardhat-smart-contract-development>.
 
 Hardhat's tutorial can be found at <https://hardhat.org/tutorial>.
 
