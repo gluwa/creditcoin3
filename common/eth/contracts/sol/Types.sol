@@ -53,16 +53,9 @@ enum QueryState {
 enum VerifierExitStatus {
     // Success: proof verifies and requested byte ranges could
     // from the proof.
-    Success,
-    // ProofInvalid: proof verifier couldn't verify the proof.
-    ProofInvalid,
-    // LayoutMismatch: CCNode couldn't extract the bytes indic
-    // from the submitted proof bytes. (Prover's fault)
-    LayoutMismatch,
-    // QueryOutOfBounds: the proof shows that either the targe
-    // doesn't exist or the query's layout includes segments o
-    // targeted transaction. (dApp's fault)
-    QueryOutOfBounds
+    Success
+    // note: since https://github.com/gluwa/creditcoin3-next/pull/608
+    // non Success statuses are no longer returned, instead the precompile reverts
 }
 
 struct VerifierResult {

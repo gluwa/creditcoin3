@@ -185,24 +185,8 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         }
 
         VerifierResult memory verifier_result = this._call_verifier_verify(queryId, proof);
-
-        if (verifier_result.status != VerifierExitStatus.Success) {
-            // queries[queryId].state = QueryState.InvalidQuery;
-
-            string memory reason;
-            if (verifier_result.status == VerifierExitStatus.ProofInvalid) {
-                reason = "Proof verification failed";
-            } else if (verifier_result.status == VerifierExitStatus.LayoutMismatch) {
-                reason = "Layout mismatch in proof";
-            } else if (verifier_result.status == VerifierExitStatus.QueryOutOfBounds) {
-                reason = "Query out of bounds";
-            } else {
-                reason = "Unknown verifier exit status";
-            }
-
-            // emit QueryProofVerificationFailed(queryId, reason);
-            revert(reason);
-        }
+        // note: since https://github.com/gluwa/creditcoin3-next/pull/608
+        // non Success statuses are no longer returned, instead the precompile reverts
 
         // Calculate the prover's fee
         // Transfer the prover's fee to the prover
