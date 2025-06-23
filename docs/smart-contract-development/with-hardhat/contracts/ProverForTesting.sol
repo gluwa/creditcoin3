@@ -56,6 +56,7 @@ contract ProverForTesting is CreditcoinPublicProver {
         // calling this will automatically accumulate balance on the contract
     }
 
+    // used in cc3-indexer-tests/handleProceedsWithdrawn.test.ts
     function mock_drainTotalEscrowBalance(uint256 howMuch) public onlyOwner {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - howMuch);
     }
