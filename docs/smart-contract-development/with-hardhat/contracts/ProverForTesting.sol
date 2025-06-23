@@ -6,25 +6,18 @@ import "./Prover.sol";
 
 contract ProverForTesting is CreditcoinPublicProver {
     VerifierResult private fakeVerifierResult;
-    mapping(QueryId => QueryDetails) public fakeQueries;
 
     function mock_setVerifierResult(VerifierResult calldata verifierResult) public {
         fakeVerifierResult = verifierResult;
     }
 
     function mock_pushQueryDetails(QueryId queryId, QueryDetails calldata queryDetails) public {
-        fakeQueries[queryId] = queryDetails;
+        queries[queryId] = queryDetails;
     }
 
     // this will be called by submitQueryProof()
     function _call_verifier_verify(QueryId, bytes calldata) external view override returns (VerifierResult memory) {
         return fakeVerifierResult;
-    }
-
-    function getQueryDetails(bytes32 queryId) external view override returns (QueryDetails memory queryDetails) {
-        queryDetails = fakeQueries[QueryId.wrap(queryId)];
-        require(queryDetails.state != QueryState.Uninitialized, "No such query");
-        return queryDetails;
     }
 
     constructor(

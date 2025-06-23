@@ -640,20 +640,20 @@ describe('CreditcoinPublicProver', function () {
     });
 
     describe('getQueryDetails(), result segments', function () {
-        it('Should revert when query result not available yet', async function () {
+        it('Should revert when state is QueryState.Uninitialized', async function () {
             const receipt = await (
                 await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
             ).wait();
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            // explicitly set the state: QueryState.TimedOut
-            await prover.connect(owner).mock_setQueryState(queryId, 3);
+            // explicitly set the state: QueryState.Uninitialized
+            await prover.connect(owner).mock_setQueryState(queryId, 0);
 
             await expect(prover.connect(user).getQueryDetails(queryId)).to.be.revertedWith('No such query');
         });
 
-        it('Should return query result segments', async function () {
+        it('Should return query details', async function () {
             const receipt = await (
                 await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
             ).wait();
@@ -663,7 +663,7 @@ describe('CreditcoinPublicProver', function () {
             // explicitly set the state: QueryState.ResultAvailable
             await prover.connect(owner).mock_setQueryState(queryId, 2);
             const expectedSegment = { offset: 1n, abiBytes: new Uint8Array(32) };
-            // mock queryDetails just so we have result segments to look for in the GraphQL output later
+            // mock queryDetails just so we have result segments to look for later
             await (
                 await prover.connect(owner).mock_pushQueryDetails(
                     // QueryId 0
@@ -688,6 +688,8 @@ describe('CreditcoinPublicProver', function () {
             ).wait();
             // doesn't crash
             const result = await prover.connect(user).getQueryDetails(queryId);
+            expect(result.state).to.equal(2); // QueryState.ResultAvailable
+
             const resultSegments = result.resultSegments;
             expect(resultSegments).to.have.lengthOf(1);
 
