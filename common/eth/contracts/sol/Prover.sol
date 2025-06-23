@@ -164,15 +164,6 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         return verifier.verify(proof, queries[queryId].query);
     }
 
-    function _getRevertReason(bytes memory revertData) internal pure returns (string memory) {
-        if (revertData.length < 68) return "Cannot decode revert reason";
-        assembly {
-            // Skip the function selector 4 bytes
-            revertData := add(revertData, 0x04)
-        }
-        return abi.decode(revertData, (string));
-    }
-
     // submitQueryProof is called by the prover when a query's proof is ready.
     function submitQueryProof(QueryId queryId, bytes calldata proof)
         public
