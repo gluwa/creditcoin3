@@ -381,22 +381,29 @@ describe('CreditcoinPublicProver', function () {
                 // @ts-ignore
                 const queryId = receipt?.logs[0]?.args?.[0];
 
-                let queryDetails = await prover.queries(queryId);
-                expect(queryDetails.state).to.equal(1); // QueryState.Submitted
+                const queryDetailsBefore = await prover.queries(queryId);
+                expect(queryDetailsBefore.state).to.equal(1); // QueryState.Submitted
 
                 const proof = new Uint8Array(32);
+                const expectedSegment = { offset: 1n, abiBytes: new Uint8Array(32) };
                 // mark proof as invalid
                 await prover.mock_setVerifierResult({
                     status: result,
-                    resultSegments: [],
+                    resultSegments: [expectedSegment],
                 });
                 await expect(prover.connect(owner).submitQueryProof(queryId, proof))
                     .to.emit(prover, 'QueryProofVerified')
-                    .withArgs(queryId, [], expectedState);
+                    // note: not using expectedSegment b/c of serialization differences
+                    .withArgs(queryId, [[1n, new Uint8Array(32)]], expectedState);
 
                 // explicitly check query.state again
-                queryDetails = await prover.queries(queryId);
+                const queryDetails = await prover.connect(user).getQueryDetails(queryId);
                 expect(queryDetails.state).to.equal(expectedState);
+
+                expect(queryDetails.resultSegments).to.have.lengthOf(1);
+                const [offset, abiBytes] = queryDetails.resultSegments[0];
+                expect(offset).to.equal(expectedSegment.offset);
+                expect(abiBytes).to.equal('0x0000000000000000000000000000000000000000000000000000000000000000');
             });
         });
 
