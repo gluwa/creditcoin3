@@ -2983,12 +2983,6 @@ jobs:
           npm install
           npx hardhat compile
 
-      - name: Register Anvil 3 as a supported chain
-        working-directory: ./cli
-        run: |
-          yarn install
-          yarn jest --config src/test/cc3-indexer-tests.config.ts --verbose --runInBand --forceExit src/test/cc3-indexer-tests/registerAnvil3.test.ts
-
       - name: Start Attestation Zombienet for Charlie - Anvil 3
         run: |
           chmod a+x ./target/release/attestor*
