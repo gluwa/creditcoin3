@@ -407,6 +407,30 @@ describe('CreditcoinPublicProver', function () {
             });
         });
 
+        it('Should revert when verifier.verify() reverts', async function () {
+            const factory = await ethers.getContractFactory('ProverWhereVerifyReverts');
+            const contract = await factory.deploy(
+                await proceedsAccount.getAddress(),
+                10n,
+                1000n,
+                sampleQuery.chainId,
+                'testing',
+                TIMEOUT_BLOCKS * BLOCKTIME,
+            );
+            await contract.waitForDeployment();
+
+            const receipt = await (
+                await contract.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            const proof = new Uint8Array(32);
+            await expect(contract.connect(owner).submitQueryProof(queryId, proof)).to.be.revertedWith(
+                'Reverted on purpose',
+            );
+        });
+
         it('Should only allow owner to submit proofs', async function () {
             const tx = await prover
                 .connect(user)

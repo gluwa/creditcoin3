@@ -16,7 +16,7 @@ contract ProverForTesting is CreditcoinPublicProver {
     }
 
     // this will be called by submitQueryProof()
-    function _call_verifier_verify(QueryId, bytes calldata) external view override returns (VerifierResult memory) {
+    function _call_verifier_verify(QueryId, bytes calldata) external virtual override returns (VerifierResult memory) {
         return fakeVerifierResult;
     }
 
