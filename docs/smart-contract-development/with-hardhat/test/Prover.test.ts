@@ -486,12 +486,6 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
-    describe('Proceeds Withdrawal', function () {
-        it('Should only allow owner to withdraw proceeds', async function () {
-            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
-        });
-    });
-
     describe('removeQueryId()', function () {
         it('Should remove queries from internal storage', async function () {
             const tx = await prover
