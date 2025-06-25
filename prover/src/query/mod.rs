@@ -11,6 +11,8 @@ use tracing::{error, info, warn};
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
+use crate::postgres::from_storage_type;
+use crate::query::Error::AttestationCacheError;
 use crate::{attestation::fragment, AttestationCacheType};
 
 pub mod external;
@@ -36,6 +38,8 @@ pub enum Error {
     FragmentError(#[from] fragment::Error),
     #[error("Json error: {0:?}")]
     Json(#[from] serde_json::Error),
+    #[error("Attestation cache error")]
+    AttestationCacheError,
 }
 
 // Process a query
