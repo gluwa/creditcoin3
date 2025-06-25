@@ -32,7 +32,8 @@ use crate::{
 
 use super::pallet::*;
 
-pub const ONE_UNIT: u64 = 100_000_000_000_000_000;
+// One tenth of a CTC in micro units
+pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
 
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
@@ -81,7 +82,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Get some amount to fund the attestor
-        let amount: BalanceOf<T> = ONE_UNIT.into();
+        let amount: BalanceOf<T> = ONE_TENTH_CTC.into();
 
         // Fund the attestor key
         T::Currency::transfer(
