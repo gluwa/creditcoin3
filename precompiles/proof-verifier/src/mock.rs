@@ -387,7 +387,7 @@ parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 3;
-    pub const DefaultMinBondRequirement: u64 = 10_000;
+    pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const BondingDuration: EraIndex = 3;

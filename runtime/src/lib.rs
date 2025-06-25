@@ -875,7 +875,7 @@ parameter_types! {
     pub const DefaultTargetSampleSize: u32 = 3;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
-    pub const MinBondRequirement: u64 = 100;
+    pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxAttestationsPerBlock: u32 = 10;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proving_time. Otherwise, the attestation a proof is based
@@ -899,7 +899,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type SupportedChains = SupportedChains;
     type Currency = Balances;
     type CurrencyBalance = Balance;
-    type DefaultMinBondRequirement = MinBondRequirement;
+    type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type MaxUnlockingChunks = ConstU32<5>;
     type BondingDuration = ConstU32<2>;
     type Staking = Staking;

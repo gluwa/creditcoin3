@@ -70,7 +70,7 @@ pub mod pallet {
             Balance = Self::CurrencyBalance,
         >;
         /// Just the `Currency::Balance` type; we have this item to allow us to constrain it to
-        /// `From<u64>`.
+        /// `From<u128>`.
         type CurrencyBalance: sp_runtime::traits::AtLeast32BitUnsigned
             + FullCodec
             + Copy
@@ -78,6 +78,7 @@ pub mod pallet {
             + core::fmt::Debug
             + Default
             + From<u64>
+            + From<u128>
             + TypeInfo
             + MaxEncodedLen;
         #[pallet::constant]
@@ -92,7 +93,7 @@ pub mod pallet {
         #[pallet::constant]
         type CommittmentInterval: Get<u64>;
         #[pallet::constant]
-        type DefaultMinBondRequirement: Get<u64>;
+        type DefaultMinBondRequirement: Get<u128>;
         #[pallet::constant]
         type MaxUnlockingChunks: Get<u32>;
         /// Number of eras that staked funds must remain bonded for.
