@@ -1827,7 +1827,7 @@ jobs:
             --chain dev \
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
-            --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node.log 2>&1 &
+            --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
 
       - name: Start Ethereum simulation with Anvil - 2 chains
         run: |
@@ -1846,6 +1846,18 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
 
+      - name: Start creditcoin3-node - Bob
+        env:
+          RUST_LOG: debug
+        run: |
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --bob  --pruning archive \
+            --node-key d9cccabf274641a185bc94f9f8c3d791f50514277cb3ba8c2aa4d7d6757c661f \
+            --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au \
+            --port 30335 --rpc-port 9955 \
+            --base-path ./bob-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-bob.log 2>&1 &
+
       - name: Start Attestation Zombienet
         run: |
           chmod a+x ./target/release/attestor*
@@ -1861,8 +1873,11 @@ jobs:
                 --cc3-key "//Alice" --supported-chain-key 2 \
                 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
+
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
           ./target/release/attestor_zombienet \
                 --verbose \
+                --cc3-rpc-url ws://localhost:9955 \
                 --cc3-key "//Bob" --supported-chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
