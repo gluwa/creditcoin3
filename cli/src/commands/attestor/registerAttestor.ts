@@ -16,11 +16,11 @@ export function makeRegisterAttestorCommand() {
 
 async function registerAttestorAction(options: OptionValues) {
     if (!options.chain) {
-        throw new Error("Missing required option: --chain");
+        throw new Error('Missing required option: --chain');
     }
 
     if (!options.attestor) {
-        throw new Error("Missing required option: --attestor");
+        throw new Error('Missing required option: --attestor');
     }
 
     const { api } = await newApi(options.url as string);
