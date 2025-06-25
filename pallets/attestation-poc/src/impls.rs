@@ -45,6 +45,11 @@ impl<T: Config> Pallet<T> {
         attestor_id: T::AccountId,
     ) -> DispatchResult {
         ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
+        
+        ensure!(
             !Self::attestor_is_registered(chain_key, &attestor_id),
             Error::<T>::AlreadyAttestor
         );
