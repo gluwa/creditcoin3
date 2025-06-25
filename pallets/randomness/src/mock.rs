@@ -306,7 +306,7 @@ pub fn new_test_ext_raw_authorities(authorities: Vec<AuthorityId>) -> sp_io::Tes
         .unwrap();
 
     let balances: Vec<_> = (0..authorities.len())
-        .map(|i| (i as u64, 10_000_000))
+        .map(|i| (i as u64, 1_000_000_000_000_000_000_000)) // 1_000 units
         .collect();
 
     pallet_balances::GenesisConfig::<Test> { balances }

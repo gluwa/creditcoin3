@@ -308,11 +308,11 @@ impl ExtBuilder {
         // accounts 0 to 5 have initial balances
         let b = pallet_balances::GenesisConfig::<Test> {
             balances: vec![
-                (PROVER_1, 9_000_000_000_000_000_000),
-                (PROVER_2, 50_000_000_000_000_000_000),
-                (CLAIMER_1, 50_000_000_000_000_000_000),
-                (CLAIMER_2, 50_000_000_000_000_000_000),
-                (PROVER_3, 50_000_000_000_000_000_000),
+                (PROVER_1, 900_000_000_000_000_000_000),
+                (PROVER_2, 5_000_000_000_000_000_000_000),
+                (CLAIMER_1, 5_000_000_000_000_000_000_000),
+                (CLAIMER_2, 5_000_000_000_000_000_000_000),
+                (PROVER_3, 5_000_000_000_000_000_000_000),
             ],
         };
         b.assimilate_storage(&mut t).unwrap();

@@ -83,7 +83,7 @@ fn set_min_bond_requirement_should_error_when_not_signed_by_root() {
 fn set_min_bond_requirement_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         let min_bond_requirement = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
-        assert_eq!(min_bond_requirement, 10_000);
+        assert_eq!(min_bond_requirement, 100_000_000_000_000_000_000);
 
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
@@ -306,7 +306,7 @@ fn register_attestor_without_sufficient_funds_should_fail() {
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
-            10_000_000_000_000_000_000
+            10_000_000_000_000_000_000_000_000
         ));
 
         let att = Attestor::new(STASH_3, ATTESTOR_1);
@@ -324,15 +324,15 @@ fn register_attestor_without_sufficient_funds_should_fail() {
 fn register_attestor_without_sufficient_funds_should_fail_2() {
     ExtBuilder.build_and_execute(|| {
         let free_balance = Attestation::get_free_balance(&STASH_3);
-        // 1_000_000_000_000_000_000 balance - 500 existential deposit
-        assert_eq!(free_balance, 999_999_999_999_999_500);
+        // 1_000_000_000_000_000_000_000 balance - 500 existential deposit
+        assert_eq!(free_balance, 999_999_999_999_999_999_500);
 
         // Set min bond
-        // Balance of Stash 3 is 1_000_000_000_000_000_000
+        // Balance of Stash 3 is 1_000_000_000_000_000_000_000
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
-            600_000_000_000_000_000
+            600_000_000_000_000_000_000
         ));
 
         let att = Attestor::new(STASH_3, ATTESTOR_1);
@@ -345,7 +345,7 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
         let free_balance = Attestation::get_free_balance(&STASH_3);
         assert_eq!(
             free_balance + ONE_TENTH_CTC as u128,
-            399_999_999_999_999_500
+            399_999_999_999_999_999_500
         );
 
         // We should not be able to register another attestor because we don't have enough funds
@@ -2239,7 +2239,7 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
         System::assert_last_event(
             crate::Event::Withdrawn {
                 stash: STASH_1,
-                amount: 10000,
+                amount: 100_000_000_000_000_000_000,
             }
             .into(),
         );
