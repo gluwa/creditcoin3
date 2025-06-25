@@ -26,9 +26,6 @@ use sp_runtime::{
     MultiSignature,
 };
 
-/// Number of micro units per CTC token
-pub const TOKEN_DECIMALS: u8 = 18;
-
 /// Type of block number.
 pub type BlockNumber = u32;
 

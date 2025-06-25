@@ -48,7 +48,7 @@ impl<T: Config> Pallet<T> {
             T::SupportedChains::is_chain_supported(chain_key),
             Error::<T>::ChainNotSupported
         );
-        
+
         ensure!(
             !Self::attestor_is_registered(chain_key, &attestor_id),
             Error::<T>::AlreadyAttestor
