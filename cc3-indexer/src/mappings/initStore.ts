@@ -15,7 +15,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
-        minBondRequirement: BigInt(100),
+        minBondRequirement: BigInt(100000000000000000000),
     });
     const supportedChain1 = SupportedChain.create({
         id: 'chain_1',
@@ -37,7 +37,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
-        minBondRequirement: BigInt(100),
+        minBondRequirement: BigInt(100000000000000000000),
     });
     const supportedChain2 = SupportedChain.create({
         id: 'chain_2',
@@ -59,7 +59,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
-        minBondRequirement: BigInt(100),
+        minBondRequirement: BigInt(100000000000000000000),
     });
     const supportedChain3 = SupportedChain.create({
         id: 'chain_3',
@@ -81,7 +81,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         lastCheckpointHeaderNumber: BigInt(0),
         maxSetSize: 100,
         targetSampleSize: 3,
-        minBondRequirement: BigInt(100),
+        minBondRequirement: BigInt(100000000000000000000),
     });
     const supportedChain4 = SupportedChain.create({
         id: 'chain_4',
