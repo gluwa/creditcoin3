@@ -2,13 +2,13 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
-import { proxyForOption } from '../options';
+import { proxyForOption, attestorOption, chainKeyOption } from '../options';
 
 export function makeUnregisterAttestorCommand() {
     const cmd = new Command('unregister');
     cmd.description('Unregister attestor and unbond funds from a stash account');
-    cmd.option('-a, --attestor [attestor]', 'Specify attestor account to unregister');
-    cmd.option('-c, --chain [chain]', 'Specify chain key to unregister attestor for');
+    cmd.addOption(attestorOption.makeOptionMandatory());
+    cmd.addOption(chainKeyOption.makeOptionMandatory());
     cmd.addOption(proxyForOption);
     cmd.action(unregisterAttestorAction);
     return cmd;
