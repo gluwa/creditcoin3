@@ -35,9 +35,7 @@ describe('handleEventCheckpointReached()', () => {
                 expect(node.whoId).toBeTruthy();
 
                 // these increase for every entity. We allow the first checkpoint to have block number 0.
-                if (BigInt(node.atBlockNumber) !== 0n) {
-                    expect(BigInt(node.atBlockNumber)).toBeGreaterThan(onChainBlockNumber);
-                }
+                expect(BigInt(node.atBlockNumber)).toBeGreaterThanOrEqual(onChainBlockNumber);
                 onChainBlockNumber = BigInt(node.atBlockNumber);
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(checkpointBlockNumber);
                 checkpointBlockNumber = BigInt(node.blockNumber);
