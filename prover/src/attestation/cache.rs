@@ -275,6 +275,7 @@ pub async fn sync_cache(
     attestations_cache: &AttestationCacheType,
     cc3_client: &cc3::Client,
     mut historical_sync_rx: UnboundedReceiver<()>,
+    attestation_notifier: UnboundedSender<u64>,
 ) -> Result<()> {
     // Start subscription for new attestations and checkpoints
     let (attestation_tx, mut attestation_rx) = mpsc::unbounded_channel();
@@ -323,7 +324,12 @@ pub async fn sync_cache(
                     continue;
                 }
 
+                let header_number = attestation.header_number();
                 attestations_cache.insert_attestation(attestation).await?;
+
+                if let Err(e) = attestation_notifier.send(header_number) {
+                    format!("Failed to send new attestation notification for height {header_number}: {e:?}").to_string();
+                }
             },
             maybe_checkpoint = checkpoint_rx.recv() => {
                 let Some((checkpoint, chain_key)) = maybe_checkpoint else { break; };

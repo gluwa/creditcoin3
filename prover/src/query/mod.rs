@@ -2,7 +2,7 @@ use anyhow::Result;
 use either::Either;
 use eth::Client;
 use sp_core::H256;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 use thiserror::Error;
 use tracing::{error, info, warn};
 
@@ -21,11 +21,6 @@ pub type QueryId = H256;
 
 /// Do not force stone proving, instead reuse the stone proof if it exists
 const FORCE_STONE_PROVING: bool = false;
-
-const MAX_RETRIES: u32 = 10;
-
-// todo: calculate this by averaging the last X block times on a source chain
-const BLOCK_TIME: Duration = Duration::from_secs(6);
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -53,45 +48,27 @@ pub async fn process(
     query: &Query,
     attestation_cache: &AttestationCacheType,
     stone_proof: bool,
-    chain_attestation_interval: u64,
 ) -> Result<Either<Proof, Vec<PathBuf>>, Error> {
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
-    let mut retry_count = 0;
-
-    // calculate how long we want to wait in the worst case scenario.
-    // we want to wait for 2 chain attestation intervals
-    let total_retry_delay =
-        Duration::from_secs(chain_attestation_interval * BLOCK_TIME.as_secs() * 2);
-
     // Get the attestation fragment with retries on QueryTooRecent
-    let attestation_fragment = loop {
-        match fragment::get_for_claim(&eth_client, query, attestation_cache).await {
-            Ok(fragment) => break fragment,
-            Err(fragment::Error::QueryTooRecent(last_height, query_height))
-                if retry_count < MAX_RETRIES =>
-            {
-                retry_count += 1;
-                error!(
-                    "QueryTooRecent error for query {:?}: last_attestation_height={}, query_height={}. Retry {}/{} in {:?}.",
-                    query_id, last_height, query_height, retry_count, MAX_RETRIES, total_retry_delay/MAX_RETRIES
-                );
-                tokio::time::sleep(total_retry_delay / MAX_RETRIES).await;
+    let attestation_fragment = match fragment::get_for_claim(&eth_client, query, attestation_cache)
+        .await
+    {
+        Ok(fragment) => fragment,
+        Err(fragment::Error::LastFragmentBlockMismatch(
+            end_attestation,
+            last_fragment_block,
+            fetched_from_source,
+        )) => {
+            if fetched_from_source {
+                panic!("Last fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
+            } else {
+                panic!("Digests from last fragment block and end attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
             }
-            Err(fragment::Error::LastFragmentBlockMismatch(
-                end_attestation,
-                last_fragment_block,
-                fetched_from_source,
-            )) => {
-                if fetched_from_source {
-                    panic!("Last fragment block fetched from source chain doesn't match attestation or checkpoint in prover DB. This means the source chain endpoint is untrustworthy or more likely the prover DB has invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
-                } else {
-                    panic!("Digests from last fragment block and end attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
-                }
-            }
-            Err(e) => return Err(e.into()),
         }
+        Err(e) => return Err(e.into()),
     };
 
     info!("Got attestation fragment for query with id: {:?}", query_id);

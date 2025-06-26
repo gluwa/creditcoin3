@@ -7,6 +7,7 @@ use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_io::hashing::keccak_256;
 use sp_runtime_interface::pass_by::PassByCodec;
+use sp_std::cmp::Ordering;
 use sp_std::vec;
 use sp_std::{self, vec::Vec};
 
@@ -44,6 +45,18 @@ pub struct Query {
     pub height: u64,
     pub index: u64,
     pub layout_segments: Vec<LayoutSegment>,
+}
+
+impl PartialOrd for Query {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Query {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.height.cmp(&self.height)
+    }
 }
 
 impl Query {

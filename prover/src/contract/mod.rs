@@ -1,5 +1,6 @@
 use anyhow::Result;
-use tracing::info;
+use tokio::sync::mpsc;
+use tracing::{error, info};
 
 use crate::query::QueryId;
 use artifacts::ChainDeploymentArtifact;
@@ -54,7 +55,7 @@ pub async fn deploy(
 
 // Get unprocessed queries
 // This function will fetch all unprocessed queries from the chain
-pub async fn get_unprocessed_queries(eth_client: &Client) -> Result<Vec<Query>> {
+pub async fn get_initial_unprocessed_queries(eth_client: &Client) -> Result<Vec<Query>> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
     let artifact = artifacts::get_deployment_artifact(chain_id).await?;
@@ -65,6 +66,36 @@ pub async fn get_unprocessed_queries(eth_client: &Client) -> Result<Vec<Query>> 
         .await?;
 
     Ok(queries)
+}
+
+// Queries contract storage to fetch all existing unprocessed queries
+// and then subscribes to new query submissions. It sends everything to the provided query channel.
+pub async fn provide_unprocessed_queries(
+    eth_client: &Client,
+    query_channel: mpsc::UnboundedSender<Query>,
+) -> Result<()> {
+    info!("Polling for all existing unprocessed queries...");
+    match get_initial_unprocessed_queries(eth_client).await {
+        Ok(queries) => {
+            info!("Found {} existing queries to process.", queries.len());
+            for query in queries {
+                if query_channel.send(query).is_err() {
+                    return Err(anyhow::anyhow!(
+                        "🔴 Query channel closed during initial poll."
+                    ));
+                }
+            }
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "🔴 Failed to poll for initial queries: {:?}",
+                e
+            ));
+        }
+    }
+
+    info!("Initial poll complete. Subscribing for new queries...");
+    subscribe_query_submissions(eth_client, query_channel).await
 }
 
 pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> Result<String> {
@@ -82,11 +113,35 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
     let tx_hash = artifact
         .contract
         .submit_query_proof(eth_client, query.id().0.into(), proof)
+        .await;
+
+    match tx_hash {
+        Ok(tx_hash) => {
+            info!("Proof submitted successfully, tx_hash: {}", tx_hash);
+            Ok(tx_hash.to_string())
+        }
+        Err(e) => {
+            error!("Failed to submit proof: {:?}", e);
+            Err(e)
+        }
+    }
+}
+
+pub async fn subscribe_query_submissions(
+    eth_client: &Client,
+    query_channel: mpsc::UnboundedSender<Query>,
+) -> Result<()> {
+    let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
+
+    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+
+    artifact
+        .contract
+        .subscribe_query_submissions(eth_client, query_channel)
         .await?;
 
-    info!("Proof submitted tx_hash: {}", tx_hash);
-
-    Ok(tx_hash)
+    info!("Subscribed to query submissions on chain {}", chain_id);
+    Ok(())
 }
 
 pub async fn remove_query_id(eth_client: &Client, query_id: QueryId) -> Result<String> {
