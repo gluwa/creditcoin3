@@ -24,8 +24,8 @@ async function showStashBalanceAction(options: OptionValues) {
         process.exit(1);
     }
 
-    let canWithdraw = 0;
-    let unbondingAmount = 0;
+    let canWithdraw = 0n;
+    let unbondingAmount = 0n;
     const ledgerValue = ledger.unwrap();
     const active = ledgerValue.active.unwrap();
     const totalStaked = ledgerValue.totalStaked.unwrap();
@@ -36,9 +36,9 @@ async function showStashBalanceAction(options: OptionValues) {
 
         for (const unlocking of ledgerValue.unlocking) {
             if (unlocking.era.toNumber() <= currentEraValue.toNumber()) {
-                canWithdraw += unlocking.value.toNumber();
+                canWithdraw += unlocking.value.toBigInt();
             }
-            unbondingAmount += unlocking.value.toNumber();
+            unbondingAmount += unlocking.value.toBigInt();
         }
     }
 
@@ -54,8 +54,8 @@ async function showStashBalanceAction(options: OptionValues) {
         ['Total', toCTCString(balanceAll.freeBalance.add(balanceAll.reservedBalance), 4)],
         ['TotalStake', toCTCString(totalStaked, 4)],
         ['ActiveStake', toCTCString(active, 4)],
-        ['Unbonding', toCTCString(new BN(unbondingAmount), 4)],
-        ['CanWithdraw', toCTCString(new BN(canWithdraw), 4)],
+        ['Unbonding', toCTCString(new BN(unbondingAmount.toString()), 4)],
+        ['CanWithdraw', toCTCString(new BN(canWithdraw.toString()), 4)],
         ['UnclaimedRewards', toCTCString(new BN(unclaimedRewardsStashValue), 4)],
     );
 

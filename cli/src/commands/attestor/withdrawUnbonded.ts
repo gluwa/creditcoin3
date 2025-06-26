@@ -34,19 +34,19 @@ async function withdrawUnbondedAction(options: OptionValues) {
     }
     const currentEraValue = currentEra.unwrap();
 
-    let canWithdraw = 0;
+    let canWithdraw = 0n;
     for (const unlocking of ledgerValue.unlocking) {
         if (unlocking.era.toNumber() <= currentEraValue.toNumber()) {
-            canWithdraw += unlocking.value.toNumber();
+            canWithdraw += unlocking.value.toBigInt();
         }
     }
 
-    if (canWithdraw === 0) {
+    if (canWithdraw === 0n) {
         console.log('No unbonded funds to withdraw');
         process.exit(0);
     }
 
-    console.log(`Unbonded funds available to withdraw: ${toCTCString(new BN(canWithdraw), 4)}`);
+    console.log(`Unbonded funds available to withdraw: ${toCTCString(new BN(canWithdraw.toString()), 4)}`);
 
     const withdrawUnbondedAttestorTx = api.tx.attestation.withdrawUnbonded();
 
