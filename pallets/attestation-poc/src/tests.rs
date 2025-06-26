@@ -669,6 +669,22 @@ fn register_attestor_should_error_when_not_signed() {
 }
 
 #[test]
+fn register_attestor_should_error_when_chain_is_not_supported() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_noop!(
+            Attestation::register_attestor(
+                att.stash.clone(),
+                0, // Not a supported chain
+                att.attestor_id,
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+    })
+}
+
+#[test]
 fn register_attestor_should_error_when_address_is_already_registered() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
