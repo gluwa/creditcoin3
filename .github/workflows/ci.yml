@@ -2916,10 +2916,23 @@ jobs:
           name: attestor-for-testing-ci
           path: target/release
 
+      - name: Set up Python for Cairo - Verifier + Prover
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+      - run: pip install -r prover/requirements.txt
+
       - name: Start creditcoin3-node - Alice
         env:
           RUST_LOG: debug
         run: |
+          # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
+          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+
           mkdir -p /var/tmp/cc3-indexer-testing/
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
@@ -2989,6 +3002,12 @@ jobs:
       - name: Start Attestation Zombienet for Bob - Anvil 2
         if: false
         run: |
+          # configure the path so we can discover external binaries
+          PROVER_PATH=$(readlink -f ./cairo/stone-prover)
+          SCRIPTS_PATH=$(readlink -f ./cairo/scripts)
+          VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
+          export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
+
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-bob
 
           ./target/release/attestor_zombienet \
@@ -3039,13 +3058,6 @@ jobs:
           docker compose pull
           docker compose --project-name anvil-1 up -d
           docker compose --project-name anvil-2 up -d
-
-      - name: Set up Python for Cairo/Prover
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: "pip"
-      - run: pip install -r prover/requirements.txt
 
       - name: Download prover binary
         uses: actions/download-artifact@v4
