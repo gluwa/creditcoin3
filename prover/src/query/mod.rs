@@ -4,6 +4,8 @@ use eth::Client;
 use sp_core::H256;
 use std::path::PathBuf;
 use thiserror::Error;
+use tokio_retry::strategy::{jitter, FibonacciBackoff};
+use tokio_retry::Retry;
 use tracing::{error, info, warn};
 
 use pallet_prover_primitives::Query;
@@ -52,10 +54,16 @@ pub async fn process(
     let query_id = query.id();
     info!("Processing query with id: {:?}", query_id);
 
-    // Get the attestation fragment with retries on QueryTooRecent
-    let attestation_fragment = match fragment::get_for_claim(&eth_client, query, attestation_cache)
-        .await
-    {
+    // Retry strategy with Fibonacci backoff and jitter (1, 1, 2, 3, 5, ...)
+    let retry_strategy = FibonacciBackoff::from_millis(1000).map(jitter).take(5);
+
+    let fragment_result = Retry::spawn(retry_strategy.clone(), || {
+        fragment::get_for_claim(&eth_client, query, attestation_cache)
+    })
+    .await;
+
+    // Get the attestation fragment
+    let attestation_fragment = match fragment_result {
         Ok(fragment) => fragment,
         Err(fragment::Error::LastFragmentBlockMismatch(
             end_attestation,
@@ -68,7 +76,14 @@ pub async fn process(
                 panic!("Digests from last fragment block and end attestation in DB don't match. The DB therefore contains invalid contents. Clean DB and run prover to resync. End attestation: {end_attestation}, Last fragment block: {last_fragment_block}")
             }
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            // This path is taken for any other error after all retries have failed.
+            error!(
+                "Failed to get attestation fragment for query {:?} after multiple retries: {:?}",
+                query_id, e
+            );
+            return Err(e.into());
+        }
     };
 
     info!("Got attestation fragment for query with id: {:?}", query_id);
@@ -77,7 +92,15 @@ pub async fn process(
 
     info!("Claim serializable: {:?}", claim_serializable);
 
-    let block = eth_client.get_block(query.height).await?;
+    let block = Retry::spawn(retry_strategy, || eth_client.get_block(query.height))
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to get block {} after multiple retries: {:?}",
+                query.height, e
+            );
+            e
+        })?;
 
     info!("Generating proof for query with id: {:?}", query_id);
     // Generate proof
