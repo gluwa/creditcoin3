@@ -14,7 +14,7 @@ mod query_builder;
 #[cfg(test)]
 mod tests;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "attestor")]
 pub struct QueryCli {
     #[arg(long, required = true, default_value = "http://localhost:9944")]
@@ -31,6 +31,18 @@ pub struct QueryCli {
 
     #[arg(long, default_value = "false")]
     default: bool,
+
+    #[arg(long)]
+    eth_rpc_url: Option<String>,
+
+    #[arg(long)]
+    block_height: Option<u64>,
+
+    #[arg(long)]
+    txn_hash: Option<String>,
+
+    #[arg(long)]
+    data_choice: Option<u64>,
 }
 
 #[tokio::main]
@@ -57,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let prompt: PromptOutput = prompt().expect("Failed to prompt user");
+    let prompt: PromptOutput = prompt(args.clone()).expect("Failed to prompt user");
 
     let query_eth_client = Client::new(&prompt.network.url(), None).await?;
 

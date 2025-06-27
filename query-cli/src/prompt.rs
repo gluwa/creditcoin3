@@ -18,15 +18,15 @@ pub(crate) enum SelectedData {
     NativeTokenTransferData,
 }
 
-pub(crate) fn prompt() -> Result<PromptOutput> {
+pub(crate) fn prompt(args: QueryCli) -> Result<PromptOutput> {
     // Prompt the user for the network
-    let network = prompt_for_network()?;
+    let network = prompt_for_network(args.clone())?;
 
     // Prompt the user for block height and transaction hash
-    let (tx_height, tx_hash) = prompt_for_height_and_hash();
+    let (tx_height, tx_hash) = prompt_for_height_and_hash(args.clone());
 
     // Prompt the user for all data, range of data, ERC20 preset data, or native transfer preset data
-    let (selected_data, offsets_and_sizes) = prompt_for_data_selection();
+    let (selected_data, offsets_and_sizes) = prompt_for_data_selection(args);
 
     // Display the collected information
     println!("\nCollected Information:");
@@ -51,7 +51,11 @@ pub(crate) fn prompt() -> Result<PromptOutput> {
     })
 }
 
-fn prompt_for_network() -> Result<Network> {
+fn prompt_for_network(args: QueryCli) -> Result<Network> {
+    if let Some(eth_rpc_url) = args.eth_rpc_url {
+        return Ok(Network::Local(eth_rpc_url.trim().to_string()));
+    }
+
     // Prompt the user for the network
     println!("Please select the network:");
     println!("1. Sepolia");
@@ -135,52 +139,64 @@ fn prompt_for_network() -> Result<Network> {
     }
 }
 
-fn prompt_for_height_and_hash() -> (u64, String) {
-    print!("Enter the block height (number): ");
-    io::stdout().flush().unwrap();
+fn prompt_for_height_and_hash(args: QueryCli) -> (u64, String) {
+    let height: u64 = args.block_height.unwrap_or_else(|| {
+        print!("Enter the block height (number): ");
+        io::stdout().flush().unwrap();
 
-    let mut height_input = String::new();
-    io::stdin()
-        .read_line(&mut height_input)
-        .expect("Failed to read input");
-    let height: u64 = height_input
-        .trim()
-        .parse()
-        .expect("Please enter a valid number");
+        let mut height_input = String::new();
+        io::stdin()
+            .read_line(&mut height_input)
+            .expect("Failed to read input");
+        height_input
+            .trim()
+            .parse()
+            .expect("Please enter a valid number")
+    });
 
-    // Prompt the user for the transaction hash
-    print!("Enter the transaction hash: ");
-    io::stdout().flush().unwrap();
+    let tx_hash = args.txn_hash.unwrap_or_else(|| {
+        // Prompt the user for the transaction hash
+        print!("Enter the transaction hash: ");
+        io::stdout().flush().unwrap();
 
-    let mut tx_hash = String::new();
-    io::stdin()
-        .read_line(&mut tx_hash)
-        .expect("Failed to read input");
+        let mut tx_hash = String::new();
+        io::stdin()
+            .read_line(&mut tx_hash)
+            .expect("Failed to read input");
+        tx_hash
+    });
+
     (height, tx_hash)
 }
 
-fn prompt_for_data_selection() -> (SelectedData, Vec<(u64, u64)>) {
-    println!("Which data do you want represented in your proof results?");
-    println!("1. All data");
-    println!("2. Range of data");
-    println!("3. ERC20 transfer data");
-    println!("4. Native token transfer data");
-    print!("Enter your choice (1, 2, 3, or 4): ");
-    io::stdout().flush().unwrap();
+fn prompt_for_data_selection(args: QueryCli) -> (SelectedData, Vec<(u64, u64)>) {
+    let data_choice: u64 = args.data_choice.unwrap_or_else(|| {
+        println!("Which data do you want represented in your proof results?");
+        println!("1. All data");
+        println!("2. Range of data");
+        println!("3. ERC20 transfer data");
+        println!("4. Native token transfer data");
+        print!("Enter your choice (1, 2, 3, or 4): ");
+        io::stdout().flush().unwrap();
 
-    let mut data_choice = String::new();
-    io::stdin()
-        .read_line(&mut data_choice)
-        .expect("Failed to read input");
+        let mut data_choice = String::new();
+        io::stdin()
+            .read_line(&mut data_choice)
+            .expect("Failed to read input");
+        data_choice
+            .trim()
+            .parse()
+            .expect("Please enter a valid number")
+    });
 
     let mut selected_data = SelectedData::RangeOfData;
     let mut offsets_and_sizes: Vec<(u64, u64)> = Vec::new();
 
-    match data_choice.trim() {
-        "1" => {
+    match data_choice {
+        1 => {
             selected_data = SelectedData::All;
         }
-        "2" => loop {
+        2 => loop {
             print!("Enter the offset: ");
             io::stdout().flush().unwrap();
 
@@ -219,10 +235,10 @@ fn prompt_for_data_selection() -> (SelectedData, Vec<(u64, u64)>) {
                 break;
             }
         },
-        "3" => {
+        3 => {
             selected_data = SelectedData::Erc20TransferData;
         }
-        "4" => {
+        4 => {
             selected_data = SelectedData::NativeTokenTransferData;
         }
         _ => {
