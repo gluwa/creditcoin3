@@ -150,7 +150,7 @@ fn prompt_for_height_and_hash(args: QueryCli) -> (u64, String) {
             .expect("Failed to read input");
         height_input
             .trim()
-            .parse()
+            .parse::<u64>()
             .expect("Please enter a valid number")
     });
 
@@ -185,7 +185,7 @@ fn prompt_for_data_selection(args: QueryCli) -> (SelectedData, Vec<(u64, u64)>) 
             .expect("Failed to read input");
         data_choice
             .trim()
-            .parse()
+            .parse::<u64>()
             .expect("Please enter a valid number")
     });
 

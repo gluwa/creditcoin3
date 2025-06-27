@@ -3155,6 +3155,28 @@ jobs:
         run: |
           .github/check-grapqhl-schema-types.sh
 
+      - name: Download query-cli binary
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: query-cli-for-testing-ci
+          path: target/release
+
+      - name: Run query-cli e2e
+        if: always()
+        run: |
+          PROVER_SOL_ADDR=$(grep "Gluwa Public Prover contract deploy at" /var/tmp/cc3-indexer-testing/prover-1.log | rev | cut -f1 -d' ' | rev)
+
+          chmod a+x ./target/release/query-cli
+          ./target/release/query-cli \
+            --cc3-rpc-url ws://127.0.0.1:9944 \
+            --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+            --prover-contract-address "$PROVER_SOL_ADDR" \
+            --eth-rpc-url http://127.0.0.1:8141 \
+            --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
+            --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
+            --data-choice 4
+
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
