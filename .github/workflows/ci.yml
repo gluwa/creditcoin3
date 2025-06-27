@@ -2950,6 +2950,26 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8343'
 
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Simulate a native token transfer on Anvil 1
+        id: native-transfer-anvil-1
+        working-directory: attestor/scripts
+        run: |
+          npm install
+
+          OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js)
+          echo "$OUTPUT"
+
+          BLOCK_NUMBER=$(echo "$OUTPUT" | grep block: | cut -f2 -d: | tr -d ' ')
+          TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
+
+          echo "block_number=$BLOCK_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
+
       - name: Start Attestation Zombienet for Alice - Anvil 1
         run: |
           chmod a+x ./target/release/attestor*
@@ -2976,11 +2996,6 @@ jobs:
                 --cc3-key "//Bob" --supported-chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-bob/ &
-
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install Solidity compiler
         run: |
