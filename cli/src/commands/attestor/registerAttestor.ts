@@ -2,24 +2,19 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
-import { proxyForOption } from '../options';
+import { proxyForOption, attestorAddressOption, chainKeyOption } from '../options';
 
 export function makeRegisterAttestorCommand() {
     const cmd = new Command('register');
     cmd.description('Register an attestor and bond funds from a stash account');
     cmd.addOption(proxyForOption);
-    cmd.option('-a, --attestor <attestor>', 'Specify the attestor account to register');
-    cmd.option('-c, --chain <chain>', 'Specify chain key to register attestor for');
+    cmd.addOption(attestorAddressOption.makeOptionMandatory());
+    cmd.addOption(chainKeyOption.makeOptionMandatory());
     cmd.action(registerAttestorAction);
     return cmd;
 }
 
 async function registerAttestorAction(options: OptionValues) {
-    if (!options.attestor || !options.chain) {
-        console.error('Both --attestor and --chain are required.');
-        process.exit(1);
-    }
-
     const { api } = await newApi(options.url as string);
 
     const chainKey = options.chain as string;

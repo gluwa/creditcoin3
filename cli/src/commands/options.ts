@@ -113,3 +113,13 @@ export const proxyForOption = new Option(
     '--proxy-for [substrate-address]',
     'Use proxy account for this call. Needs to specify the proxied Substrate address',
 ).argParser(parseSubstrateAddress);
+
+export const attestorAddressOption = new Option(
+    '-a, --attestor [attestor]',
+    'Specify the attestor account to register',
+).argParser(parseSubstrateAddress);
+
+export const chainKeyOption = new Option(
+    '-c, --chain [chain]', 
+    'Specify chain key to register attestor for',
+).argParser(parseZeroOrPositiveIntegerOrExit);
