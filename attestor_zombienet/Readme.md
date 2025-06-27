@@ -22,6 +22,7 @@ single_node: false
 - `single_node`: If set to true, it will connect to the default node port (9944) and all attestors will point to that one.
 
 ## Running
+
 Single node mode:
 ```bash
 cd ..
@@ -61,4 +62,15 @@ default_args:
 num_attestors: 5
 single_node: true
 chain_key: 4
+```
+
+## Automatic key generation, funding and registration
+
+If you wish to run this program to create, fund and register attestors automatically, you need to set the `run` field in the config file to `false`. The program will output the address and keys in a list before it exits.
+This feature is particularly useful for setting up a large number of attestors quickly.
+
+```toml
+...
+run: false
+...
 ```

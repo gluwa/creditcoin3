@@ -154,7 +154,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cc_client = cc_client.clone();
             let attestor = AccountId32(key.keypair.public_key().0);
 
-            info!("Transferring 10 dev CTC to {}", attestor);
+            info!(
+                "Transferring 10 dev CTC to {}, key: {}",
+                attestor, key.secret
+            );
             let handle = tokio::spawn(async move {
                 cc_client
                     .transfer(
@@ -274,7 +277,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     } else {
-        info!("Not running");
+        // Log attestor keys and addresses in a human-readable format
+        println!("Attestor keys and addresses:");
+        for attestor_key in keys {
+            let attestor = AccountId32(attestor_key.keypair.public_key().0);
+            println!("Attestor: {}\nKey: {}\n", attestor, attestor_key.secret);
+        }
+
         Ok(())
     }
 }
