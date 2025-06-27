@@ -116,9 +116,9 @@ export const proxyForOption = new Option(
 
 export const attestorAddressOption = new Option(
     '-a, --attestor [attestor]',
-    'Specify the attestor account to register',
+    'Specify the attestor account',
 ).argParser(parseSubstrateAddress);
 
-export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key to register attestor for').argParser(
+export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key').argParser(
     parseZeroOrPositiveIntegerOrExit,
 );
