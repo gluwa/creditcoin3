@@ -48,7 +48,7 @@ async function sendSingleTransfer() {
   const receipt = await tx.wait();
 
   // Log the block number and transaction hash
-  console.log(`Transaction mined in block ${receipt.blockNumber}`);
+  console.log(`Transaction mined in block: ${receipt.blockNumber}`);
   console.log(`Transaction hash: ${receipt.hash}`);
 }
 
