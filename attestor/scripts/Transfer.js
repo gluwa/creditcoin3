@@ -1,7 +1,7 @@
 const ethers = require("ethers");
 
 // Define default and devnet provider URLs
-const DEFAULT_PROVIDER_URL = "http://127.0.0.1:8545";
+const DEFAULT_PROVIDER_URL = process.env.ETH_RPC_URL || "http://127.0.0.1:8545";
 const DEVNET_PROVIDER_URL = "https://anvil.ccnext-devnet.creditcoin.network";
 
 function getRandomEthAddress() {
