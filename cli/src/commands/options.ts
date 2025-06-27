@@ -119,7 +119,6 @@ export const attestorAddressOption = new Option(
     'Specify the attestor account to register',
 ).argParser(parseSubstrateAddress);
 
-export const chainKeyOption = new Option(
-    '-c, --chain [chain]', 
-    'Specify chain key to register attestor for',
-).argParser(parseZeroOrPositiveIntegerOrExit);
+export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key to register attestor for').argParser(
+    parseZeroOrPositiveIntegerOrExit,
+);
