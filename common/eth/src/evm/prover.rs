@@ -272,7 +272,10 @@ impl GluwaPublicProverContract {
                     .resultSegments
                     .into_iter()
                     .map(|r| ResultSegment {
-                        offset: u64::from_be_bytes(r.offset.to_be_bytes()),
+                        offset: r
+                            .offset
+                            .try_into()
+                            .expect("Offset too large to fit into u64"),
                         bytes: H256::from_slice(r.abiBytes.to_vec().as_slice()),
                     })
                     .collect());
