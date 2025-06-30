@@ -101,19 +101,23 @@ pub async fn insert_many(
     connection: &mut AsyncPgConnection,
     checkpoints: &[AttestationCheckpoint],
 ) -> Result<(), Error> {
-    diesel::insert_into(attestation_checkpoint_table)
-        .values(checkpoints)
-        .on_conflict_do_nothing()
-        .execute(connection)
-        .await
-        .map_err(|e| {
-            if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
-                // Only conflicts on (chain_key, block_number) are left unhandled
-                Error::DuplicateChainKeyAndBlockNumber
-            } else {
-                Error::Other(e)
-            }
-        })?;
+    const CHECKPOINT_INSERT_CHUNK_SIZE: usize = 2_000;
+
+    for chunk in checkpoints.chunks(CHECKPOINT_INSERT_CHUNK_SIZE) {
+        diesel::insert_into(attestation_checkpoint_table)
+            .values(chunk)
+            .on_conflict_do_nothing()
+            .execute(connection)
+            .await
+            .map_err(|e| {
+                if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
+                    // Only conflicts on (chain_key, block_number) are left unhandled
+                    Error::DuplicateChainKeyAndBlockNumber
+                } else {
+                    Error::Other(e)
+                }
+            })?;
+    }
 
     Ok(())
 }
