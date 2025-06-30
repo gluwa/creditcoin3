@@ -120,5 +120,5 @@ export const attestorAddressOption = new Option(
 ).argParser(parseSubstrateAddress);
 
 export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key').argParser(
-    parseZeroOrPositiveIntegerOrExit,
+    positiveBigNumberFromString,
 );
