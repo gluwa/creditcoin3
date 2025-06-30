@@ -16,6 +16,11 @@ DROP INDEX IF EXISTS attestation_checkpoint_idx_block_number;
 DROP INDEX IF EXISTS attestation_checkpoint_idx_digest;
 DROP INDEX IF EXISTS attestation_checkpoint_idx_chain_and_height;
 
+-- Drop QueryFragmentType indices
+DROP INDEX IF EXISTS query_fragment_type_idx_height;
+DROP INDEX IF EXISTS query_fragment_type_idx_chain_key;
+DROP INDEX IF EXISTS query_fragment_type_idx_query_id;
+
 -- Drop the table for BlockWithDigest
 DROP TABLE IF EXISTS BlockWithDigest;
 
@@ -27,3 +32,6 @@ DROP TABLE IF EXISTS AttestationCheckpoint;
 
 -- Drop the table for CachedUpTo
 DROP TABLE IF EXISTS CachedUpTo;
+
+-- Drop the QueryFragmentType table
+DROP TABLE IF EXISTS QueryFragmentType;

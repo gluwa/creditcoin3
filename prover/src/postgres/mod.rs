@@ -3,6 +3,7 @@ pub mod attestationcheckpoint;
 pub mod blockwithdigest;
 pub mod cachedupto;
 pub mod db;
+pub mod queryfragmenttype;
 pub mod schema;
 
 #[must_use]

@@ -11,7 +11,7 @@ use tracing::{error, info, warn};
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
-use crate::postgres::from_storage_type;
+use crate::postgres::queryfragmenttype::NewQueryFragmentType;
 use crate::query::Error::AttestationCacheError;
 use crate::{attestation::fragment, AttestationCacheType};
 
@@ -106,6 +106,10 @@ pub async fn process(
             e
         })?;
 
+    // Check if we need to force stone proving based on fragment type changes
+    let maybe_force_stone_proving =
+        check_and_update_fragment_type(query, query_id, attestation_cache).await?;
+
     info!("Generating proof for query with id: {:?}", query_id);
     // Generate proof
     let query_prover =
@@ -124,15 +128,16 @@ pub async fn process(
         };
 
     if stone_proof {
-        let result = proof::cairo_generate_proof(query_prover, stone_proof, FORCE_STONE_PROVING)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to generate proof for query with id: {:?}, error: {:?}",
-                    query_id, e
-                );
-                Error::Proof
-            })?;
+        let result =
+            proof::cairo_generate_proof(query_prover, stone_proof, maybe_force_stone_proving)
+                .await
+                .map_err(|e| {
+                    error!(
+                        "Failed to generate proof for query with id: {:?}, error: {:?}",
+                        query_id, e
+                    );
+                    Error::Proof
+                })?;
 
         match result {
             either::Left((mut stone_proof, _stone_proof_dir)) => {
@@ -159,6 +164,71 @@ pub async fn process(
 
         Ok(Either::Right(stone_prover_input_files))
     }
+}
+
+// Checks if the fragment type for a query has changed and updates the database.
+// Returns whether stone proving should be forced based on fragment type changes.
+async fn check_and_update_fragment_type(
+    query: &Query,
+    query_id: QueryId,
+    attestation_cache: &AttestationCacheType,
+) -> Result<bool, Error> {
+    // Check the current fragment type for this query
+    let current_fragment_type = fragment::get_fragment_type_for_query(query, attestation_cache)
+        .await
+        .map_err(|_e| AttestationCacheError)?;
+
+    let query_id_str = format!("{query_id:x}");
+
+    // Check if we have previously processed this query and if the fragment type has changed
+    let force_due_to_fragment_change = if let Some(stored_fragment_type) = attestation_cache
+        .get_query_fragment_type_by_id(query_id_str.clone())
+        .await
+        .map_err(|_e| AttestationCacheError)?
+    {
+        let stored_type = stored_fragment_type
+            .fragment_type
+            .parse::<fragment::FragmentType>()
+            .map_err(|_e| AttestationCacheError)?;
+
+        if stored_type == current_fragment_type {
+            info!(
+                "Fragment type unchanged for query {:?}: {}",
+                query_id, current_fragment_type
+            );
+            false
+        } else {
+            info!(
+                "Fragment type changed for query {:?}: {} -> {}, forcing stone proving",
+                query_id, stored_type, current_fragment_type
+            );
+            true
+        }
+    } else {
+        info!(
+            "First time processing query {:?} with fragment type: {}",
+            query_id, current_fragment_type
+        );
+        true
+    };
+
+    // Store/update the current fragment type for this query
+    let new_query_fragment_type = NewQueryFragmentType::new(
+        query_id_str,
+        query.chain_id,
+        query.height,
+        current_fragment_type.to_string(),
+    );
+
+    attestation_cache
+        .upsert_query_fragment_type(new_query_fragment_type)
+        .await
+        .map_err(|e| {
+            error!("Database error during query fragment type upsert: {:?}", e);
+            AttestationCacheError
+        })?;
+
+    Ok(force_due_to_fragment_change)
 }
 
 fn get_serializable(query: &Query) -> ClaimSerializable {

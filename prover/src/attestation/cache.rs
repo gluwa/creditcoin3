@@ -19,6 +19,7 @@ use crate::{
         cachedupto::{currently_cached_up_to, mark_cached_up_to, CachedUpTo},
         db::PgPool,
         from_storage_type,
+        queryfragmenttype::{self, NewQueryFragmentType, QueryFragmentType},
     },
     AttestationCacheType, CcClientArc,
 };
@@ -267,6 +268,33 @@ where
         chain_key: ChainKey,
     ) -> Result<Option<DbCheckpoint>> {
         attestationcheckpoint::get_highest_checkpoint(connection, chain_key).await
+    }
+
+    pub async fn get_query_fragment_type_by_id(
+        &self,
+        query_id: String,
+    ) -> Result<Option<QueryFragmentType>> {
+        let mut connection = self.pool.get().await?;
+        queryfragmenttype::get_by_query_id(&mut connection, query_id)
+            .await
+            .map_err(|e| anyhow!("Failed to get query fragment type: {:?}", e))
+    }
+
+    pub async fn upsert_query_fragment_type(
+        &self,
+        new_query_fragment_type: NewQueryFragmentType,
+    ) -> Result<()> {
+        let mut connection = self.pool.get().await?;
+        queryfragmenttype::upsert(&mut connection, new_query_fragment_type)
+            .await
+            .map_err(|e| anyhow!("Failed to upsert query fragment type: {:?}", e))
+    }
+
+    pub async fn query_fragment_type_exists_by_id(&self, query_id: String) -> Result<bool> {
+        let mut connection = self.pool.get().await?;
+        queryfragmenttype::exists_by_query_id(&mut connection, query_id)
+            .await
+            .map_err(|e| anyhow!("Failed to check if query fragment type exists: {:?}", e))
     }
 }
 

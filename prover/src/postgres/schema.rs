@@ -49,9 +49,24 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    queryfragmenttype (id) {
+        id -> Int4,
+        #[max_length = 64]
+        query_id -> Varchar,
+        chain_key -> Int8,
+        height -> Int8,
+        #[max_length = 32]
+        fragment_type -> Varchar,
+        created_at -> Nullable<Timestamp>,
+        updated_at -> Nullable<Timestamp>,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     attestation,
     attestationcheckpoint,
     blockwithdigest,
     cachedupto,
+    queryfragmenttype,
 );

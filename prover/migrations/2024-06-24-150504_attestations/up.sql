@@ -50,3 +50,19 @@ CREATE TABLE CachedUpTo (
    chain_key BIGINT PRIMARY KEY,
    digest VARCHAR(64) NOT NULL UNIQUE
 );
+
+-- Create table for tracking query fragment types
+CREATE TABLE QueryFragmentType (
+    id SERIAL PRIMARY KEY,
+    query_id VARCHAR(64) NOT NULL UNIQUE,
+    chain_key BIGINT NOT NULL,
+    height BIGINT NOT NULL,
+    fragment_type VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indices for fragment types
+CREATE INDEX query_fragment_type_idx_query_id ON QueryFragmentType (query_id);
+CREATE INDEX query_fragment_type_idx_chain_key ON QueryFragmentType (chain_key);
+CREATE INDEX query_fragment_type_idx_height ON QueryFragmentType (height);

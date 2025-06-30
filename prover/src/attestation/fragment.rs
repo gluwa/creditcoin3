@@ -16,12 +16,33 @@ use crate::postgres::blockwithdigest::BlockWithDigest;
 use crate::postgres::from_storage_type;
 use crate::{postgres, AttestationCacheType};
 
-#[derive(Debug)]
-enum FragmentType {
+#[derive(Debug, Clone, PartialEq)]
+pub enum FragmentType {
     /// All fragments ending in a checkpoint also start with a checkpoint
     CheckpointOnEachEnd,
     /// Most fragments ending in an attestation also start with an attestation
     AttestationOnEachEnd,
+}
+
+impl std::fmt::Display for FragmentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FragmentType::CheckpointOnEachEnd => write!(f, "CheckpointOnEachEnd"),
+            FragmentType::AttestationOnEachEnd => write!(f, "AttestationOnEachEnd"),
+        }
+    }
+}
+
+impl FromStr for FragmentType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "CheckpointOnEachEnd" => Ok(FragmentType::CheckpointOnEachEnd),
+            "AttestationOnEachEnd" => Ok(FragmentType::AttestationOnEachEnd),
+            _ => Err(format!("Invalid fragment type: {s}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +258,13 @@ async fn get_endpoints_for_claim(
         fragment_type
     );
     fetch_interval_ends(query, fragment_type, attestation_cache).await
+}
+
+pub async fn get_fragment_type_for_query(
+    query: &Query,
+    attestation_cache: &AttestationCacheType,
+) -> Result<FragmentType> {
+    fragment_type(query, attestation_cache).await
 }
 
 async fn fragment_type(
