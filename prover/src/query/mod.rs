@@ -23,9 +23,6 @@ pub type Proof = Vec<u8>;
 /// Query id
 pub type QueryId = H256;
 
-/// Do not force stone proving, instead reuse the stone proof if it exists
-const FORCE_STONE_PROVING: bool = false;
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Failed to get proof")]
