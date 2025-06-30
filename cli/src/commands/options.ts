@@ -114,10 +114,9 @@ export const proxyForOption = new Option(
     'Use proxy account for this call. Needs to specify the proxied Substrate address',
 ).argParser(parseSubstrateAddress);
 
-export const attestorAddressOption = new Option(
-    '-a, --attestor [attestor]',
-    'Specify the attestor account',
-).argParser(parseSubstrateAddress);
+export const attestorAddressOption = new Option('-a, --attestor [attestor]', 'Specify the attestor account').argParser(
+    parseSubstrateAddress,
+);
 
 export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key').argParser(
     positiveBigNumberFromString,

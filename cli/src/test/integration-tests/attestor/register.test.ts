@@ -46,6 +46,24 @@ describe('register', () => {
         await api.disconnect();
     });
 
+    it('should error when required option --attestor is not specified', () => {
+        try {
+            CLI('attestor register');
+        } catch (error: any) {
+            expect(error.exitCode).toEqual(1);
+            expect(error.stderr).toContain("-a, --attestor [attestor]' not specified");
+        }
+    }, 30_000);
+
+    it('should error when required option --chain is not specified', () => {
+        try {
+            CLI(`attestor register --attestor ${attestor.address}`);
+        } catch (error: any) {
+            expect(error.exitCode).toEqual(1);
+            expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
+        }
+    }, 30_000);
+
     testIf(
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
