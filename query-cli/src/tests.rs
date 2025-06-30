@@ -8,6 +8,7 @@ use ccnext_query_builder::{
 };
 
 #[tokio::test]
+// Ignoring this test in CI because it depends on Blockscout stability, which is flaky
 #[ignore]
 async fn test_blockscout_sepolia_abi_retrieval() {
     // GCRE contract address
@@ -24,6 +25,7 @@ async fn test_blockscout_sepolia_abi_retrieval() {
 }
 
 #[tokio::test]
+// Ignoring this test in CI because it depends on Blockscout stability, which is flaky
 #[ignore]
 async fn test_blockscout_eth_abi_retrieval() {
     // Uniswap V2 pair contract
