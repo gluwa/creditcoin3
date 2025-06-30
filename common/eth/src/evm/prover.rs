@@ -268,17 +268,26 @@ impl GluwaPublicProverContract {
             let (proof_verified, _log) = proof?;
 
             if proof_verified.queryId == query_id {
-                return Ok(proof_verified
+                let segments = proof_verified
                     .resultSegments
                     .into_iter()
-                    .map(|r| ResultSegment {
-                        offset: r
+                    .map(|r| {
+                        let offset = r
                             .offset
                             .try_into()
-                            .expect("Offset too large to fit into u64"),
-                        bytes: H256::from_slice(r.abiBytes.to_vec().as_slice()),
+                            .map_err(|_| anyhow::anyhow!("Offset too large to fit into u64"))?;
+
+                        let abi_bytes_vec = r.abiBytes.to_vec();
+                        if abi_bytes_vec.len() != 32 {
+                            return Err(anyhow::anyhow!("abiBytes must be exactly 32 bytes"));
+                        }
+
+                        let bytes = H256::from_slice(&abi_bytes_vec);
+                        Ok(ResultSegment { offset, bytes })
                     })
-                    .collect());
+                    .collect::<Result<Vec<_>>>()?;
+
+                return Ok(segments);
             }
         }
 
