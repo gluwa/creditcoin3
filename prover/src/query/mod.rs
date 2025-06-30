@@ -35,8 +35,8 @@ pub enum Error {
     FragmentError(#[from] fragment::Error),
     #[error("Json error: {0:?}")]
     Json(#[from] serde_json::Error),
-    #[error("Attestation cache error")]
-    AttestationCacheError,
+    #[error("Attestation cache error: {0:?}")]
+    AttestationCacheError(String),
 }
 
 // Process a query
@@ -173,7 +173,9 @@ async fn check_and_update_fragment_type(
     // Check the current fragment type for this query
     let current_fragment_type = fragment::get_fragment_type_for_query(query, attestation_cache)
         .await
-        .map_err(|_e| AttestationCacheError)?;
+        .map_err(|e| {
+            AttestationCacheError(format!("Error getting fragment type for query {e:?}"))
+        })?;
 
     let query_id_str = format!("{query_id:x}");
 
@@ -181,12 +183,13 @@ async fn check_and_update_fragment_type(
     let force_due_to_fragment_change = if let Some(stored_fragment_type) = attestation_cache
         .get_query_fragment_type_by_id(query_id_str.clone())
         .await
-        .map_err(|e| AttestationCacheError::new(format!("Error fetching query fragment type by ID: {:?}", e)))?
-    {
+        .map_err(|e| {
+            AttestationCacheError(format!("Error fetching query fragment type by ID: {e:?}"))
+        })? {
         let stored_type = stored_fragment_type
             .fragment_type
             .parse::<fragment::FragmentType>()
-            .map_err(|e| AttestationCacheError::new(format!("Error parsing fragment type: {:?}", e)))?;
+            .map_err(|e| AttestationCacheError(format!("Error parsing fragment type: {e:?}")))?;
 
         if stored_type == current_fragment_type {
             info!(
@@ -222,7 +225,7 @@ async fn check_and_update_fragment_type(
         .await
         .map_err(|e| {
             error!("Database error during query fragment type upsert: {:?}", e);
-            AttestationCacheError
+            AttestationCacheError(format!("Error upserting query fragment type: {e:?}"))
         })?;
 
     Ok(force_due_to_fragment_change)
