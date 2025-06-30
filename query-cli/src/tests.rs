@@ -8,6 +8,7 @@ use ccnext_query_builder::{
 };
 
 #[tokio::test]
+#[ignore]
 async fn test_blockscout_sepolia_abi_retrieval() {
     // GCRE contract address
     let address = String::from("0x47C30768E4c153B40d55b90F58472bb2291971e6");
@@ -23,6 +24,7 @@ async fn test_blockscout_sepolia_abi_retrieval() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_blockscout_eth_abi_retrieval() {
     // Uniswap V2 pair contract
     let address = String::from("0x8aAf4585FA29276cBb5ab17216473d064784b527");
