@@ -181,12 +181,12 @@ async fn check_and_update_fragment_type(
     let force_due_to_fragment_change = if let Some(stored_fragment_type) = attestation_cache
         .get_query_fragment_type_by_id(query_id_str.clone())
         .await
-        .map_err(|_e| AttestationCacheError)?
+        .map_err(|e| AttestationCacheError::new(format!("Error fetching query fragment type by ID: {:?}", e)))?
     {
         let stored_type = stored_fragment_type
             .fragment_type
             .parse::<fragment::FragmentType>()
-            .map_err(|_e| AttestationCacheError)?;
+            .map_err(|e| AttestationCacheError::new(format!("Error parsing fragment type: {:?}", e)))?;
 
         if stored_type == current_fragment_type {
             info!(
