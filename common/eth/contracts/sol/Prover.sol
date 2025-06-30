@@ -93,8 +93,8 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
             revert("Cannot resubmit an invalid query");
         }
 
-        // Prevent resubmission if result already available
-        if (queries[queryId].state == QueryState.ResultAvailable) {
+        // Prevent resubmission if result already available and if query has not timed out
+        if (queries[queryId].state == QueryState.ResultAvailable && !isQueryTimedOut(queryId)) {
             revert("Query proof already generated");
         }
 
@@ -110,6 +110,8 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         queries[queryId].query.chainId = query.chainId;
         queries[queryId].query.height = query.height;
         queries[queryId].query.index = query.index;
+        delete queries[queryId].query.layoutSegments; // clear existing storage array
+
         for (uint256 i = 0; i < query.layoutSegments.length; i++) {
             queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
         }
