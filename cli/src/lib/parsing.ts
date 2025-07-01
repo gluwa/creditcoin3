@@ -67,7 +67,7 @@ export function parseZeroOrPositiveIntegerInternal(input: any): number {
     return result;
 }
 
-export function parseNonZeroPositiveIntegerInternal(input: any): number {
+export function parsePositiveIntegerInternal(input: any): number {
     const result = parseIntegerInternal(input);
 
     if (result < 0) {
