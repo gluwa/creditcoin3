@@ -2,7 +2,7 @@
 export const parseHexStringOrExit = parseOrExit(parseHexStringInternal);
 export const parseIntegerOrExit = parseOrExit(parseIntegerInternal);
 export const parseZeroOrPositiveIntegerOrExit = parseOrExit(parseZeroOrPositiveIntegerInternal);
-export const parseNonZeroPositiveIntegerOrExit = parseOrExit(parseNonZeroPositiveIntegerInternal)
+export const parsePositiveIntegerOrExit = parseOrExit(parsePositiveIntegerInternal);
 export const parsePercentAsPerbillOrExit = parseOrExit(parsePercentAsPerbillInternal);
 export const parseChoiceOrExit = parseChoiceOrExitFn;
 
@@ -74,7 +74,7 @@ export function parsePositiveIntegerInternal(input: any): number {
         throw new Error('Must NOT be a negative number.');
     }
     if (result === 0) {
-        throw new Error(`Must NOT be zero`)
+        throw new Error('Must NOT be zero');
     }
 
     return result;

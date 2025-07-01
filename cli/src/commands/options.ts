@@ -2,7 +2,7 @@ import { InvalidArgumentError, Option } from 'commander';
 import { isAddress, parseUnits } from 'ethers';
 import { validateAddress } from '@polkadot/util-crypto/address';
 import { BN } from '..';
-import { parseZeroOrPositiveIntegerOrExit, parseNonZeroPositiveIntegerOrExit } from '../lib/parsing';
+import { parseZeroOrPositiveIntegerOrExit, parsePositiveIntegerOrExit } from '../lib/parsing';
 
 // Most used options are URL, NO INPUT, JSON, eCDSA, aDDRESS, AMOUNT, TO, EMV-ADDRESS
 // Create consts for each one using the Option class and export them to be used by other commands
@@ -119,5 +119,5 @@ export const attestorAddressOption = new Option('-a, --attestor [attestor]', 'Sp
 );
 
 export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key').argParser(
-    parseNonZeroPositiveIntegerOrExit,
+    parsePositiveIntegerOrExit,
 );
