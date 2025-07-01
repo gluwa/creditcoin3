@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../../utils';
+import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -53,15 +53,21 @@ describe('distribute-rewards', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
-            try {
-                // Alice is always a validator
-                CLI(`distribute-rewards --era ${startingEra} --substrate-address ${sudoSigner.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    // Alice is always a validator
+                    CLI(`distribute-rewards --era ${startingEra} --substrate-address ${sudoSigner.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
     );
 
@@ -69,15 +75,21 @@ describe('distribute-rewards', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with proxy.NotProxy message',
         () => {
-            try {
-                // Alice is always a validator
-                CLI(`distribute-rewards --era ${startingEra} --substrate-address ${sudoSigner.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    // Alice is always a validator
+                    CLI(`distribute-rewards --era ${startingEra} --substrate-address ${sudoSigner.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
     );
 
@@ -105,15 +117,21 @@ describe('distribute-rewards', () => {
             // WARNING: ^^^ by default reward destination is Staked!
 
             // try again - should error
-            try {
-                // Alice is always a validator
-                CLI(`distribute-rewards --era ${startingEra} --substrate-address ${sudoSigner.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    'staking.AlreadyClaimed: Rewards for this era have already been claimed for this validator',
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    // Alice is always a validator
+                    CLI(`distribute-rewards --era ${startingEra} --substrate-address ${sudoSigner.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        'staking.AlreadyClaimed: Rewards for this era have already been claimed for this validator',
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         90_000,
     );
@@ -124,15 +142,21 @@ describe('distribute-rewards', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should fail when era not in history',
         () => {
-            try {
-                // Alice is always a validator
-                CLI(`distribute-rewards --era 999999 --substrate-address ${sudoSigner.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    'Failed to distribute rewards: Era 999999 is not included in history; only the past 84 eras are eligible',
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    // Alice is always a validator
+                    CLI(`distribute-rewards --era 999999 --substrate-address ${sudoSigner.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        'Failed to distribute rewards: Era 999999 is not included in history; only the past 84 eras are eligible',
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );
@@ -143,13 +167,19 @@ describe('distribute-rewards', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should fail when address is not a validator',
         () => {
-            try {
-                // `caller` is NOT a validator
-                CLI(`distribute-rewards --era ${startingEra} --substrate-address ${caller.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain('staking.NotStash: Not a stash account');
-            }
+            try_catch_else_finally(
+                () => {
+                    // `caller` is NOT a validator
+                    CLI(`distribute-rewards --era ${startingEra} --substrate-address ${caller.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain('staking.NotStash: Not a stash account');
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );

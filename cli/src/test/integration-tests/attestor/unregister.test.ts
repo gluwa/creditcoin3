@@ -6,7 +6,7 @@ import path = require('path');
 import { commandSync } from 'execa';
 import { execSync } from 'child_process';
 
-import { testIf } from '../../utils';
+import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -69,14 +69,20 @@ describe('unregister', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
-            try {
-                CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
     );
 
@@ -84,14 +90,20 @@ describe('unregister', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with proxy.NotProxy message',
         () => {
-            try {
-                CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
     );
 
@@ -119,13 +131,19 @@ describe('unregister', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            try {
-                // call again
-                CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(`Address ${attestor.address} is not an attestor`);
-            }
+            try_catch_else_finally(
+                () => {
+                    // call again
+                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(`Address ${attestor.address} is not an attestor`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         90_000,
     );
@@ -170,14 +188,20 @@ describe('unregister', () => {
             expect(activeAttestorsForAnvil1).toContain(attestor.address);
 
             // test
-            try {
-                CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    `Address ${attestor.address} status is Active. Please chill the attestor first`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        `Address ${attestor.address} status is Active. Please chill the attestor first`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         360_000,
     );

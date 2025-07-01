@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../../utils';
+import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -40,23 +40,37 @@ describe('set-keys', () => {
         });
 
         it('should error when NO key options are specified', () => {
-            try {
-                CLI('set-keys');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain('Must specify keys to set or generate new ones using the --rotate flag');
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('set-keys');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        'Must specify keys to set or generate new ones using the --rotate flag',
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         });
 
         it('should error when BOTH key options are specified', () => {
-            try {
-                CLI('set-keys --rotate --keys "test-me"');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    'Must either specify keys or rotate to generate new ones, can not do both',
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('set-keys --rotate --keys "test-me"');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        'Must either specify keys or rotate to generate new ones, can not do both',
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         });
     });
 
@@ -81,14 +95,20 @@ describe('set-keys', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
-                try {
-                    CLI('set-keys --rotate');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('set-keys --rotate');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 
@@ -96,14 +116,20 @@ describe('set-keys', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
-                try {
-                    CLI('set-keys --rotate');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('set-keys --rotate');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stdout).toContain(
+                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 

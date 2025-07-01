@@ -8,7 +8,7 @@ import { convertWsToHttp } from '../../../lib/evm/rpc';
 import { substrateAddressToEvmAddress } from '../../../lib/evm/address';
 import { getBalance } from '../../../lib/balance';
 import { parseAmount } from '../../../commands/options';
-import { describeIf } from '../../utils';
+import { describeIf, try_catch_else_finally } from '../../utils';
 
 describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'EVM Commands', () => {
     let api: ApiPromise;
@@ -47,12 +47,18 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
         it('should not be able to fund more than existing funds', () => {
             const evmAccount = randomEvmAccount();
 
-            try {
-                CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`has insufficient funds to send the transaction`);
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`evm fund --evm-address ${evmAccount.address} --amount 1000000`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(`has insufficient funds to send the transaction`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 100_000);
     });
 

@@ -7,7 +7,7 @@ import { commandSync } from 'execa';
 import { execSync } from 'child_process';
 import { Option, U128 } from '@polkadot/types-codec';
 
-import { testIf } from '../../utils';
+import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -121,14 +121,20 @@ describe('claim-rewards', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
-                try {
-                    CLI(`attestor claim-rewards`);
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI(`attestor claim-rewards`);
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 
@@ -136,14 +142,20 @@ describe('claim-rewards', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
-                try {
-                    CLI(`attestor claim-rewards`);
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI(`attestor claim-rewards`);
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stdout).toContain(
+                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 

@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../../utils';
+import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -51,12 +51,18 @@ describe('unbond', () => {
                 (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
             'should error with validator not bonded message',
             () => {
-                try {
-                    CLI('unbond --amount 100');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain('Cannot perform action, validator is not bonded');
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('unbond --amount 100');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain('Cannot perform action, validator is not bonded');
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
     });
@@ -73,14 +79,20 @@ describe('unbond', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
-                try {
-                    CLI('unbond --amount 123');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('unbond --amount 123');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
             60_000,
         );
@@ -89,14 +101,20 @@ describe('unbond', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
-                try {
-                    CLI('unbond --amount 123');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('unbond --amount 123');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stdout).toContain(
+                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 

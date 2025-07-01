@@ -7,7 +7,7 @@ import {
     randomTestAccount,
     CLIBuilder,
 } from '../helpers';
-import { describeIf } from '../../utils';
+import { describeIf, try_catch_else_finally } from '../../utils';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
 
 describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no', 'Proxy functionality', () => {
@@ -76,14 +76,20 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             const cli = CLIBuilder({ CC_SECRET: caller2.secret });
 
             // test
-            try {
-                cli(`proxy add --proxy ${proxy.address} --type Staking`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Caller ${caller2.address} has insufficient funds to send the transaction`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    cli(`proxy add --proxy ${proxy.address} --type Staking`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Caller ${caller2.address} has insufficient funds to send the transaction`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 60_000);
 
         it('should error when caller already has configured a proxy', () => {
@@ -94,12 +100,20 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             const proxy2 = randomTestAccount();
 
             // test
-            try {
-                CLI(`proxy add --proxy ${proxy2.address} --type Staking`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`ERROR: There is already an existing proxy set for ${caller.address}`);
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`proxy add --proxy ${proxy2.address} --type Staking`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `ERROR: There is already an existing proxy set for ${caller.address}`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 90_000);
 
         it('should error when trying to configure a proxy used by another delegate', async () => {
@@ -111,14 +125,20 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             expect(result.stdout).toContain('Transaction included at block');
 
             // test
-            try {
-                CLI(`proxy add --proxy ${proxy.address} --type Staking`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(2);
-                expect(error.stderr).toContain(
-                    `ERROR: The proxy ${proxy.address} is already in use with another validator`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`proxy add --proxy ${proxy.address} --type Staking`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(2);
+                    expect(error.stderr).toContain(
+                        `ERROR: The proxy ${proxy.address} is already in use with another validator`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 90_000);
     });
 
@@ -145,24 +165,35 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             await fundFromSudo(caller.address, new BN(0));
 
             // test
-            try {
-                CLI(`proxy remove --proxy ${proxy.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Caller ${caller.address} has insufficient funds to send the transaction`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`proxy remove --proxy ${proxy.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Caller ${caller.address} has insufficient funds to send the transaction`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 60_000);
 
         it('should error when no proxy defined', () => {
-            // test
-            try {
-                CLI(`proxy remove --proxy ${proxy.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`ERROR: No proxies have been set for ${caller.address}`);
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`proxy remove --proxy ${proxy.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(`ERROR: No proxies have been set for ${caller.address}`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 60_000);
 
         it('should error when removing a non-proxy address', () => {
@@ -172,12 +203,18 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
             const proxy2 = randomTestAccount();
 
             // test
-            try {
-                CLI(`proxy remove --proxy ${proxy2.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`ERROR: ${proxy2.address} is not a proxy for ${caller.address}`);
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI(`proxy remove --proxy ${proxy2.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(`ERROR: ${proxy2.address} is not a proxy for ${caller.address}`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         }, 60_000);
     });
 });

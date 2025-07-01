@@ -8,7 +8,7 @@ import {
     CLIBuilder,
     setMinBondConfig,
 } from '../helpers';
-import { testIf, sleep } from '../../utils';
+import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 
@@ -53,14 +53,20 @@ describe('wizard', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
-            try {
-                CLI('wizard --amount 900');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('wizard --amount 900');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );
@@ -69,12 +75,18 @@ describe('wizard', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with proxy.NotProxy message',
         () => {
-            try {
-                CLI('wizard --amount 900');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(`Proxy ${wrongProxy.address} is not valid for ${caller.address}`);
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('wizard --amount 900');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(`Proxy ${wrongProxy.address} is not valid for ${caller.address}`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
     );
 
@@ -108,14 +120,20 @@ describe('wizard', () => {
             // set staking config min bond amount
             await setMinBondConfig(api, minValidatorBond);
 
-            try {
-                CLI('wizard --amount 900');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('wizard --amount 900');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         120_000,
     );

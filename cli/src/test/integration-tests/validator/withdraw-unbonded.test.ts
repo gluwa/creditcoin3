@@ -1,4 +1,4 @@
-import { testIf, sleep } from '../../utils';
+import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -56,13 +56,21 @@ describe('withdraw-unbonded', () => {
             process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
             'should error with no unlocked funds message',
             () => {
-                try {
-                    // note that we're not even bonded
-                    nonProxiedCli('withdraw-unbonded');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain('Cannot perform action, there are no unlocked funds to withdraw');
-                }
+                try_catch_else_finally(
+                    () => {
+                        // note that we're not even bonded
+                        nonProxiedCli('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            'Cannot perform action, there are no unlocked funds to withdraw',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
     });
@@ -160,14 +168,20 @@ describe('withdraw-unbonded', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
-                try {
-                    CLI('withdraw-unbonded');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
             60_000,
         );
@@ -176,14 +190,20 @@ describe('withdraw-unbonded', () => {
             process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
-                try {
-                    CLI('withdraw-unbonded');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stdout).toContain(
+                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 
@@ -208,13 +228,21 @@ describe('withdraw-unbonded', () => {
                 const newBalance = await getBalance(callerFullUnbond.address, api);
                 expect(newBalance.locked.toString()).toBe(zero.toString());
 
-                // try to withdraw again - should fail
-                try {
-                    CLI('withdraw-unbonded');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain('Cannot perform action, there are no unlocked funds to withdraw');
-                }
+                try_catch_else_finally(
+                    () => {
+                        // try to withdraw again - should fail
+                        CLI('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            'Cannot perform action, there are no unlocked funds to withdraw',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
             90_000,
         );
@@ -241,13 +269,21 @@ describe('withdraw-unbonded', () => {
                 expect(newBalance.bonded.toString()).toBe(three77.toString());
                 expect(newBalance.locked.toString()).toBe(three77.toString());
 
-                // try to withdraw again - should fail
-                try {
-                    nonProxiedCliPartialUnbond('withdraw-unbonded');
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain('Cannot perform action, there are no unlocked funds to withdraw');
-                }
+                try_catch_else_finally(
+                    () => {
+                        // try to withdraw again - should fail
+                        nonProxiedCliPartialUnbond('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            'Cannot perform action, there are no unlocked funds to withdraw',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
             90_000,
         );

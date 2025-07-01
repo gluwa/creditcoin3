@@ -6,6 +6,7 @@ import path = require('path');
 import { execSync } from 'child_process';
 
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { try_catch_else_finally } from '../../utils';
 import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, waitEras, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
 
@@ -35,22 +36,34 @@ describe('show-list-attestors', () => {
     });
 
     it('should error when required option --substrate-address is not specified', () => {
-        try {
-            CLI('attestor show-list-attestors');
-        } catch (error: any) {
-            expect(error.exitCode).toEqual(1);
-            expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
-        }
+        try_catch_else_finally(
+            () => {
+                CLI('attestor show-list-attestors');
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
     }, 30_000);
 
     // enable after fixing CSUB-1664
     it.skip('should error when required option --chain is not specified', () => {
-        try {
-            CLI(`attestor show-list-attestors --substrate-address ${stash.address}`);
-        } catch (error: any) {
-            expect(error.exitCode).toEqual(1);
-            expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
-        }
+        try_catch_else_finally(
+            () => {
+                CLI(`attestor show-list-attestors --substrate-address ${stash.address}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
     }, 30_000);
 
     it('should display empty output when stash does not have attestors', () => {

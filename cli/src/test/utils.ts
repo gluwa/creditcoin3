@@ -15,6 +15,30 @@ export const describeIf = (condition: boolean, name: string, fn: any) =>
 export const testIf = (condition: boolean, name: string, fn: any, timeout = 30000) =>
     condition ? test(name, fn, timeout) : test.skip(name, fn, timeout);
 
+export const try_catch_else_finally = function (
+    protected_code: any,
+    handler_code: any,
+    else_code: any,
+    finally_code: any = undefined,
+) {
+    try {
+        let success = true;
+        try {
+            protected_code();
+        } catch (error: any) {
+            success = false;
+            handler_code(error);
+        }
+        if (success) {
+            else_code();
+        }
+    } finally {
+        if (finally_code) {
+            finally_code();
+        }
+    }
+};
+
 export const extractFee = async (
     resolve: any,
     reject: any,

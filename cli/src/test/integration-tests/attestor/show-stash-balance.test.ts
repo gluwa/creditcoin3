@@ -1,4 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { try_catch_else_finally } from '../../utils';
 import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 
@@ -26,22 +27,34 @@ describe('show-stash-balance', () => {
     });
 
     it('should error when required option is not specified', () => {
-        try {
-            CLI('attestor show-stash-balance');
-        } catch (error: any) {
-            expect(error.exitCode).toEqual(1);
-            expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
-        }
+        try_catch_else_finally(
+            () => {
+                CLI('attestor show-stash-balance');
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
     }, 30_000);
 
     it('should error when address is not an attestor', () => {
-        try {
-            // note: not registered yet and also not using caller.address, see below!
-            CLI(`attestor show-stash-balance --substrate-address ${attestor.address}`);
-        } catch (error: any) {
-            expect(error.exitCode).toEqual(1);
-            expect(error.stderr).toContain(`No ledger found for ${attestor.address}`);
-        }
+        try_catch_else_finally(
+            () => {
+                // note: not registered yet and also not using caller.address, see below!
+                CLI(`attestor show-stash-balance --substrate-address ${attestor.address}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain(`No ledger found for ${attestor.address}`);
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
     }, 30_000);
 
     it('should display balance when attestor is registered', async () => {

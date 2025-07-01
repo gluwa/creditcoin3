@@ -6,7 +6,7 @@ import path = require('path');
 import { commandSync } from 'execa';
 import { execSync } from 'child_process';
 
-import { testIf } from '../../utils';
+import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -112,14 +112,20 @@ describe('chill', () => {
             false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
-                try {
-                    CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 
@@ -127,14 +133,20 @@ describe('chill', () => {
             false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
-                try {
-                    CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-                } catch (error: any) {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                }
+                try_catch_else_finally(
+                    () => {
+                        CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stdout).toContain(
+                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
             },
         );
 
@@ -168,15 +180,21 @@ describe('chill', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when attestor not registered for chain',
         () => {
-            try {
-                // note: we're registering to Anvil 1 above
-                CLI(`attestor chill --chain ${chain_Anvil2_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    `There is not attestor ${attestor.address} for chain ${chain_Anvil2_Key}`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    // note: we're registering to Anvil 1 above
+                    CLI(`attestor chill --chain ${chain_Anvil2_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        `There is not attestor ${attestor.address} for chain ${chain_Anvil2_Key}`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         90_000,
     );
@@ -187,15 +205,21 @@ describe('chill', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when caller is not an attestor stash',
         () => {
-            try {
-                // note: using a different caller to trigger a mismatch
-                wrongCLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    `Attestor ${attestor.address} is not owned by the keyring account ${wrongProxy.address}`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    // note: using a different caller to trigger a mismatch
+                    wrongCLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        `Attestor ${attestor.address} is not owned by the keyring account ${wrongProxy.address}`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         90_000,
     );
@@ -206,13 +230,19 @@ describe('chill', () => {
             (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when attestor not active',
         () => {
-            try {
-                // note: not activated yet
-                CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(`Attestor ${attestor.address} is already chilled`);
-            }
+            try_catch_else_finally(
+                () => {
+                    // note: not activated yet
+                    CLI(`attestor chill --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(`Attestor ${attestor.address} is already chilled`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         90_000,
     );

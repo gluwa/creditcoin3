@@ -1,3 +1,4 @@
+import { try_catch_else_finally } from '../../utils';
 import { ALICE_NODE_URL, randomTestAccount, CLIBuilder } from '../helpers';
 import { newApi, ApiPromise } from '../../../lib';
 
@@ -22,12 +23,18 @@ describe('status', () => {
     });
 
     it('should error when required option is not specified', () => {
-        try {
-            CLI('status');
-        } catch (error: any) {
-            expect(error.exitCode).toEqual(1);
-            expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
-        }
+        try_catch_else_finally(
+            () => {
+                CLI('status');
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
     }, 30_000);
 
     it('should display validator & chain status when both are requested', () => {

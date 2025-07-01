@@ -1,4 +1,4 @@
-import { testIf } from '../../utils';
+import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
@@ -67,13 +67,19 @@ describe('Send command', () => {
                 process.env.PROXY_TYPE === 'All'),
         'should not be able to send more than existing funds',
         () => {
-            try {
-                // note: both caller & proxy have 1000 CTC
-                CLI('send --amount 1001 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`has insufficient funds to send the transaction`);
-            }
+            try_catch_else_finally(
+                () => {
+                    // note: both caller & proxy have 1000 CTC
+                    CLI('send --amount 1001 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(`has insufficient funds to send the transaction`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );
@@ -82,14 +88,20 @@ describe('Send command', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
-            try {
-                CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(
-                    `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stderr).toContain(
+                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );
@@ -98,12 +110,18 @@ describe('Send command', () => {
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with not-a-proxy message',
         () => {
-            try {
-                CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(`ERROR: ${wrongProxy.address} is not a proxy for ${caller.address}`);
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(`ERROR: ${wrongProxy.address} is not a proxy for ${caller.address}`);
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );
@@ -114,14 +132,20 @@ describe('Send command', () => {
             process.env.PROXY_TYPE !== 'All',
         'should error with no permission message',
         () => {
-            try {
-                CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
-            } catch (error: any) {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stdout).toContain(
-                    `ERROR: The proxy ${proxy.address} for address ${caller.address} does not have permission to call extrinsics from the balances pallet`,
-                );
-            }
+            try_catch_else_finally(
+                () => {
+                    CLI('send --amount 1 --substrate-address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+                },
+                (error: any) => {
+                    expect(error.exitCode).toEqual(1);
+                    expect(error.stdout).toContain(
+                        `ERROR: The proxy ${proxy.address} for address ${caller.address} does not have permission to call extrinsics from the balances pallet`,
+                    );
+                },
+                () => {
+                    throw new Error('cli was expected to fail but it did not');
+                },
+            );
         },
         60_000,
     );
