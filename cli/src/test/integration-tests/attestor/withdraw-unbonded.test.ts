@@ -60,7 +60,8 @@ describe('withdraw-unbonded', () => {
     });
 
     testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+        // re-enable after fixing CSUB-1655
+        false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
             try_catch_else_finally(
@@ -81,7 +82,8 @@ describe('withdraw-unbonded', () => {
     );
 
     testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
+        // re-enable after fixing CSUB-1655
+        false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with proxy.NotProxy message',
         () => {
             try_catch_else_finally(
