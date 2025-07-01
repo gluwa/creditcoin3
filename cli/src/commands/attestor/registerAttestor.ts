@@ -17,7 +17,7 @@ export function makeRegisterAttestorCommand() {
 async function registerAttestorAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
-    const chainKey = options.chain as string;
+    const chainKey = options.chain;
     const attestor = options.attestor as string;
 
     const keyring = await initKeyring(options);
