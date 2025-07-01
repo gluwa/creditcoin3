@@ -232,6 +232,7 @@ import type {
     ContractContractSpecV3,
     ContractContractSpecV4,
     ContractContractSpecV5,
+    ContractContractSpecV6,
     ContractCryptoHasher,
     ContractDiscriminant,
     ContractDisplayName,
@@ -268,11 +269,14 @@ import type {
     ContractMetadataV3,
     ContractMetadataV4,
     ContractMetadataV5,
+    ContractMetadataV6,
     ContractProject,
     ContractProjectContract,
     ContractProjectInfo,
     ContractProjectSource,
     ContractProjectV0,
+    ContractReviveProjectInfo,
+    ContractReviveProjectSource,
     ContractSelector,
     ContractStorageLayout,
     ContractTypeSpec,
@@ -1541,6 +1545,7 @@ declare module '@polkadot/types/types/registry' {
         ContractContractSpecV3: ContractContractSpecV3;
         ContractContractSpecV4: ContractContractSpecV4;
         ContractContractSpecV5: ContractContractSpecV5;
+        ContractContractSpecV6: ContractContractSpecV6;
         ContractCryptoHasher: ContractCryptoHasher;
         ContractDiscriminant: ContractDiscriminant;
         ContractDisplayName: ContractDisplayName;
@@ -1591,12 +1596,15 @@ declare module '@polkadot/types/types/registry' {
         ContractMetadataV3: ContractMetadataV3;
         ContractMetadataV4: ContractMetadataV4;
         ContractMetadataV5: ContractMetadataV5;
+        ContractMetadataV6: ContractMetadataV6;
         ContractProject: ContractProject;
         ContractProjectContract: ContractProjectContract;
         ContractProjectInfo: ContractProjectInfo;
         ContractProjectSource: ContractProjectSource;
         ContractProjectV0: ContractProjectV0;
         ContractReturnFlags: ContractReturnFlags;
+        ContractReviveProjectInfo: ContractReviveProjectInfo;
+        ContractReviveProjectSource: ContractReviveProjectSource;
         ContractSelector: ContractSelector;
         ContractStorageKey: ContractStorageKey;
         ContractStorageLayout: ContractStorageLayout;
