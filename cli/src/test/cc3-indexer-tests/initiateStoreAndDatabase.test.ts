@@ -89,8 +89,6 @@ describe('initiateStoreAndDatabase()', () => {
                 expect(node.id).toBeTruthy();
                 expect(BigInt(node.chainKey)).toBeGreaterThan(0n);
 
-                console.log(`*** DEBUG: inspecting chainKey=${node.chainKey}`);
-
                 // such source exists in on-chain storage
                 const sourceChain = (
                     (await api.query.supportedChains.supportedChains(

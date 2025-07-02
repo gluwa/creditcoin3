@@ -1,6 +1,5 @@
 import { WebSocketProvider, ethers } from 'ethers';
 import { newApi, ApiPromise } from '../../lib';
-import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 import { forElapsedBlocks } from '../utils';
@@ -20,9 +19,6 @@ describe('handleEventProverDeployed()', () => {
 
         // NOTE: chain starts with prover for Anvil 1 already running
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
-        const startingBlock = (await getChainStatus(api)).bestNumber;
-
-        console.log('**** DEBUG: starting=', startingBlock);
 
         // deploy a fake contract so we can assert there's a prover with its address
         balthathar = new ethers.Wallet((global as any).CREDITCOIN_EVM_PRIVATE_KEY('bob')).connect(provider);
