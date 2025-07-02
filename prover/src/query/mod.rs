@@ -6,13 +6,12 @@ use std::path::PathBuf;
 use thiserror::Error;
 use tokio_retry::strategy::{jitter, FibonacciBackoff};
 use tokio_retry::Retry;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use pallet_prover_primitives::Query;
 use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
 
 use crate::postgres::queryfragmenttype::NewQueryFragmentType;
-use crate::query::Error::AttestationCacheError;
 use crate::{attestation::fragment, AttestationCacheType};
 
 pub mod external;
@@ -36,7 +35,19 @@ pub enum Error {
     #[error("Json error: {0:?}")]
     Json(#[from] serde_json::Error),
     #[error("Attestation cache error: {0:?}")]
-    AttestationCacheError(String),
+    AttestationCacheError(#[from] FragmentTypeError),
+    #[error("Database error: {0:?}")]
+    DatabaseError(#[from] anyhow::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum FragmentTypeError {
+    #[error("Error getting fragment type for query: {0:?}")]
+    FragmentTypeQuery(#[from] fragment::Error),
+    #[error("Error fetching query fragment type by ID: {0:?}")]
+    DatabaseQuery(#[from] anyhow::Error),
+    #[error("Error parsing fragment type: {0}")]
+    FragmentTypeParse(String),
 }
 
 // Process a query
@@ -169,43 +180,38 @@ async fn check_and_update_fragment_type(
     query: &Query,
     query_id: QueryId,
     attestation_cache: &AttestationCacheType,
-) -> Result<bool, Error> {
+) -> Result<bool, FragmentTypeError> {
     // Check the current fragment type for this query
-    let current_fragment_type = fragment::get_fragment_type_for_query(query, attestation_cache)
-        .await
-        .map_err(|e| {
-            AttestationCacheError(format!("Error getting fragment type for query {e:?}"))
-        })?;
+    let current_fragment_type =
+        fragment::get_fragment_type_for_query(query, attestation_cache).await?;
 
     let query_id_str = format!("{query_id:x}");
 
     // Check if we have previously processed this query and if the fragment type has changed
     let force_due_to_fragment_change = if let Some(stored_fragment_type) = attestation_cache
         .get_query_fragment_type_by_id(query_id_str.clone())
-        .await
-        .map_err(|e| {
-            AttestationCacheError(format!("Error fetching query fragment type by ID: {e:?}"))
-        })? {
+        .await?
+    {
         let stored_type = stored_fragment_type
             .fragment_type
             .parse::<fragment::FragmentType>()
-            .map_err(|e| AttestationCacheError(format!("Error parsing fragment type: {e:?}")))?;
+            .map_err(FragmentTypeError::FragmentTypeParse)?;
 
         if stored_type == current_fragment_type {
-            info!(
+            debug!(
                 "Fragment type unchanged for query {:?}: {}",
                 query_id, current_fragment_type
             );
             false
         } else {
-            info!(
+            debug!(
                 "Fragment type changed for query {:?}: {} -> {}, forcing stone proving",
                 query_id, stored_type, current_fragment_type
             );
             true
         }
     } else {
-        info!(
+        debug!(
             "First time processing query {:?} with fragment type: {}",
             query_id, current_fragment_type
         );
@@ -222,11 +228,7 @@ async fn check_and_update_fragment_type(
 
     attestation_cache
         .upsert_query_fragment_type(new_query_fragment_type)
-        .await
-        .map_err(|e| {
-            error!("Database error during query fragment type upsert: {:?}", e);
-            AttestationCacheError(format!("Error upserting query fragment type: {e:?}"))
-        })?;
+        .await?;
 
     Ok(force_due_to_fragment_change)
 }
