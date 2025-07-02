@@ -70,8 +70,8 @@ export function parseZeroOrPositiveIntegerInternal(input: any): number {
 export function parsePositiveIntegerInternal(input: any): number {
     const result = parseIntegerInternal(input);
 
-    if (result < 0 || result === 0) {
-        throw new Error('Number must not be zero or negative');
+    if (result <= 0) {
+        throw new Error('Must be a positive number');
     }
 
     return result;
