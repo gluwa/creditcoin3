@@ -2,14 +2,14 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
-import { proxyForOption, attestorChillChainkeyOption, attestorChillAttestorOption } from '../options';
+import { proxyForOption, chainKeyOption, attestorAddressOption } from '../options';
 
 export function makeChillAttestorCommand() {
     const cmd = new Command('chill');
     cmd.description('Chill attestor');
     cmd.addOption(proxyForOption);
-    cmd.addOption(attestorChillChainkeyOption.makeOptionMandatory());
-    cmd.addOption(attestorChillAttestorOption.makeOptionMandatory());
+    cmd.addOption(chainKeyOption.makeOptionMandatory());
+    cmd.addOption(attestorAddressOption.makeOptionMandatory());
     cmd.action(chillAction);
     return cmd;
 }
