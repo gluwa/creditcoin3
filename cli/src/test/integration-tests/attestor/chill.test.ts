@@ -72,6 +72,36 @@ describe('chill', () => {
         await api.disconnect();
     });
 
+    it('should error when required option --chain is not specified', () => {
+        try_catch_else_finally(
+            () => {
+                CLI(`attestor chill`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 90_000);
+
+    it('should error when required option --attestor is not specified', () => {
+        try_catch_else_finally(
+            () => {
+                CLI(`attestor chill --chain ${chain_Anvil1_Key}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("-a, --attestor [attestor]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 90_000);
+
     describe('when attestor is active', () => {
         beforeEach(async () => {
             // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails
