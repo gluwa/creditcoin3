@@ -65,6 +65,36 @@ describe('unregister', () => {
         await api.disconnect();
     });
 
+    it('should error when required option --attestor is not specified', () => {
+        try_catch_else_finally(
+            () => {
+                CLI('attestor unregister');
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("-a, --attestor [attestor]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 30_000);
+
+    it('should error when required option --chain is not specified', () => {
+        try_catch_else_finally(
+            () => {
+                CLI(`attestor unregister --attestor ${attestor.address}`);
+            },
+            (error: any) => {
+                expect(error.exitCode).toEqual(1);
+                expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
+            },
+            () => {
+                throw new Error('cli was expected to fail but it did not');
+            },
+        );
+    }, 30_000);
+
     testIf(
         process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
