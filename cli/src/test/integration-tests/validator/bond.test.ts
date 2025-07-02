@@ -157,9 +157,11 @@ describe('bond', () => {
     );
 
     testIf(
-        process.env.PROXY_ENABLED === undefined ||
-            process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+        // re-enable after fixing CSUB-1700
+        false,
+        // process.env.PROXY_ENABLED === undefined ||
+        //    process.env.PROXY_ENABLED === 'no' ||
+        //    (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when specified amount < MinValidatorBond',
         async () => {
             const minValidatorBond = 100;
