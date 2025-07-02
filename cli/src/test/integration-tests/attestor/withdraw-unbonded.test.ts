@@ -60,8 +60,7 @@ describe('withdraw-unbonded', () => {
     });
 
     testIf(
-        // re-enable after fixing CSUB-1655
-        false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
         'should error with "Caller has insufficient funds" message',
         () => {
             try_catch_else_finally(
@@ -82,8 +81,7 @@ describe('withdraw-unbonded', () => {
     );
 
     testIf(
-        // re-enable after fixing CSUB-1655
-        false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
+        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
         'should error with proxy.NotProxy message',
         () => {
             try_catch_else_finally(
@@ -136,8 +134,7 @@ describe('withdraw-unbonded', () => {
     testIf(
         process.env.PROXY_ENABLED === undefined ||
             process.env.PROXY_ENABLED === 'no' ||
-            // reenable when CSUB-1655 is fixed
-            (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should succeed when funds have been unlocked',
         async () => {
             // wait for funds to be unlocked!

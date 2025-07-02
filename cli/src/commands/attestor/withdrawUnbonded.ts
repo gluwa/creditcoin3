@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring } from '../../lib/account/keyring';
+import { delegateAddress, initKeyring } from '../../lib/account/keyring';
 import { proxyForOption } from '../options';
 import { toCTCString } from '../../lib/balance';
 
@@ -19,10 +19,11 @@ async function withdrawUnbondedAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const keyring = await initKeyring(options);
+    const address = delegateAddress(keyring);
 
-    const ledger = await api.query.attestation.ledger(keyring.pair.address);
+    const ledger = await api.query.attestation.ledger(address);
     if (ledger.isNone) {
-        console.log(`No unbonded funds to withdraw for address ${keyring.pair.address}`);
+        console.log(`No unbonded funds to withdraw for address ${address}`);
         process.exit(0);
     }
     const ledgerValue = ledger.unwrap();

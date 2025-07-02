@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { requireKeyringHasSufficientFunds, signSendAndWatchCcKeyring } from '../../lib/tx';
-import { initKeyring } from '../../lib/account/keyring';
+import { delegateAddress, initKeyring } from '../../lib/account/keyring';
 import { proxyForOption, chainKeyOption, attestorAddressOption } from '../options';
 
 export function makeChillAttestorCommand() {
@@ -28,9 +28,10 @@ async function chillAction(options: OptionValues) {
         process.exit(1);
     }
     const attestorByChainValue = attestorByChain.unwrap();
+    const address = delegateAddress(keyring);
 
-    if (attestorByChainValue.stash.toString() !== keyring.pair.address) {
-        console.log(`Attestor ${attestor} is not owned by the keyring account ${keyring.pair.address}`);
+    if (attestorByChainValue.stash.toString() !== address) {
+        console.log(`Attestor ${attestor} is not owned by the keyring account ${address}`);
         process.exit(1);
     }
 

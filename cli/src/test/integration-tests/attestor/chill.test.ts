@@ -10,6 +10,7 @@ import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
+    randomTestAccount,
     setUpProxy,
     tearDownProxy,
     waitEras,
@@ -33,6 +34,7 @@ describe('chill', () => {
     let CLI: any;
     let nonProxiedCli: any;
     let wrongCLI: any;
+    let nonAttestor: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
@@ -52,6 +54,7 @@ describe('chill', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
 
         attestor = await randomFundedAccount(api, sudoSigner);
+        nonAttestor = randomTestAccount();
 
         // NOTE: caller/proxy is the STASH for a random attestor on the Anvil1 chain
         // use CLI b/c it differentiates b/w caller/proxy accounts while direct API calls don't
@@ -111,6 +114,7 @@ describe('chill', () => {
                 .toString()
                 .trim();
             expect(secretSeed.startsWith('0x')).toEqual(true);
+            console.log(`SECRET SEED: ${secretSeed}`);
 
             // warning: GitHub doesn't allow uploading files with colon in their name
             const timeStamp = new Date().toISOString().replaceAll(':', '-');
@@ -139,7 +143,7 @@ describe('chill', () => {
         }, 360_000);
 
         testIf(
-            false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
             'should error with "Caller has insufficient funds" message',
             () => {
                 try_catch_else_finally(
@@ -157,10 +161,11 @@ describe('chill', () => {
                     },
                 );
             },
+            20000000,
         );
 
         testIf(
-            false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
+            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
             'should error with proxy.NotProxy message',
             () => {
                 try_catch_else_finally(
@@ -183,7 +188,7 @@ describe('chill', () => {
         testIf(
             process.env.PROXY_ENABLED === undefined ||
                 process.env.PROXY_ENABLED === 'no' ||
-                (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+                (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
             'should chill',
             async () => {
                 // test
@@ -257,7 +262,7 @@ describe('chill', () => {
     testIf(
         process.env.PROXY_ENABLED === undefined ||
             process.env.PROXY_ENABLED === 'no' ||
-            (false && process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when attestor not active',
         () => {
             try_catch_else_finally(
