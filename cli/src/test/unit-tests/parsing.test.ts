@@ -3,6 +3,7 @@ import {
     parseBoolean,
     parseIntegerInternal,
     parseZeroOrPositiveIntegerInternal,
+    parsePositiveIntegerInternal,
     parseHexStringInternal,
     parsePercentAsPerbillInternal,
 } from '../../lib/parsing';
@@ -171,6 +172,44 @@ describe('parseZeroOrPositiveInteger', () => {
     test('with string argument throws an error', () => {
         const integer = 'abcdef';
         const parsedInvalid = () => parseZeroOrPositiveIntegerInternal(integer);
+        expect(parsedInvalid).toThrowError(Error);
+    });
+});
+
+describe('parsePositiveIntegerInternal', () => {
+    test('with valid argument, > 0, returns the same integer', () => {
+        const parsedInteger = parsePositiveIntegerInternal('1');
+        expect(parsedInteger).toBe(1);
+    });
+
+    test('with valid argument, > 0, explicit + sign, returns the same integer', () => {
+        const parsedInteger = parsePositiveIntegerInternal('+21');
+        expect(parsedInteger).toBe(21);
+    });
+
+    test('with invalid argument, 0, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('0');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with invalid argument, < 0, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('-1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal dot, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('0.1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal comma, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('0,1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with string argument throws an error', () => {
+        const integer = 'abcdef';
+        const parsedInvalid = () => parsePositiveIntegerInternal(integer);
         expect(parsedInvalid).toThrowError(Error);
     });
 });
