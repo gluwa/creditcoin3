@@ -48,8 +48,7 @@ describe('show-status', () => {
         );
     }, 30_000);
 
-    // enable after fixing CSUB-1660
-    it.skip('should error when required option --chain is not specified', () => {
+    it('should error when required option --chain is not specified', () => {
         try_catch_else_finally(
             () => {
                 CLI(`attestor show-status --substrate-address ${attestor.address}`);
