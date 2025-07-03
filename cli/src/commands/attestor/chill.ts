@@ -19,6 +19,7 @@ async function chillAction(options: OptionValues) {
 
     const chainKey = options.chain as string;
     const attestor = options.attestor as string;
+    const proxyFor = options.proxyFor as boolean;
 
     const keyring = await initKeyring(options);
 

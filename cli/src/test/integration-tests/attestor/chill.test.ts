@@ -10,7 +10,6 @@ import { testIf, try_catch_else_finally } from '../../utils';
 import {
     initAliceKeyring,
     randomFundedAccount,
-    randomTestAccount,
     setUpProxy,
     tearDownProxy,
     waitEras,
@@ -34,7 +33,6 @@ describe('chill', () => {
     let CLI: any;
     let nonProxiedCli: any;
     let wrongCLI: any;
-    let nonAttestor: any;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
@@ -54,7 +52,6 @@ describe('chill', () => {
         CLI = await setUpProxy(nonProxiedCli, caller, proxy, wrongProxy);
 
         attestor = await randomFundedAccount(api, sudoSigner);
-        nonAttestor = randomTestAccount();
 
         // NOTE: caller/proxy is the STASH for a random attestor on the Anvil1 chain
         // use CLI b/c it differentiates b/w caller/proxy accounts while direct API calls don't
