@@ -82,7 +82,7 @@ export async function setStakingConfig(
 }
 
 function setStakingConfigOp(op: any): any {
-    if (op === 0) {
+    if (op === 0 || op === new BN(0)) {
         op = { remove: null };
     } else if (op === null) {
         op = { noop: null };

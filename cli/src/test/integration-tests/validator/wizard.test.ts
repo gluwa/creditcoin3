@@ -10,7 +10,7 @@ import {
 } from '../helpers';
 import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
-import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { newApi, ApiPromise, KeyringPair, BN, MICROUNITS_PER_CTC } from '../../../lib';
 
 describe('wizard', () => {
     let api: ApiPromise;
@@ -46,7 +46,7 @@ describe('wizard', () => {
         tearDownProxy(nonProxiedCli, proxy);
 
         // set default min bond config to 0
-        await setMinBondConfig(api, 0);
+        await setMinBondConfig(api, new BN(0));
     }, 90_000);
 
     testIf(
@@ -116,7 +116,7 @@ describe('wizard', () => {
         'should error when specified amount < MinValidatorBond',
         async () => {
             // set min bond amount to 5000
-            const minValidatorBond = 5000;
+            const minValidatorBond = MICROUNITS_PER_CTC.mul(new BN(5000));
             // set staking config min bond amount
             await setMinBondConfig(api, minValidatorBond);
 
@@ -126,8 +126,9 @@ describe('wizard', () => {
                 },
                 (error: any) => {
                     expect(error.exitCode).toEqual(1);
+                    const expectedMin = minValidatorBond.div(MICROUNITS_PER_CTC).toString();
                     expect(error.stderr).toContain(
-                        `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                        `Amount to bond must be at least: ${expectedMin} CTC (min validator bond amount)`,
                     );
                 },
                 () => {

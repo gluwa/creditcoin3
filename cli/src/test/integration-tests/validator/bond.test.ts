@@ -8,7 +8,7 @@ import {
     CLIBuilder,
     setMinBondConfig,
 } from '../helpers';
-import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
+import { newApi, ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '../../../lib';
 import { getBalance } from '../../../lib/balance';
 import { parseAmount } from '../../../commands/options';
 
@@ -41,7 +41,7 @@ describe('bond', () => {
         tearDownProxy(nonProxiedCli, proxy);
 
         // set default min bond config to 0
-        await setMinBondConfig(api, 0);
+        await setMinBondConfig(api, new BN(0));
     }, 90_000);
 
     afterAll(async () => {
@@ -162,7 +162,7 @@ describe('bond', () => {
             (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
         'should error when specified amount < MinValidatorBond',
         async () => {
-            const minValidatorBond = 100;
+            const minValidatorBond = MICROUNITS_PER_CTC.mul(new BN(100));
             // set staking config min bond amount
             await setMinBondConfig(api, minValidatorBond);
 
@@ -177,8 +177,9 @@ describe('bond', () => {
                 },
                 (error: any) => {
                     expect(error.exitCode).toEqual(1);
+                    const expectedMin = minValidatorBond.div(MICROUNITS_PER_CTC).toString();
                     expect(error.stderr).toContain(
-                        `Amount to bond must be at least: ${minValidatorBond} (min validator bond amount)`,
+                        `Amount to bond must be at least: ${expectedMin} CTC (min validator bond amount)`,
                     );
                 },
                 () => {
@@ -186,6 +187,6 @@ describe('bond', () => {
                 },
             );
         },
-        90_000,
+        120_000,
     );
 });
