@@ -414,7 +414,15 @@ impl Server {
                         info!("Submitting proof for query: {:?}", query);
                         // Prevent unnecessary clone
                         let query_id = query.id();
-                        contract::submit_proof(&self.cc3_client, query, proof).await?;
+                        if let Err(e) = contract::submit_proof(&self.cc3_client, query, proof).await
+                        {
+                            error!(
+                                "Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
+                                query_id, e
+                            );
+                            remove_query_id(&self.cc3_client, query_id).await?;
+                        }
+
                         queued_light_proving_queries.remove(&query_id);
                     }
                     Err(e) => {
