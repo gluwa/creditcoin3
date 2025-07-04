@@ -180,7 +180,7 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
-        let sub = contract.QuerySubmitted_filter().watch().await?;
+        let sub = contract.QuerySubmitted_filter().subscribe().await?;
         let mut stream = sub.into_stream();
 
         info!("Subscribed to query submissions");
