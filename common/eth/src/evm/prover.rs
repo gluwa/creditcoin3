@@ -169,7 +169,14 @@ impl GluwaPublicProverContract {
             self.address
         );
 
-        let provider = ProviderBuilder::new().on_http(client.get_url());
+        let web_socket_url = client
+            .get_url()
+            .as_str()
+            .replace("http://", "ws://")
+            .replace("https://", "wss://");
+        let provider = ProviderBuilder::new()
+            .on_ws(WsConnect::new(web_socket_url))
+            .await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
