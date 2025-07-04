@@ -77,6 +77,10 @@ pub enum Error {
     Other(String),
     #[error("Failed to parse fragment digest")]
     InvalidFragmentDigest,
+    #[error("Failed to get chain key")]
+    FailedToGetChainKey,
+    #[error("Wrong chain: expected {0}, got {1}")]
+    WrongChain(u64, u64),
 }
 
 // Get the attestation fragment for a claim

@@ -14,6 +14,13 @@ pub struct Prover {
     #[arg(long, required = true)]
     cc3_key: String,
 
+    #[arg(
+        long,
+        default_value = "2",
+        help = "Chain key for the source chain, must match the chain key on creditcoin3"
+    )]
+    chain_key: u64,
+
     #[arg(long, default_value = "http://localhost:8545")]
     eth_rpc_url: String,
 
@@ -85,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = Config {
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
+        chain_key: args.chain_key,
         eth_rpc_url: args.eth_rpc_url,
         cc3_evm_private_key: args.cc3_evm_private_key,
         cost_per_byte: args.cost_per_byte,

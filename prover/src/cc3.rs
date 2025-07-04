@@ -37,7 +37,7 @@ pub enum Error {
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
 pub struct Client {
-    cc_client: CcClient,
+    pub cc_client: CcClient,
 }
 
 impl<'a> Client {

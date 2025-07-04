@@ -69,17 +69,23 @@ impl Server {
 
         let cc3_client = cc3::Client::new(&config.cc3_rpc_url, &config.cc3_key).await?;
         let eth_client = Arc::new(EthClient::new(&config.eth_rpc_url, None).await?);
-        let chain_id = eth_client.get_chain_id().await?;
-        let chain_key = cc3_client
-            .get_chain_key(chain_id)
+        let chain_id = eth_client.chain_id();
+
+        let supported_chain = cc3_client
+            .cc_client
+            .get_supported_chain(config.chain_key)
             .await?
-            .expect("Prover could not find chain key on startup.");
+            .ok_or(Error::FailedToGetChainKey)?;
+
+        if supported_chain.chain_id != chain_id {
+            return Err(Error::WrongChain(chain_id, supported_chain.chain_id).into());
+        }
 
         contract::deploy(
             &cc3_eth_client,
             config.cost_per_byte,
             config.base_fee,
-            chain_key,
+            config.chain_key,
             config.name.clone(),
             config.timeout,
         )
