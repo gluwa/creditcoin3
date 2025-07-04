@@ -72,7 +72,7 @@ impl Server {
         let chain_id = eth_client.chain_id();
 
         let supported_chain = cc3_client
-            .cc_client
+            .cc_client()
             .get_supported_chain(config.chain_key)
             .await?
             .ok_or(Error::FailedToGetChainKey)?;

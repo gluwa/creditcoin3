@@ -37,7 +37,7 @@ pub enum Error {
 /// Must connect to a node that has rpc and websocket enabled
 /// - `cc_client`: Creditcoin3 client
 pub struct Client {
-    pub cc_client: CcClient,
+    cc_client: CcClient,
 }
 
 impl<'a> Client {
@@ -49,6 +49,10 @@ impl<'a> Client {
         let cc_client = CcClient::new(url, key).await?;
 
         Ok(Self { cc_client })
+    }
+
+    pub fn cc_client(&self) -> &CcClient {
+        &self.cc_client
     }
 
     pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>> {
