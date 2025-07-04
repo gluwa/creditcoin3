@@ -34,5 +34,7 @@ sp_api::decl_runtime_apis! {
         fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32;
 
         fn last_checkpoint(chain_key: ChainKey) -> Option<AttestationCheckpoint>;
+
+        fn attestation_chain_genesis_block_number(chain_key: ChainKey) -> u64;
     }
 }

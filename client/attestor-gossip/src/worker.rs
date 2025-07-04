@@ -306,14 +306,6 @@ where
             attestation.header_number()
         );
 
-        // Short circuit if we are not an authority
-        if !self.is_authority {
-            metric_inc!(self.metrics, attestor_no_authority_found_in_store);
-            debug!(target: LOG_TARGET, "📝 Not an authority, skipping counting votes");
-            // Do validate the vote before returning
-            return self.validate_vote(&attestation);
-        }
-
         // First we import the vote.
         let import_result = self.state.note_vote(attestation.clone())?;
 
@@ -321,7 +313,7 @@ where
         let round = attestation.round();
         match import_result {
             VoteImportResult::DoubleVote => {
-                warn!(target: LOG_TARGET, "📝 Double vote detected");
+                warn!(target: LOG_TARGET, "📝 Double vote detected, round: {:?}", round);
                 metric_inc!(self.metrics, attestor_equivocation_votes);
                 return Err(Error::DoubleVote);
             }
@@ -331,31 +323,60 @@ where
                     attestor_best_voted,
                     attestation.header_number()
                 );
-                info!(target: LOG_TARGET, "📝 Attestation added to round");
+                info!(target: LOG_TARGET, "📝 Attestation added to round: {:?}", round);
                 // Validate the vote
                 return self.validate_vote(&attestation);
             }
             VoteImportResult::Stale => {
-                info!(target: LOG_TARGET, "📝 Stale vote detected");
+                info!(target: LOG_TARGET, "📝 Stale vote detected, round: {:?}", round);
                 metric_inc!(self.metrics, attestor_stale_votes);
                 return Err(Error::StaleVote);
             }
             VoteImportResult::RoundConcluded => {
-                info!(target: LOG_TARGET, "📝 Round concluded");
-                self.validate_vote(&attestation)?;
-                // Submit attestation
-                match self.try_submit_attestation(attestation) {
-                    Ok(()) => {
-                        debug!(target: LOG_TARGET, "📝 Attestation submitted");
-                    }
-                    Err(e) => {
-                        error!(target: LOG_TARGET, "📝 Error submitting attestation: {:?}", e);
-                    }
-                }
-                // Flush memory
-                self.state.clear_votes(round.0, round.1);
+                info!(target: LOG_TARGET, "📝 Round {:?} concluded", round);
+                self.finalize_vote(attestation)?;
             }
         }
+        Ok(())
+    }
+
+    // Finalize the vote
+    // This function is responsible for finalizing the vote
+    // It will check if the vote is valid, and if it is, it will submit the attestation if we are an authority
+    // If the vote is not valid, it will remove the vote from the state
+    // It will also update the gossip filter based on the finalized block hash, chain key and header number
+    fn finalize_vote(
+        &mut self,
+        attestation: Attestation<HashFor<B>, AccountId>,
+    ) -> Result<(), Error> {
+        let round = attestation.round();
+        let chain_key = attestation.chain_key();
+        let header_number = attestation.header_number();
+
+        self.validate_vote(&attestation)?;
+        // Submit attestation
+        // Only submit if we are an authority
+        if self.is_authority {
+            match self.try_submit_attestation(attestation) {
+                Ok(()) => {
+                    debug!(target: LOG_TARGET, "📝 Attestation for round: {:?} submitted", round);
+                }
+                Err(e) => {
+                    error!(target: LOG_TARGET, "📝 Error submitting attestation: {:?}", e);
+                }
+            }
+        }
+        // Flush memory
+        self.state.clear_votes(round.0, round.1);
+        // Update gossip filter
+        let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
+        self.update_gossip_filter(
+            finalized_block_hash,
+            chain_key,
+            header_number,
+            self.current_epoch_index,
+        )?;
+
         Ok(())
     }
 
@@ -608,7 +629,8 @@ where
                 }
             } else {
                 debug!(target: LOG_TARGET, "📝 Allowing bootstrap of chain: {chain_key}");
-                0
+                // If no last digest, we assume the genesis block number, it can either be 0 or set to some value by sudo
+                runtime_api.attestation_chain_genesis_block_number(notif.hash, chain_key)?
             };
 
             self.update_gossip_filter(
@@ -646,17 +668,17 @@ where
         let checkpoint_interval =
             runtime_api.attestation_checkpoint_interval(block_hash, chain_key)?;
 
-        // Calculate five checkpoints in number of attestations
-        let five_checkpoints = attestation_interval * checkpoint_interval as u64 * 5;
+        // Calculate three checkpoints in number of attestations
+        let three_checkpoints = attestation_interval * checkpoint_interval as u64 * 3;
 
         // Have a sliding window of 10 checkpoints where attestations are valid
         debug!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
         self.comms.gossip_validator.update_filter(
             epoch,
             chain_key,
-            current_block.saturating_sub(five_checkpoints),
+            current_block,
             current_block
-                .checked_add(five_checkpoints)
+                .checked_add(three_checkpoints)
                 .ok_or(Error::Overflow)?,
             active_attestors,
         );

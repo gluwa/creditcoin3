@@ -37,7 +37,19 @@ describe('handleEventTargetSampleSizeChanged()', () => {
 
         // new chain to be used for testing
         await api.tx.sudo
-            .sudo(api.tx.supportedChains.registerChain(newChainId, newChainName, null, null, null, null, null, null))
+            .sudo(
+                api.tx.supportedChains.registerChain(
+                    newChainId,
+                    newChainName,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                ),
+            )
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
         await forElapsedBlocks(api, { minBlocks: 1 });
 

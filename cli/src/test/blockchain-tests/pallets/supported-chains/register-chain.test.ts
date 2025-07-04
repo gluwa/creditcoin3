@@ -32,6 +32,7 @@ describe('RegisterChain', (): void => {
                         null,
                         null,
                         null,
+                        null,
                     ),
                 )
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {

@@ -884,6 +884,7 @@ parameter_types! {
     // With 6s source chain block time, 30 attestations = 30 minutes
     pub const DefaultAttestationRetentionDuration: u32 = 120;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
+    pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
@@ -907,6 +908,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
+    type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
 }
 
 impl pallet_supported_chains::Config for Runtime {
@@ -1542,6 +1544,10 @@ impl_runtime_apis! {
 
         fn last_checkpoint(chain_key: ChainKey) -> Option<AttestationCheckpoint> {
             Attestation::last_checkpoint(chain_key)
+        }
+
+        fn attestation_chain_genesis_block_number(chain_key: ChainKey) -> u64 {
+            Attestation::attestation_chain_genesis_block_number(chain_key)
         }
     }
 

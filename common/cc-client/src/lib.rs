@@ -140,6 +140,23 @@ impl<'a> Client {
         Ok(chain_key)
     }
 
+    pub async fn get_supported_chain(&self, chain_key: ChainKey) -> Result<Option<SupportedChain>> {
+        let address = cc3::storage()
+            .supported_chains()
+            .supported_chains(chain_key);
+
+        let result = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&address)
+            .await?;
+
+        Ok(result.map(Into::into))
+    }
+
     pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>> {
         let mut supported_chains: Vec<SupportedChain> = Vec::new();
         let address = cc3::storage().supported_chains().supported_chains_iter();
@@ -670,6 +687,26 @@ impl<'a> Client {
             Some(result) => Ok(result.len()),
             None => Ok(0),
         }
+    }
+
+    pub async fn get_attestation_chain_genesis_block_number(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<u64, Error> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestation_chain_genesis_block_number(chain_key);
+
+        let result = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result.unwrap_or_default())
     }
 }
 

@@ -1,5 +1,5 @@
 use std::time::Instant;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Represents the state of the synchronization process.
 ///
@@ -13,6 +13,7 @@ use tracing::info;
 /// - `last_update_time`: The last time the state was updated.
 /// - `last_finalized`: The last finalized header number.
 /// - `average_block_time_ms`: The smoothed average block time in milliseconds.
+#[derive(Debug, Clone)]
 pub struct SyncState {
     initial_header: u64,
     pub last_finalized_attested_header: u64,
@@ -26,6 +27,8 @@ pub struct SyncState {
 const ALPHA_NUM: u128 = 1;
 const ALPHA_DEN: u128 = 10; // α = 0.1
 
+const REMAINING_BLOCKS_LOG_THRESHOLD: u128 = 40; // Don't log progress if remaining blocks are less than this
+
 impl SyncState {
     /// Create a new `SyncState` at the start of syncing
     pub fn new(initial: u64, target: u64) -> Self {
@@ -37,6 +40,10 @@ impl SyncState {
             last_finalized: initial,
             average_block_time_ms: 1000, // default 1s per block until we get real timing
         }
+    }
+
+    pub fn current(&self) -> u64 {
+        self.last_finalized_attested_header
     }
 
     /// Update the state with a new finalized header
@@ -67,6 +74,11 @@ impl SyncState {
         let blocks_done = (self.last_finalized_attested_header - self.initial_header) as u128;
         let total_blocks = (self.target_header - self.initial_header) as u128;
         let blocks_remaining = (self.target_header - self.last_finalized_attested_header) as u128;
+
+        if blocks_remaining <= REMAINING_BLOCKS_LOG_THRESHOLD {
+            debug!("Sync is done, no need to log progress.");
+            return;
+        }
 
         if total_blocks == 0 {
             info!("Invalid sync range.");

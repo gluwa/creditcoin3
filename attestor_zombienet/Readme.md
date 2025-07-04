@@ -61,7 +61,14 @@ default_args:
   - "--eth-rpc-url=http://localhost:8546"
 num_attestors: 5
 single_node: true
-chain_key: 4
+```
+
+Run the attestor zombienet binary with the config file:
+
+If for example the supported chain key is 3, you can run the attestor zombienet binary like this:
+
+```bash
+./target/release/attestor_zombienet --cc3-key "//Bob" --config-file attestor_zombienet/config.yaml --chain-key 3
 ```
 
 ## Automatic key generation, funding and registration

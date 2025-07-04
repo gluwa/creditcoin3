@@ -3,6 +3,7 @@ use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use serde::Serialize;
 use sp_core::H256;
+use std::fmt;
 use tracing::{debug, error, info};
 
 use cc_client::{AccountId32, Client as CcClient};
@@ -31,6 +32,15 @@ pub struct Client {
     pub inner: CcClient,
     pub bls_keypair: PrivateKey,
     chain_config: SourceChainConfig,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("bls_keypair", &self.bls_keypair)
+            .field("chain_config", &self.chain_config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Client {
@@ -78,30 +88,27 @@ impl<'a> Client {
     pub async fn new(
         url: impl Into<String> + Clone,
         key: &'a str,
+        chain_key: ChainKey,
         chain_id: ChainId,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let cc_client = CcClient::new(url, key).await?;
 
         // Derive bls key from secret seed
         let bls_keypair = PrivateKey::new(key.as_bytes());
 
-        let supported_chains = cc_client.get_supported_chains().await?;
-
-        let chain_name = supported_chains
-            .iter()
-            .find(|chain| chain.chain_id == chain_id)
-            .ok_or(Error::FailedToGetChainName)?
-            .chain_name
-            .clone();
-
-        let chain_key = cc_client
-            .get_chain_key(chain_id, chain_name.clone())
+        let supported_chain = cc_client
+            .get_supported_chain(chain_key)
             .await?
             .ok_or(Error::FailedToGetChainKey)?;
 
+        if supported_chain.chain_id != chain_id {
+            return Err(Error::WrongChain(chain_id, supported_chain.chain_id));
+        }
+
+        let chain_name = supported_chain.chain_name;
         info!(
             "⚙️ Configured attestor client for chain: {:?} with key {:?}",
-            String::from_utf8(chain_name.clone())?,
+            String::from_utf8(chain_name.clone()).map_err(|_| { Error::FailedToGetChainName })?,
             chain_key
         );
 
@@ -255,5 +262,12 @@ impl<'a> Client {
 
     pub fn change_attestation_interval(&mut self, new_interval: u64) {
         self.chain_config.current_attestation_interval = new_interval;
+    }
+
+    pub async fn get_attestation_chain_genesis_block_number(&self) -> Result<u64, Error> {
+        Ok(self
+            .inner
+            .get_attestation_chain_genesis_block_number(self.get_chain_key())
+            .await?)
     }
 }

@@ -933,6 +933,7 @@ export default {
             CheckpointIntervalChanged: '(u64,u32)',
             ClearedStorageForRemovedChain: 'u64',
             MaxAttestorsChanged: '(u64,u32)',
+            AttestationChainGenesisBlockNumberSet: '(u64,u64)',
         },
     },
     /**
@@ -2604,6 +2605,10 @@ export default {
                 chainKey: 'u64',
                 checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
             },
+            set_attestation_chain_genesis_block_number: {
+                chainKey: 'u64',
+                genesisBlockNumber: 'u64',
+            },
         },
     },
     /**
@@ -2630,6 +2635,7 @@ export default {
                 chainReward: 'Option<u128>',
                 maxAttestors: 'Option<u32>',
                 maxInvulnerables: 'Option<u32>',
+                attestationChainGenesisBlockNumber: 'Option<u64>',
             },
             remove_chain: {
                 chainKey: 'u64',
@@ -3064,6 +3070,7 @@ export default {
             'InvalidAttestationsPerCheckpoint',
             'InvalidTargetSampleSize',
             'AttestationFoundWhileImporting',
+            'InvalidAttestationBlockNumber',
         ],
     },
     /**

@@ -3,10 +3,11 @@ use eth::Client;
 use sp_core::H256;
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::{
     sync::{
-        mpsc::{Receiver, Sender},
+        mpsc::{Receiver, Sender, UnboundedSender},
         Mutex,
     },
     task::JoinHandle,
@@ -18,7 +19,7 @@ use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, Chain
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
 
-use crate::{cc3, ccsub, continuity, error::Error, eth_sub, retry, sync_state::SyncState, Config};
+use crate::{cc3, ccsub, continuity, error::Error, eth_sub, sync_state::SyncState, Config};
 
 pub const ATTESTATION_BUFFER_SIZE: usize = 100;
 
@@ -31,7 +32,14 @@ const MAX_EPOCHS_HALTED: u64 = 2;
 /// Defines how much checkpoints attestations are valid for
 pub const ATTESTATION_CHECKPOINT_WINDOW: u64 = 2;
 
-struct Engine {
+/// Defines how long we will wait before retrying the attestation subscription
+pub const ATTESTATION_SUB_DELAY: Duration = Duration::from_secs(5);
+
+/// Defines how many times we will retry the attestation subscription
+pub const ATTESTATION_SUB_MAX_RETRIES: u64 = 50;
+
+#[derive(Debug)]
+pub struct Engine {
     // Engine state
     state: State,
     // Ethereum client
@@ -55,8 +63,11 @@ struct Engine {
     sync_state: SyncState,
     // Maturity delay
     maturity_delay: u64,
+    // Shutdown channel to gracefully stop the engine
+    shutdown_channel: UnboundedSender<()>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum State {
     NotRunning,
     Running,
@@ -75,22 +86,37 @@ impl State {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct AsyncEngine {
     inner: Arc<Mutex<Engine>>,
-    eth_client: Client,
+    eth_client: Arc<Client>,
     pub chain_key: ChainKey,
 }
 
+impl Clone for AsyncEngine {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            eth_client: Arc::clone(&self.eth_client),
+            chain_key: self.chain_key,
+        }
+    }
+}
+
 impl AsyncEngine {
-    pub async fn new(config: &Config) -> Result<Self> {
+    pub async fn new(config: &Config, shutdown: UnboundedSender<()>) -> Result<Self> {
         let eth_client = Client::new(&config.eth_rpc_url, None).await?;
         let target = eth_client.get_last_block().await?;
         let chain_id = eth_client.chain_id();
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
-        let cc3_client =
-            cc3::Client::new(config.cc3_rpc_url.clone(), &config.cc3_key, chain_id).await?;
+        let cc3_client = cc3::Client::new(
+            config.cc3_rpc_url.clone(),
+            &config.cc3_key,
+            config.chain_key,
+            chain_id,
+        )
+        .await?;
         cc3_client.init().await?;
 
         let chain_key = cc3_client.get_chain_key();
@@ -101,6 +127,12 @@ impl AsyncEngine {
             .await?
             .unwrap_or_default();
 
+        let start_block = cc3_client
+            .get_attestation_chain_genesis_block_number()
+            .await?;
+
+        let current_epoch = cc3_client.get_current_epoch().await?;
+
         let engine: Engine = Engine {
             state: State::NotRunning,
             eth_client: eth_client.clone(),
@@ -110,22 +142,28 @@ impl AsyncEngine {
             receiver: attestation_rx,
             voted_for: BTreeSet::new(),
             sync_state: SyncState::new(last_finalized_header, target),
-            current_epoch: 0,
-            start_block: config.start_block,
+            current_epoch,
+            start_block,
             continuity_cache: continuity::Cache::new(eth_client.clone()),
             maturity_delay: config.maturity_delay,
+            shutdown_channel: shutdown,
         };
 
         Ok(Self {
             inner: Arc::new(Mutex::new(engine)),
-            eth_client,
+            eth_client: Arc::new(eth_client),
             chain_key,
         })
     }
 
-    pub async fn start(&mut self, start_block: u64) -> Result<(), Error> {
+    pub async fn start(&mut self) -> Result<(), Error> {
         let mut engine = self.inner.lock().await;
-        engine.start(start_block).await
+        engine.start().await
+    }
+
+    pub async fn stop(&mut self) {
+        let mut engine = self.inner.lock().await;
+        engine.stop().await;
     }
 
     /// Poll a new attestation from the source chain
@@ -166,28 +204,31 @@ impl AsyncEngine {
             return Err(Error::NotRunning);
         }
 
-        // Prepare the attestation
-        let attestation = engine.prepare_attestation(attestation).await?;
-
-        let round = attestation.round();
-
         // Note voted for the header number
-        engine
+        // Returns a boolean indicating if it already was inserted in the set
+        let can_submit = engine
             .voted_for
             .insert((attestation.header_number(), attestation.digest()));
+        // Another sanity check to ensure we are not double voting
+        if !can_submit {
+            return Err(Error::DoubleVote(attestation.header_number()));
+        }
 
-        info!(
-            "✉️ Submitted attestation for round: {:?}, digest: {:?}, epoch: {}",
-            round,
-            attestation.digest(),
-            engine.current_epoch
-        );
+        // Prepare the attestation
+        let attestation = engine.prepare_attestation(attestation).await?;
+        let digest = attestation.digest();
+        let round = attestation.round();
 
         // Submit the attestation to the chain
         engine
             .cc_client()
             .submit_attestation::<H256>(attestation)
             .await?;
+
+        info!(
+            "✉️ Submitted attestation for round: {:?}, digest: {:?}, epoch: {}",
+            round, digest, engine.current_epoch
+        );
 
         // Evaluate the voting position
         engine.evaluate_voting_position().await?;
@@ -199,32 +240,7 @@ impl AsyncEngine {
     /// This is used to handle events from the creditcoin chain
     pub async fn note_cc_event(&mut self, event: ccsub::Event) -> Result<(), Error> {
         let mut engine = self.inner.lock().await;
-        match event.clone() {
-            ccsub::Event::AttestationIntervalChanged((_chain_key, interval)) => {
-                engine.note_interval_change(interval).await?;
-            }
-            ccsub::Event::BlockAttested(attestation) => {
-                engine
-                    .note_last_attested_header(attestation.header_number())
-                    .await?;
-            }
-            ccsub::Event::RandomnessChanged((epoch, _randomness)) => {
-                engine.note_epoch_change(epoch).await?;
-            }
-            ccsub::Event::CheckpointReached(ck, checkpoint) => {
-                if engine.chain_key() != ck {
-                    debug!("Ignoring checkpoint for different chain key");
-                    return Ok(());
-                }
-
-                // Prune the continuity cache
-                engine
-                    .continuity_cache
-                    .prune_all_before(checkpoint.block_number);
-            }
-        }
-
-        Ok(())
+        engine.note_cc_event(event).await
     }
 
     pub async fn event_sub(&self) -> Result<Subscription> {
@@ -259,7 +275,7 @@ impl AsyncEngine {
                 return Ok(attestation);
             }
 
-            info!("⏱️ Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
+            info!("👶 Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
                       last_eth_block_number,
                       attestation.header_number + delay);
 
@@ -285,20 +301,9 @@ impl Engine {
         self.cc3_client.get_attestation_interval()
     }
 
-    async fn start(&mut self, mut start_block: u64) -> Result<(), Error> {
+    async fn start(&mut self) -> Result<(), Error> {
         if matches!(self.state, State::Running) {
             return Ok(());
-        }
-
-        // If the start block is 0, we need to get the last attested source block
-        // and start from there
-        if start_block == 0 {
-            // Get last attested source chain block number
-            let result = get_last_finalized(&self.cc3_client, self.chain_key()).await?;
-
-            if let Some((_, last_finalized)) = result {
-                start_block = last_finalized + self.attestation_interval();
-            }
         }
 
         let can_attest = self.cc3_client.can_attest().await?;
@@ -309,51 +314,71 @@ impl Engine {
         }
 
         info!("🟢 Starting attestation engine");
-        let attestation_interval = self.cc3_client.get_attestation_interval();
 
         let cc3_client = self.cc3_client.clone();
         let eth_client = self.eth_client.clone();
         // Safe to clone since it's using an Arc under the hood
         let sender = self.sender.clone();
+        // Clone the shutdown channel to be able to send a shutdown signal
+        let shutdown = self.shutdown_channel.clone();
+        // Get the start block from the engine
+        let start_block = self.start_block;
 
         // Retrying handle which retries the subscription to new heads
         // If something goes wrong, the function is fired again
-        // This function populates the sender channel with new attestations, so when a retry is fired, the queue is not emptied
-        // So retrying can cause a lot of duplicate attestations to be sent on the channel, it's up to the consumer to handle this
-        self.source_chain_subscription = Some(tokio::task::spawn(async move {
-            match retry::ret(
-                || async {
-                    let cc3_client = cc3_client.clone();
-                    let eth_client = eth_client.clone();
-                    let sender = sender.clone();
+        self.source_chain_subscription = Some(tokio::spawn(async move {
+            let mut attempts = 0;
 
-                    subscribe_to_new_heads_task(
-                        cc3_client,
-                        eth_client,
-                        sender,
-                        attestation_interval,
-                        start_block,
-                    )
-                    .await
-                },
-                10,
-                10,
-                None,
-            )
-            .await
-            {
-                Ok(()) => info!("🔴 Attestation engine stopped"),
-                Err(e) => error!("Attestation engine stopped with error: {:?}", e),
+            loop {
+                info!(
+                    "🔄 Attempting to subscribe to new heads, starting at block: {}",
+                    start_block
+                );
+                let result = subscribe_to_new_heads_task(
+                    cc3_client.clone(),
+                    eth_client.clone(),
+                    sender.clone(),
+                    start_block,
+                )
+                .await;
+
+                match result {
+                    Ok(()) => {
+                        error!("🔴 Attestation stream exited unexpectedly with Ok()");
+                        break;
+                    }
+                    Err(e) => {
+                        attempts += 1;
+                        error!(
+                            "🔴 Attestation stream exited unexpectedly with error: {:?}",
+                            e
+                        );
+
+                        if attempts > ATTESTATION_SUB_MAX_RETRIES {
+                            error!("Reached max retry attempts. Giving up.");
+                            shutdown.send(()).ok();
+                            break;
+                        }
+                        info!(
+                            "Retrying attestation sub in {:?} seconds... ",
+                            ATTESTATION_SUB_DELAY,
+                        );
+                        tokio::time::sleep(ATTESTATION_SUB_DELAY).await;
+                    }
+                }
             }
         }));
 
         // Set the state to running
         self.state = State::Running;
 
+        info!("🟢 Attestation engine started at block: {}", start_block);
+
         Ok(())
     }
 
     async fn stop(&mut self) {
+        info!("🛑 Stopping attestation engine");
         if matches!(self.state, State::NotRunning) {
             return;
         }
@@ -361,12 +386,7 @@ impl Engine {
         if let Some(task) = self.source_chain_subscription.take() {
             task.abort();
             let _ = task.await; // Await the result to clean up resources properly
-
-            // Recreate the channel
-            let (attestation_tx, attestation_rx) =
-                tokio::sync::mpsc::channel(ATTESTATION_BUFFER_SIZE);
-            self.sender = attestation_tx;
-            self.receiver = attestation_rx;
+            debug!("Attestation engine subscription stopped");
 
             // Only set the state to stopped if it's not halted
             if !self.state.is_halted() {
@@ -377,12 +397,28 @@ impl Engine {
 
     /// Restart the attestation engine
     /// Will stop the engine if it's running and start it again
-    async fn restart(&mut self, start_block: u64) -> Result<(), Error> {
-        if matches!(self.state, State::Running) {
-            self.stop().await;
+    async fn restart(&mut self) -> Result<(), Error> {
+        // Stop the engine if it's running
+        self.stop().await;
+
+        // Clean up the channels
+        self.receiver.close();
+        // Drain the channel to ensure no messages are left in the buffer
+        while (self.receiver.recv().await).is_some() {
+            debug!("Draining attestation channel...");
         }
 
-        self.start(start_block).await
+        // Recreate the channel
+        let (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(ATTESTATION_BUFFER_SIZE);
+        self.sender = attestation_tx;
+        self.receiver = attestation_rx;
+
+        // Reset the state
+        self.voted_for.clear();
+
+        debug!("🔄 Restarting attestation engine, drained channel, cleared voted_for and resetted state");
+
+        self.start().await
     }
 
     /// Poll a new attestation from the source chain
@@ -414,7 +450,7 @@ impl Engine {
         debug!("Evaluating voting position...");
 
         let last_voted_for_block = self.voted_for.last().copied().unwrap_or_default().0;
-        let last_finalized = self.sync_state.last_finalized_attested_header;
+        let last_finalized = self.sync_state.current();
         debug!(
             "Last voted for: {:}, last finalized attestation: {:}",
             last_voted_for_block, last_finalized
@@ -450,8 +486,6 @@ impl Engine {
             );
 
             self.state = State::Halted(self.current_epoch);
-            // Stop the engine and allow the chain to catch up
-            self.stop().await;
         }
 
         Ok(())
@@ -465,13 +499,6 @@ impl Engine {
         mut attestation: AttestationPrimitive<H256>,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
         let header_number = attestation.header_number;
-        let digest = attestation.digest();
-
-        // Exit early if the attestation has already been submitted
-        if self.voted_for.contains(&(header_number, digest)) {
-            warn!("Attestation already voted for: {}", header_number);
-            return Err(Error::DoubleVote);
-        }
 
         // Eligiblity check
         let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
@@ -541,6 +568,11 @@ impl Engine {
             (self.start_block, H256::zero())
         };
 
+        // Short circuit if we are already at or past the attestation header number
+        if from_header > attestation_header_number {
+            return Err(Error::AlreadyAttestedTo(attestation_header_number));
+        }
+
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
         let fragment = self
@@ -556,6 +588,38 @@ impl Engine {
         Ok(fragment)
     }
 
+    /// Note a cc event
+    /// This is used to handle events from the creditcoin chain
+    pub async fn note_cc_event(&mut self, event: ccsub::Event) -> Result<(), Error> {
+        match event.clone() {
+            ccsub::Event::AttestationIntervalChanged((_chain_key, interval)) => {
+                self.note_interval_change(interval).await?;
+            }
+            ccsub::Event::BlockAttested(attestation) => {
+                self.note_last_attested_header(attestation.header_number())
+                    .await?;
+            }
+            ccsub::Event::RandomnessChanged((epoch, _randomness)) => {
+                self.note_epoch_change(epoch).await?;
+            }
+            ccsub::Event::CheckpointReached(ck, checkpoint) => {
+                if self.chain_key() != ck {
+                    debug!("Ignoring checkpoint for different chain key");
+                    return Ok(());
+                }
+
+                // Prune the continuity cache
+                self.continuity_cache
+                    .prune_all_before(checkpoint.block_number);
+                // Prune the voted for state
+                self.voted_for
+                    .retain(|(header_number, _)| *header_number > checkpoint.block_number);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Note the interval change
     /// If the interval changes, we need to restart the engine
     /// Otherwise we do nothing
@@ -563,10 +627,11 @@ impl Engine {
         let needs_restart = self.cc3_client.get_attestation_interval() != new_interval;
         if needs_restart {
             self.cc3_client.change_attestation_interval(new_interval);
-            // Restart at new interval block
-            let start_block = self.voted_for.last().copied().unwrap_or_default().0 + new_interval;
-
-            self.restart(start_block).await?;
+            info!(
+                "🔀 Attestation interval changed to {}, restarting engine",
+                new_interval
+            );
+            self.restart().await?;
         }
 
         Ok(())
@@ -593,20 +658,12 @@ impl Engine {
                 "🟢 Chain caught up, resuming attestation engine at block: {:}",
                 last_voted_for
             );
-            let start_at = last_voted_for + self.attestation_interval();
-            self.start(start_at).await?;
+            self.state = State::Running;
         }
-
-        // Prune old last voted for state
-        self.voted_for
-            .retain(|(header_number, _)| *header_number > header);
 
         // Update the sync state
         let last_eth_height = self.eth_client.get_last_block().await?;
-        // Only update the sync state if we are actually behind (2 * maturity delay)
-        if header + self.maturity_delay * 2 < last_eth_height {
-            self.sync_state.update(header, last_eth_height);
-        }
+        self.sync_state.update(header, last_eth_height);
 
         Ok(())
     }
@@ -617,42 +674,19 @@ impl Engine {
         debug!("Noting current epoch: {}", epoch);
         self.current_epoch = epoch;
 
-        // Get last attested source chain block number
-        let maybe_last_attested = get_last_finalized(&self.cc3_client, self.chain_key()).await?;
-
-        // If there is a last attested source block, we can start the engine from there
-        if let Some((_, header_number)) = maybe_last_attested {
-            self.sync_state.last_finalized_attested_header = header_number;
-        }
-
-        // By default start from the last attested block OR 0 if there is no attestation and we need to start from the genesis block
-        let mut start_at = self.sync_state.last_finalized_attested_header;
-        // If the provided start block by the user is greater than the last finalized attestation, we need to start from there
-        // It also included the case where we need to start from the genesis block
-        if self.start_block >= start_at {
-            start_at = self.start_block;
-        // Otherwise we need to start from the last finalized attestation + the attestation interval
-        } else {
-            start_at += self.attestation_interval();
-        }
-
         match self.state {
             State::Running => return Ok(()),
             State::Halted(halted_at) => {
                 // If we exceed the maximum epochs halted, we need to restart the engine
                 if epoch >= halted_at + MAX_EPOCHS_HALTED {
                     info!("🫱 Engine is halted, but enough epochs have passed, restarting");
-                    // Clear the voted for list
-                    self.voted_for.clear();
-                    // Start the engine again
-                    self.start(start_at).await?;
-                    return Ok(());
+                    return self.restart().await;
                 }
                 info!("✋ Engine is halted, but not enough epochs have passed, waiting");
             }
             // In case we are not running or stopped, we need to start the engine
             _ => {
-                self.start(start_at).await?;
+                self.start().await?;
             }
         }
 
@@ -665,10 +699,19 @@ async fn subscribe_to_new_heads_task(
     cc3_client: cc3::Client,
     eth_client: eth::Client,
     sender: Sender<AttestationPrimitive<H256>>,
-    attestation_interval: u64,
     start_block: u64,
 ) -> Result<()> {
+    let attestation_interval = cc3_client.get_attestation_interval();
     let chain_key = cc3_client.get_chain_key();
+
+    // If the start block is 0, we need to get the last attested source block
+    // and start from there
+    let result = get_last_finalized(&cc3_client, chain_key).await?;
+    let start = if let Some((_, last_finalized)) = result {
+        last_finalized + attestation_interval
+    } else {
+        start_block
+    };
 
     // Calculate the target header to subscribe to
     // Which is the start_header (last finalized attestation) + the checkpoint interval X attestation interval because we want to limit
@@ -680,14 +723,13 @@ async fn subscribe_to_new_heads_task(
     Ok(eth_sub::attest_to_heads(
         eth_client,
         sender,
-        start_block,
+        start,
         target_header,
         chain_key,
         attestation_interval,
     )
     .await?)
 }
-
 // Handles the edge case where we are beginning attestation after calling `import_checkpoints` for a source chain.
 // In such a case, there may be a finalized checkpoint even when there are no finalized attestations.
 async fn get_last_finalized(

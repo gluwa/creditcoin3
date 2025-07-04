@@ -1870,7 +1870,7 @@ jobs:
 
           ./target/release/attestor_zombienet \
                 --verbose \
-                --cc3-key "//Alice" --supported-chain-key 2 \
+                --cc3-key "//Alice" --chain-key 2 \
                 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
 
@@ -1878,7 +1878,7 @@ jobs:
           ./target/release/attestor_zombienet \
                 --verbose \
                 --cc3-rpc-url ws://localhost:9955 \
-                --cc3-key "//Bob" --supported-chain-key 4 \
+                --cc3-key "//Bob" --chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
 
@@ -1912,6 +1912,7 @@ jobs:
       - name: Run attestation tests
         working-directory: ./cli
         run: |
+          sleep 100 # wait for attestors to register
           yarn install
           yarn test:attestation
 
@@ -2994,7 +2995,7 @@ jobs:
 
           ./target/release/attestor_zombienet \
                 --verbose \
-                --cc3-key "//Alice" --supported-chain-key 2 \
+                --cc3-key "//Alice" --chain-key 2 \
                 --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
 
@@ -3012,7 +3013,7 @@ jobs:
 
           ./target/release/attestor_zombienet \
                 --verbose \
-                --cc3-key "//Bob" --supported-chain-key 4 \
+                --cc3-key "//Bob" --chain-key 4 \
                 --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-bob/ &
 
@@ -3042,7 +3043,7 @@ jobs:
           mkdir -p /var/tmp/cc3-indexer-testing/attestors-charlie
 
           ./target/release/attestor_zombienet \
-                --cc3-key "//Charlie" --supported-chain-key 5 \
+                --cc3-key "//Charlie" --chain-key 5 \
                 --eth-rpc-url http://localhost:8343 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-charlie/ &
 

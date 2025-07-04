@@ -297,7 +297,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, chain_key, 1, None);
+        > = create_signed_attestation::<T>(attestors, chain_key, 0, None);
 
         #[extrinsic_call]
         _(
@@ -346,7 +346,7 @@ mod benchmarks {
         let prior_attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, None);
+        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 0, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 
@@ -362,7 +362,7 @@ mod benchmarks {
         > = create_signed_attestation::<T>(
             attestors,
             DEV_CHAIN_KEY,
-            11_u64,
+            10_u64,
             Some(prior_attestation.digest()),
         );
 
@@ -530,7 +530,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(vec![attestor.clone()], DEV_CHAIN_KEY, 1, None);
+        > = create_signed_attestation::<T>(vec![attestor.clone()], DEV_CHAIN_KEY, 0, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
 
@@ -560,6 +560,20 @@ mod benchmarks {
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
             mock_checkpoints.try_into().unwrap(),
+        )
+    }
+
+    #[benchmark]
+    fn set_attestation_chain_genesis_block_number() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let genesis_block_number: u64 = 100;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            genesis_block_number,
         )
     }
 

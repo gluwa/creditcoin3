@@ -1172,6 +1172,8 @@ declare module '@polkadot/types/lookup' {
         readonly asClearedStorageForRemovedChain: u64;
         readonly isMaxAttestorsChanged: boolean;
         readonly asMaxAttestorsChanged: ITuple<[u64, u32]>;
+        readonly isAttestationChainGenesisBlockNumberSet: boolean;
+        readonly asAttestationChainGenesisBlockNumberSet: ITuple<[u64, u64]>;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1195,7 +1197,8 @@ declare module '@polkadot/types/lookup' {
             | 'CheckpointsCleared'
             | 'CheckpointIntervalChanged'
             | 'ClearedStorageForRemovedChain'
-            | 'MaxAttestorsChanged';
+            | 'MaxAttestorsChanged'
+            | 'AttestationChainGenesisBlockNumberSet';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (94) */
@@ -3022,6 +3025,11 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly checkpoints: Vec<AttestorPrimitivesAttestationCheckpoint>;
         } & Struct;
+        readonly isSetAttestationChainGenesisBlockNumber: boolean;
+        readonly asSetAttestationChainGenesisBlockNumber: {
+            readonly chainKey: u64;
+            readonly genesisBlockNumber: u64;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3041,7 +3049,8 @@ declare module '@polkadot/types/lookup' {
             | 'SetPayee'
             | 'WithdrawUnbonded'
             | 'ClaimRewards'
-            | 'ImportCheckpoints';
+            | 'ImportCheckpoints'
+            | 'SetAttestationChainGenesisBlockNumber';
     }
 
     /** @name PalletAttestationPocRewardDestination (327) */
@@ -3065,6 +3074,7 @@ declare module '@polkadot/types/lookup' {
             readonly chainReward: Option<u128>;
             readonly maxAttestors: Option<u32>;
             readonly maxInvulnerables: Option<u32>;
+            readonly attestationChainGenesisBlockNumber: Option<u64>;
         } & Struct;
         readonly isRemoveChain: boolean;
         readonly asRemoveChain: {
@@ -3565,6 +3575,7 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidAttestationsPerCheckpoint: boolean;
         readonly isInvalidTargetSampleSize: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
+        readonly isInvalidAttestationBlockNumber: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3593,7 +3604,8 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationInterval'
             | 'InvalidAttestationsPerCheckpoint'
             | 'InvalidTargetSampleSize'
-            | 'AttestationFoundWhileImporting';
+            | 'AttestationFoundWhileImporting'
+            | 'InvalidAttestationBlockNumber';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (414) */

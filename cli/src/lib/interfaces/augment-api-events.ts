@@ -49,6 +49,10 @@ declare module '@polkadot/api-base/types/events' {
     interface AugmentedEvents<ApiType extends ApiTypes> {
         attestation: {
             /**
+             * Attestation chain genesis block number was set for a chain.
+             **/
+            AttestationChainGenesisBlockNumberSet: AugmentedEvent<ApiType, [u64, u64]>;
+            /**
              * Note a change in the attestation interval for a source chain. Also notes the
              * block number of the latest attestation for that source chain at the time of
              * the interval change.

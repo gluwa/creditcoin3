@@ -105,7 +105,6 @@ where
         info!(target: LOG_TARGET, "📝 Checking Continuity proof, length: {:?}, round: {:?}, last_block_digest: {:?}", attestation.continuity_proof.len(), attestation.round(), last_block_digest);
 
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
-            debug!(target: LOG_TARGET, "📝 Checking continuity proof for block {:?}", serializable);
             let block: Block = Block::try_from(serializable)
                 .map_err(|_| Error::InvalidAttestationContinuityProof)?;
 

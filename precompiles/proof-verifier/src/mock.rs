@@ -271,6 +271,7 @@ impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyReg
         _chain_reward: Option<u128>,
         _max_attestors: Option<u32>,
         _max_invulnerables: Option<u32>,
+        _attestation_chain_genesis_block_number: Option<u64>,
     ) {
     }
 }
@@ -391,6 +392,7 @@ parameter_types! {
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const BondingDuration: EraIndex = 3;
+    pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
 
 impl pallet_attestation_poc::Config for Runtime {
@@ -413,6 +415,7 @@ impl pallet_attestation_poc::Config for Runtime {
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = ConstU32<120>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
+    type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
 }
 
 // Configure a mock runtime to test the pallet.

@@ -8,8 +8,8 @@ use tracing::{debug, error, info};
 
 use crate::error::Error;
 
-/// Subscribes to new heads on a chain configured by the url, it also takes an attestor which is an Actor
-/// where we can send the new block to in order to start the attestation cycle
+/// Attest to heads of the source chain
+/// This function will open a subscription to the source chain and continuously await new blocks.
 pub async fn attest_to_heads(
     eth_client: eth::Client,
     sender: Sender<Attestation<H256>>,

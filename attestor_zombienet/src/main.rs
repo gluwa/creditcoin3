@@ -1,13 +1,10 @@
 use anyhow::Result;
-use attestor_primitives::ChainKey;
 use bip39::{Language, Mnemonic, MnemonicType};
 use clap::Parser;
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 use std::str::FromStr;
 use std::sync::Arc;
-pub use subxt::utils::AccountId32;
-use subxt_signer::{sr25519::Keypair, SecretUri};
 use tempfile::TempDir;
 use tokio::{
     fs::File,
@@ -16,6 +13,9 @@ use tokio::{
     sync::Mutex,
 };
 use tracing::{debug, info};
+
+pub use subxt::utils::AccountId32;
+use subxt_signer::{sr25519::Keypair, SecretUri};
 
 use cc_client::Client;
 
@@ -55,10 +55,10 @@ pub struct AttestorZombienet {
 
     #[arg(
         long,
-        required = false,
-        help = "If set, override `chain_key` from config file"
+        default_value = "2",
+        help = "Supported chain key for the attestors, e.g. 2 for local Anvil"
     )]
-    supported_chain_key: Option<u64>,
+    chain_key: u64,
 
     #[arg(
         long,
@@ -80,7 +80,6 @@ struct Process {
     default_args: Option<Vec<String>>,
     num_attestors: u64,
     single_node: bool,
-    chain_key: ChainKey,
 }
 
 #[derive(Debug, Clone)]
@@ -112,11 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
 
     // Load and parse the config file
-    let mut config: Process = {
+    let config: Process = {
         let config_str = std::fs::read_to_string(args.config_file)?;
         serde_yaml::from_str(&config_str)?
     };
-    config.chain_key = args.supported_chain_key.unwrap_or(config.chain_key);
 
     let mut keys = vec![];
     for _ in 0..config.num_attestors {
@@ -203,11 +201,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             info!(
                 "Registering attestor with address({}) for chain: {}",
-                attestor, config.chain_key
+                attestor, args.chain_key
             );
             let handle = tokio::spawn(async move {
                 cc_client
-                    .register_attestor(config.chain_key, attestor, Some(nonce))
+                    .register_attestor(args.chain_key, attestor, Some(nonce))
                     .await
                     .expect("Failed to register attestor")
             });
@@ -240,6 +238,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             attestor_args.push(format!("--cc3-key={}", attestor_key.secret));
             attestor_args.push(format!("--eth-rpc-url={}", args.eth_rpc_url));
+            attestor_args.push(format!("--chain-key={}", args.chain_key));
 
             // get random number out of args.port_ranges
             // if single_node is true, use 9944

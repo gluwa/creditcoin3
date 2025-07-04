@@ -23,7 +23,8 @@ fn register_chain_works() {
             None,
             None,
             None,
-            None
+            None,
+            None,
         ));
         assert_eq!(SupportedChain::chain_key_value(), 2);
 
@@ -69,6 +70,7 @@ fn register_chain_should_error_when_not_signed() {
                 None,
                 None,
                 None,
+                None,
                 None
             ),
             BadOrigin
@@ -89,6 +91,7 @@ fn register_chain_should_error_when_not_signed_by_root() {
                 RuntimeOrigin::signed(acct),
                 chain_id,
                 chain_name,
+                None,
                 None,
                 None,
                 None,
@@ -118,6 +121,7 @@ fn register_chain_should_error_when_registering_duplicate_chain() {
                 None,
                 None,
                 None,
+                None,
                 None
             ),
             Error::<Test>::ChainAlreadyRegistered
@@ -136,6 +140,7 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_id_but_diffe
             RuntimeOrigin::root(),
             chain_id,
             chain_name.clone(),
+            None,
             None,
             None,
             None,
@@ -175,6 +180,7 @@ fn register_chain_should_work_when_registering_chain_with_duplicate_name_but_dif
             None,
             None,
             None,
+            None,
             None
         ),);
 
@@ -209,6 +215,7 @@ fn register_chain_should_error_when_chain_key_index_exceeded() {
                 RuntimeOrigin::root(),
                 chain_id,
                 chain_name,
+                None,
                 None,
                 None,
                 None,
@@ -304,6 +311,7 @@ fn test_method_supported_chains() {
             RuntimeOrigin::root(),
             chain_id,
             chain_name.clone(),
+            None,
             None,
             None,
             None,

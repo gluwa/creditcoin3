@@ -12,6 +12,7 @@ pub use attestation_chain::{
     continuity_chain::{CreateResult, Error as ContinuityError},
 };
 
+#[derive(Debug, Clone)]
 pub struct Cache {
     // Add fields here
     eth_client: Client,
@@ -21,8 +22,8 @@ pub struct Cache {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Failed to create fragment")]
-    FailedToCreateFragment,
+    #[error("Failed to create fragment, invalid parameters: start {0}, end {1}")]
+    InvalidParameters(u64, u64),
     #[error("Continuity error: {0}")]
     ContinuityError(#[from] ContinuityError),
 }
@@ -51,7 +52,7 @@ impl Cache {
         end_block: u64,
     ) -> Result<AttestationFragment, Error> {
         if start_block > end_block {
-            return Err(Error::FailedToCreateFragment);
+            return Err(Error::InvalidParameters(start_block, end_block));
         }
 
         debug!(

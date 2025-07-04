@@ -1596,7 +1596,7 @@ fn bootstrap_chain_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation =
-            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 1, None);
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None);
         let attestation_for_block_10 =
             create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 10, None);
 
@@ -1715,7 +1715,7 @@ fn commit_attestation_works() {
         progress_to_block(5);
 
         let attestation =
-            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 1, None);
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -1818,7 +1818,7 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 
         progress_to_block(5);
 
-        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
+        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 0, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -1879,7 +1879,7 @@ fn submitting_attestation_chain_works() {
         progress_to_block(5);
 
         let attestation_1 =
-            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 1, None);
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None);
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -1957,7 +1957,7 @@ fn creating_checkpoint_works() {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
-                (att_interval * i as u64) + 1,
+                att_interval * i as u64,
                 last_digest,
             );
             last_digest = Some(attestation.digest());
@@ -2041,7 +2041,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
-                (att_interval * i as u64) + 1,
+                att_interval * i as u64,
                 last_digest,
             );
             last_digest = Some(attestation.digest());
@@ -2120,7 +2120,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
                 SUPPORTED_CHAIN_KEY,
-                (att_interval * i) + 1,
+                att_interval * i,
                 last_digest,
             );
             last_digest = Some(attestation.digest());
@@ -3609,5 +3609,138 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
         // Add a new attestation
         let result = Attestation::validate_attestation(attestation3.chain_key(), &attestation3);
         assert_ok!(result);
+    });
+}
+
+#[test]
+fn setting_attestation_chain_genesis_block_number_works() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number = 1000;
+
+        assert_ok!(Attestation::set_attestation_chain_genesis_block_number(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            genesis_block_number
+        ));
+
+        let result = Attestation::attestation_chain_genesis_block_number(SUPPORTED_CHAIN_KEY);
+        assert_eq!(result, genesis_block_number);
+    });
+}
+
+#[test]
+fn default_attestation_chain_genesis_block_number_works() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number =
+            <Test as Config>::DefaultAttestationChainGenesisBlockNumber::get();
+
+        let result = Attestation::attestation_chain_genesis_block_number(SUPPORTED_CHAIN_KEY);
+        assert_eq!(result, genesis_block_number);
+    });
+}
+
+#[test]
+fn set_attestation_chain_genesis_block_number_should_fail_when_not_root() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number = 1000;
+
+        assert_noop!(
+            Attestation::set_attestation_chain_genesis_block_number(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                genesis_block_number
+            ),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_attestation_chain_genesis_block_number_should_fail_when_chain_not_supported() {
+    ExtBuilder.build_and_execute(|| {
+        let genesis_block_number = 1000;
+
+        // Attempt to set genesis block number for an unsupported chain
+        assert_noop!(
+            Attestation::set_attestation_chain_genesis_block_number(
+                RuntimeOrigin::root(),
+                123123, // Unsupported chain key
+                genesis_block_number
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+    });
+}
+
+#[test]
+fn commit_attestation_should_fail_when_genesis_block_number_is_not_correct() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None);
+
+        // Set genesis block number to a different value
+        AttestationChainGenesisBlockNumber::<Test>::insert(SUPPORTED_CHAIN_KEY, 2000);
+
+        // Attempt to commit the attestation
+        assert_noop!(
+            Attestation::commit_attestation(
+                RuntimeOrigin::none(),
+                vec![attestation.clone()].try_into().unwrap()
+            ),
+            Error::<Test>::InvalidAttestationBlockNumber
+        );
+    });
+}
+
+#[test]
+fn commit_attestation_should_succeed_when_genesis_block_number_is_correct() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Toggle to active
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 10000, None);
+
+        // Set genesis block number to the correct value
+        AttestationChainGenesisBlockNumber::<Test>::insert(SUPPORTED_CHAIN_KEY, 10000);
+
+        // Attempt to commit the attestation
+        assert_ok!(Attestation::commit_attestation(
+            RuntimeOrigin::none(),
+            vec![attestation.clone()].try_into().unwrap()
+        ));
     });
 }

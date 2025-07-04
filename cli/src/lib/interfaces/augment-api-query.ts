@@ -97,6 +97,16 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The genesis block number for the attestation chain.
+             * This is used to determine the starting point for the attestation chain.
+             **/
+            attestationChainGenesisBlockNumber: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             attestationCheckpointInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>,

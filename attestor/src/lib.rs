@@ -1,7 +1,7 @@
 use anyhow::Result;
 use engine::AsyncEngine;
-use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tokio::{sync::mpsc, time::sleep};
+use tracing::{debug, error, info, warn};
 
 pub mod engine;
 
@@ -28,11 +28,10 @@ pub struct Server {
 /// - `cc3_key`: Mnemonic for a creditcoin3 account
 pub struct Config {
     pub eth_rpc_url: String,
-    pub eth_start_block: u64,
     pub cc3_rpc_url: String,
     pub cc3_key: String,
-    pub start_block: u64,
     pub maturity_delay: u64,
+    pub chain_key: u64,
     //pub bls_key: [u8; 32],
 }
 
@@ -44,21 +43,26 @@ impl Server {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let mut engine = AsyncEngine::new(&self.config).await?;
-        engine.start(self.config.eth_start_block).await?;
+        let (shutdown_send, mut shutdown_recv) = mpsc::unbounded_channel::<()>();
+
+        let mut engine = AsyncEngine::new(&self.config, shutdown_send).await?;
+        engine.start().await?;
         debug!("Started attestation engine");
 
         // Create a task for ccsub and monitor it
-        let ccsub = ccsub::CclientSub::new(engine.clone());
-        let mut ccsub_handle = tokio::spawn(async move { ccsub.run().await });
+        let mut ccsub_engine = engine.clone();
+        let mut ccsub_handle = tokio::spawn(async move { ccsub::run(&mut ccsub_engine).await });
 
         loop {
             tokio::select! {
+                _ = shutdown_recv.recv() => {
+                    engine.stop().await;
+                    panic!("Attestor server stopped by shutdown signal");
+                }
                 ccsub_result = &mut ccsub_handle => {
                     match ccsub_result {
                         Ok(Ok(())) => {
-                            info!("CclientSub completed successfully");
-                            break; // or continue depending on whether it's fatal
+                            panic!("CclientSub completed successfully, this should not happen in a long-running attestor");
                         },
                         Ok(Err(e)) => {
                             return Err(e);
@@ -85,8 +89,12 @@ impl Server {
                                 } else if e.is_double_vote_error() {
                                     warn!("Double vote detected, continuing ...");
                                 } else if e.is_fragment_error() {
-                                    warn!("Fragment error detected, continuing ...");
+                                    warn!("Fragment error detected, exiting ...");
+                                    return Err(e.into());
+                                } else if e.is_attested_to_error() {
+                                    debug!("Attestation already submitted for round {:?}, skipping", round);
                                 } else {
+                                    error!("Failed to submit attestation for round {:?}: {:?}", round, e);
                                     return Err(e.into());
                                 }
                             }
@@ -98,7 +106,5 @@ impl Server {
                 }
             }
         }
-
-        Ok(())
     }
 }

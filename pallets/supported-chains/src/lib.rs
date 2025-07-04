@@ -155,6 +155,7 @@ pub mod pallet {
             chain_reward: Option<u128>,
             max_attestors: Option<u32>,
             max_invulnerables: Option<u32>,
+            attestation_chain_genesis_block_number: Option<u64>,
         ) -> DispatchResult {
             ensure_root(origin)?;
 
@@ -189,6 +190,7 @@ pub mod pallet {
                 chain_reward,
                 max_attestors,
                 max_invulnerables,
+                attestation_chain_genesis_block_number,
             );
 
             Self::deposit_event(Event::ChainRegistered {

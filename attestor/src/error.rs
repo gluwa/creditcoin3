@@ -9,8 +9,8 @@ use attestor_primitives::Attestation;
 pub enum Error {
     #[error("Failed to submit attestation")]
     FailedToSubmit,
-    #[error("Double vote")]
-    DoubleVote,
+    #[error("Double vote for block: {0}")]
+    DoubleVote(u64),
     #[error("Engine is not running")]
     NotRunning,
     #[error("cclient error: {0}")]
@@ -19,6 +19,8 @@ pub enum Error {
     NotSelected(u64),
     #[error("Failed to get chain key")]
     FailedToGetChainKey,
+    #[error("Wrong chain: expected {0}, got {1}")]
+    WrongChain(u64, u64),
     #[error("Failed to get chain name")]
     FailedToGetChainName,
     #[error("Failed to get attestation interval")]
@@ -35,6 +37,8 @@ pub enum Error {
     Send(#[from] SendError<Attestation<H256>>),
     #[error("Continuity Error {0}")]
     Continuity(#[from] ContinuityError),
+    #[error("Block already attested to: {0}")]
+    AlreadyAttestedTo(u64),
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
 }
@@ -60,11 +64,16 @@ impl Error {
 
     #[must_use]
     pub fn is_double_vote_error(&self) -> bool {
-        matches!(self, Error::DoubleVote)
+        matches!(self, Error::DoubleVote(_))
     }
 
     #[must_use]
     pub fn is_client_error(&self) -> bool {
         matches!(self, Error::Cclient(cc_client::Error::SubxtError(_)))
+    }
+
+    #[must_use]
+    pub fn is_attested_to_error(&self) -> bool {
+        matches!(self, Error::AlreadyAttestedTo(_))
     }
 }

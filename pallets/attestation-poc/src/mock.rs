@@ -244,6 +244,7 @@ parameter_types! {
     pub const MaxAttestationsPerBlock: u32 = 10;
     pub const DefaultAttestationRetentionDuration: u32 = 120;
     pub const MaxCheckpointsImportedPerCall: u32 = 100;
+    pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
 
 impl attestation_poc::Config for Test {
@@ -266,6 +267,7 @@ impl attestation_poc::Config for Test {
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
+    type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
 }
 
 impl pallet_supported_chains::Config for Test {

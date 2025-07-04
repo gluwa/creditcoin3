@@ -21,5 +21,6 @@ pub trait OnRegisterChainProvider {
         chain_reward: Option<u128>,
         max_attestors: Option<u32>,
         max_invulnerables: Option<u32>,
+        attestation_chain_genesis_block_number: Option<u64>,
     );
 }

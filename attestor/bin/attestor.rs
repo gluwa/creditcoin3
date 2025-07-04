@@ -27,8 +27,12 @@ pub struct Attestor {
     #[arg(short, long, help = "Turn on verbose logging")]
     verbose: bool,
 
-    #[arg(long, default_value = "0", help = "Start block for the source chain")]
-    start_block: u64,
+    #[arg(
+        long,
+        default_value = "2",
+        help = "Chain key for the source chain, must match the chain key on creditcoin3"
+    )]
+    chain_key: u64,
 
     #[arg(
         long,
@@ -59,11 +63,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config = Config {
         eth_rpc_url: args.eth_rpc_url,
-        eth_start_block: args.start_block,
         cc3_rpc_url: args.cc3_rpc_url,
         cc3_key: args.cc3_key,
-        start_block: args.start_block,
         maturity_delay: args.maturity_delay,
+        chain_key: args.chain_key,
     };
 
     let mut server = Server::new(config);

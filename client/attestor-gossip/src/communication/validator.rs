@@ -21,7 +21,9 @@ use super::{
     gossip::{Action, Consider, Message},
     Attestation,
 };
-use crate::{worker::votes_topic, HashFor, LOG_TARGET};
+use crate::{worker::votes_topic, HashFor};
+
+const LOG_TARGET: &str = "attestor-gossip-comms";
 
 // Timeout for rebroadcasting messages.
 #[cfg(not(test))]

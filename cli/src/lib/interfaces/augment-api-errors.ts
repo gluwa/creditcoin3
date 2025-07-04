@@ -43,6 +43,7 @@ declare module '@polkadot/api-base/types/errors' {
              * The call to attest_block failed, the block's cryptographic committments were invalid
              **/
             InvalidAttestation: AugmentedError<ApiType>;
+            InvalidAttestationBlockNumber: AugmentedError<ApiType>;
             InvalidAttestationInterval: AugmentedError<ApiType>;
             InvalidAttestationsPerCheckpoint: AugmentedError<ApiType>;
             InvalidAttestorAccount: AugmentedError<ApiType>;

@@ -28,7 +28,7 @@ pub mod pallet {
         InherentError, SignedAttestation, INHERENT_IDENTIFIER,
     };
     use frame_support::{
-        pallet_prelude::{OptionQuery, *},
+        pallet_prelude::{OptionQuery, ValueQuery, *},
         traits::{Currency, LockableCurrency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
     };
@@ -127,6 +127,8 @@ pub mod pallet {
         type MaxAttestationsPerBlock: Get<u32>;
         #[pallet::constant]
         type MaxCheckpointsImportedPerCall: Get<u32>;
+        #[pallet::constant]
+        type DefaultAttestationChainGenesisBlockNumber: Get<u64>;
     }
 
     pub trait WeightInfo {
@@ -150,6 +152,7 @@ pub mod pallet {
         fn claim_rewards() -> Weight;
         fn on_initialize(a: u32) -> Weight;
         fn import_checkpoints() -> Weight;
+        fn set_attestation_chain_genesis_block_number() -> Weight;
     }
 
     #[pallet::storage]
@@ -355,6 +358,24 @@ pub mod pallet {
     pub type AttestationRemovalQueues<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
 
+    #[pallet::type_value]
+    pub fn AttestationChainGenesisBlockNumberDefault<T: Config>() -> u64 {
+        T::DefaultAttestationChainGenesisBlockNumber::get()
+    }
+
+    /// The genesis block number for the attestation chain.
+    /// This is used to determine the starting point for the attestation chain.
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_chain_genesis_block_number)]
+    pub type AttestationChainGenesisBlockNumber<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u64,
+        ValueQuery,
+        AttestationChainGenesisBlockNumberDefault<T>,
+    >;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -467,6 +488,8 @@ pub mod pallet {
         ClearedStorageForRemovedChain(ChainKey),
         /// Max attestors changed for a chain
         MaxAttestorsChanged(ChainKey, u32),
+        /// Attestation chain genesis block number was set for a chain.
+        AttestationChainGenesisBlockNumberSet(ChainKey, u64),
     }
 
     #[pallet::error]
@@ -529,6 +552,8 @@ pub mod pallet {
         InvalidTargetSampleSize,
         // Tried to import checkpoints for chain key that already has attestations.
         AttestationFoundWhileImporting,
+        // Invalid attestation chain block number.
+        InvalidAttestationBlockNumber,
     }
 
     #[pallet::hooks]
@@ -883,6 +908,31 @@ pub mod pallet {
 
             Ok(())
         }
+
+        #[pallet::call_index(19)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestation_chain_genesis_block_number())]
+        pub fn set_attestation_chain_genesis_block_number(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            genesis_block_number: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            // Set the genesis block number for the attestation chain
+            AttestationChainGenesisBlockNumber::<T>::insert(chain_key, genesis_block_number);
+
+            Self::deposit_event(Event::<T>::AttestationChainGenesisBlockNumberSet(
+                chain_key,
+                genesis_block_number,
+            ));
+
+            Ok(())
+        }
     }
 
     #[pallet::inherent]
@@ -987,6 +1037,7 @@ pub mod pallet {
             chain_reward: Option<u128>,
             max_attestors: Option<u32>,
             max_invulnerables: Option<u32>,
+            attestation_chain_genesis_block_number: Option<u64>,
         ) {
             TargetSampleSize::<T>::insert(
                 chain_key,
@@ -1044,6 +1095,18 @@ pub mod pallet {
                 chain_key,
                 max_invulnerables.unwrap_or(T::MaxAttestationNodes::get()),
             );
+
+            AttestationChainGenesisBlockNumber::<T>::insert(
+                chain_key,
+                attestation_chain_genesis_block_number
+                    .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
+            );
+
+            Self::deposit_event(Event::<T>::AttestationChainGenesisBlockNumberSet(
+                chain_key,
+                attestation_chain_genesis_block_number
+                    .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
+            ));
         }
     }
 }

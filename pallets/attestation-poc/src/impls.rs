@@ -224,6 +224,12 @@ impl<T: Config> Pallet<T> {
 
         match previous_digest {
             None => {
+                let genesis_block_number = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
+                ensure!(
+                    genesis_block_number == header_number,
+                    Error::<T>::InvalidAttestationBlockNumber
+                );
+
                 // Very first attestation should have a corresponding checkpoint
                 // even though it doesn't condense any prior attestations.
                 let checkpoint = AttestationCheckpoint {
@@ -279,6 +285,12 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
 
         if Checkpoints::<T>::iter_prefix(chain_key).next().is_none() {
+            let genesis_block_number = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
+            ensure!(
+                genesis_block_number == header_number,
+                Error::<T>::InvalidAttestationBlockNumber
+            );
+
             // Very first attestation should have a corresponding checkpoint
             // even though it doesn't condense any prior attestations.
             let checkpoint = AttestationCheckpoint {

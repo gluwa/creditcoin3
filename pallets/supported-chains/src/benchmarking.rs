@@ -29,6 +29,7 @@ mod benchmarks {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -47,7 +48,8 @@ mod benchmarks {
             None,
             None,
             None,
-            None
+            None,
+            None,
         ));
 
         #[extrinsic_call]

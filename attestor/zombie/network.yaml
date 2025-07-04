@@ -1,13 +1,13 @@
 settings:
   provider: native
 relaychain:
-  default_command: ../../target/debug/creditcoin3-node
+  default_command: ../../target/release/creditcoin3-node
   default_args:
     # - "-lpeerset=trace"
   chain: local
   nodes:
     - name: alice
-      validator: true
+      validator: false
       rpc_port: 9944
       ws_port: 9944
       prometheus_port: 9615

@@ -232,6 +232,10 @@ where
     pub fn chain_key(&self) -> ChainKey {
         self.chain_key
     }
+
+    pub fn header_number(&self) -> u64 {
+        self.header_number
+    }
 }
 
 #[derive(

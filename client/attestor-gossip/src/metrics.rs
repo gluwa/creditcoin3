@@ -17,7 +17,7 @@ pub struct VoterMetrics {
     /// Best block attestor voted on
     pub attestor_best_voted: Gauge<U64>,
     /// Number of times no Authority public key found in store
-    pub attestor_no_authority_found_in_store: Counter<U64>,
+    pub _attestor_no_authority_found_in_store: Counter<U64>,
     /// Number of good votes successfully handled
     pub attestor_good_votes_processed: Counter<U64>,
     /// Number of equivocation votes received
@@ -57,7 +57,7 @@ impl PrometheusRegister for VoterMetrics {
                 )?,
                 registry,
             )?,
-            attestor_no_authority_found_in_store: register(
+            _attestor_no_authority_found_in_store: register(
                 Counter::new(
                     "substrate_attestor_no_authority_found_in_store",
                     "Number of times no Authority public key found in store",
