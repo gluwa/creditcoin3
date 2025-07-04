@@ -108,16 +108,8 @@ impl Server {
         let attestations_cache = self.attestations_cache.clone();
         let cc3_client = Arc::new(cc3_client);
         debug!("Created cc3 client");
-        // Create an eth client
-        let eth_client = Arc::new(EthClient::new(&self.config.eth_rpc_url, None).await?);
 
-        // Get the chain id of the eth chain
-        let chain_id = eth_client.get_chain_id().await?;
-
-        let chain_key = cc3_client
-            .get_chain_key(chain_id)
-            .await?
-            .expect("Prover could not find chain key on startup.");
+        let chain_key = self.config.chain_key;
 
         let (sender, receiver) = mpsc::unbounded_channel();
         let (attestation_notifier, new_attestation_receiver) = mpsc::unbounded_channel::<u64>();
