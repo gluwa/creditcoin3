@@ -430,21 +430,33 @@ jobs:
 
       - name: Prepare ENV for Devnet
         id: devnet-env
-        if: github.base_ref == 'dev'
+        if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
         run: |
           echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare ENV for Testnet
         id: testnet-env
         if: github.base_ref == 'testnet'
         run: |
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare ENV for Mainnnet
         id: mainnet-env
         if: github.base_ref == 'main'
         run: |
           echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check precompiles
         run: |
@@ -469,6 +481,41 @@ jobs:
           # shellcheck disable=SC2143
           if [ -n "$(git status --short --untracked-files=no)" ]; then
               echo "FAIL: changes detected. prover.json NOT in sync with Prover.sol, see above."
+              exit 1
+          else
+              echo "PASS: No changes detected. All good."
+              exit 0
+          fi
+
+      - name: Find latest release
+        id: find-latest
+        run: |
+          # shellcheck disable=SC2129
+          echo "release_tag=${{ steps.devnet-env.outputs.release_tag || steps.testnet-env.outputs.release_tag || steps.mainnet-env.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download smart-contract artifact(s) for release ${{ steps.find-latest.outputs.release_tag }}
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ steps.find-latest.outputs.release_tag }}
+          file: /(.*)\.sol/
+          path: common/eth/contracts/sol/
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare current Prover.sol with latest released artifact(s)
+        working-directory: ./common/eth/contracts/sol/
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff -R | colordiff
+          echo "======================================="
+
+          # shellcheck disable=SC2143
+          if [ -n "$(git status --short --untracked-files=no)" ]; then
+              echo "FAIL: Current Prover.sol differs from Prover.sol in latest release"
+              echo "INFO: changes to Prover.sol require contract(s) to be redeployed"
+              echo "WARN: when updating prover(s) don't forget to redeploy this contract"
               exit 1
           else
               echo "PASS: No changes detected. All good."
