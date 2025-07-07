@@ -3019,7 +3019,7 @@ export default {
      * Lookup407: attestor_primitives::AttestorStatus
      **/
     AttestorPrimitivesAttestorStatus: {
-        _enum: ['Active', 'Idle'],
+        _enum: ['Active', 'Idle', 'Waiting'],
     },
     /**
      * Lookup409: pallet_attestation_poc::ledger::AttestorLedger<T>

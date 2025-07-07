@@ -3528,7 +3528,8 @@ declare module '@polkadot/types/lookup' {
     interface AttestorPrimitivesAttestorStatus extends Enum {
         readonly isActive: boolean;
         readonly isIdle: boolean;
-        readonly type: 'Active' | 'Idle';
+        readonly isWaiting: boolean;
+        readonly type: 'Active' | 'Idle' | 'Waiting';
     }
 
     /** @name PalletAttestationPocLedgerAttestorLedger (409) */
