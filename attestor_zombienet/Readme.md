@@ -81,3 +81,13 @@ This feature is particularly useful for setting up a large number of attestors q
 run: false
 ...
 ```
+
+## Automatic gensesis start block number Configuration
+
+If you want the program to automatically determine the current blocknumber for the source chain and set that as the genesis starting point for the attestor you can provide `--configure-genesis` flag when running the program. This will automatically fetch the current block number from the source chain and set it as the genesis start block number for the attestor.
+
+> !!! You must run with `//Alice` key to be able to set the genesis start block number. Since this is *sudo* call.
+
+```bash
+./target/release/attestor_zombienet --cc3-key "//Alice" --configure-genesis
+```

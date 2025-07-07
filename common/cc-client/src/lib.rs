@@ -689,6 +689,44 @@ impl<'a> Client {
         }
     }
 
+    pub async fn set_attestation_chain_genesis_block_number(
+        &self,
+        account_nonce: Option<u64>,
+        chain_key: ChainKey,
+        genesis_block_number: u64,
+    ) -> Result<(), Error> {
+        let call = cc3::runtime_types::creditcoin3_runtime::RuntimeCall::Attestation(
+            cc3::runtime_types::pallet_attestation_poc::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
+        );
+
+        let tx = cc3::tx().sudo().sudo(call);
+
+        let params = if let Some(account_nonce) = account_nonce {
+            DefaultExtrinsicParamsBuilder::new()
+                .nonce(account_nonce)
+                .build()
+        } else {
+            DefaultExtrinsicParamsBuilder::new().build()
+        };
+
+        let ext = self
+            .api()
+            .await?
+            .tx()
+            .create_signed(&tx, &self.signing_keypair, params)
+            .await?
+            .submit_and_watch()
+            .await?;
+
+        let hash = ext.extrinsic_hash();
+        debug!(
+            "Set attestation chain genesis block number extrinsic submitted with hash: {:?}",
+            hash
+        );
+
+        Ok(())
+    }
+
     pub async fn get_attestation_chain_genesis_block_number(
         &self,
         chain_key: ChainKey,

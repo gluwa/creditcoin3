@@ -23,6 +23,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 clap = { workspace = true }
+eth = { workspace = true }
 futures.workspace = true
 serde = { workspace = true }
 tokio = { workspace = true, features = ["signal", "fs", "process"] }

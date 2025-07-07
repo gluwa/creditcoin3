@@ -18,6 +18,7 @@ pub use subxt::utils::AccountId32;
 use subxt_signer::{sr25519::Keypair, SecretUri};
 
 use cc_client::Client;
+use eth::Client as EthClient;
 
 #[derive(Parser, Debug)]
 #[command(name = "attestor_zombienet")]
@@ -71,6 +72,13 @@ pub struct AttestorZombienet {
 
     #[arg(short, long, help = "Turn on verbose logging")]
     verbose: bool,
+
+    #[arg(
+        long,
+        default_value = "false",
+        help = "If true, the program will fetch the current block number of the source chain and configure that as a genesis block for the attestors. This is useful for testing purposes."
+    )]
+    configure_genesis: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,6 +231,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("All attestors registered!\n");
     tokio::time::sleep(tokio::time::Duration::from_secs(TIMEOUT_SECONDS)).await;
+
+    if args.configure_genesis {
+        info!("Configuring genesis block for attestors...");
+        let eth_client = EthClient::new(&args.eth_rpc_url, None).await?;
+        let current_block = eth_client.get_last_block().await?;
+        info!("Current block number: {}", current_block);
+        let rounded_block = current_block - (current_block % 10);
+        info!(
+            "Rounded block number for genesis configuration: {}",
+            rounded_block
+        );
+        cc_client
+            .set_attestation_chain_genesis_block_number(Some(nonce), args.chain_key, rounded_block)
+            .await?;
+        info!(
+            "Genesis block configured for attestors with chain key: {}\n",
+            args.chain_key
+        );
+    }
 
     if config.run {
         // Create an Arc and Mutex to manage child processes
