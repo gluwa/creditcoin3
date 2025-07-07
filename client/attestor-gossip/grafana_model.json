@@ -147,11 +147,11 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_votes_sent{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "substrate_attestor_votes_sent{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -289,12 +289,12 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "attestor_votes_from_rpc{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "attestor_votes_from_rpc{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -359,11 +359,11 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "attestor_imported_votes{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "attestor_imported_votes{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -496,11 +496,11 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_successful_handled_votes{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "substrate_attestor_successful_handled_votes{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -565,11 +565,11 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_equivocation_votes{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "substrate_attestor_equivocation_votes{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false

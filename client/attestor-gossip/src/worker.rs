@@ -1,6 +1,6 @@
 use crate::metrics::register_metrics;
 use crate::round::RoundConfig;
-use crate::{metric_inc, metric_set_chain, metrics::VoterMetrics};
+use crate::{metric_inc, metric_inc_chain, metric_set_chain, metrics::VoterMetrics};
 use attestor_primitives::ChainKey;
 use futures::{stream::Fuse, StreamExt};
 use log::{debug, error, info, warn};
@@ -220,12 +220,13 @@ where
                 },
                 // Handler that handles incoming attestation from the gossip netowrk
                 vote = votes.next() => {
-                    if let Some(vote) = vote {
+                    if let Some(Message::Attestation(vote)) = vote {
+                        let chain_key = vote.chain_key();
                         debug!(target: LOG_TARGET, "📝 Got a vote from the network");
-                        metric_inc!(self.metrics, attestor_imported_votes);
-                        match self.triage_message(vote.clone()).await {
+                        metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, chain_key);
+                        match self.triage_message(Message::Attestation(vote.clone())).await {
                             Ok(()) => {
-                                metric_inc!(self.metrics, attestor_good_votes_processed);
+                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
                                 debug!(target: LOG_TARGET, "📝 Got a valid gossiped message");
                             },
                             Err(e) => {
@@ -247,18 +248,19 @@ where
 
                         match message.clone() {
                             Message::Attestation(attestation) => {
-                                metric_inc!(self.metrics, attestor_votes_from_rpc);
+                                let chain_key = attestation.chain_key();
+                                metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, chain_key);
 
                                 let round = attestation.round();
                                 debug!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
 
-                                metric_inc!(self.metrics, attestor_good_votes_processed);
+                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
                                 // Also process the message
                                 match self.process_attestation_message(attestation).await {
                                     Ok(()) => {
                                         debug!(target: LOG_TARGET, "📝 Got a valid incoming message from rpc, round: {:?}", round);
                                         // Gossip now
-                                        metric_inc!(self.metrics, attestor_votes_sent);
+                                        metric_inc_chain!(self.metrics, attestor_votes_sent_per_chain, chain_key);
                                         self.comms.gossip_engine.gossip_message(
                                             topic,
                                             message.encode(),
@@ -315,7 +317,11 @@ where
         match import_result {
             VoteImportResult::DoubleVote => {
                 warn!(target: LOG_TARGET, "📝 Double vote detected, round: {:?}", round);
-                metric_inc!(self.metrics, attestor_equivocation_votes);
+                metric_inc_chain!(
+                    self.metrics,
+                    attestor_equivocation_votes_per_chain,
+                    attestation.chain_key()
+                );
                 return Err(Error::DoubleVote);
             }
             VoteImportResult::Ok => {
@@ -331,7 +337,11 @@ where
             }
             VoteImportResult::Stale => {
                 info!(target: LOG_TARGET, "📝 Stale vote detected, round: {:?}", round);
-                metric_inc!(self.metrics, attestor_stale_votes);
+                metric_inc_chain!(
+                    self.metrics,
+                    attestor_stale_votes_per_chain,
+                    attestation.chain_key()
+                );
                 return Err(Error::StaleVote);
             }
             VoteImportResult::RoundConcluded => {
