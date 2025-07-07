@@ -9,8 +9,8 @@ use tracing::{debug, error, info};
 use cc_client::{AccountId32, Client as CcClient};
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorId, BlsPublicKey,
-    BlsSignature, ChainId, ChainKey, SignedAttestation,
+    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorId, AttestorStatus,
+    BlsPublicKey, BlsSignature, ChainId, ChainKey, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;
@@ -131,13 +131,44 @@ impl<'a> Client {
 
     /// Init the client, this bootstraps registration if not registered already
     pub async fn init(&self) -> Result<()> {
-        let is_attestor_member = self
+        // First check attestor public key to see if the attestor is registered
+        let is_registered = self
             .inner
-            .check_attestors_membership(self.get_chain_key())
+            .check_attestor_is_registered(self.get_chain_key())
             .await?;
 
-        if !is_attestor_member {
-            debug!("Signaling to start attesting... Please wait...");
+        if is_registered {
+            // Check attestor status
+            let status = self.inner.get_attestor_status(self.get_chain_key()).await?;
+            match status {
+                Some(AttestorStatus::Active) => {
+                    debug!("Attestor is already active and ready to attest");
+                }
+                Some(AttestorStatus::Idle) => {
+                    debug!(
+                        "Attestor is in idle state, signaling to start attesting... Please wait..."
+                    );
+                    match self.start_attesting().await {
+                        Ok(()) => {
+                            info!("Successfully signaled intention to attest!");
+                        }
+                        Err(e) => {
+                            error!("Failed to signal intention to attest: {:?}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                Some(AttestorStatus::Waiting) => {
+                    debug!("Attestor is waiting to be elected, no action needed");
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Unknown attestor status or attestor not found"
+                    ));
+                }
+            }
+        } else {
+            debug!("Attestor not registered yet, signaling to start attesting... Please wait...");
             match self.start_attesting().await {
                 Ok(()) => {
                     info!("Registration successful!");
@@ -160,9 +191,32 @@ impl<'a> Client {
     }
 
     pub async fn can_attest(&self) -> Result<bool> {
-        self.inner
+        // Check if attestor is in active set (elected)
+        let is_active = self
+            .inner
             .check_attestors_membership(self.get_chain_key())
-            .await
+            .await?;
+
+        if is_active {
+            return Ok(true);
+        }
+
+        // If not active, check if attestor is registered and waiting
+        let is_registered = self
+            .inner
+            .check_attestor_is_registered(self.get_chain_key())
+            .await?;
+
+        if !is_registered {
+            return Ok(false);
+        }
+
+        // Check if attestor is in waiting state
+        let status = self.inner.get_attestor_status(self.get_chain_key()).await?;
+        match status {
+            Some(AttestorStatus::Active) => Ok(true),
+            _ => Ok(false),
+        }
     }
 
     /// Register to the attestation pallet

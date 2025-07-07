@@ -25,9 +25,11 @@ pub struct Attestor<AccountId> {
 /// Attestor status
 /// Active - Attestor is active and can participate in attestation
 /// Idle - Attestor is idle and cannot participate in attestation
+/// Waiting - Attestor is waiting for the next attestation round
 pub enum AttestorStatus {
     Active,
     Idle,
+    Waiting,
 }
 
 #[derive(Encode, Decode, Default, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]

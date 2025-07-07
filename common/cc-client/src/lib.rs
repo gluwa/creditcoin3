@@ -31,8 +31,8 @@ use cc3::runtime_types::{
 };
 
 use attestor_primitives::{
-    Attestation, AttestationCheckpoint, AttestorId, BlsPublicKey, BlsSignature, ChainKey, Digest,
-    SignedAttestation,
+    Attestation, AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature,
+    ChainKey, Digest, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation as RpcAttestation;
 use supported_chains_primitives::SupportedChain;
@@ -278,6 +278,57 @@ impl<'a> Client {
         match result {
             Some(result) => Ok(result.contains(&AccountId32(self.signing_keypair.public_key().0))),
             None => Ok(false),
+        }
+    }
+
+    /// Check if the attestor is registered (has a public key)
+    pub async fn check_attestor_is_registered(&self, chain_key: u64) -> Result<bool> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
+
+        let result = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        match result {
+            Some(attestor) => Ok(attestor.bls_public_key.is_some()),
+            None => Ok(false),
+        }
+    }
+
+    /// Check the attestor status
+    pub async fn get_attestor_status(&self, chain_key: u64) -> Result<Option<AttestorStatus>> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
+
+        let result = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        match result {
+            Some(attestor) => match attestor.status {
+                _ if format!("{:?}", attestor.status) == "Active" => {
+                    Ok(Some(AttestorStatus::Active))
+                }
+                _ if format!("{:?}", attestor.status) == "Idle" => Ok(Some(AttestorStatus::Idle)),
+                _ if format!("{:?}", attestor.status) == "Waiting" => {
+                    Ok(Some(AttestorStatus::Waiting))
+                }
+                _ => Ok(None),
+            },
+            None => Ok(None),
         }
     }
 

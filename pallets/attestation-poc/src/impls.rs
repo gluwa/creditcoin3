@@ -334,6 +334,14 @@ impl<T: Config> Pallet<T> {
         let mut attestor =
             Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
+        // Check if attestor has already been registered and if they're not already waiting/active
+        if attestor.bls_public_key.is_some() {
+            ensure!(
+                attestor.status == AttestorStatus::Idle,
+                Error::<T>::AttestorNotIdle
+            );
+        }
+
         // Verify proof of possession
         let public_key = PublicKey::from_bytes(&bls_public_key[..])
             .map_err(|_| Error::<T>::InvalidBlsPublicKey)?;
@@ -350,7 +358,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidProofOfPossession
         );
 
-        attestor.status = AttestorStatus::Active;
+        // Set status to Waiting until next epoch rotation
+        attestor.status = AttestorStatus::Waiting;
         attestor.bls_public_key = Some(bls_public_key);
         Attestors::<T>::insert(chain_key, &attestor_id, attestor);
 
@@ -546,15 +555,19 @@ impl<T: Config> Pallet<T> {
             let prefix = Attestors::<T>::iter_prefix(chain_key);
             let prefix_len = Attestors::<T>::iter_prefix(chain_key).count();
 
-            let attestors = prefix
-                .filter_map(|(account, attestor)| {
-                    if attestor.status == AttestorStatus::Active {
-                        Some(account)
-                    } else {
-                        None
+            let mut attestors = Vec::new();
+            for (account, mut attestor) in prefix {
+                match attestor.status {
+                    AttestorStatus::Active => attestors.push(account),
+                    AttestorStatus::Waiting => {
+                        // Transition from Waiting to Active
+                        attestor.status = AttestorStatus::Active;
+                        Attestors::<T>::insert(chain_key, &account, attestor);
+                        attestors.push(account);
                     }
-                })
-                .collect::<Vec<_>>();
+                    AttestorStatus::Idle => {}
+                }
+            }
 
             // We still need an event if the number of attestors went from non-zero to zero
             if attestors.is_empty() && prefix_len == 0 {
