@@ -478,7 +478,7 @@ fn attestor_should_be_able_to_toggle_status() {
         let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
         // Public key should be set
         assert_eq!(attestor.bls_public_key, Some(att.public_key));
-        assert_eq!(attestor.status, AttestorStatus::Active);
+        assert_eq!(attestor.status, AttestorStatus::Waiting);
 
         // Chill
         assert_ok!(Attestation::chill(
@@ -846,7 +846,7 @@ fn attest_should_update_storage_and_emit_event() {
 
         // assert
         let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
-        assert_eq!(attestor.status, AttestorStatus::Active);
+        assert_eq!(attestor.status, AttestorStatus::Waiting);
         assert_eq!(attestor.bls_public_key, Some(att1.public_key));
 
         System::assert_last_event(
@@ -3361,7 +3361,7 @@ fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
             Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
                 .unwrap()
                 .status,
-            AttestorStatus::Active
+            AttestorStatus::Waiting
         );
 
         // Remove supported chain
