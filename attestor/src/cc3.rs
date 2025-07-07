@@ -168,21 +168,9 @@ impl<'a> Client {
                 }
             }
         } else {
-            debug!("Attestor not registered yet, signaling to start attesting... Please wait...");
-            match self.start_attesting().await {
-                Ok(()) => {
-                    info!("Registration successful!");
-                }
-                Err(e) => {
-                    if e.to_string().contains("Attestation::AddressNotAttestor") {
-                        return Err(anyhow::anyhow!(
-                            "The address is not an attestor. Please make sure the stash registers the attestor on chain first."
-                        ));
-                    }
-                    error!("Failed to register: {:?}", e);
-                    return Err(e);
-                }
-            }
+            return Err(anyhow::anyhow!(
+                  "The address is not an attestor. Please make sure the stash registers the attestor on chain first."
+            ));
         }
 
         debug!("Attestor ready to start!");
@@ -208,10 +196,11 @@ impl<'a> Client {
             .await?;
 
         if !is_registered {
-            return Ok(false);
+            error!("Attestor is not registered, register the key first and then retry");
+            return Err(anyhow::anyhow!("Attestor is not registered"));
         }
 
-        // Check if attestor is in waiting state
+        // Check the attestor status
         let status = self.inner.get_attestor_status(self.get_chain_key()).await?;
         match status {
             Some(AttestorStatus::Active) => Ok(true),
