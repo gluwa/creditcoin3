@@ -87,7 +87,7 @@ impl Server {
                                 } else if e.is_not_running_error() {
                                     info!("Engine not running, continuing ...");
                                 } else if e.is_double_vote_error() {
-                                    warn!("Double vote detected, continuing ...");
+                                    debug!("Double vote detected, continuing ...");
                                 } else if e.is_fragment_error() {
                                     warn!("Fragment error detected, exiting ...");
                                     return Err(e.into());

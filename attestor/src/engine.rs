@@ -211,6 +211,11 @@ impl AsyncEngine {
             .insert((attestation.header_number(), attestation.digest()));
         // Another sanity check to ensure we are not double voting
         if !can_submit {
+            info!(
+                "❗ Double vote detected for block: {}, digest: {}",
+                attestation.header_number(),
+                attestation.digest()
+            );
             return Err(Error::DoubleVote(attestation.header_number()));
         }
 

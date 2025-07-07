@@ -26,9 +26,11 @@ pub async fn attest_to_heads(
     let last_block_height = eth_client.get_last_block().await?;
     debug!("Last block height: {}", last_block_height);
 
-    // If the start block is greater than the last block height, open a new subscription to latest heads
+    // If the start block is greater than the last block height minus the interval, open a new subscription to latest heads
     // It means we can just follow the source chain and we don't need to fetch historical blocks
-    let mut subscription = if config.start_block >= last_block_height {
+    let mut subscription = if config.start_block
+        >= last_block_height.saturating_sub(attestation_interval)
+    {
         info!("Opening subscription to new heads");
         eth_client.open_subscription(None, attestation_interval)?
     } else {
