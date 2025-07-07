@@ -121,3 +121,7 @@ export const attestorAddressOption = new Option('-a, --attestor [attestor]', 'Sp
 export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key').argParser(
     parsePositiveIntegerOrExit,
 );
+
+export const payeeOption = new Option('-p, --payee [payee]', 'Specify payee address to set').argParser(
+    parseSubstrateAddress,
+);

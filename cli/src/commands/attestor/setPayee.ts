@@ -2,14 +2,14 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { signSendAndWatchCcKeyring } from '../../lib/tx';
 import { initKeyring } from '../../lib/account/keyring';
-import { proxyForOption } from '../options';
+import { payeeOption, proxyForOption } from '../options';
 import { inputOrDefault, parseChoiceOrExit } from '../../lib/parsing';
 
 export function setPayeeCommand() {
     const cmd = new Command('set-payee');
     cmd.description('Set payee address for attestor, which will receive rewards on claim rewards');
     cmd.addOption(proxyForOption);
-    cmd.option('-p, --payee [payee]', 'Specify payee address to set');
+    cmd.addOption(payeeOption.makeOptionMandatory());
     cmd.action(setPayeeAction);
     return cmd;
 }
