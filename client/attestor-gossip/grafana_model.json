@@ -82,7 +82,7 @@
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "{{chain}}",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -697,6 +697,17 @@
         "query": "query_result(up{})",
         "multi": true,
         "allValue": ".+"
+      },
+      {
+        "name": "chain",
+        "label": "Chain",
+        "datasource": "$datasource",
+        "type": "query",
+        "refresh": 2,
+        "query": "label_values(substrate_attestor_best_block, chain_key)",
+        "multi": true,
+        "allValue": ".+",
+        "includeAll": true
       }
     ]
   }
