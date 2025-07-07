@@ -552,22 +552,24 @@ impl<T: Config> Pallet<T> {
         let supported_chains = T::SupportedChains::supported_chains();
 
         for chain_key in supported_chains {
-            let prefix = Attestors::<T>::iter_prefix(chain_key);
-            let prefix_len = Attestors::<T>::iter_prefix(chain_key).count();
+            let prefix: Vec<_> = Attestors::<T>::iter_prefix(chain_key).collect();
+            let prefix_len = prefix.len();
 
-            let mut attestors = Vec::new();
-            for (account, mut attestor) in prefix {
-                match attestor.status {
-                    AttestorStatus::Active => attestors.push(account),
-                    AttestorStatus::Waiting => {
-                        // Transition from Waiting to Active
-                        attestor.status = AttestorStatus::Active;
-                        Attestors::<T>::insert(chain_key, &account, attestor);
-                        attestors.push(account);
+            let attestors = prefix
+                .into_iter()
+                .filter_map(|(account, mut attestor)| {
+                    match attestor.status {
+                        AttestorStatus::Active => Some(account),
+                        AttestorStatus::Waiting => {
+                            // Transition from Waiting to Active
+                            attestor.status = AttestorStatus::Active;
+                            Attestors::<T>::insert(chain_key, &account, attestor);
+                            Some(account)
+                        }
+                        AttestorStatus::Idle => None,
                     }
-                    AttestorStatus::Idle => {}
-                }
-            }
+                })
+                .collect::<Vec<_>>();
 
             // We still need an event if the number of attestors went from non-zero to zero
             if attestors.is_empty() && prefix_len == 0 {
