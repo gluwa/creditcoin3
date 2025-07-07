@@ -111,7 +111,6 @@ describe('chill', () => {
                 .toString()
                 .trim();
             expect(secretSeed.startsWith('0x')).toEqual(true);
-            console.log(`SECRET SEED: ${secretSeed}`);
 
             // warning: GitHub doesn't allow uploading files with colon in their name
             const timeStamp = new Date().toISOString().replaceAll(':', '-');

@@ -30,6 +30,7 @@ async function claimRewardsAction(options: OptionValues) {
     const claimRewardsAttestorTx = api.tx.attestation.claimRewards();
 
     await requireKeyringHasSufficientFunds(claimRewardsAttestorTx, keyring, api);
+
     const result = await signSendAndWatchCcKeyring(claimRewardsAttestorTx, api, keyring);
     console.log(result.info);
     process.exit(result.status);
