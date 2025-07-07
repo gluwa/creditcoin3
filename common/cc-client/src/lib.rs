@@ -282,7 +282,7 @@ impl<'a> Client {
     }
 
     /// Check if the attestor is registered (has a public key)
-    pub async fn check_attestor_is_registered(&self, chain_key: u64) -> Result<bool> {
+    pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool> {
         let storage_query = cc3::storage()
             .attestation()
             .attestors(chain_key, AccountId32(self.signing_keypair.public_key().0));
@@ -298,7 +298,9 @@ impl<'a> Client {
 
         match result {
             Some(attestor) => Ok(attestor.bls_public_key.is_some()),
-            None => Ok(false),
+            None => Err(anyhow::anyhow!(
+                "Attestor not found in storage, register the attestor first and retry later"
+            )),
         }
     }
 

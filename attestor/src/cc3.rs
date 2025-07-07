@@ -134,7 +134,7 @@ impl<'a> Client {
         // First check attestor public key to see if the attestor is registered
         let is_registered = self
             .inner
-            .check_attestor_is_registered(self.get_chain_key())
+            .check_attestor_key_is_registered(self.get_chain_key())
             .await?;
 
         if is_registered {
@@ -168,9 +168,21 @@ impl<'a> Client {
                 }
             }
         } else {
-            return Err(anyhow::anyhow!(
-                  "The address is not an attestor. Please make sure the stash registers the attestor on chain first."
-            ));
+            debug!("Attestor bls key not registered yet, signaling to start attesting... Please wait...");
+            match self.start_attesting().await {
+                Ok(()) => {
+                    info!("Registration successful!");
+                }
+                Err(e) => {
+                    if e.to_string().contains("Attestation::AddressNotAttestor") {
+                        return Err(anyhow::anyhow!(
+                            "The address is not an attestor. Please make sure the stash registers the attestor on chain first."
+                        ));
+                    }
+                    error!("Failed to register: {:?}", e);
+                    return Err(e);
+                }
+            }
         }
 
         debug!("Attestor ready to start!");
@@ -192,12 +204,12 @@ impl<'a> Client {
         // If not active, check if attestor is registered and waiting
         let is_registered = self
             .inner
-            .check_attestor_is_registered(self.get_chain_key())
+            .check_attestor_key_is_registered(self.get_chain_key())
             .await?;
 
         if !is_registered {
-            error!("Attestor is not registered, register the key first and then retry");
-            return Err(anyhow::anyhow!("Attestor is not registered"));
+            error!("Attestor key is not registered, register the key first and then retry");
+            return Err(anyhow::anyhow!("Attestor key is not registered"));
         }
 
         // Check the attestor status
