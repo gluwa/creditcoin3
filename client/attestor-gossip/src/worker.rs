@@ -1,6 +1,6 @@
 use crate::metrics::register_metrics;
 use crate::round::RoundConfig;
-use crate::{metric_inc, metric_set, metrics::VoterMetrics};
+use crate::{metric_inc, metric_set_chain, metrics::VoterMetrics};
 use attestor_primitives::ChainKey;
 use futures::{stream::Fuse, StreamExt};
 use log::{debug, error, info, warn};
@@ -300,9 +300,10 @@ where
             warn!(target: LOG_TARGET, "📝 Node is syncing, skipping message");
             return Err(Error::WorkerInSync);
         }
-        metric_set!(
+        metric_set_chain!(
             self.metrics,
-            attestor_best_block,
+            attestor_best_block_per_chain,
+            attestation.chain_key(),
             attestation.header_number()
         );
 
@@ -318,9 +319,10 @@ where
                 return Err(Error::DoubleVote);
             }
             VoteImportResult::Ok => {
-                metric_set!(
+                metric_set_chain!(
                     self.metrics,
-                    attestor_best_voted,
+                    attestor_best_voted_per_chain,
+                    attestation.chain_key(),
                     attestation.header_number()
                 );
                 info!(target: LOG_TARGET, "📝 Attestation added to round: {:?}", round);

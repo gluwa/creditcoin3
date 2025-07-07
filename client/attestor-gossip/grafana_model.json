@@ -78,11 +78,11 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_best_block{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "substrate_attestor_best_block{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -216,11 +216,11 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_best_voted{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "substrate_attestor_best_voted{job=~\"$job\", instance=~\"$instance\", chain_key=~\"$chain\"}",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{chain_key}}",
           "range": true,
           "refId": "A",
           "useBackend": false

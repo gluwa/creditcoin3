@@ -1,6 +1,8 @@
 use crate::LOG_TARGET;
 use log::{debug, error};
-use substrate_prometheus_endpoint::{register, Counter, Gauge, PrometheusError, Registry, U64};
+use substrate_prometheus_endpoint::{
+    register, Counter, GaugeVec, Opts, PrometheusError, Registry, U64,
+};
 
 /// Helper trait for registering attestor metrics to Prometheus registry.
 pub(crate) trait PrometheusRegister<T: Sized = Self>: Sized {
@@ -12,10 +14,10 @@ pub(crate) trait PrometheusRegister<T: Sized = Self>: Sized {
 #[derive(Clone, Debug)]
 pub struct VoterMetrics {
     pub attestor_votes_sent: Counter<U64>,
-    /// Best block finalized by attestor
-    pub attestor_best_block: Gauge<U64>,
-    /// Best block attestor voted on
-    pub attestor_best_voted: Gauge<U64>,
+    /// Best block finalized by attestor per chain
+    pub attestor_best_block_per_chain: GaugeVec<U64>,
+    /// Best block attestor voted on per chain
+    pub attestor_best_voted_per_chain: GaugeVec<U64>,
     /// Number of times no Authority public key found in store
     pub _attestor_no_authority_found_in_store: Counter<U64>,
     /// Number of good votes successfully handled
@@ -43,17 +45,24 @@ impl PrometheusRegister for VoterMetrics {
                 )?,
                 registry,
             )?,
-            attestor_best_block: register(
-                Gauge::new(
-                    "substrate_attestor_best_block",
-                    "Best block finalized by attestor",
+            attestor_best_block_per_chain: register(
+                GaugeVec::new(
+                    Opts::new(
+                        "substrate_attestor_best_block",
+                        "Best block finalized by attestor per chain",
+                    ),
+                    &["chain_key"],
                 )?,
                 registry,
             )?,
-            attestor_best_voted: register(
-                Gauge::new(
-                    "substrate_attestor_best_voted",
-                    "Best block voted on by attestor",
+
+            attestor_best_voted_per_chain: register(
+                GaugeVec::new(
+                    Opts::new(
+                        "substrate_attestor_best_voted",
+                        "Best block voted on by attestor per chain",
+                    ),
+                    &["chain_key"],
                 )?,
                 registry,
             )?,
@@ -136,12 +145,15 @@ pub(crate) fn register_metrics<T: PrometheusRegister>(
 // Note: we use the `format` macro to convert an expr into a `u64`. This will fail,
 // if expr does not derive `Display`.
 #[macro_export]
-macro_rules! metric_set {
-    ($metrics:expr, $m:ident, $v:expr) => {{
+macro_rules! metric_set_chain {
+    ($metrics:expr, $m:ident, $chain_key:expr, $v:expr) => {{
         let val: u64 = format!("{}", $v).parse().unwrap();
 
         if let Some(metrics) = $metrics.as_ref() {
-            metrics.$m.set(val);
+            metrics
+                .$m
+                .with_label_values(&[&$chain_key.to_string()])
+                .set(val);
         }
     }};
 }
