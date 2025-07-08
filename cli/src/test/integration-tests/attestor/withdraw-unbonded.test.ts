@@ -6,7 +6,6 @@ import {
     tearDownProxy,
     waitEras,
     ALICE_NODE_URL,
-    BOB_NODE_URL,
     CLIBuilder,
 } from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
@@ -26,9 +25,7 @@ describe('withdraw-unbonded', () => {
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
-    });
 
-    beforeEach(async () => {
         // Create and fund the test and proxy account
         caller = await randomFundedAccount(api, sudoSigner);
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
@@ -51,55 +48,11 @@ describe('withdraw-unbonded', () => {
         expect(result.exitCode).toEqual(0);
     }, 150_000);
 
-    afterEach(() => {
-        tearDownProxy(nonProxiedCli, proxy);
-    }, 90_000);
-
     afterAll(async () => {
+        tearDownProxy(nonProxiedCli, proxy);
+
         await api.disconnect();
-    });
-
-    testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
-        'should error with "Caller has insufficient funds" message',
-        () => {
-            try_catch_else_finally(
-                () => {
-                    CLI(`attestor withdraw-unbonded`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-    );
-
-    testIf(
-        process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
-        'should error with proxy.NotProxy message',
-        () => {
-            try_catch_else_finally(
-                () => {
-                    CLI(`attestor withdraw-unbonded`);
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        },
-    );
+    }, 120_000);
 
     testIf(
         process.env.PROXY_ENABLED === undefined ||
@@ -110,7 +63,7 @@ describe('withdraw-unbonded', () => {
             const newCaller = await randomFundedAccount(api, sudoSigner);
             CLI = CLIBuilder({ CC_SECRET: newCaller.secret });
 
-            const result = CLI(`attestor withdraw-unbonded --url ${BOB_NODE_URL}`);
+            const result = CLI(`attestor withdraw-unbonded`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain(`No unbonded funds to withdraw for address ${newCaller.address}`);
         },
@@ -131,22 +84,66 @@ describe('withdraw-unbonded', () => {
         30_000,
     );
 
-    testIf(
-        process.env.PROXY_ENABLED === undefined ||
-            process.env.PROXY_ENABLED === 'no' ||
-            (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
-        'should succeed when funds have been unlocked',
-        async () => {
+    describe('when funds have been unlocked', () => {
+        beforeAll(async () => {
             // wait for funds to be unlocked!
             const unbondingPeriod: number = api.consts.attestation.bondingDuration.toNumber();
             await waitEras(unbondingPeriod, api); // ~5 minutes
+        }, 400_000);
 
-            // note: not waiting for unbonding period to finish
-            const result = CLI(`attestor withdraw-unbonded`);
-            expect(result.exitCode).toEqual(0);
-            expect(result.stdout).toContain('Unbonded funds available to withdraw:');
-            expect(result.stdout).toContain('Transaction included at block');
-        },
-        400_000,
-    );
+        testIf(
+            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
+            'should error with "Caller has insufficient funds" message',
+            () => {
+                try_catch_else_finally(
+                    () => {
+                        CLI(`attestor withdraw-unbonded`);
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
+            },
+        );
+
+        testIf(
+            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
+            'should error with proxy.NotProxy message',
+            () => {
+                try_catch_else_finally(
+                    () => {
+                        CLI(`attestor withdraw-unbonded`);
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stdout).toContain(
+                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
+            },
+        );
+
+        testIf(
+            process.env.PROXY_ENABLED === undefined ||
+                process.env.PROXY_ENABLED === 'no' ||
+                (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            'should succeed when funds have been unlocked',
+            () => {
+                const result = CLI(`attestor withdraw-unbonded`);
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Unbonded funds available to withdraw:');
+                expect(result.stdout).toContain('Transaction included at block');
+            },
+        );
+    });
 });
