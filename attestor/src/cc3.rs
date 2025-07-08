@@ -168,12 +168,14 @@ impl<'a> Client {
                 }
             }
         } else {
+            // Check didn't early exit, meaning the attestor is registered on chain, it's just missing the key
             debug!("Attestor bls key not registered yet, signaling to start attesting... Please wait...");
             match self.start_attesting().await {
                 Ok(()) => {
                     info!("Registration successful!");
                 }
                 Err(e) => {
+                    // Just in case
                     if e.to_string().contains("Attestation::AddressNotAttestor") {
                         return Err(anyhow::anyhow!(
                             "The address is not an attestor. Please make sure the stash registers the attestor on chain first."
@@ -192,24 +194,25 @@ impl<'a> Client {
 
     pub async fn can_attest(&self) -> Result<bool> {
         // Check if attestor is in active set (elected)
-        let is_active = self
+        let is_a_member = self
             .inner
             .check_attestors_membership(self.get_chain_key())
             .await?;
 
-        if is_active {
+        if is_a_member {
             return Ok(true);
         }
 
         // If not active, check if attestor is registered and waiting
-        let is_registered = self
+        let is_key_registered = self
             .inner
             .check_attestor_key_is_registered(self.get_chain_key())
             .await?;
 
-        if !is_registered {
-            error!("Attestor key is not registered, register the key first and then retry");
-            return Err(anyhow::anyhow!("Attestor key is not registered"));
+        // If we came to this point, it means that the check didn't early exit and the attestor is
+        // registered, it's just missing the key i.e. attest() hasn't been called yet
+        if !is_key_registered {
+            return Ok(false);
         }
 
         // Check the attestor status

@@ -282,6 +282,7 @@ impl<'a> Client {
     }
 
     /// Check if the attestor is registered (has a public key)
+    /// note: this function early exits if the attestor is not registered
     pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool> {
         let storage_query = cc3::storage()
             .attestation()
