@@ -255,7 +255,7 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 1; // Idle
+    attestorEntity.status = 0; // Not registered
 
     await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
