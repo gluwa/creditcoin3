@@ -41,7 +41,7 @@ describe('handleEventAttestorChilled()', () => {
                 if (node.attestorId === attestor.address) {
                     foundMatch = true;
                     expect(node.stashId).toEqual(bob.address);
-                    expect(node.status).toEqual(1); // has just been registered
+                    expect(node.status).toEqual(1); // has just been registered, Idle
                 }
             }
             expect(foundMatch).toEqual(true);
@@ -107,7 +107,7 @@ describe('handleEventAttestorChilled()', () => {
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
-                expect(node.status).toEqual(5);
+                expect(node.status).toEqual(1); // Idle/Chilled
             }
         });
     });

@@ -94,7 +94,7 @@ describe('handleEventAttestorElected()', () => {
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
                 // attestor was last updated when it was elected
                 expect(BigInt(node.lastUpdateBlockNumber)).toEqual(epochStart);
-                expect(node.status).toEqual(3);
+                expect(node.status).toEqual(3); // Active
             }
         });
     });

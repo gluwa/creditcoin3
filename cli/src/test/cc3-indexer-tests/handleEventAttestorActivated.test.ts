@@ -45,7 +45,7 @@ describe('handleEventAttestorActivated()', () => {
                 if (node.attestorId === attestor.address) {
                     foundMatch = true;
                     expect(node.stashId).toEqual(bob.address);
-                    expect(node.status).toEqual(1); // has just been registered
+                    expect(node.status).toEqual(1); // has just been registered, Idle state
                 }
             }
             expect(foundMatch).toEqual(true);
@@ -116,8 +116,8 @@ describe('handleEventAttestorActivated()', () => {
             for (const node of response.data.attestors.nodes) {
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
-                // 4 - Activated; 3 - Elected (if epoch changed meanwhile)
-                expect([3, 4]).toContain(node.status);
+                // 2 - Waiting; 3 - Active (if epoch changed meanwhile)
+                expect([2, 3]).toContain(node.status);
                 expect(node.blsPublicKey.startsWith('0x')).toEqual(true);
             }
         });
