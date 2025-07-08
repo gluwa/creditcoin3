@@ -70,7 +70,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
             const id = `${blockNumber}-${event.idx}-${index}`;
             const attestorEntity = await checkAndGetAttestor(id, accountStr, chainKeyNumber);
             attestorEntity.lastUpdateBlockNumber = event.block.block.header.number.toBigInt();
-            attestorEntity.status = 3;
+            attestorEntity.status = 3; // 3 - Active
 
             saveEntityList.push(attestorEntity.save());
         }
@@ -220,7 +220,7 @@ export async function handleEventAttestorRegistered(event: SubstrateEvent): Prom
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
     attestorEntity.stashId = from.toString();
-    attestorEntity.status = 1;
+    attestorEntity.status = 1; // 1 - Idle
 
     logger.info(`New AttestorEntity event created at block ${blockNumber}`);
 
@@ -255,7 +255,7 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 2;
+    attestorEntity.status = 1; // Idle
 
     await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
@@ -416,7 +416,7 @@ async function checkAndGetAttestor(id: string, attestorId: string, chainKey: big
             attestorId,
             chainKey,
             lastUpdateBlockNumber: BigInt(0),
-            status: 0,
+            status: 0, // 0 - Not registered, 1 - Idle/Chilled, 2 - Waiting, 3 - Active
             stashId: '',
             blsPublicKey: '',
         });
@@ -701,7 +701,7 @@ export async function handleEventAttestorActivated(event: SubstrateEvent): Promi
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 4;
+    attestorEntity.status = 3; // 3 - Became Active
     attestorEntity.blsPublicKey = blsPublicKeyStr;
 
     await Promise.all([attestorActivated.save(), attestorEntity.save()]);
@@ -736,7 +736,7 @@ export async function handleEventAttestorChilled(event: SubstrateEvent): Promise
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    attestorEntity.status = 5;
+    attestorEntity.status = 1; // 1 - Chilled/Idle
 
     await Promise.all([attestorChilled.save(), attestorEntity.save()]);
 }
