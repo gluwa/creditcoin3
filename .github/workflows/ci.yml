@@ -1931,8 +1931,11 @@ jobs:
 
       - name: Wait for 3 attestors to be registered
         run: |
-          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
+          # wait for Anvil_1 attestors (chain 2)
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+          
+          # also wait for Anvil_2 attestors (chain 4)
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9955'
 
       - name: Install Node.js
         uses: actions/setup-node@v4
