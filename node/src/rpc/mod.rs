@@ -2,7 +2,7 @@
 
 pub mod tracing;
 
-use fp_rpc::EthereumRuntimeRPCApi;
+use fp_rpc::{EthereumRuntimeRPCApi, RandomnessRuntimeApi};
 use std::sync::Arc;
 
 use futures::channel::mpsc;
@@ -126,6 +126,7 @@ where
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
     C::Api: fp_rpc::ConvertTransactionRuntimeApi<Block>,
     C::Api: fp_rpc::EthereumRuntimeRPCApi<Block>,
+    C::Api: fp_rpc::RandomnessRuntimeApi<Block>,
     C::Api: RuntimeApiCollection,
     C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
     C: BlockchainEvents<Block> + AuxStore + UsageProvider<Block> + StorageProvider<Block, BE>,

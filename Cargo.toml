@@ -164,36 +164,36 @@ xcm = { package = "staging-xcm", git = "https://github.com/paritytech/polkadot-s
 sp-genesis-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 
 # Frontier Client
-fc-api = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
-fc-cli = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fc-consensus = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
-fc-db = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fc-mapping-sync = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fc-rpc = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fc-rpc-core = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
-fc-storage = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
+fc-api = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
+fc-cli = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fc-consensus = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
+fc-db = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fc-mapping-sync = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fc-rpc = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fc-rpc-core = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
+fc-storage = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
 # Frontier Primitive
-fp-account = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-consensus = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-dynamic-fee = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-ethereum = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-evm = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-rpc = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-self-contained = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-fp-storage = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
+fp-account = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-consensus = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-dynamic-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-ethereum = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-evm = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-rpc = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-self-contained = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-storage = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
 # Frontier FRAME
-pallet-base-fee = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-dynamic-fee = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-ethereum = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-evm = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-evm-chain-id = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-evm-precompile-modexp = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-evm-precompile-sha3fips = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-evm-precompile-simple = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
-pallet-evm-test-vector-support = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
-pallet-hotfix-sufficients = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
+pallet-base-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-dynamic-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-ethereum = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-evm = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-evm-chain-id = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-evm-precompile-modexp = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-evm-precompile-sha3fips = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-evm-precompile-simple = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-evm-test-vector-support = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
+pallet-hotfix-sufficients = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
 # Frontier Utility
-precompile-utils = { git = "https://github.com/paritytech/frontier", branch = "stable2409", default-features = false }
+precompile-utils = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
@@ -217,19 +217,19 @@ evm-runtime = { git = "https://github.com/rust-blockchain/evm", rev = "b7b82c7e1
 creditcoin3-cli-opt = { path = "node/cli-opt", default-features = false }
 
 # Vendor packages (Moonbeam)
-moonbeam-client-evm-tracing = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-client-evm-tracing" }
-moonbeam-evm-tracer = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-evm-tracer", default-features = false }
-creditcoin3-primitives-ext = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-primitives-ext", default-features = false }
+moonbeam-client-evm-tracing = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-client-evm-tracing" }
+moonbeam-evm-tracer = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-evm-tracer", default-features = false }
+creditcoin3-primitives-ext = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-primitives-ext", default-features = false }
 # Vendor rpc-core (Moonbeam)
-moonbeam-rpc-core-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-debug" }
-moonbeam-rpc-core-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-trace" }
-moonbeam-rpc-core-types = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-types" }
+moonbeam-rpc-core-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-rpc-core-debug" }
+moonbeam-rpc-core-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-rpc-core-trace" }
+moonbeam-rpc-core-types = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-rpc-core-types" }
 # Vendor rpc (Moonbeam)
-moonbeam-rpc-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-debug" }
-moonbeam-rpc-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-trace" }
+moonbeam-rpc-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-rpc-debug" }
+moonbeam-rpc-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-rpc-trace" }
 # Vendor primitives (Moonbeam)
-evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "evm-tracing-events", default-features = false }
-moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
+evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "evm-tracing-events", default-features = false }
+moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409_mixhash", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

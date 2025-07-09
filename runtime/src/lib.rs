@@ -1375,6 +1375,12 @@ impl_runtime_apis! {
         }
     }
 
+    impl fp_rpc::RandomnessRuntimeApi<Block> for Runtime {
+        fn randomness() -> Option<[u8; 32]> {
+            pallet_babe::Pallet::<Runtime>::author_vrf_randomness()
+        }
+    }
+
     impl pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<
         Block,
         Balance,

@@ -135,6 +135,7 @@ pub trait EthCompatRuntimeApiCollection:
     sp_api::ApiExt<Block>
     + fp_rpc::ConvertTransactionRuntimeApi<Block>
     + fp_rpc::EthereumRuntimeRPCApi<Block>
+    + fp_rpc::RandomnessRuntimeApi<Block>
     + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
 {
 }
@@ -143,6 +144,7 @@ impl<Api> EthCompatRuntimeApiCollection for Api where
     Api: sp_api::ApiExt<Block>
         + fp_rpc::ConvertTransactionRuntimeApi<Block>
         + fp_rpc::EthereumRuntimeRPCApi<Block>
+        + fp_rpc::RandomnessRuntimeApi<Block>
         + moonbeam_rpc_primitives_debug::DebugRuntimeApi<Block>
 {
 }
