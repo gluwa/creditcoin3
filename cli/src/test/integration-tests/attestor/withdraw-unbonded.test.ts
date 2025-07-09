@@ -61,9 +61,9 @@ describe('withdraw-unbonded', () => {
         'should exit when caller is not a stash',
         async () => {
             const newCaller = await randomFundedAccount(api, sudoSigner);
-            CLI = CLIBuilder({ CC_SECRET: newCaller.secret });
+            const nonStashCLI = CLIBuilder({ CC_SECRET: newCaller.secret });
 
-            const result = CLI(`attestor withdraw-unbonded`);
+            const result = nonStashCLI(`attestor withdraw-unbonded`);
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain(`No unbonded funds to withdraw for address ${newCaller.address}`);
         },
