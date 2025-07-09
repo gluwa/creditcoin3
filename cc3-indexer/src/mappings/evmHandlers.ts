@@ -12,6 +12,7 @@ import {
     QueryProofVerifiedEventObject,
     BaseFeeUpdatedEventObject,
     CostPerByteUpdatedEventObject,
+    QueryProofVerificationFailedEventObject,
 } from '../types/chain/ProverAbi';
 
 // event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount);
@@ -145,6 +146,39 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
         default:
             query.state = QueryStatus.InvalidQuery;
     }
+
+    // Save the updated query
+    await query.save();
+}
+
+type QueryProofVerificationFailedArgs = [string, string] & QueryProofVerificationFailedEventObject;
+
+export async function handleQueryProofVerificationFailed(
+    event: FrontierEvmEvent<QueryProofVerificationFailedArgs>,
+): Promise<void> {
+    if (!event.args) {
+        logger.error(`No args found for QueryProofVerificationFailed event`);
+        return;
+    }
+
+    const { queryId, reason } = event.args;
+
+    logger.info(`Query proof verification failed for query ${queryId}, reason: ${reason}`);
+
+    // Get the query entity
+    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
+
+    if (queries.length === 0) {
+        logger.error(`Query with ID ${queryId} not found`);
+        return;
+    }
+
+    const query = queries[0];
+    query.escrowedAmount = BigInt(0);
+    // Update state
+    // The state is set to InvalidQuery when the proof verification fails
+    query.state = QueryStatus.InvalidQuery;
+    query.failedReason = reason;
 
     // Save the updated query
     await query.save();

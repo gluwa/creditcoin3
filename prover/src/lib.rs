@@ -27,7 +27,7 @@ mod postgres;
 mod query;
 
 use crate::attestation::fragment::Error;
-use crate::contract::remove_query_id;
+use crate::contract::mark_query_as_invalid;
 use crate::postgres::from_storage_type;
 use config::Config;
 
@@ -395,8 +395,8 @@ impl Server {
         if let Some(query) = unprocessed_queries.first().cloned() {
             info!("Processing unprocessed query: {:?}", query);
             if let Err(e) = self.stone_proof_query(query.clone()).await {
-                error!("Query processing failed: {e:?}");
-                remove_query_id(&self.cc3_client, query.id()).await?;
+                error!("Query processing failed, Error: {e:?}");
+                mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await?;
             }
         }
         Ok(())
@@ -420,7 +420,8 @@ impl Server {
                                 "Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
                                 query_id, e
                             );
-                            remove_query_id(&self.cc3_client, query_id).await?;
+                            mark_query_as_invalid(&self.cc3_client, query_id, e.to_string())
+                                .await?;
                         }
 
                         queued_light_proving_queries.remove(&query_id);
@@ -432,7 +433,8 @@ impl Server {
                         } else {
                             // Prevent unnecessary clone
                             let query_id = query.id();
-                            remove_query_id(&self.cc3_client, query.id()).await?;
+                            mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string())
+                                .await?;
                             queued_light_proving_queries.remove(&query_id);
                         }
                     }

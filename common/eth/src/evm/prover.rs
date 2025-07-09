@@ -371,8 +371,13 @@ impl GluwaPublicProverContract {
         Ok(result.to_string())
     }
 
-    pub async fn remove_query_id(&self, client: &Client, query_id: H256) -> Result<String> {
-        info!("Removing query id: {:?}", query_id);
+    pub async fn mark_query_as_invalid(
+        &self,
+        client: &Client,
+        query_id: H256,
+        reason: String,
+    ) -> Result<String> {
+        info!("Marking query as invalid: {:?}", query_id);
         let signer = client.get_signer()?;
 
         let provider = ProviderBuilder::new()
@@ -381,7 +386,7 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
-        let builder = contract.removeQueryId(query_id.0.into());
+        let builder = contract.markAsInvalid(query_id.0.into(), reason);
 
         let result = builder.send().await?.get_receipt().await?;
 

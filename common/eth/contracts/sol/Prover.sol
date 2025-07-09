@@ -89,7 +89,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
         // Prevent resubmission of invalid queries
-        if (queries[queryId].state == QueryState.InvalidQuery) {
+        if (queries[queryId].state == QueryState.InvalidQuery && !isQueryTimedOut(queryId)) {
             revert("Cannot resubmit an invalid query");
         }
 
@@ -146,15 +146,8 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
             isInvalidQuery || isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met"
         );
 
-        uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
-
-        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - escrowedAmount);
-
-        payable(msg.sender).transfer(escrowedAmount);
-
-        queries[queryId].escrowedAmount = Balance.wrap(0);
-
-        emit EscrowedPaymentReclaimed(queryId, escrowedAmount);
+        // Reclaim the escrowed amount
+        helper_reclaimEscrowPayment(queryId);
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
@@ -237,7 +230,29 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         return result;
     }
 
-    function removeQueryId(QueryId queryId) public onlyOwner {
+    function markAsInvalid(QueryId queryId, string memory reason) public onlyOwner {
+        require(queries[queryId].state != QueryState.Uninitialized, "Query not found");
+        require(queries[queryId].state != QueryState.ResultAvailable, "Cannot mark as invalid: result available");
+
+        queries[queryId].state = QueryState.InvalidQuery;
+
+        // Reclaim escrowed payment
+        helper_reclaimEscrowPayment(queryId);
+
+        emit QueryProofVerificationFailed(queryId, reason);
+    }
+
+    function helper_reclaimEscrowPayment(QueryId queryId) private {
+        // Repay the escrowed amount to the principal
+        uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
+        totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - escrowedAmount);
+        payable(queries[queryId].principal).transfer(escrowedAmount);
+        queries[queryId].escrowedAmount = Balance.wrap(0);
+
+        emit EscrowedPaymentReclaimed(queryId, escrowedAmount);
+    }
+
+    function _removeQueryId(QueryId queryId) private onlyOwner {
         uint256 length = queryIds.length;
         for (uint256 i = 0; i < length; i++) {
             // Cast both to bytes for comparison

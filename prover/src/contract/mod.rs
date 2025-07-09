@@ -144,17 +144,24 @@ pub async fn subscribe_query_submissions(
     Ok(())
 }
 
-pub async fn remove_query_id(eth_client: &Client, query_id: QueryId) -> Result<String> {
+pub async fn mark_query_as_invalid(
+    eth_client: &Client,
+    query_id: QueryId,
+    reason: String,
+) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
     let artifact = artifacts::get_deployment_artifact(chain_id).await?;
 
     let tx_hash = artifact
         .contract
-        .remove_query_id(eth_client, query_id)
+        .mark_query_as_invalid(eth_client, query_id, reason)
         .await?;
 
-    info!("Query with id {} removed, tx_hash: {}", query_id, tx_hash);
+    info!(
+        "Query with id {} marked as invalid, tx_hash: {}",
+        query_id, tx_hash
+    );
 
     Ok(tx_hash)
 }

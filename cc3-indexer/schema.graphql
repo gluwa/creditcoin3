@@ -552,6 +552,8 @@ type ChainQueries @entity {
     estimatedCost: BigInt!
     escrowedAmount: BigInt!
 
+    failedReason: String
+
     prover: Prover!
 }
 

@@ -486,8 +486,14 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
-    describe('removeQueryId()', function () {
-        it('Should remove queries from internal storage', async function () {
+    describe('Proceeds Withdrawal', function () {
+        it('Should only allow owner to withdraw proceeds', async function () {
+            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
+        });
+    });
+
+    describe('markAsInvalid()', function () {
+        it('Should set query state to invalid', async function () {
             const tx = await prover
                 .connect(user)
                 .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
@@ -504,21 +510,20 @@ describe('CreditcoinPublicProver', function () {
             expect(oldQueryDetails.query.index).to.equal(sampleQuery.index);
 
             // call
-            await prover.connect(owner).removeQueryId(queryId);
+            await prover.connect(owner).markAsInvalid(queryId, 'Invalid query');
 
             const newQueryIds = await prover.allQueryIds();
-            expect(newQueryIds).to.not.include.members([queryId]);
-            // eslint-disable-next-line
-            expect(newQueryIds).to.be.empty;
+            expect(newQueryIds).to.include.members([queryId]);
 
-            // not removed, but storage is zeroed out
+            // not removed, but state is set to InvalidQuery
             const newQueryDetails = await prover.queries(queryId);
-            expect(newQueryDetails.query.chainId).to.equal(0n);
-            expect(newQueryDetails.query.height).to.equal(0n);
-            expect(newQueryDetails.query.index).to.equal(0n);
+            expect(newQueryDetails.query.chainId).to.equal(sampleQuery.chainId);
+            expect(newQueryDetails.query.height).to.equal(sampleQuery.height);
+            expect(newQueryDetails.query.index).to.equal(sampleQuery.index);
+            expect(newQueryDetails.state).to.equal(3); // QueryState.InvalidQuery
         });
 
-        it('Should remove queries when there are more than 1', async function () {
+        it('Should set query state correctly when there are more than 1', async function () {
             const receiptOne = await (
                 await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
             ).wait();
@@ -537,23 +542,56 @@ describe('CreditcoinPublicProver', function () {
             expect(oldQueryIds).to.include.members([queryIdOne, queryIdTwo]);
 
             // remove the 1st query to exercise an if branch inside FUT
-            await prover.connect(owner).removeQueryId(queryIdOne);
+            await prover.connect(owner).markAsInvalid(queryIdOne, 'Invalid query');
 
             const newQueryIds = await prover.allQueryIds();
-            expect(newQueryIds).to.not.include.members([queryIdOne]);
-            expect(newQueryIds).to.include.members([queryIdTwo]);
-
-            // not removed, but storage is zeroed out
-            const qdOne = await prover.queries(queryIdOne);
-            expect(qdOne.query.chainId).to.equal(0n);
-            expect(qdOne.query.height).to.equal(0n);
-            expect(qdOne.query.index).to.equal(0n);
+            expect(newQueryIds).to.include.members([queryIdOne, queryIdTwo]);
 
             // this wasn't affected
             const qdTwo = await prover.queries(queryIdTwo);
-            expect(qdTwo.query.chainId).to.equal(queryTwo.chainId);
-            expect(qdTwo.query.height).to.equal(queryTwo.height);
-            expect(qdTwo.query.index).to.equal(queryTwo.index);
+            expect(qdTwo.state).to.equal(1); // QueryState.Submitted
+
+            // this was set to InvalidQuery
+            const qdOne = await prover.queries(queryIdOne);
+            expect(qdOne.state).to.equal(3); // QueryState.InvalidQuery
+        });
+
+        it('Should repay escrowed amount when query is marked as invalid', async function () {
+            const userAddress = await user.getAddress();
+
+            const balanceBefore = await ethers.provider.getBalance(userAddress);
+
+            const tx = await prover.connect(user).submitQuery(sampleQuery, userAddress, { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            if (!receipt) {
+                throw new Error('Transaction receipt was null');
+            }
+
+            const gasUsed = receipt.gasUsed * tx.gasPrice;
+
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            const oldQueryDetails = await prover.queries(queryId);
+            expect(oldQueryDetails.escrowedAmount).to.equal(queryCost + 1n);
+
+            // owner pays this gas, not the user
+            await expect(prover.connect(owner).markAsInvalid(queryId, 'Invalid query because of some reason'))
+                .to.emit(prover, 'QueryProofVerificationFailed')
+                .withArgs(queryId, 'Invalid query because of some reason');
+
+            const newQueryDetails = await prover.queries(queryId);
+            expect(newQueryDetails.escrowedAmount).to.equal(0n);
+
+            const balanceAfter = await ethers.provider.getBalance(userAddress);
+
+            // Expect only the submitQuery gas to be deducted
+            // small tolerance for gas price fluctuations
+            expect(balanceBefore - balanceAfter).to.be.closeTo(gasUsed, 2000);
+
+            // Assert that contract totalEscrowedBalance was decreased by exactly the cost paid for this query
+            const totalEscrowedBalanceAfter = await prover.getTotalEscrowBalance();
+            expect(totalEscrowedBalanceAfter).to.equal(0n);
         });
 
         it('Should NOT remove when ID does not match', async function () {
@@ -573,10 +611,15 @@ describe('CreditcoinPublicProver', function () {
             expect(oldQueryDetails.query.index).to.equal(sampleQuery.index);
 
             // call with an id which doesn't match
-            // there should be no error and query should not be removed
-            await prover
-                .connect(owner)
-                .removeQueryId('0x9999999999999999999999999999999999999999999999999999999999999999');
+            // Should revert and not change anything
+            await expect(
+                prover
+                    .connect(owner)
+                    .markAsInvalid(
+                        '0x9999999999999999999999999999999999999999999999999999999999999999',
+                        'Invalid query',
+                    ),
+            ).to.be.revertedWith('Query not found');
 
             const newQueryIds = await prover.allQueryIds();
             expect(newQueryIds).to.include.members([queryId]);
@@ -596,7 +639,25 @@ describe('CreditcoinPublicProver', function () {
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            await expect(prover.connect(user).removeQueryId(queryId)).to.be.revertedWith('Caller is not the owner');
+            await expect(prover.connect(user).markAsInvalid(queryId, 'Invalid query')).to.be.revertedWith(
+                'Caller is not the owner',
+            );
+        });
+
+        it('Should revert when trying to mark as invalid with result available', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // Set state to ResultAvailable
+            await prover.connect(owner).mock_setQueryState(queryId, 2);
+
+            await expect(prover.connect(owner).markAsInvalid(queryId, 'Invalid query')).to.be.revertedWith(
+                'Cannot mark as invalid: result available',
+            );
         });
     });
 
