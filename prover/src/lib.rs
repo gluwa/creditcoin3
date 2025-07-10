@@ -211,21 +211,20 @@ impl Server {
 
                     } else {
                         info!("Query {:?} is ready for immediate processing.", query_id);
+                        let queries_to_process = vec![new_query];
+
                         if self.config.prover_be_socket_addr.is_some() {
                             self.light_prove_unprocessed_queries(
-                                vec![new_query],
+                                queries_to_process,
                                 &mut queued_light_proving_queries,
                                 &mut light_prover_queries
                             ).await;
                         } else {
                             self.stand_alone_prove_unprocessed_query(
-                                new_query,
+                                queries_to_process,
                                 &mut processed_query_ids,
                             ).await?;
                         }
-
-                        // Remove from queue to allow resubmission later on
-                        processed_query_ids.remove(&query_id);
                     }
                 },
                 Some(block_height) = new_attestation_receiver.recv() => {
@@ -260,13 +259,10 @@ impl Server {
                                 &mut light_prover_queries
                             ).await;
                         } else {
-                            while let Some(query) = processable_queries.pop() {
-                                // Handles processing an individual query
-                                self.stand_alone_prove_unprocessed_query(
-                                    query,
-                                    &mut processed_query_ids
-                                ).await?;
-                            }
+                            self.stand_alone_prove_unprocessed_query(
+                                processable_queries,
+                                &mut processed_query_ids
+                            ).await?;
                         }
                     }
                 },
@@ -391,14 +387,16 @@ impl Server {
 
     async fn stand_alone_prove_unprocessed_query(
         &self,
-        unprocessed_query: Query,
+        unprocessed_queries: Vec<Query>,
         processed_query_ids: &mut HashSet<H256>,
     ) -> Result<()> {
-        info!("Processing unprocessed query: {:?}", unprocessed_query);
-        if let Err(e) = self.stone_proof_query(unprocessed_query.clone()).await {
-            error!("Query processing failed, Error: {e:?}");
-            mark_query_as_invalid(&self.cc3_client, unprocessed_query.id(), e.to_string()).await?;
-            processed_query_ids.remove(&unprocessed_query.id());
+        for query in unprocessed_queries {
+            info!("Processing unprocessed query: {:?}", query);
+            if let Err(e) = self.stone_proof_query(query.clone()).await {
+                error!("Query processing failed, Error: {e:?}");
+                mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await?;
+            }
+            processed_query_ids.remove(&query.id());
         }
         Ok(())
     }
