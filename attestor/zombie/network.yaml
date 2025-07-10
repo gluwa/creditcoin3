@@ -4,7 +4,7 @@ settings:
 relaychain:
   default_command: ../../target/release/creditcoin3-node
   default_args:
-    # - "-lpeerset=trace"
+  #  - "-lpeerset=trace"
   chain: local
   nodes:
     - name: alice

@@ -1133,8 +1133,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
           OWNER_REPO_SLUG: ${{ github.repository }}
 
-      #Upload logs if nodes are not connecting.
-      #head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
+      # Upload logs if nodes are not connecting.
+      # head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
       - name: Upload logs
         uses: actions/upload-artifact@v4
         if: always()
@@ -1933,7 +1933,7 @@ jobs:
         run: |
           # wait for Anvil_1 attestors (chain 2)
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
-          
+
           # also wait for Anvil_2 attestors (chain 4)
           .github/wait-for-attestors.sh 'http://127.0.0.1:9955'
 
