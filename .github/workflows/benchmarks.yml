@@ -2,7 +2,7 @@
 name: BENCHMARKS
 
 # Controls when the action will run.
-on:
+"on":
   pull_request:
     branches: [testnet]
   workflow_dispatch:

@@ -1,7 +1,7 @@
 ---
 name: Runtime Upgrade
 
-on:
+"on":
   pull_request:
     branches: [main, testnet]
 

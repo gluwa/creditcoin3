@@ -1,7 +1,7 @@
 ---
 name: Linode Cleaner
 
-on:
+"on":
   push:
   pull_request:
   workflow_dispatch:

@@ -2,7 +2,7 @@
 name: CI
 
 # Controls when the action will run.
-on:
+"on":
   # Triggers the workflow on push or pull request events but only for the master branch
   push:
     branches: [main, testnet, dev]
@@ -1387,23 +1387,23 @@ jobs:
       matrix:
         include:
           # runners for integration-test-cli-jobs
-          - proxy: no
+          - proxy: "no"
 
-          - proxy: yes
+          - proxy: "yes"
             secret: no-funds
 
-          - proxy: yes
+          - proxy: "yes"
             secret: not-a-proxy
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: NonTransfer
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
 
@@ -2008,23 +2008,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - proxy: no
+          - proxy: "no"
 
-          - proxy: yes
+          - proxy: "yes"
             secret: no-funds
 
-          - proxy: yes
+          - proxy: "yes"
             secret: not-a-proxy
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: NonTransfer
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
 
@@ -2074,23 +2074,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - proxy: no
+          - proxy: "no"
 
-          - proxy: yes
+          - proxy: "yes"
             secret: no-funds
 
-          - proxy: yes
+          - proxy: "yes"
             secret: not-a-proxy
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: NonTransfer
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
 
@@ -2696,8 +2696,8 @@ jobs:
               npx hardhat ignition deploy --reset "$module" --network creditcoinLocal
           done
         env:
-          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
-          HARDHAT_IGNITION_CONFIRM_RESET: yes
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
         if: github.base_ref == 'dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
@@ -2710,8 +2710,8 @@ jobs:
           # WARNING: EVM Balthathar != Substrate Bob
           # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
           HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.DEVNET_BOB_EVM_PK }}"
-          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
-          HARDHAT_IGNITION_CONFIRM_RESET: yes
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Testnet
         if: github.base_ref == 'testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
@@ -2724,8 +2724,8 @@ jobs:
           # WARNING: EVM Balthathar != Substrate Bob
           # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
           HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.TESTNET_BOB_EVM_PK }}"
-          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
-          HARDHAT_IGNITION_CONFIRM_RESET: yes
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Mainnet
         if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
@@ -2738,8 +2738,8 @@ jobs:
           # WARNING: EVM Balthathar != Substrate Bob
           # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
           HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.MAINNET_BOB_EVM_PK }}"
-          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: yes
-          HARDHAT_IGNITION_CONFIRM_RESET: yes
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Fork Creditcoin Testnet with Hardhat
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -3305,15 +3305,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - proxy: no
+          - proxy: "no"
 
-          - proxy: yes
+          - proxy: "yes"
             secret: no-funds
 
-          - proxy: yes
+          - proxy: "yes"
             secret: not-a-proxy
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
 
@@ -3366,15 +3366,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - proxy: no
+          - proxy: "no"
 
-          - proxy: yes
+          - proxy: "yes"
             secret: no-funds
 
-          - proxy: yes
+          - proxy: "yes"
             secret: not-a-proxy
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
 
@@ -3538,15 +3538,15 @@ jobs:
       matrix:
         include:
           # runners for integration-test-cli-jobs
-          - proxy: no
+          - proxy: "no"
 
-          - proxy: yes
+          - proxy: "yes"
             secret: no-funds
 
-          - proxy: yes
+          - proxy: "yes"
             secret: not-a-proxy
 
-          - proxy: yes
+          - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
 

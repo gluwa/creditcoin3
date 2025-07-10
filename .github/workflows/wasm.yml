@@ -1,7 +1,7 @@
 ---
 name: Build WASM Runtime
 
-on:
+"on":
   push:
     branches: [main, testnet, dev]
   pull_request:

@@ -3,7 +3,7 @@
 # More info at https://megalinter.io
 name: MegaLinter
 
-on:
+"on":
   pull_request:
     branches: [dev, poc_external_attestation_network]
   workflow_dispatch:

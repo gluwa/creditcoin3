@@ -1,7 +1,7 @@
 ---
 name: Check runtime changes
 
-on:
+"on":
   pull_request:
     branches: [dev, testnet, main]
 
