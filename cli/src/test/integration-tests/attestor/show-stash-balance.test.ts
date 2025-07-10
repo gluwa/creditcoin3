@@ -1,6 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
-import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from '../helpers';
+import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 
 describe('show-stash-balance', () => {
@@ -60,13 +60,13 @@ describe('show-stash-balance', () => {
     it('should display balance when attestor is registered', async () => {
         // setup
         const caller = await randomFundedAccount(api, sudoSigner);
-        CLI = CLIBuilder({ CC_SECRET: caller.secret });
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
-        let result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
         // note: using the caller address, not the attestor address
-        result = CLI(`attestor show-stash-balance --substrate-address ${caller.address} --url ${BOB_NODE_URL}`);
+        result = CLI(`attestor show-stash-balance --substrate-address ${caller.address}`);
         expect(result.exitCode).toEqual(0);
 
         expect(result.stdout).toContain(`Address: ${caller.address}`);

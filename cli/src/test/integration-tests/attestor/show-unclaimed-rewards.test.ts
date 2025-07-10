@@ -73,9 +73,9 @@ describe('show-unclaimed-rewards', () => {
             .signAndSend(sudoSigner, { nonce });
 
         const stash = await randomFundedAccount(api, sudoSigner);
-        CLI = CLIBuilder({ CC_SECRET: stash.secret });
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: stash.secret });
 
-        let result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
         // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails

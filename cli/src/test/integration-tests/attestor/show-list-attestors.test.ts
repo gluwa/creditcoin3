@@ -14,7 +14,7 @@ import { execSync } from 'child_process';
 
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
-import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, waitEras, CLIBuilder } from '../helpers';
+import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, waitEras, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
 
 describe('show-list-attestors', () => {
@@ -84,9 +84,11 @@ describe('show-list-attestors', () => {
 
     describe('when attestor is registered and active', () => {
         beforeEach(async () => {
-            CLI = CLIBuilder({ CC_SECRET: stash.secret });
+            const authenticatedCLI = CLIBuilder({ CC_SECRET: stash.secret });
 
-            const result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+            const result = authenticatedCLI(
+                `attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`,
+            );
             expect(result.exitCode).toEqual(0);
 
             // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails
@@ -126,7 +128,7 @@ describe('show-list-attestors', () => {
         it('should display empty output when passing attestor address as argument', () => {
             // note: using attestor's address instead of stash address!
             const result = CLI(
-                `attestor show-list-attestors --substrate-address ${attestor.address} --chain ${chain_Anvil1_Key} --url ${BOB_NODE_URL}`,
+                `attestor show-list-attestors --substrate-address ${attestor.address} --chain ${chain_Anvil1_Key}`,
             );
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toEqual('');

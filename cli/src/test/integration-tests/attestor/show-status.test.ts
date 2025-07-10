@@ -80,9 +80,9 @@ describe('show-status', () => {
     it('should display status Chill when attestor is registered but not active', async () => {
         // setup
         const caller = await randomFundedAccount(api, sudoSigner);
-        CLI = CLIBuilder({ CC_SECRET: caller.secret });
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
-        let result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
         result = CLI(
@@ -96,9 +96,9 @@ describe('show-status', () => {
     test.skip('should display status Active when attestor is registered and active', async () => {
         // setup
         const caller = await randomFundedAccount(api, sudoSigner);
-        CLI = CLIBuilder({ CC_SECRET: caller.secret });
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
-        let result = CLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
         // don't use execa/commandSync b/c they parse & quote the input and passing the mnemonic fails
