@@ -58,6 +58,28 @@ export function parseAddress(value: string): ValidatedAddress {
     }
 }
 
+/* eslint-disable @typescript-eslint/naming-convention */
+export type RewardDestination = { Account: string } | 'Stash' | 'None';
+
+export function parsePayee(value: string): RewardDestination {
+    const lowercasedValue = value.toLowerCase();
+
+    if (lowercasedValue === 'stash') {
+        return 'Stash';
+    }
+    if (lowercasedValue === 'none') {
+        return 'None';
+    }
+
+    try {
+        validateAddress(value);
+    } catch (e: any) {
+        throw new InvalidArgumentError('Must be either a valid Substrate address, "Stash" or "None".');
+    }
+
+    return { Account: value };
+}
+
 // Amounts
 export const amountOption = new Option('--amount [amount]', 'CTC amount').argParser(parseAmount);
 // Amount parsing
@@ -122,6 +144,7 @@ export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain k
     parsePositiveIntegerOrExit,
 );
 
-export const payeeOption = new Option('-p, --payee [payee]', 'Specify payee address to set').argParser(
-    parseSubstrateAddress,
-);
+export const payeeOption = new Option(
+    '-p, --payee [payee]',
+    'Specify payee. Needs to specify either a valid Substrate address, "Stash" or "None"',
+).argParser(parsePayee);
