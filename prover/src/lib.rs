@@ -211,17 +211,16 @@ impl Server {
 
                     } else {
                         info!("Query {:?} is ready for immediate processing.", query_id);
-                        let queries_to_process = vec![new_query];
-
                         if self.config.prover_be_socket_addr.is_some() {
                             self.light_prove_unprocessed_queries(
-                                queries_to_process,
+                                vec![new_query],
                                 &mut queued_light_proving_queries,
                                 &mut light_prover_queries
                             ).await;
                         } else {
                             self.stand_alone_prove_unprocessed_query(
-                                queries_to_process,
+                                new_query,
+                                &mut processed_query_ids,
                             ).await?;
                         }
 
@@ -262,13 +261,21 @@ impl Server {
                             ).await;
                         } else {
                             while let Some(query) = processable_queries.pop() {
-                                self.stone_proof_query(query).await?;
+                                // Handles processing an individual query
+                                self.stand_alone_prove_unprocessed_query(
+                                    query,
+                                    &mut processed_query_ids
+                                ).await?;
                             }
                         }
                     }
                 },
                 Some(result) = light_prover_queries.next() => {
-                    self.handle_finished_light_proving_job(result, &mut queued_light_proving_queries).await?;
+                    self.handle_finished_light_proving_job(
+                        result,
+                        &mut queued_light_proving_queries,
+                        &mut processed_query_ids
+                    ).await?;
                 }
             }
         }
@@ -384,15 +391,14 @@ impl Server {
 
     async fn stand_alone_prove_unprocessed_query(
         &self,
-        unprocessed_queries: Vec<Query>,
+        unprocessed_query: Query,
+        processed_query_ids: &mut HashSet<H256>,
     ) -> Result<()> {
-        // If not light prover, get the first one because we won't process all of them at once
-        if let Some(query) = unprocessed_queries.first().cloned() {
-            info!("Processing unprocessed query: {:?}", query);
-            if let Err(e) = self.stone_proof_query(query.clone()).await {
-                error!("Query processing failed, Error: {e:?}");
-                mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await?;
-            }
+        info!("Processing unprocessed query: {:?}", unprocessed_query);
+        if let Err(e) = self.stone_proof_query(unprocessed_query.clone()).await {
+            error!("Query processing failed, Error: {e:?}");
+            mark_query_as_invalid(&self.cc3_client, unprocessed_query.id(), e.to_string()).await?;
+            processed_query_ids.remove(&unprocessed_query.id());
         }
         Ok(())
     }
@@ -401,6 +407,7 @@ impl Server {
         &self,
         result: Result<(Query, Result<Vec<u8>, LightProvingError>), JoinError>,
         queued_light_proving_queries: &mut HashSet<H256>,
+        processed_query_ids: &mut HashSet<H256>,
     ) -> Result<()> {
         match result {
             Ok((query, result_inner)) => {
@@ -420,6 +427,7 @@ impl Server {
                         }
 
                         queued_light_proving_queries.remove(&query_id);
+                        processed_query_ids.remove(&query_id);
                     }
                     Err(e) => {
                         error!("Query processing failed, Error: {e:?}");
@@ -431,6 +439,7 @@ impl Server {
                             mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string())
                                 .await?;
                             queued_light_proving_queries.remove(&query_id);
+                            processed_query_ids.remove(&query_id);
                         }
                     }
                 }
