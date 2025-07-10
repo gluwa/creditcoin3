@@ -17,6 +17,10 @@ async function checkQuery() {
   try {
     const rawQuery = await contract.queries(queryId);
 
+    if (rawQuery.state === 0) {
+      throw new Error("Query state uninitialized. The query does not exist.");
+    }
+
     console.log("✅ Query found!");
     console.log("State (enum):", rawQuery.state);
     console.log("Principal:", rawQuery.principal);
@@ -24,10 +28,8 @@ async function checkQuery() {
     console.log("Estimated cost:", rawQuery.estimatedCost.toString());
     console.log("Timestamp:", rawQuery.timestamp.toString());
 
-    // Optional: dump the whole query object if you're debugging
-    // console.dir(rawQuery, { depth: null });
   } catch (err) {
-    console.error("❌ Query not found or reverted. Likely does not exist.");
+    console.error("❌ Request for query failed");
     console.error(err.message);
   }
 }
