@@ -130,14 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Going to submit following Query: {:?}\n", query);
 
     // Initialize the Ethereum client for ccnext and the contract
-    let eth_client = Client::new(
-        &args
-            .cc3_rpc_url
-            .replace("ws://", "http://")
-            .replace("wss://", "https://"),
-        Some(&args.cc3_evm_private_key),
-    )
-    .await?;
+    let eth_client = Client::new(&args.cc3_rpc_url, Some(&args.cc3_evm_private_key)).await?;
     let contract = evm::prover::new(args.prover_contract_address)?;
 
     println!("Computing query cost...");
@@ -180,7 +173,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
         query, query_id
     );
 
-    let eth_rpc_url = "http://localhost:8545".to_string(); // Local Ethereum node URL
+    let eth_rpc_url = "ws://localhost:8545".to_string(); // Local Ethereum node URL
 
     // Initialize the Ethereum client for ccnext and the contract
     let eth_client = Client::new(&eth_rpc_url, Some(&args.cc3_evm_private_key)).await?;

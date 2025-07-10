@@ -1918,7 +1918,7 @@ jobs:
           ./target/release/attestor_zombienet \
                 --verbose \
                 --cc3-key "//Alice" --chain-key 2 \
-                --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
+                --eth-rpc-url ws://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
 
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
@@ -1926,7 +1926,7 @@ jobs:
                 --verbose \
                 --cc3-rpc-url ws://localhost:9955 \
                 --cc3-key "//Bob" --chain-key 4 \
-                --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
+                --eth-rpc-url ws://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-bob/ &
 
       - name: Wait for 3 attestors to be registered
@@ -3046,7 +3046,7 @@ jobs:
           ./target/release/attestor_zombienet \
                 --verbose \
                 --cc3-key "//Alice" --chain-key 2 \
-                --eth-rpc-url http://localhost:8141 --config-file attestor_zombienet/config.yaml \
+                --eth-rpc-url ws://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-alice/ &
 
       # note: not started explicitly; used within tests
@@ -3064,7 +3064,7 @@ jobs:
           ./target/release/attestor_zombienet \
                 --verbose \
                 --cc3-key "//Bob" --chain-key 4 \
-                --eth-rpc-url http://localhost:8242 --config-file attestor_zombienet/config.yaml \
+                --eth-rpc-url ws://localhost:8242 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-bob/ &
 
       - name: Install Solidity compiler
@@ -3094,7 +3094,7 @@ jobs:
 
           ./target/release/attestor_zombienet \
                 --cc3-key "//Charlie" --chain-key 5 \
-                --eth-rpc-url http://localhost:8343 --config-file attestor_zombienet/config.yaml \
+                --eth-rpc-url ws://localhost:8343 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/cc3-indexer-testing/attestors-charlie/ &
 
       - name: Wait for 3 attestors to be registered
@@ -3133,7 +3133,7 @@ jobs:
             --verbose \
             --cc3-key "//Alice"   \
             --cc3-evm-private-key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
-            --eth-rpc-url http://127.0.0.1:8141 \
+            --eth-rpc-url ws://127.0.0.1:8141 \
             --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
             --name "Prover-for-Alice-num-1" \
             > /var/tmp/cc3-indexer-testing/prover-1.log 2>&1 &
@@ -3156,7 +3156,7 @@ jobs:
             --verbose \
             --cc3-key "//Bob"   \
             --cc3-evm-private-key "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
-            --eth-rpc-url http://127.0.0.1:8242 \
+            --eth-rpc-url ws://127.0.0.1:8242 \
             --postgres-uri "postgres://prover:prover@$DB_ADDR/attestations" \
             --name "Prover-for-Bob-num-1" \
             > /var/tmp/cc3-indexer-testing/prover-2.log 2>&1 &
@@ -3223,7 +3223,7 @@ jobs:
             --cc3-rpc-url ws://127.0.0.1:9944 \
             --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
             --prover-contract-address "$PROVER_SOL_ADDR" \
-            --eth-rpc-url http://127.0.0.1:8141 \
+            --eth-rpc-url ws://127.0.0.1:8141 \
             --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
             --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
             --data-choice 4

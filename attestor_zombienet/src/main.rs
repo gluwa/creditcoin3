@@ -25,7 +25,7 @@ use eth::Client as EthClient;
 pub struct AttestorZombienet {
     #[arg(
         long,
-        default_value = "http://localhost:8545",
+        default_value = "ws://localhost:8545",
         help = "URL to an Ethereum node."
     )]
     eth_rpc_url: String,

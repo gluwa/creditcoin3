@@ -1,9 +1,12 @@
 use alloy::{
     consensus::TxEnvelope,
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::BlockHash,
     providers::{
-        fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
+        fillers::{
+            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+            WalletFiller,
+        },
         network::TransactionResponse,
         Identity, Provider, ProviderBuilder, RootProvider,
     },
@@ -205,12 +208,21 @@ pub(crate) type ExeFiller = JoinFill<
     JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
 >;
 
+type AlloyWalletProvider = FillProvider<WalletExeFiller, RootProvider<Ethereum>, Ethereum>;
+
+pub(crate) type WalletExeFiller = JoinFill<
+    JoinFill<
+        alloy::providers::Identity,
+        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+    >,
+    WalletFiller<EthereumWallet>,
+>;
+
 #[derive(Debug, Clone)]
 pub struct Client {
     url: Url,
     private_key: Option<String>,
-    // ws: RootProvider<PubSubFrontend>,
-    http: AlloyProvider,
+    ws: AlloyProvider,
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
@@ -220,13 +232,15 @@ impl Client {
     pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self> {
         let url = Url::parse(url)?;
 
-        let http = ProviderBuilder::new()
+        let ws = WsConnect::new(url.clone());
+        let ws_provider = ProviderBuilder::new()
             .network::<Ethereum>()
-            .on_http(url.clone());
+            .on_ws(ws)
+            .await?;
 
         info!("Connecting to Ethereum node at {}", url);
 
-        let chain_id = http.get_chain_id().await.map_err(|e| {
+        let chain_id = ws_provider.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
             Error::FailedToGetChainId(e.to_string())
         })?;
@@ -234,7 +248,7 @@ impl Client {
         Ok(Self {
             url,
             private_key: private_key.map(|s| s.to_owned()),
-            http,
+            ws: ws_provider,
             chain_id,
         })
     }
@@ -243,41 +257,17 @@ impl Client {
         self.chain_id
     }
 
-    pub async fn renew_http(&mut self) -> Result<()> {
-        let http = ProviderBuilder::new()
-            .network::<Ethereum>()
-            .on_http(self.url.clone());
-
-        self.http = http;
-        Ok(())
-    }
-
     #[must_use]
-    pub fn get_url(&self) -> Url {
-        self.url.clone()
+    pub fn get_url(&self) -> WsConnect {
+        WsConnect::new(self.url.clone())
     }
 
-    pub async fn get_ws(&self) -> Result<AlloyProvider> {
-        let mut url = self.url.clone();
-
-        if url.scheme() == "http" {
-            url.set_scheme("ws").map_err(|_| {
-                Error::ClientError(anyhow::anyhow!(
-                    "Cannot open websocket connection to ethereum node"
-                ))
-            })?;
-        } else {
-            url.set_scheme("wss").map_err(|_| {
-                Error::ClientError(anyhow::anyhow!(
-                    "Cannot open websocket connection to ethereum node"
-                ))
-            })?;
-        }
-
-        let ws = WsConnect::new(url);
+    /// Creates a provider that can be used to send transactions and query the Ethereum network.
+    /// This provider contains the wallet configured with the private key.
+    pub async fn get_wallet_ws_provider(&self) -> Result<AlloyWalletProvider, Error> {
         let provider = ProviderBuilder::new()
-            .network::<Ethereum>()
-            .on_ws(ws)
+            .wallet(EthereumWallet::from(self.get_signer()?))
+            .on_ws(self.get_url())
             .await?;
 
         Ok(provider)
@@ -348,7 +338,7 @@ impl Client {
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {
-        self.http
+        self.ws
             .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
             .await
             .map_err(|e| {
@@ -359,7 +349,7 @@ impl Client {
     }
 
     async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
-        self.http
+        self.ws
             .get_block(
                 BlockId::Number(BlockNumberOrTag::Number(number)),
                 true.into(),
@@ -373,11 +363,11 @@ impl Client {
     }
 
     pub async fn get_last_block(&self) -> Result<u64, Error> {
-        Ok(self.http.get_block_number().await?)
+        Ok(self.ws.get_block_number().await?)
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, Error> {
-        self.http.get_chain_id().await.map_err(|e| {
+        self.ws.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
             Error::FailedToGetChainId(e.to_string())
         })

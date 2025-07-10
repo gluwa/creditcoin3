@@ -21,7 +21,7 @@ pub struct Prover {
     )]
     chain_key: u64,
 
-    #[arg(long, default_value = "http://localhost:8545")]
+    #[arg(long, default_value = "ws://localhost:8545")]
     eth_rpc_url: String,
 
     #[arg(long, required = true, env)]

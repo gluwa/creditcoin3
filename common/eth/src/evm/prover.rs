@@ -9,9 +9,8 @@ use sp_core::H256;
 
 use crate::Client;
 use alloy::{
-    network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
-    providers::{Provider, ProviderBuilder, WsConnect},
+    providers::Provider,
     sol,
 };
 use attestor_primitives::ChainKey;
@@ -43,9 +42,7 @@ pub async fn deploy(
     display_name: String,
     timeout: u64,
 ) -> Result<GluwaPublicProverContract> {
-    let provider = ProviderBuilder::new()
-        .wallet(EthereumWallet::from(client.get_signer()?))
-        .on_http(client.get_url());
+    let provider = client.get_wallet_ws_provider().await?;
 
     // If the proceeds address is not provided, use the cc client keypair derived evm address
     let proceeds_address = proceeds_address.unwrap_or(client.get_signer()?.address());
@@ -85,9 +82,7 @@ impl GluwaPublicProverContract {
     pub async fn compute_query_cost(&self, client: &Client, query: Query) -> Result<u64> {
         info!("Computing query cost");
 
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(client.get_signer()?))
-            .on_http(client.get_url());
+        let provider = client.get_wallet_ws_provider().await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
@@ -125,9 +120,7 @@ impl GluwaPublicProverContract {
     ) -> Result<String> {
         info!("Submitting query proof for query: {:?}", query_id);
 
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(client.get_signer()?))
-            .on_http(client.get_url());
+        let provider = client.get_wallet_ws_provider().await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
@@ -169,16 +162,7 @@ impl GluwaPublicProverContract {
             self.address
         );
 
-        let web_socket_url = client
-            .get_url()
-            .as_str()
-            .replace("http://", "ws://")
-            .replace("https://", "wss://");
-        let provider = ProviderBuilder::new()
-            .on_ws(WsConnect::new(web_socket_url))
-            .await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider.clone());
+        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
 
         let sub = contract.QuerySubmitted_filter().subscribe().await?;
         let mut stream = sub.into_stream();
@@ -216,9 +200,7 @@ impl GluwaPublicProverContract {
         let signer = client.get_signer()?;
         let principal = signer.address();
 
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer))
-            .on_http(client.get_url());
+        let provider = client.get_wallet_ws_provider().await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
@@ -255,16 +237,7 @@ impl GluwaPublicProverContract {
             query_id
         );
 
-        let web_socket_url = client
-            .get_url()
-            .as_str()
-            .replace("http://", "ws://")
-            .replace("https://", "wss://");
-        let provider = ProviderBuilder::new()
-            .on_ws(WsConnect::new(web_socket_url))
-            .await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider.clone());
+        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
 
         let sub = contract.QueryProofVerified_filter().subscribe().await?;
         let mut stream = sub.into_stream();
@@ -306,9 +279,7 @@ impl GluwaPublicProverContract {
     pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>> {
         info!("Getting unprocessed queries");
 
-        let provider = ProviderBuilder::new().on_http(client.get_url());
-
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
 
         let unprocessed = contract.getUnprocessedQueries().call().await?;
 
@@ -338,11 +309,7 @@ impl GluwaPublicProverContract {
     ) -> Result<String> {
         info!("Setting base cost per bytes: {}", new_cost_per_byte);
 
-        let signer = client.get_signer()?;
-
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer))
-            .on_http(client.get_url());
+        let provider = client.get_wallet_ws_provider().await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
@@ -356,11 +323,7 @@ impl GluwaPublicProverContract {
     pub async fn update_base_fee(&self, client: Client, new_base_fee: u64) -> Result<String> {
         info!("Setting base fee: {}", new_base_fee);
 
-        let signer = client.get_signer()?;
-
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer))
-            .on_http(client.get_url());
+        let provider = client.get_wallet_ws_provider().await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
@@ -378,11 +341,8 @@ impl GluwaPublicProverContract {
         reason: String,
     ) -> Result<String> {
         info!("Marking query as invalid: {:?}", query_id);
-        let signer = client.get_signer()?;
 
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer))
-            .on_http(client.get_url());
+        let provider = client.get_wallet_ws_provider().await?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 

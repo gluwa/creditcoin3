@@ -59,13 +59,8 @@ impl Server {
 
         // Deploy the prover contract
         // This will deploy it on ccnext chain
-        let cc3_http_url = config
-            .cc3_rpc_url
-            .clone()
-            .replace("ws://", "http://")
-            .replace("wss://", "https://");
         let cc3_eth_client =
-            EthClient::new(&cc3_http_url, Some(&config.cc3_evm_private_key)).await?;
+            EthClient::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
 
         let cc3_client = cc3::Client::new(&config.cc3_rpc_url, &config.cc3_key).await?;
         let eth_client = Arc::new(EthClient::new(&config.eth_rpc_url, None).await?);

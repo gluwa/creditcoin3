@@ -94,7 +94,7 @@ fn prompt_for_network(args: QueryCli) -> Result<Network> {
             Ok(Network::Ethereum(api_key_input.trim().to_string()))
         }
         "3" => {
-            print!("Enter local network URL (EX: http://localhost:8545): ");
+            print!("Enter local network URL (EX: ws://localhost:8545): ");
             io::stdout().flush().unwrap();
 
             let mut url_input = String::new();
@@ -103,7 +103,7 @@ fn prompt_for_network(args: QueryCli) -> Result<Network> {
                 .expect("Failed to read input");
 
             if url_input.trim().is_empty() {
-                url_input = "http://localhost:8545".to_string();
+                url_input = "ws://localhost:8545".to_string();
             }
 
             Ok(Network::Local(url_input.trim().to_string()))

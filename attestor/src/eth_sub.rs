@@ -67,7 +67,7 @@ pub async fn attest_to_heads(
                     sender.send(attestation).await?;
 
                     // Sleep for a bit to avoid spamming the chain
-                    sleep(Duration::from_millis(100)).await;
+                    sleep(Duration::from_millis(250)).await;
                 } else {
                     return Err(Error::FailedToSubscribe("No block received".to_string()));
                 }
