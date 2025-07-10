@@ -1,29 +1,14 @@
-import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { newApi } from '../../../lib';
 import { try_catch_else_finally } from '../../utils';
 import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 
 describe('show-stash-balance', () => {
-    let api: ApiPromise;
-    let attestor: any;
     let CLI: any;
-    let sudoSigner: KeyringPair;
 
-    beforeAll(async () => {
-        ({ api } = await newApi(ALICE_NODE_URL));
-
-        sudoSigner = initAliceKeyring();
-    });
-
-    beforeEach(async () => {
-        attestor = await randomFundedAccount(api, sudoSigner);
-
+    beforeEach(() => {
         // eslint-disable-next-line @typescript-eslint/naming-convention
         CLI = CLIBuilder({});
-    }, 60_000);
-
-    afterAll(async () => {
-        await api.disconnect();
     });
 
     it('should error when required option is not specified', () => {
@@ -42,14 +27,16 @@ describe('show-stash-balance', () => {
     }, 30_000);
 
     it('should error when address is not an attestor', () => {
+        const ferdie = '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL';
+
         try_catch_else_finally(
             () => {
                 // note: not registered yet and also not using caller.address, see below!
-                CLI(`attestor show-stash-balance --substrate-address ${attestor.address}`);
+                CLI(`attestor show-stash-balance --substrate-address ${ferdie}`);
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain(`No ledger found for ${attestor.address}`);
+                expect(error.stderr).toContain(`No ledger found for ${ferdie}`);
             },
             () => {
                 throw new Error('cli was expected to fail but it did not');
@@ -58,8 +45,13 @@ describe('show-stash-balance', () => {
     }, 30_000);
 
     it('should display balance when attestor is registered', async () => {
-        // setup
+        // setup - see commit log for the reasoning why this isn't in beforeAll()
+        const sudoSigner = initAliceKeyring();
+        const { api } = await newApi(ALICE_NODE_URL);
+
         const caller = await randomFundedAccount(api, sudoSigner);
+        const attestor = await randomFundedAccount(api, sudoSigner);
+
         const authenticatedCLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
@@ -78,5 +70,8 @@ describe('show-stash-balance', () => {
         expect(result.stdout).toContain('Unbonding');
         expect(result.stdout).toContain('CanWithdraw');
         expect(result.stdout).toContain('UnclaimedRewards');
-    }, 60_000);
+
+        // teardown
+        await api.disconnect();
+    }, 90_000);
 });
