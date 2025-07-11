@@ -3,6 +3,8 @@ import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 import { forElapsedBlocks } from '../utils';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import solidityJSON = require('../blockchain-tests/artifacts/from-hardhat/ProverForTesting.sol/ProverForTesting.json');
 
 describe('handleEventProverDeployed()', () => {

@@ -3,6 +3,8 @@ import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../blockchain-tests/artifacts/prover.json');
 const contractABI = contractABIJSON.abi;
 

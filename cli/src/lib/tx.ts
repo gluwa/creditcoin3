@@ -78,7 +78,7 @@ async function internalSignSendAndWatch(
                 maybeUnsub = unsub;
             })
             .catch((err) => {
-                reject(err);
+                reject(new Error(err));
             });
     });
 }

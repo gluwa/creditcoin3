@@ -8,7 +8,7 @@ export function parseCTCString(amount: string): BN {
     try {
         const parsed = positiveBigNumberFromString(amount);
         return new BN(parsed.toString());
-    } catch (e) {
+    } catch (_e) {
         console.error(`Unable to parse CTC amount: ${amount}`);
         process.exit(1);
     }

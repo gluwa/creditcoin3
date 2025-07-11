@@ -101,7 +101,7 @@ describe('BlockAttested events', (): void => {
                         resolve(undefined);
                     }
                 })
-                .catch((error) => reject(error));
+                .catch((error) => reject(new Error(error)));
         }).then(async () => {
             // b/c we always start from scratch in CI expect that there is
             // a checkpoint for the genesis block of the ingested chain

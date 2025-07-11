@@ -1,6 +1,13 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import execa = require('execa');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import fs = require('fs');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import os = require('os');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import path = require('path');
 
 import { commandSync } from 'execa';
@@ -54,7 +61,7 @@ describe('claim-rewards', () => {
     afterAll(async () => {
         try {
             commandSync('killall -9 attestor');
-        } catch (error: any) {
+        } catch (_error: any) {
             // there may be no attestor running - don't throw an error
         }
         await api.disconnect();

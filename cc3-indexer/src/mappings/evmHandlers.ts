@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
 import { BigNumber } from 'ethers';
 

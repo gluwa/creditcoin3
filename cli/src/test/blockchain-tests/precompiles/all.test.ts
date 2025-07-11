@@ -1,5 +1,8 @@
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import transferABIJSON = require('../artifacts/substrate_transfer.json');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import verifierABIJSON = require('../artifacts/proof_verifier.json');
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
@@ -10,6 +13,8 @@ const transferABI = transferABIJSON.contracts['sol/substrate_transfer.sol:Substr
 const verifierABI = verifierABIJSON.contracts['sol/proof_verifier.sol:QueryVerifierContract'].abi;
 
 import { ContractTransactionResponse } from 'ethers';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import validProof = require('../artifacts/valid_proof.json');
 import { validQuery } from '../helpers';
 import { u8aToHex } from '../../../lib/common';

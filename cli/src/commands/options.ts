@@ -33,7 +33,7 @@ export function parseEVMAddress(value: string): string {
 export function parseSubstrateAddress(value: string): string {
     try {
         validateAddress(value);
-    } catch (e: any) {
+    } catch (_e: any) {
         throw new InvalidArgumentError('Not a valid Substrate address.');
     }
     return value;
@@ -73,7 +73,7 @@ export function parsePayee(value: string): RewardDestination {
 
     try {
         validateAddress(value);
-    } catch (e: any) {
+    } catch (_e: any) {
         throw new InvalidArgumentError('Must be either a valid Substrate address, "Stash" or "None".');
     }
 
@@ -87,7 +87,7 @@ export function parseAmount(value: string): BN {
     try {
         const parsed = positiveBigNumberFromString(value);
         return new BN(parsed.toString());
-    } catch (e: any) {
+    } catch (_e: any) {
         throw new InvalidArgumentError('Not a valid amount.');
     }
 }

@@ -81,7 +81,7 @@ export async function handleEventAttestorsElected(event: SubstrateEvent): Promis
     try {
         await Promise.all(saveEntityList);
         logger.info(`All attestors have been dynamically added and saved at block: ${blockNumber}`);
-    } catch (error) {
+    } catch (_error) {
         logger.error(`An error occurred while saving attestorsElected at block: ${blockNumber}`);
     }
 }
@@ -438,7 +438,7 @@ function parseAttestationCheckpoint(attestationCheckpointStr: string): Attestati
         }
 
         return parsed;
-    } catch (error) {
+    } catch (_error) {
         throw new Error(`Failed to parse AttestationCheckpoint`);
     }
 }
@@ -660,7 +660,7 @@ function parseSignedAttestation(attestationCheckpointStr: string): SignedAttesta
         }
 
         return parsed;
-    } catch (error) {
+    } catch (_error) {
         throw new Error(`Failed to parse SignedAttestation`);
     }
 }

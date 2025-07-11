@@ -93,7 +93,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
     await Promise.all([chain4.save(), supportedChain4.save()]);
 }
 
-// Getter
+/* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 export async function getChainData(chainKey: bigint): Promise<AttestationChainData | null> {
     const a = await AttestationChainData.getByChainKey(chainKey, { limit: 1 });
     return a[0];

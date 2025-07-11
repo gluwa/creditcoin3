@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import timeDelta = require('time-delta');
 
 import { ApiPromise } from '@polkadot/api';
@@ -93,9 +94,11 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
     const canWithdraw = readyForWithdraw > new BN(0);
 
     // Get lists of all validators, active validators, and waiting validators
+    /* eslint-disable */
     const validatorEntries = await api.query.staking.validators
         .entries()
         .then((r) => r.map((v) => v[0].toHuman()?.toString()));
+    /* eslint-enable */
     const activeValidatorsRes = await api.derive.staking.validators();
     const activeValidators: string[] = activeValidatorsRes.validators.map((v) => v.toString());
     const waitingValidators = validatorEntries.filter((v) => {

@@ -30,7 +30,7 @@ describe('SetStarkProgramMetadata', (): void => {
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })
-                .catch((error) => reject(error));
+                .catch((error) => reject(new Error(error)));
         }).then((fee) => {
             expect(fee).toBeGreaterThanOrEqual((global as any).CREDITCOIN_MINIMUM_TXN_FEE);
         });

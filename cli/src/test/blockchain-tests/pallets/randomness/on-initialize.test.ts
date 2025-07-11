@@ -60,7 +60,7 @@ describe('StoreRandomnessForEpoch events', (): void => {
                         resolve(undefined);
                     }
                 })
-                .catch((error) => reject(error));
+                .catch((error) => reject(new Error(error)));
         }).then(() => {
             expect(recordedEvents).toBeGreaterThan(4);
         });
