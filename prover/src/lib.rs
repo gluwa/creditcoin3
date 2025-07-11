@@ -415,6 +415,7 @@ impl Server {
         Ok(())
     }
 
+    /// Cleans up the query from the internal memory after processing
     fn cleanup_query(&mut self, query_id: H256) {
         self.queued_light_proving_queries.remove(&query_id);
 
