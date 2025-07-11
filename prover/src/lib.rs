@@ -44,7 +44,11 @@ pub struct Server {
     // Attestation cache
     attestations_cache: AttestationCacheType,
     // Queries that are waiting for attestations
-    waiting_queries: Arc<Mutex<BTreeMap<u64, Vec<Query>>>>,
+    waiting_queries: Mutex<BTreeMap<u64, Vec<Query>>>,
+    // Queries that have been queued for light proving
+    queued_light_proving_queries: Mutex<HashSet<H256>>,
+    // Queries that have been received
+    received_query_ids: Mutex<HashSet<H256>>,
 }
 
 impl Server {
@@ -91,7 +95,9 @@ impl Server {
             config,
             cc3_client: cc3_eth_client,
             attestations_cache,
-            waiting_queries: Arc::new(Mutex::new(BTreeMap::new())),
+            waiting_queries: Mutex::new(BTreeMap::new()),
+            queued_light_proving_queries: Mutex::new(HashSet::new()),
+            received_query_ids: Mutex::new(HashSet::new()),
         })
     }
 
@@ -172,8 +178,6 @@ impl Server {
         mut new_query_receiver: mpsc::UnboundedReceiver<Query>,
     ) -> Result<()> {
         let mut light_prover_queries = FuturesUnordered::new();
-        let mut queued_light_proving_queries: HashSet<H256> = HashSet::new();
-        let mut processed_query_ids: HashSet<H256> = HashSet::new();
 
         loop {
             tokio::select! {
@@ -183,10 +187,12 @@ impl Server {
                 Some(new_query) = new_query_receiver.recv() => {
                     let query_id = new_query.id();
 
-                    if !processed_query_ids.insert(query_id) {
+                    let mut received_query_ids = self.received_query_ids.lock().await;
+                    if !received_query_ids.insert(query_id) {
                         warn!("Received duplicate query {:?}, ignoring.", query_id);
                         continue;
                     }
+                    drop(received_query_ids);
 
                     info!("Received query {:?}, checking for readiness...", query_id);
 
@@ -216,13 +222,11 @@ impl Server {
                         if self.config.prover_be_socket_addr.is_some() {
                             self.light_prove_unprocessed_queries(
                                 queries_to_process,
-                                &mut queued_light_proving_queries,
                                 &mut light_prover_queries
                             ).await;
                         } else {
                             self.stand_alone_prove_unprocessed_query(
                                 queries_to_process,
-                                &mut processed_query_ids,
                             ).await?;
                         }
                     }
@@ -255,23 +259,27 @@ impl Server {
                         if self.config.prover_be_socket_addr.is_some() {
                             self.light_prove_unprocessed_queries(
                                 processable_queries,
-                                &mut queued_light_proving_queries,
                                 &mut light_prover_queries
                             ).await;
                         } else {
                             self.stand_alone_prove_unprocessed_query(
                                 processable_queries,
-                                &mut processed_query_ids
                             ).await?;
                         }
                     }
                 },
                 Some(result) = light_prover_queries.next() => {
-                    self.handle_finished_light_proving_job(
-                        result,
-                        &mut queued_light_proving_queries,
-                        &mut processed_query_ids
-                    ).await?;
+                    let query_id = match &result {
+                        Ok((query, _)) => Some(query.id()),
+                        Err(_) => None,
+                    };
+
+                    self.handle_finished_light_proving_job(result).await?;
+
+                    // Clean up the query after handling, regardless of the outcome
+                    if let Some(id) = query_id {
+                        self.cleanup_query(id).await;
+                    }
                 }
             }
         }
@@ -356,13 +364,16 @@ impl Server {
     async fn light_prove_unprocessed_queries(
         &self,
         mut unprocessed_queries: Vec<Query>,
-        queued_light_proving_queries: &mut HashSet<H256>,
         light_prover_queries: &mut FuturesUnordered<
             JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>,
         >,
     ) {
         // We don't want to spam the BE with requests for queries we've already requested.
-        unprocessed_queries.retain(|query| !queued_light_proving_queries.contains(&query.id()));
+        {
+            let queued_queries = self.queued_light_proving_queries.lock().await;
+            unprocessed_queries.retain(|query| !queued_queries.contains(&query.id()));
+        }
+
         info!(
             "Found {} new unprocessed queries",
             unprocessed_queries.len()
@@ -380,32 +391,54 @@ impl Server {
             }
         };
         // All queries were successfully queued as light proving jobs.
-        for query_id in query_ids {
-            queued_light_proving_queries.insert(query_id);
+        {
+            let mut queued_queries = self.queued_light_proving_queries.lock().await;
+            for query_id in query_ids {
+                queued_queries.insert(query_id);
+            }
         }
     }
 
     async fn stand_alone_prove_unprocessed_query(
         &self,
         unprocessed_queries: Vec<Query>,
-        processed_query_ids: &mut HashSet<H256>,
     ) -> Result<()> {
         for query in unprocessed_queries {
             info!("Processing unprocessed query: {:?}", query);
             if let Err(e) = self.stone_proof_query(query.clone()).await {
                 error!("Query processing failed, Error: {e:?}");
-                mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await?;
+                // Try to mark a query as invalid, but dont fail if it errors
+                if let Err(mark_err) =
+                    mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await
+                {
+                    error!(
+                        "Failed to mark query {:?} as invalid: {:?}",
+                        query.id(),
+                        mark_err
+                    );
+                }
             }
-            processed_query_ids.remove(&query.id());
+            // Cleanup the query from the received queries
+            let mut received_query_ids = self.received_query_ids.lock().await;
+            received_query_ids.remove(&query.id());
+            drop(received_query_ids);
         }
         Ok(())
+    }
+
+    async fn cleanup_query(&self, query_id: H256) {
+        let mut queued_queries = self.queued_light_proving_queries.lock().await;
+        queued_queries.remove(&query_id);
+        drop(queued_queries);
+
+        let mut received_query_ids = self.received_query_ids.lock().await;
+        received_query_ids.remove(&query_id);
+        drop(received_query_ids);
     }
 
     async fn handle_finished_light_proving_job(
         &self,
         result: Result<(Query, Result<Vec<u8>, LightProvingError>), JoinError>,
-        queued_light_proving_queries: &mut HashSet<H256>,
-        processed_query_ids: &mut HashSet<H256>,
     ) -> Result<()> {
         match result {
             Ok((query, result_inner)) => {
@@ -423,9 +456,6 @@ impl Server {
                             mark_query_as_invalid(&self.cc3_client, query_id, e.to_string())
                                 .await?;
                         }
-
-                        queued_light_proving_queries.remove(&query_id);
-                        processed_query_ids.remove(&query_id);
                     }
                     Err(e) => {
                         error!("Query processing failed, Error: {e:?}");
@@ -434,10 +464,8 @@ impl Server {
                         } else {
                             // Prevent unnecessary clone
                             let query_id = query.id();
-                            mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string())
+                            mark_query_as_invalid(&self.cc3_client, query_id, e.to_string())
                                 .await?;
-                            queued_light_proving_queries.remove(&query_id);
-                            processed_query_ids.remove(&query_id);
                         }
                     }
                 }
