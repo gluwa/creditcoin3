@@ -1918,6 +1918,34 @@ fn submitting_attestation_chain_works() {
 }
 
 #[test]
+fn test_attestation_submission_fails_if_threshold_not_met() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor_1 = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor_1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_1.attestor_id,
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor_1.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor_1.public_key,
+            attestor_1.signature
+        ));
+
+        progress_to_block(5);
+
+        // Should fail because we have only one attestors and the target sample size is 3 (Default value)
+        let attestation =
+            create_signed_attestation(vec![attestor_1.clone()], SUPPORTED_CHAIN_KEY, 0, None);
+        let result = Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &attestation);
+        assert_err!(result, InherentError::MajorityNotReached);
+    })
+}
+
+#[test]
 fn test_signing() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);

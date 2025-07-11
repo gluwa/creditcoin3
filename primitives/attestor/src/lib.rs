@@ -83,6 +83,7 @@ pub enum InherentError {
     AttestorNotActive,
     AttestorWithInvalidPublicKey,
     Duplicate(Digest),
+    MajorityNotReached,
 }
 
 impl IsFatalError for InherentError {
@@ -93,6 +94,7 @@ impl IsFatalError for InherentError {
             InherentError::AttestorNotActive => true,
             InherentError::AttestorWithInvalidPublicKey => true,
             InherentError::Duplicate(_) => true,
+            InherentError::MajorityNotReached => true,
         }
     }
 }
@@ -266,4 +268,42 @@ pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {
     let hi = Felt::from(buf[0]);
 
     (lo, hi)
+}
+
+/// Function to calculate the threshold for a committee set size to reach majority vote
+pub fn calculate_threshold(target_sample_size: u32) -> u32 {
+    (2 * target_sample_size) / 3
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_calculate_threshold_3() {
+        let target_sample_size = 3;
+        let threshold = calculate_threshold(target_sample_size);
+        assert_eq!(threshold, 2);
+    }
+
+    #[test]
+    fn test_calculate_threshold_4() {
+        let target_sample_size = 4;
+        let threshold = calculate_threshold(target_sample_size);
+        assert_eq!(threshold, 2);
+    }
+
+    #[test]
+    fn test_calculate_threshold_5() {
+        let target_sample_size = 5;
+        let threshold = calculate_threshold(target_sample_size);
+        assert_eq!(threshold, 3);
+    }
+
+    #[test]
+    fn test_calculate_threshold_10() {
+        let target_sample_size = 10;
+        let threshold = calculate_threshold(target_sample_size);
+        assert_eq!(threshold, 6);
+    }
 }

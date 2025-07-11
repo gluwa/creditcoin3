@@ -10,13 +10,14 @@ use sp_runtime::{
     ArithmeticError,
 };
 use sp_staking::StakingInterface;
-use sp_std::collections::btree_map::BTreeMap;
-use sp_std::collections::vec_deque::VecDeque;
-use sp_std::vec::Vec;
+use sp_std::{
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque},
+    vec::Vec,
+};
 
 use attestor_primitives::{
-    AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey, BlsSignature, ChainKey, Digest,
-    InherentError, SignedAttestation,
+    calculate_threshold, AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey,
+    BlsSignature, ChainKey, Digest, InherentError, SignedAttestation,
 };
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
@@ -758,6 +759,28 @@ impl<T: Config> Pallet<T> {
             return Err(InherentError::Duplicate(attestation.digest()));
         }
 
+        // Attestor eligibility validation
+        let active_attestors = ActiveAttestors::<T>::get(chain_key)
+            .into_iter()
+            .collect::<BTreeSet<_>>(); // or HashSet if std is available
+
+        ensure!(
+            attestation
+                .attestors
+                .iter()
+                .all(|attestor| active_attestors.contains(attestor)),
+            InherentError::AttestorNotActive
+        );
+
+        // Threshold validation
+        let target_sample_size = Self::target_sample_size(chain_key);
+        let threshold = calculate_threshold(target_sample_size);
+        ensure!(
+            attestation.attestors.len() as u32 >= threshold,
+            InherentError::MajorityNotReached
+        );
+
+        // Signature verification
         let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
         let attestor_public_keys =
             Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
@@ -913,27 +936,19 @@ impl<T: Config> Pallet<T> {
         attestors
             .iter()
             .map(|attestor| {
-                let active_attestors = ActiveAttestors::<T>::get(chain_key);
-                let contains = active_attestors.contains(attestor);
-
-                if contains {
-                    let attestor = Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
-                        log::error!("Attestor {:?} not found", attestor);
-                        InherentError::InvalidAttestorFound
-                    })?;
-                    match attestor.bls_public_key {
-                        Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
-                            log::error!("Invalid BLS key for attestor {:?}", attestor);
-                            InherentError::AttestorWithInvalidPublicKey
-                        }),
-                        None => {
-                            log::error!("No BLS key for attestor {:?}", attestor);
-                            Err(InherentError::AttestorWithInvalidPublicKey)
-                        }
+                let attestor = Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
+                    log::error!("Attestor {:?} not found", attestor);
+                    InherentError::InvalidAttestorFound
+                })?;
+                match attestor.bls_public_key {
+                    Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
+                        log::error!("Invalid BLS key for attestor {:?}", attestor);
+                        InherentError::AttestorWithInvalidPublicKey
+                    }),
+                    None => {
+                        log::error!("No BLS key for attestor {:?}", attestor);
+                        Err(InherentError::AttestorWithInvalidPublicKey)
                     }
-                } else {
-                    log::error!("Attestor {:?} is not active", attestor);
-                    Err(InherentError::AttestorNotActive)
                 }
             })
             .collect()
