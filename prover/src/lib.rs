@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    sync::{mpsc, Mutex},
+    sync::mpsc,
     task::{self, JoinError, JoinHandle},
 };
 use tracing::{debug, error, info, warn};
@@ -44,11 +44,11 @@ pub struct Server {
     // Attestation cache
     attestations_cache: AttestationCacheType,
     // Queries that are waiting for attestations
-    waiting_queries: Mutex<BTreeMap<u64, Vec<Query>>>,
+    waiting_queries: BTreeMap<u64, Vec<Query>>,
     // Queries that have been queued for light proving
-    queued_light_proving_queries: Mutex<HashSet<H256>>,
+    queued_light_proving_queries: HashSet<H256>,
     // Queries that have been received
-    received_query_ids: Mutex<HashSet<H256>>,
+    received_query_ids: HashSet<H256>,
 }
 
 impl Server {
@@ -95,9 +95,9 @@ impl Server {
             config,
             cc3_client: cc3_eth_client,
             attestations_cache,
-            waiting_queries: Mutex::new(BTreeMap::new()),
-            queued_light_proving_queries: Mutex::new(HashSet::new()),
-            received_query_ids: Mutex::new(HashSet::new()),
+            waiting_queries: BTreeMap::new(),
+            queued_light_proving_queries: HashSet::new(),
+            received_query_ids: HashSet::new(),
         })
     }
 
@@ -187,12 +187,10 @@ impl Server {
                 Some(new_query) = new_query_receiver.recv() => {
                     let query_id = new_query.id();
 
-                    let mut received_query_ids = self.received_query_ids.lock().await;
-                    if !received_query_ids.insert(query_id) {
+                    if !self.received_query_ids.insert(query_id) {
                         warn!("Received duplicate query {:?}, ignoring.", query_id);
                         continue;
                     }
-                    drop(received_query_ids);
 
                     info!("Received query {:?}, checking for readiness...", query_id);
 
@@ -209,8 +207,7 @@ impl Server {
                         );
 
                         // Add the query to the waiting list
-                        let mut waiting_queries = self.waiting_queries.lock().await;
-                        waiting_queries
+                        self.waiting_queries
                             .entry(new_query.height)
                             .or_default()
                             .push(new_query);
@@ -234,20 +231,18 @@ impl Server {
                 Some(block_height) = new_attestation_receiver.recv() => {
                     info!("Received notification for new attestation at height {}", block_height);
                     let mut processable_queries = Vec::new();
-                    let mut waiting_queries = self.waiting_queries.lock().await;
 
-                    let keys_to_process: Vec<u64> = waiting_queries
+                    let keys_to_process: Vec<u64> = self.waiting_queries
                         .keys()
                         .filter(|&&key| key <= block_height)
                         .copied()
                         .collect();
 
                     for key in keys_to_process {
-                        if let Some(queries) = waiting_queries.remove(&key) {
+                        if let Some(queries) = self.waiting_queries.remove(&key) {
                             processable_queries.extend(queries);
                         }
                     }
-                    drop(waiting_queries);
 
                     if !processable_queries.is_empty() {
                         info!(
@@ -278,7 +273,7 @@ impl Server {
 
                     // Clean up the query after handling, regardless of the outcome
                     if let Some(id) = query_id {
-                        self.cleanup_query(id).await;
+                        self.cleanup_query(id);
                     }
                 }
             }
@@ -362,17 +357,15 @@ impl Server {
     }
 
     async fn light_prove_unprocessed_queries(
-        &self,
+        &mut self,
         mut unprocessed_queries: Vec<Query>,
         light_prover_queries: &mut FuturesUnordered<
             JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>,
         >,
     ) {
         // We don't want to spam the BE with requests for queries we've already requested.
-        {
-            let queued_queries = self.queued_light_proving_queries.lock().await;
-            unprocessed_queries.retain(|query| !queued_queries.contains(&query.id()));
-        }
+        unprocessed_queries
+            .retain(|query| !self.queued_light_proving_queries.contains(&query.id()));
 
         info!(
             "Found {} new unprocessed queries",
@@ -391,16 +384,14 @@ impl Server {
             }
         };
         // All queries were successfully queued as light proving jobs.
-        {
-            let mut queued_queries = self.queued_light_proving_queries.lock().await;
-            for query_id in query_ids {
-                queued_queries.insert(query_id);
-            }
+
+        for query_id in query_ids {
+            self.queued_light_proving_queries.insert(query_id);
         }
     }
 
     async fn stand_alone_prove_unprocessed_query(
-        &self,
+        &mut self,
         unprocessed_queries: Vec<Query>,
     ) -> Result<()> {
         for query in unprocessed_queries {
@@ -419,21 +410,15 @@ impl Server {
                 }
             }
             // Cleanup the query from the received queries
-            let mut received_query_ids = self.received_query_ids.lock().await;
-            received_query_ids.remove(&query.id());
-            drop(received_query_ids);
+            self.received_query_ids.remove(&query.id());
         }
         Ok(())
     }
 
-    async fn cleanup_query(&self, query_id: H256) {
-        let mut queued_queries = self.queued_light_proving_queries.lock().await;
-        queued_queries.remove(&query_id);
-        drop(queued_queries);
+    fn cleanup_query(&mut self, query_id: H256) {
+        self.queued_light_proving_queries.remove(&query_id);
 
-        let mut received_query_ids = self.received_query_ids.lock().await;
-        received_query_ids.remove(&query_id);
-        drop(received_query_ids);
+        self.received_query_ids.remove(&query_id);
     }
 
     async fn handle_finished_light_proving_job(
