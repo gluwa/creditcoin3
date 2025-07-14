@@ -337,6 +337,7 @@ impl ExtBuilder {
                 attestations_per_checkpoint: 10,
                 chain_reward: 10000,
                 target_sample_size: TargetSampleSizeDefault::<Test>::get(),
+                checkpoints: vec![],
             }],
         };
         pallet_genesis.assimilate_storage(&mut t).unwrap();
