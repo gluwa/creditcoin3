@@ -20,6 +20,8 @@ const FILE_NAME_TO_FIELD_MAP: &[(&str, &str)] = &[
     ("memory.json", "MemoryFile"),
     ("private_input.json", "PrivateInputFile"),
     ("public_input.json", "PublicInputFile"),
+    ("program_input.json", "ProgramInputFile"),
+    ("output.txt", "OutputFile"),
 ];
 
 fn get_request_field(file_name: &str) -> Result<String> {
