@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use sp_core::H256;
 use sp_std::vec::Vec;
 use std::ops::Range;
@@ -41,7 +42,7 @@ pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
     Ok(pedersen_array(&felts_offsets))
 }
 
-pub fn get(claim_felts: &[Felt], layout_segments: &[LayoutSegment]) -> Vec<ResultSegment> {
+pub fn get(claim_felts: &[Felt], layout_segments: &[LayoutSegment]) -> Result<Vec<ResultSegment>> {
     // 1. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
     let felt_segments = convert_segments_to_felt_segments(layout_segments);
 
@@ -152,26 +153,37 @@ pub fn extract_felt_ranges_from_felt_array(
 fn extract_bytes_from_felts_using_original_ranges(
     felt_segments: &[FeltResult],
     original_segments: &[LayoutSegment],
-) -> Vec<ResultSegment> {
-    original_segments
-        .iter()
-        .enumerate()
-        .map(|(i, orig)| {
-            let mut combined_bytes =
-                Vec::with_capacity(felt_segments[i].felts.len() * U248_BYTE_COUNT);
-            for felt in &felt_segments[i].felts {
-                let felt_bytes = felt.to_bytes_be(); // Get 32 bytes
-                combined_bytes.extend_from_slice(&felt_bytes[1..]); // Skip first byte (padding)
-            }
+) -> Result<Vec<ResultSegment>> {
+    let mut segments = Vec::new();
 
-            let start = orig.offset as usize % U248_BYTE_COUNT;
-            let end = start + orig.size as usize;
-            ResultSegment {
-                offset: orig.offset,
-                bytes: H256::from_slice(&combined_bytes[start..end]),
-            }
-        })
-        .collect()
+    for (i, orig) in original_segments.iter().enumerate() {
+        let mut combined_bytes = Vec::with_capacity(felt_segments[i].felts.len() * U248_BYTE_COUNT);
+
+        for felt in &felt_segments[i].felts {
+            let felt_bytes = felt.to_bytes_be(); // 32 bytes
+            combined_bytes.extend_from_slice(&felt_bytes[1..]); // Skip padding byte
+        }
+
+        let start = orig.offset as usize % U248_BYTE_COUNT;
+        let end = start + orig.size as usize;
+
+        if end > combined_bytes.len() {
+            return Err(anyhow!("Segment end exceeds combined bytes length"));
+        }
+
+        let relevant_bytes = &combined_bytes[start..end];
+
+        for (j, chunk) in relevant_bytes.chunks(32).enumerate() {
+            let mut padded_chunk = [0u8; 32];
+            padded_chunk[..chunk.len()].copy_from_slice(chunk);
+            segments.push(ResultSegment {
+                offset: orig.offset + (j as u64 * 32),
+                bytes: H256::from(padded_chunk),
+            });
+        }
+    }
+
+    Ok(segments)
 }
 
 fn extract_original_felt_ranges_from_sanitized(

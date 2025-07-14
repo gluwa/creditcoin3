@@ -41,6 +41,9 @@ pub enum VerifierError {
 
     #[error("Failed to remove temp file")]
     TempFileRemoveError,
+
+    #[error("Other error: {0}")]
+    Other(#[from] anyhow::Error),
 }
 
 impl VerifierError {
@@ -129,6 +132,10 @@ impl VerifierError {
                     18
                 }
             },
+            VerifierError::Other(e) => {
+                error!("other error: {:?}", e);
+                19
+            }
         }
     }
 }

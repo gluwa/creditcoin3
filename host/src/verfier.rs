@@ -108,7 +108,7 @@ pub fn run_verifier(
         // Return result segments along with message on success
         let claim_felts = cairo_verifier_output.claim_fields.clone();
         let result_segments: Vec<ResultSegment> =
-            result_segments::get(&claim_felts, &unsanitized_layout_segments);
+            result_segments::get(&claim_felts, &unsanitized_layout_segments)?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok((
@@ -198,12 +198,12 @@ fn validate_layout_segments(layout_segments: &[LayoutSegment]) -> Result<(), Ver
         ));
     }
 
-    // Check that all segments have a 32 bytes size
+    // Check that all segments have a non-zero byte size
     for segment in layout_segments {
-        if segment.size == 0 || segment.size != 32 {
+        if segment.size == 0 {
             return Err(VerifierError::QueryValidationError(
                 ClaimValidationError::QueryLayoutSegmentsError(
-                    "Layout segments must have 32 bytes size".to_string(),
+                    "Layout segments must have a non-zero byte size".to_string(),
                 ),
             ));
         }
@@ -226,6 +226,19 @@ pub mod arch_independent_tests {
             LayoutSegment {
                 offset: 32,
                 size: 32,
+            },
+        ];
+        let result = super::validate_layout_segments(&layout_segments);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_validate_layout_segments_with_correct_segments_non_32_bytes() {
+        let layout_segments = vec![
+            LayoutSegment { offset: 0, size: 2 },
+            LayoutSegment {
+                offset: 4,
+                size: 33,
             },
         ];
         let result = super::validate_layout_segments(&layout_segments);
@@ -394,10 +407,7 @@ pub mod tests {
 
         let mut query = get_test_query();
         // Number and size of segments not in accordance with proof
-        query.layout_segments = vec![LayoutSegment {
-            offset: 0,
-            size: 1000,
-        }];
+        query.layout_segments = vec![LayoutSegment { offset: 0, size: 0 }];
 
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
@@ -412,7 +422,7 @@ pub mod tests {
                 assert_eq!(
                     e,
                     super::ClaimValidationError::QueryLayoutSegmentsError(
-                        "Layout segments must have 32 bytes size".to_string()
+                        "Layout segments must have a non-zero byte size".to_string()
                     )
                 );
             }
