@@ -6,6 +6,7 @@ use futures::{stream::Fuse, StreamExt};
 use log::{debug, error, info, warn};
 use parity_scale_codec::{Codec, Decode, Encode};
 use sc_client_api::{Backend, BlockBackend, HeaderBackend};
+use sc_network::NetworkPeers;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus::SyncOracle;
 use sp_consensus_babe::BabeApi;
@@ -36,7 +37,7 @@ pub(crate) fn votes_topic<B: BlockT>() -> B::Hash {
     <<B::Header as HeaderT>::Hashing as HashT>::hash(b"attestor-votes")
 }
 
-pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S>
+pub(crate) struct Worker<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
 where
     RuntimeApi: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RuntimeApi::Api: BabeApi<B>,
@@ -58,7 +59,7 @@ where
         + std::hash::Hash,
 {
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
-    pub comms: AttestorComms<B, AccountId>,
+    pub comms: AttestorComms<B, AccountId, N>,
 
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
@@ -87,7 +88,7 @@ where
     pub attestation_validator: AttestationValidator<B, AccountId, RuntimeApi>,
 }
 
-pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S>
+pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
 where
     RuntimeApi: ProvideRuntimeApi<B> + Send + Sync + 'static,
     RuntimeApi::Api: BabeApi<B>,
@@ -109,7 +110,7 @@ where
         + std::hash::Hash,
 {
     /// communication (created once, but returned and reused if worker is restarted/reinitialized)
-    pub comms: AttestorComms<B, AccountId>,
+    pub comms: AttestorComms<B, AccountId, N>,
 
     /// runtime api access
     pub runtime: Arc<RuntimeApi>,
@@ -130,7 +131,8 @@ where
     pub prometheus_registry: Option<Registry>,
 }
 
-impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, AccountId, S> Worker<B, RA, BE, C, AccountId, S>
+impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
+    Worker<B, RA, BE, C, AccountId, S, N>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
@@ -155,8 +157,9 @@ where
         + PartialEq
         + Eq
         + std::hash::Hash,
+    N: NetworkPeers,
 {
-    pub fn new(params: WorkerParams<B, RA, BE, C, AccountId, S>) -> Self {
+    pub fn new(params: WorkerParams<B, RA, BE, C, AccountId, S, N>) -> Self {
         let block_hash = params.backend.blockchain().info().finalized_hash;
 
         let current_epoch_index = params
@@ -184,7 +187,7 @@ where
     pub async fn start(
         mut self,
         finality_notifications: &mut Fuse<crate::FinalityNotifications<B>>,
-    ) -> (Error, AttestorComms<B, AccountId>) {
+    ) -> (Error, AttestorComms<B, AccountId, N>) {
         let mut votes = Box::pin(
             self.comms
                 .gossip_engine
@@ -378,6 +381,7 @@ where
                 }
             }
         }
+
         // Flush memory
         self.state.clear_votes(round.0, round.1);
         // Update gossip filter

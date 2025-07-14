@@ -49,6 +49,27 @@ where
     }
 }
 
+// cost scalars for reporting peers.
+mod cost {
+    use sc_network::ReputationChange as Rep;
+    // Message that's for an outdated round.
+    pub(super) const OUTDATED_MESSAGE: Rep = Rep::new(-50, "ATTESTOR: Past message");
+    // Message that's from the future relative to our current set-id.
+    pub(super) const FUTURE_MESSAGE: Rep = Rep::new(-100, "ATTESTOR: Future message");
+    // Vote message containing bad signature.
+    pub(super) const BAD_SIGNATURE: Rep = Rep::new(-100, "ATTESTOR: Bad signature");
+    // Message received with vote from voter not in validator set.
+    pub(super) const UNKNOWN_VOTER: Rep = Rep::new(-150, "ATTESTOR: Unknown voter");
+    // Reputation cost per byte for un-decodable message.
+    pub(super) const PER_UNDECODABLE_BYTE: i32 = -5;
+}
+
+// benefit scalars for reporting peers.
+mod benefit {
+    use sc_network::ReputationChange as Rep;
+    pub(super) const VOTE_MESSAGE: Rep = Rep::new(100, "ATTESTOR: Round vote message");
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Gossip engine exited")]

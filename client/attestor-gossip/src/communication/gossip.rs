@@ -1,4 +1,5 @@
 use parity_scale_codec::{Decode, Encode};
+use sc_network::ReputationChange;
 use sp_runtime::traits::Block as BlockT;
 
 use super::Attestation;
@@ -6,8 +7,9 @@ use crate::HashFor;
 
 #[derive(Debug, PartialEq)]
 pub enum Action<H> {
-    Keep(H),
-    Discard,
+    Keep(H, ReputationChange),
+    Discard(ReputationChange),
+    DiscardNoReport,
 }
 
 #[derive(Encode, Decode, Debug, Clone)]

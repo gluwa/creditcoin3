@@ -106,10 +106,10 @@ where
         None
     }
 
+    // Clear votes for a given header number and all votes before it
     pub fn clear_votes(&mut self, header_number: BlockNumber) {
-        if let Some(votes) = self.header_votes.get_mut(&header_number) {
-            votes.clear();
-        }
+        self.header_votes
+            .retain(|&number, _| number > header_number);
     }
 }
 
@@ -626,7 +626,7 @@ mod tests {
 
         state.clear_votes(1, 1);
 
-        let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
-        assert!(votes.is_empty(), "Votes should be cleared");
+        let result = state.get_attestations_by_chain_and_header(1, 1);
+        assert!(result.is_err());
     }
 }

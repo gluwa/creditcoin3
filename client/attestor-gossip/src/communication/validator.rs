@@ -1,10 +1,11 @@
 use std::{
     collections::BTreeMap,
     fmt::{Debug, Display},
+    sync::Arc,
     time::Duration,
 };
 
-use sc_network::PeerId;
+use sc_network::{NetworkPeers, PeerId, ReputationChange};
 use sc_network_gossip::{MessageIntent, ValidationResult, Validator, ValidatorContext};
 use sp_core::{Pair, H256};
 use sp_runtime::traits::Block as BlockT;
@@ -18,10 +19,11 @@ use wasm_timer::Instant;
 use attestor_primitives::{ChainKey, Round};
 
 use super::{
+    cost,
     gossip::{Action, Consider, Message},
     Attestation,
 };
-use crate::{worker::votes_topic, HashFor};
+use crate::{communication::benefit, worker::votes_topic, HashFor};
 
 const LOG_TARGET: &str = "attestor-gossip-comms";
 
@@ -72,7 +74,7 @@ where
     }
 }
 
-pub struct AttestorGossipValidator<B, AccountId>
+pub struct AttestorGossipValidator<B, AccountId, N>
 where
     B: BlockT,
     AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
@@ -85,28 +87,20 @@ where
 
     /// Next Rebroadcast time
     next_rebroadcast: Mutex<Instant>,
+
+    /// Network
+    network: Arc<N>,
 }
 
-impl<B, AccountId> Default for AttestorGossipValidator<B, AccountId>
+impl<B, AccountId, N> AttestorGossipValidator<B, AccountId, N>
 where
     B: BlockT,
     H256: From<<B as BlockT>::Hash>,
     AccountId:
         Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + Eq + PartialEq,
+    N: NetworkPeers,
 {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<B, AccountId> AttestorGossipValidator<B, AccountId>
-where
-    B: BlockT,
-    H256: From<<B as BlockT>::Hash>,
-    AccountId:
-        Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + Eq + PartialEq,
-{
-    pub fn new() -> Self {
+    pub fn new(network: Arc<N>) -> Self {
         Self {
             votes_topic: votes_topic::<B>(),
             gossip_filter: RwLock::new(GossipFilter {
@@ -115,7 +109,12 @@ where
                 validators: BTreeMap::new(),
             }),
             next_rebroadcast: Mutex::new(Instant::now() + REBROADCAST_AFTER),
+            network,
         }
+    }
+
+    fn report(&self, who: PeerId, cost_benefit: ReputationChange) {
+        self.network.report_peer(who, cost_benefit);
     }
 
     pub fn update_filter(
@@ -141,15 +140,21 @@ where
         let chain_key = round.0;
 
         // first check if the round is in the filter
-        if filter.consider_vote(round, attestation.epoch) != Consider::Accept {
-            return Action::Discard;
+        match filter.consider_vote(round, attestation.epoch) {
+            Consider::RejectPast => return Action::Discard(cost::OUTDATED_MESSAGE),
+            Consider::RejectFuture => return Action::Discard(cost::FUTURE_MESSAGE),
+            Consider::CannotEvaluate => {
+                error!(target: LOG_TARGET, "📝 Cannot evaluate vote for round #{:?} in epoch {}. Chain key: {:?}", round, attestation.epoch, chain_key);
+                return Action::DiscardNoReport;
+            }
+            Consider::Accept => {}
         }
 
         let attestor = attestation.attestor.clone();
 
         // first check if the attestor was elected for this epoch
         if !filter.attestor_included(chain_key, &attestor) {
-            return Action::Discard;
+            return Action::Discard(cost::UNKNOWN_VOTER);
         }
 
         // then check the signature
@@ -157,26 +162,28 @@ where
         let msg = attestation.attestation_data.serialize();
         let sr_valid = sp_core::sr25519::Pair::verify(&attestation.signature, msg, &public_key);
         if !sr_valid {
-            return Action::Discard;
+            return Action::Discard(cost::BAD_SIGNATURE);
         }
 
-        Action::Keep(self.votes_topic)
+        Action::Keep(self.votes_topic, benefit::VOTE_MESSAGE)
     }
 }
 
-impl<Block, AccountId> Validator<Block> for AttestorGossipValidator<Block, AccountId>
+impl<Block, AccountId, N> Validator<Block> for AttestorGossipValidator<Block, AccountId, N>
 where
     Block: BlockT,
     H256: From<<Block as BlockT>::Hash>,
     AccountId:
         Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]> + Eq + PartialEq,
+    N: NetworkPeers + Send + Sync,
 {
     fn validate(
         &self,
         context: &mut dyn ValidatorContext<Block>,
-        _sender: &PeerId,
+        sender: &PeerId,
         data: &[u8],
     ) -> ValidationResult<Block::Hash> {
+        let raw = data;
         let action = match Message::<Block, AccountId>::decode(&mut &data[..]) {
             Ok(Message::Attestation(att)) => {
                 debug!(target: LOG_TARGET, "📝 Received attestation by: {:?}, round: {:?}", att.attestor, att.round());
@@ -184,17 +191,27 @@ where
             }
             Err(err) => {
                 error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);
-                Action::Discard
+                let bytes = raw.len().min(i32::MAX as usize) as i32;
+                let cost = ReputationChange::new(
+                    bytes.saturating_mul(cost::PER_UNDECODABLE_BYTE),
+                    "ATTESTOR: Bad packet",
+                );
+                Action::Discard(cost)
             }
         };
 
         match action {
-            Action::Keep(topic) => {
+            Action::Keep(topic, cb) => {
+                self.report(*sender, cb);
                 debug!(target: LOG_TARGET, "📝 Broadcasting message for topic {:?}", topic);
                 context.broadcast_message(topic, data.to_vec(), false);
                 ValidationResult::ProcessAndKeep(topic)
             }
-            Action::Discard => ValidationResult::Discard,
+            Action::Discard(cb) => {
+                self.report(*sender, cb);
+                ValidationResult::Discard
+            }
+            Action::DiscardNoReport => ValidationResult::Discard,
         }
     }
 
@@ -278,6 +295,99 @@ pub(crate) mod tests {
         }
     }
 
+    pub(crate) struct TestNetwork {}
+
+    impl TestNetwork {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl NetworkPeers for TestNetwork {
+        fn set_authorized_peers(&self, _: std::collections::HashSet<PeerId>) {
+            unimplemented!()
+        }
+
+        fn set_authorized_only(&self, _: bool) {
+            unimplemented!()
+        }
+
+        fn add_known_address(&self, _: PeerId, _: sc_network::Multiaddr) {
+            unimplemented!()
+        }
+
+        fn report_peer(&self, _: PeerId, _: ReputationChange) {
+            // let _ = self.report_sender.unbounded_send(PeerReport {
+            //     who: peer_id,
+            //     cost_benefit,
+            // });
+        }
+
+        fn peer_reputation(&self, _: &PeerId) -> i32 {
+            unimplemented!()
+        }
+
+        fn disconnect_peer(&self, _: PeerId, _: sc_network::ProtocolName) {
+            unimplemented!()
+        }
+
+        fn accept_unreserved_peers(&self) {
+            unimplemented!()
+        }
+
+        fn deny_unreserved_peers(&self) {
+            unimplemented!()
+        }
+
+        fn add_reserved_peer(
+            &self,
+            _: sc_network::config::MultiaddrWithPeerId,
+        ) -> Result<(), String> {
+            unimplemented!()
+        }
+
+        fn remove_reserved_peer(&self, _: PeerId) {
+            unimplemented!()
+        }
+
+        fn set_reserved_peers(
+            &self,
+            _: sc_network::ProtocolName,
+            _: std::collections::HashSet<sc_network::Multiaddr>,
+        ) -> Result<(), String> {
+            unimplemented!()
+        }
+
+        fn add_peers_to_reserved_set(
+            &self,
+            _: sc_network::ProtocolName,
+            _: std::collections::HashSet<sc_network::Multiaddr>,
+        ) -> Result<(), String> {
+            unimplemented!()
+        }
+
+        fn remove_peers_from_reserved_set(
+            &self,
+            _: sc_network::ProtocolName,
+            _: Vec<PeerId>,
+        ) -> Result<(), String> {
+            unimplemented!()
+        }
+
+        fn sync_num_connected(&self) -> usize {
+            unimplemented!()
+        }
+
+        fn peer_role(&self, _: PeerId, _: Vec<u8>) -> Option<sc_network::ObservedRole> {
+            unimplemented!()
+        }
+
+        async fn reserved_peers(&self) -> Result<Vec<PeerId>, ()> {
+            unimplemented!();
+        }
+    }
+
     #[test]
     fn should_validate_messages() {
         let _ = env_logger::try_init();
@@ -288,7 +398,10 @@ pub(crate) mod tests {
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data.clone());
 
-        let gossip_validator = AttestorGossipValidator::<Block, AccountId32>::new();
+        let network = TestNetwork::new();
+
+        let gossip_validator =
+            AttestorGossipValidator::<Block, AccountId32, _>::new(Arc::new(network));
 
         let mut context = TestContext;
         let sender = PeerId::random();
@@ -336,7 +449,10 @@ pub(crate) mod tests {
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data.clone());
 
-        let gossip_validator = AttestorGossipValidator::<Block, AccountId32>::new();
+        let network = TestNetwork::new();
+
+        let gossip_validator =
+            AttestorGossipValidator::<Block, AccountId32, _>::new(Arc::new(network));
 
         let mut context = TestContext;
         let sender = PeerId::random();

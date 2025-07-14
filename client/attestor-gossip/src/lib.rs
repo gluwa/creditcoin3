@@ -45,7 +45,7 @@ const LOG_TARGET: &str = "attestor-gossip";
 type FinalityNotifications<Block> =
     sc_utils::mpsc::TracingUnboundedReceiver<UnpinnedFinalityNotification<Block>>;
 
-pub(crate) struct AttestorComms<B: BlockT, AccountId>
+pub(crate) struct AttestorComms<B: BlockT, AccountId, N>
 where
     AccountId: Clone
         + Display
@@ -61,7 +61,7 @@ where
 {
     pub gossip_engine: GossipEngine<B>,
     #[allow(dead_code)]
-    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId>>,
+    pub gossip_validator: Arc<AttestorGossipValidator<B, AccountId, N>>,
     pub gossip_report_stream: TracingUnboundedReceiver<Message<B, AccountId>>,
     // pub on_demand_justifications: OnDemandJustificationsEngine<B>,
 }
@@ -202,7 +202,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
     let (mut transformer, mut finality_notifications) =
         finality_notification_transformer_future(finality_notifications);
 
-    let gossip_validator = AttestorGossipValidator::<B, AccountId>::default();
+    let gossip_validator = AttestorGossipValidator::<B, AccountId, N>::new(network.clone());
     let gossip_validator = Arc::new(gossip_validator);
     let gossip_engine = GossipEngine::new(
         network.clone(),
@@ -231,7 +231,7 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
             sync: sync.clone(),
             prometheus_registry: prometheus_registry.clone(),
         };
-        let worker: Worker<B, R, BE, C, AccountId, S> = Worker::new(worker_params);
+        let worker: Worker<B, R, BE, C, AccountId, S, N> = Worker::new(worker_params);
 
         futures::select! {
             result = worker.start(&mut finality_notifications).fuse() => {
