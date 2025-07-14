@@ -1,12 +1,13 @@
+use hex_literal::hex;
+use serde::{Deserialize, Serialize};
+use sp_core::H256;
 use std::{
     collections::{BTreeMap, HashSet},
     str::FromStr,
 };
 
-use hex_literal::hex;
-use serde::{Deserialize, Serialize};
 // Substrate
-use attestor_primitives::{AttestationChainConfiguration, ChainId};
+use attestor_primitives::{AttestationChainConfiguration, AttestationCheckpoint, ChainId};
 use sc_chain_spec::{ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -145,6 +146,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
                 target_sample_size: 3,
+                checkpoints: vec![],
             },
             AttestationChainConfiguration {
                 chain_key: 2,
@@ -152,6 +154,13 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
                 target_sample_size: 3,
+                checkpoints: vec![AttestationCheckpoint::new(
+                    30,
+                    H256::from_str(
+                        "0x0032e15872b4b900be9a24495f460b6b0114be936f80df5210d46d949abed889",
+                    )
+                    .unwrap(),
+                )],
             },
             AttestationChainConfiguration {
                 chain_key: 3,
@@ -159,6 +168,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
                 target_sample_size: 3,
+                checkpoints: vec![],
             },
             AttestationChainConfiguration {
                 chain_key: 4,
@@ -166,6 +176,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
                 target_sample_size: 3,
+                checkpoints: vec![],
             },
             AttestationChainConfiguration {
                 chain_key: 5,
@@ -173,6 +184,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
                 target_sample_size: 3,
+                checkpoints: vec![],
             },
             AttestationChainConfiguration {
                 chain_key: 6,
@@ -180,6 +192,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 attestations_per_checkpoint: 10,
                 chain_reward: 1000,
                 target_sample_size: 3,
+                checkpoints: vec![],
             },
         ],
     );
@@ -198,78 +211,98 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
 pub fn local_testnet_config() -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
-    let rgc = testnet_genesis(
-        wasm_binary,
-        // Initial PoA authorities
-        // Sudo account (Alice)
-        get_account_id_from_seed::<sr25519::Public>("Alice"),
-        // Pre-funded accounts
-        vec![
+    let rgc =
+        testnet_genesis(
+            wasm_binary,
+            // Initial PoA authorities
+            // Sudo account (Alice)
             get_account_id_from_seed::<sr25519::Public>("Alice"),
-            get_account_id_from_seed::<sr25519::Public>("Bob"),
-            get_account_id_from_seed::<sr25519::Public>("Charlie"),
-            get_account_id_from_seed::<sr25519::Public>("Dave"),
-            get_account_id_from_seed::<sr25519::Public>("Eve"),
-            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-        ],
-        vec![
-            hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
-            hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
-            hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
-            hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
-            hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
-            hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
-        ],
-        vec![
-            authority_keys_from_seed("Alice"),
-            authority_keys_from_seed("Bob"),
-        ],
-        SS58Prefix::get() as u64,
-        vec![
-            AttestationChainConfiguration {
-                chain_key: 1,
-                attestation_interval: 10,
-                attestations_per_checkpoint: 10,
-                chain_reward: 1000,
-                target_sample_size: 3,
-            },
-            AttestationChainConfiguration {
-                chain_key: 2,
-                attestation_interval: 10,
-                attestations_per_checkpoint: 10,
-                chain_reward: 1000,
-                target_sample_size: 3,
-            },
-            AttestationChainConfiguration {
-                chain_key: 3,
-                attestation_interval: 10,
-                attestations_per_checkpoint: 10,
-                chain_reward: 1000,
-                target_sample_size: 3,
-            },
-            AttestationChainConfiguration {
-                chain_key: 4,
-                attestation_interval: 10,
-                attestations_per_checkpoint: 10,
-                chain_reward: 1000,
-                target_sample_size: 3,
-            },
-            AttestationChainConfiguration {
-                chain_key: 5,
-                attestation_interval: 10,
-                attestations_per_checkpoint: 10,
-                chain_reward: 1000,
-                target_sample_size: 3,
-            },
-            AttestationChainConfiguration {
-                chain_key: 6,
-                attestation_interval: 10,
-                attestations_per_checkpoint: 10,
-                chain_reward: 1000,
-                target_sample_size: 3,
-            },
-        ],
-    );
+            // Pre-funded accounts
+            vec![
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
+                get_account_id_from_seed::<sr25519::Public>("Bob"),
+                get_account_id_from_seed::<sr25519::Public>("Charlie"),
+                get_account_id_from_seed::<sr25519::Public>("Dave"),
+                get_account_id_from_seed::<sr25519::Public>("Eve"),
+                get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+            ],
+            vec![
+                hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+                hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+                hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+                hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+                hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+                hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+            ],
+            vec![
+                authority_keys_from_seed("Alice"),
+                authority_keys_from_seed("Bob"),
+            ],
+            SS58Prefix::get() as u64,
+            vec![
+                AttestationChainConfiguration {
+                    chain_key: 1,
+                    attestation_interval: 10,
+                    attestations_per_checkpoint: 10,
+                    chain_reward: 1000,
+                    target_sample_size: 3,
+                    checkpoints: vec![],
+                },
+                AttestationChainConfiguration {
+                    chain_key: 2,
+                    attestation_interval: 10,
+                    attestations_per_checkpoint: 10,
+                    chain_reward: 1000,
+                    target_sample_size: 3,
+                    checkpoints: vec![
+                    AttestationCheckpoint::new(
+                        0,
+                        H256::from_str(
+                            "0x06bf1b215edde951b1b50c19e77f7b362d23c6cb4232ae8b95bc112ff94d3956",
+                        ).unwrap(),
+                    ),
+                    AttestationCheckpoint::new(
+                        100,
+                        H256::from_str(
+                            "0x010221c471ef2a90aeefd71cafd3db8bf988e274160de745d84d669618d6fff1",
+                        ).unwrap(),
+                    ),
+                ],
+                },
+                AttestationChainConfiguration {
+                    chain_key: 3,
+                    attestation_interval: 10,
+                    attestations_per_checkpoint: 10,
+                    chain_reward: 1000,
+                    target_sample_size: 3,
+                    checkpoints: vec![],
+                },
+                AttestationChainConfiguration {
+                    chain_key: 4,
+                    attestation_interval: 10,
+                    attestations_per_checkpoint: 10,
+                    chain_reward: 1000,
+                    target_sample_size: 3,
+                    checkpoints: vec![],
+                },
+                AttestationChainConfiguration {
+                    chain_key: 5,
+                    attestation_interval: 10,
+                    attestations_per_checkpoint: 10,
+                    chain_reward: 1000,
+                    target_sample_size: 3,
+                    checkpoints: vec![],
+                },
+                AttestationChainConfiguration {
+                    chain_key: 6,
+                    attestation_interval: 10,
+                    attestations_per_checkpoint: 10,
+                    chain_reward: 1000,
+                    target_sample_size: 3,
+                    checkpoints: vec![],
+                },
+            ],
+        );
 
     let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 

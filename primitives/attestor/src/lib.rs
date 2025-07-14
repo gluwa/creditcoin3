@@ -40,6 +40,7 @@ pub struct AttestationChainConfiguration {
     pub attestations_per_checkpoint: u32,
     pub chain_reward: u128,
     pub target_sample_size: u32,
+    pub checkpoints: Vec<AttestationCheckpoint>,
 }
 
 /// Identifier for a source chain
@@ -259,6 +260,23 @@ where
 pub struct AttestationCheckpoint {
     pub block_number: u64,
     pub digest: Digest,
+}
+
+impl AttestationCheckpoint {
+    pub fn new(block_number: u64, digest: Digest) -> Self {
+        Self {
+            block_number,
+            digest,
+        }
+    }
+
+    pub fn block_number(&self) -> u64 {
+        self.block_number
+    }
+
+    pub fn digest(&self) -> Digest {
+        self.digest
+    }
 }
 
 pub fn u256_to_felts(x: &U256) -> (Felt, Felt) {

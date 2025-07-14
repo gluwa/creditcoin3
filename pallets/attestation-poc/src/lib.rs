@@ -427,6 +427,14 @@ pub mod pallet {
                         true,
                     );
                 }
+
+                for checkpoint in chain_configuration.checkpoints.iter() {
+                    Checkpoints::<T>::insert(
+                        chain_configuration.chain_key,
+                        checkpoint.digest,
+                        checkpoint.block_number,
+                    );
+                }
             }
         }
     }
