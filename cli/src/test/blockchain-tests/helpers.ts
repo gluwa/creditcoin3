@@ -4,7 +4,7 @@ import path from 'path';
 
 // matches artifacts/proof_example_erc20.json
 export const validQuery = {
-    chainId: 2, // not checked by Cairo
+    chainId: 5, // not checked by Cairo
     height: 23,
     index: 0,
     // note: must be `layout` when sending to verify() precompile
