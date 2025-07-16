@@ -36,7 +36,17 @@ describe('handleEventBlockAttested()', () => {
 
         it('graphQL returns Attestations entities and keeps MapAttestationAttestor & AttestationChainData in sync', async () => {
             const response = await graphQLQuery(
-                `query { attestations(orderBy: HEADER_NUMBER_ASC, last: 10) { nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp }}}`,
+                `query {
+                    attestations(orderBy: HEADER_NUMBER_ASC, last: 10) {
+                        nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp }
+                    },
+
+                    attestationChainData(
+                        orderBy: CHAIN_KEY_ASC,
+                        last: 1,
+                        filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }}
+                    ) { nodes { id, lastAttestedDigest, lastAttestedHeaderNumber }},
+                }`,
             );
             expect(response.data.attestations.nodes).toBeTruthy();
             expect(response.data.attestations.nodes.length).toBeGreaterThan(0);
@@ -81,18 +91,9 @@ describe('handleEventBlockAttested()', () => {
             expect(lastHeaderNumber).toBeGreaterThan(0n);
             expect(lastDigest).not.toEqual('');
 
-            // this was updated
-            const chainDataResponse = await graphQLQuery(
-                `query {
-                    attestationChainData(
-                        orderBy: CHAIN_KEY_ASC,
-                        last: 1,
-                        filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }}
-                    ) { nodes { id, lastAttestedDigest, lastAttestedHeaderNumber }}
-                }`,
-            );
-            expect(chainDataResponse.data.attestationChainData.nodes[0].lastAttestedDigest).toEqual(lastDigest);
-            expect(BigInt(chainDataResponse.data.attestationChainData.nodes[0].lastAttestedHeaderNumber)).toEqual(
+            // chain data records were also updated
+            expect(response.data.attestationChainData.nodes[0].lastAttestedDigest).toEqual(lastDigest);
+            expect(BigInt(response.data.attestationChainData.nodes[0].lastAttestedHeaderNumber)).toEqual(
                 lastHeaderNumber,
             );
         });

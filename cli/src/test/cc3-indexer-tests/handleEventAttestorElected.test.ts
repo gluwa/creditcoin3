@@ -35,14 +35,14 @@ describe('handleEventAttestorElected()', () => {
         }, 30_000);
 
         it('graphQL returns known AttestorElected entity', async () => {
-            let response = await graphQLQuery(
+            const response0 = await graphQLQuery(
                 `query { attestorsElecteds(orderBy: EPOCH_ASC, last: 1) { nodes { epoch }}}`,
             );
             // last record is for the current epoch or the next one in case it has changed meanwhile
-            expect(BigInt(response.data.attestorsElecteds.nodes[0].epoch)).toBeGreaterThanOrEqual(currentEpoch);
-            expect(BigInt(response.data.attestorsElecteds.nodes[0].epoch)).toBeLessThanOrEqual(currentEpoch + 1n);
+            expect(BigInt(response0.data.attestorsElecteds.nodes[0].epoch)).toBeGreaterThanOrEqual(currentEpoch);
+            expect(BigInt(response0.data.attestorsElecteds.nodes[0].epoch)).toBeLessThanOrEqual(currentEpoch + 1n);
 
-            response = await graphQLQuery(
+            const response = await graphQLQuery(
                 `query {
                     attestorsElecteds(
                         orderBy: EPOCH_ASC,

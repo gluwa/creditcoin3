@@ -20,7 +20,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        let response = await graphQLQuery(
+        const response = await graphQLQuery(
             `query { attestationChainData(orderBy: CHAIN_KEY_ASC, last: 10) { nodes { id, chainKey, targetSampleSize }}}`,
         );
         for (const node of response.data.attestationChainData.nodes) {
@@ -61,15 +61,15 @@ describe('handleEventTargetSampleSizeChanged()', () => {
 
         // there should be a SupportedChain entity for this new chain
         await forElapsedBlocks(api, { minBlocks: 3 });
-        response = await graphQLQuery(
+        const response2 = await graphQLQuery(
             `query {
                 supportedChains(
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
                 ) { nodes { id, at, chainKey, chainName, chainId }}}`,
         );
-        expect(response.data.supportedChains.nodes).toBeTruthy();
-        expect(response.data.supportedChains.nodes.length).toEqual(1);
+        expect(response2.data.supportedChains.nodes).toBeTruthy();
+        expect(response2.data.supportedChains.nodes.length).toEqual(1);
     }, 60_000);
 
     afterAll(async () => {

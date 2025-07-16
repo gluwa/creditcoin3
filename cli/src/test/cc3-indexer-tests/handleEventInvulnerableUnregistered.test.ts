@@ -28,8 +28,16 @@ describe('handleEventInvulnerableUnregistered()', () => {
     describe('when an invulnerable is removed', () => {
         beforeAll(async () => {
             // make sure attestor is reported as invulnerable
-            let response = await graphQLQuery(
-                `query { invulnerableRegistereds(orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, whoId, chainKey, blockNumber }}}`,
+            const response = await graphQLQuery(
+                `query {
+                    invulnerableRegistereds(orderBy: BLOCK_NUMBER_ASC, last: 10) {
+                        nodes { id, attestorId, whoId, chainKey, blockNumber }
+                    },
+
+                    invulnerableUnregistereds(orderBy: BLOCK_NUMBER_ASC, last: 10) {
+                        nodes { id, attestorId, whoId, chainKey, blockNumber }
+                    },
+                }`,
             );
             let foundMatch = false;
             for (const node of response.data.invulnerableRegistereds.nodes) {
@@ -41,9 +49,6 @@ describe('handleEventInvulnerableUnregistered()', () => {
             expect(foundMatch).toEqual(true);
 
             // make sure invulnerable is not reported as previously unregistered
-            response = await graphQLQuery(
-                `query { invulnerableUnregistereds(orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, whoId, chainKey, blockNumber }}}`,
-            );
             foundMatch = false;
             for (const node of response.data.invulnerableUnregistereds.nodes) {
                 if (node.attestorId === attestor.address) {

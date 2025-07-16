@@ -33,12 +33,20 @@ describe('handleQuerySubmitted()', () => {
         alith = new ethers.Wallet(privateKey).connect(provider);
 
         // NOTE: chain starts with prover for Anvil 1 already running
-        let response = await graphQLQuery(
-            `query { provers(
-                orderBy: ID_ASC,
-                last: 10,
-                filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }},
-            ) { nodes { id, owner, chainKey, contractAddress }}}`,
+        const response = await graphQLQuery(
+            `query {
+                provers(
+                    orderBy: ID_ASC,
+                    last: 10,
+                    filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }},
+                ) {
+                    nodes { id, owner, chainKey, contractAddress }
+                },
+
+                chainQueries(orderBy: ID_ASC, last: 10) {
+                    nodes { id, chainQueryId, chainKey, height, index, layoutSegments, state, estimatedCost, escrowedAmount, proverId }
+                },
+            }`,
         );
         for (const node of response.data.provers.nodes) {
             if (node.owner === alith.address) {
@@ -49,9 +57,6 @@ describe('handleQuerySubmitted()', () => {
         }
         expect(contractAddress.startsWith('0x')).toEqual(true);
 
-        response = await graphQLQuery(
-            `query { chainQueries(orderBy: ID_ASC, last: 10) { nodes { id, chainQueryId, chainKey, height, index, layoutSegments, state, estimatedCost, escrowedAmount, proverId }}}`,
-        );
         initialCount = response.data.chainQueries.nodes.length;
     }, 30_000);
 

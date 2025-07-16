@@ -33,8 +33,16 @@ describe('handleEventAttestorChilled()', () => {
 
         beforeAll(async () => {
             // make sure attestor is reported as registered
-            let response = await graphQLQuery(
-                `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey }}}`,
+            const response = await graphQLQuery(
+                `query {
+                    attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) {
+                        nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey }
+                    },
+
+                    attestorChilleds(orderBy: BLOCK_NUMBER_ASC, last: 10) {
+                        nodes { id, attestorId, chainKey, blockNumber }
+                    },
+                }`,
             );
             let foundMatch = false;
             for (const node of response.data.attestors.nodes) {
@@ -47,9 +55,6 @@ describe('handleEventAttestorChilled()', () => {
             expect(foundMatch).toEqual(true);
 
             // make sure this attestor is not reported as previously Chilled
-            response = await graphQLQuery(
-                `query { attestorChilleds(orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, chainKey, blockNumber }}}`,
-            );
             foundMatch = false;
             for (const node of response.data.attestorChilleds.nodes) {
                 if (node.attestorId === attestor.address) {
