@@ -93,9 +93,9 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
             revert("Cannot resubmit an invalid query");
         }
 
-        // Prevent resubmission if result already available and if query has not timed out
-        if (queries[queryId].state == QueryState.ResultAvailable && !isQueryTimedOut(queryId)) {
-            revert("Query proof already generated");
+        // Prevent resubmission if result already available
+        if (queries[queryId].state == QueryState.ResultAvailable) {
+            revert("Query proof already generated, check contract storage for results");
         }
 
         // Prevent resubmission of already submitted queries unless timed out
@@ -130,6 +130,19 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
 
         // Emit event
         emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
+    }
+
+    function submitQueryOrGetResults(ChainQuery calldata query, address principal) public payable returns (ResultSegment[] memory resultSegments) {
+        require(query.chainId == chainKey, "Chain not supported");
+        QueryId queryId = computeQueryId(query);
+        
+        if (queries[queryId].state == QueryState.ResultAvailable) {
+            return queries[queryId].resultSegments;
+        }
+        
+        submitQuery(query, principal);
+        
+        return new ResultSegment[](0);
     }
 
     function reclaimEscrowedPayment(QueryId queryId) public {
