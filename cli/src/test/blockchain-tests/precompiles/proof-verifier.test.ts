@@ -1,4 +1,4 @@
-import { WebSocketProvider, ethers, ContractTransactionResponse } from 'ethers';
+import { WebSocketProvider, ethers } from 'ethers';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/proof_verifier.json');
 
@@ -89,8 +89,7 @@ describe('Precompile: verify()', (): void => {
         // @ts-ignore
         delete Object.assign(query, validQuery, { ['layout']: validQuery.layoutSegments }).layoutSegments;
 
-        await expect(
-            contract.verify(proof, query, { gasPrice, gasLimit }).then((tx: ContractTransactionResponse) => tx.wait()),
-        ).rejects.toThrow(/reverted/);
-    }, 300_000);
+        const result = await contract.verify(proof, query, { gasPrice, gasLimit });
+        await expect(result.wait()).rejects.toThrow(/reverted/);
+    }, 120_000);
 });
