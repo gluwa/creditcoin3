@@ -778,8 +778,8 @@ impl InstanceFilter<RuntimeCall> for ProxyFilter {
     }
 }
 
-pub const CENTS: u128 = CTC / 100;
-pub const MILLICENTS: u128 = CTC / 1_000_000;
+pub const CENTS: Balance = CTC / 100;
+pub const MILLICENTS: Balance = CTC / 1_000_000;
 
 pub const fn deposit(items: u32, bytes: u32) -> Balance {
     items as Balance * 2_000 * CENTS + (bytes as Balance) * 100 * MILLICENTS
