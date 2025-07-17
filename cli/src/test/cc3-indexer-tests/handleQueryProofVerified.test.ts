@@ -1,5 +1,6 @@
 import { JsonRpcProvider, WebSocketProvider, ethers } from 'ethers';
 import { newApi, ApiPromise } from '../../lib';
+import { u8aToHex } from '../../lib/common';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
@@ -125,7 +126,7 @@ describe('handleQueryProofVerified()', () => {
             ).wait();
 
             // simulate proof submission and observe results
-            const proof = new Uint8Array(32);
+            const proof = u8aToHex(new TextEncoder().encode(''));
             await (await contract.submitQueryProof(queryId, proof)).wait();
 
             // make sure submitQueryProof() worked

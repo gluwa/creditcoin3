@@ -7,6 +7,12 @@ import { time } from '@nomicfoundation/hardhat-toolbox/network-helpers';
 
 const BLOCKTIME = 1; // 1 second per block
 
+// see cli/src/lib/common.ts
+const u8aToHex = (bytes: Uint8Array | Buffer): string => {
+    const byteArray = Uint8Array.from(bytes);
+    return byteArray.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '0x');
+};
+
 describe('CreditcoinPublicProver', function () {
     let prover: ProverForTesting;
     let owner: Signer;
@@ -384,7 +390,7 @@ describe('CreditcoinPublicProver', function () {
                 const queryDetailsBefore = await prover.queries(queryId);
                 expect(queryDetailsBefore.state).to.equal(1); // QueryState.Submitted
 
-                const proof = new Uint8Array(32);
+                const proof = u8aToHex(new TextEncoder().encode(''));
                 const expectedSegment = { offset: 1n, abiBytes: new Uint8Array(32) };
                 // mark proof as invalid
                 await prover.mock_setVerifierResult({
@@ -425,7 +431,7 @@ describe('CreditcoinPublicProver', function () {
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            const proof = new Uint8Array(32);
+            const proof = u8aToHex(new TextEncoder().encode(''));
             await expect(contract.connect(owner).submitQueryProof(queryId, proof)).to.be.revertedWith(
                 'Reverted on purpose',
             );
@@ -440,7 +446,7 @@ describe('CreditcoinPublicProver', function () {
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            const proof = new Uint8Array(32);
+            const proof = u8aToHex(new TextEncoder().encode(''));
 
             await expect(prover.connect(user).submitQueryProof(queryId, proof)).to.be.revertedWith(
                 'Caller is not the owner',
@@ -461,7 +467,7 @@ describe('CreditcoinPublicProver', function () {
             // drain contract balance to cause a failure later
             await prover.connect(owner).mock_drainBalance(maxCost);
 
-            const proof = new Uint8Array(32);
+            const proof = u8aToHex(new TextEncoder().encode(''));
             await expect(prover.connect(owner).submitQueryProof(queryId, proof)).to.be.revertedWithoutReason();
 
             // explicitly check again that query.state did not change
@@ -479,7 +485,7 @@ describe('CreditcoinPublicProver', function () {
             // Progress 10 seconds
             await progressBlocks(TIMEOUT_BLOCKS, BLOCKTIME);
 
-            const proof = new Uint8Array(32);
+            const proof = u8aToHex(new TextEncoder().encode(''));
             await expect(prover.connect(owner).submitQueryProof(queryId, proof)).to.be.revertedWith(
                 'Query has timed out',
             );

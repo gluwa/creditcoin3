@@ -80,8 +80,8 @@ describe('Precompile: verify()', (): void => {
     test('should revert when called with invalid input', async () => {
         const gasLimit = 30_000_000;
 
-        // this needs to be a bytes array
-        const proof = new Uint8Array(32);
+        // this needs to be a bytes array, but it's empty
+        const proof = u8aToHex(new TextEncoder().encode(''));
 
         // when passing this to the verify() precompile it expects the field to be called `layout`
         // while the extrinsic expects this as `layoutSegments`
