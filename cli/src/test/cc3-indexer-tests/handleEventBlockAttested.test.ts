@@ -37,7 +37,10 @@ describe('handleEventBlockAttested()', () => {
         it('graphQL returns Attestations entities and keeps MapAttestationAttestor & AttestationChainData in sync', async () => {
             const response = await graphQLQuery(
                 `query {
-                    attestations(orderBy: HEADER_NUMBER_ASC, last: 10) {
+                    attestations(
+                        orderBy: HEADER_NUMBER_ASC, last: 10,
+                        filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }}
+                    ) {
                         nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp }
                     },
 
