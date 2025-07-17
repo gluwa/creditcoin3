@@ -5,6 +5,7 @@ export const parseZeroOrPositiveIntegerOrExit = parseOrExit(parseZeroOrPositiveI
 export const parsePositiveIntegerOrExit = parseOrExit(parsePositiveIntegerInternal);
 export const parsePercentAsPerbillOrExit = parseOrExit(parsePercentAsPerbillInternal);
 export const parseChoiceOrExit = parseChoiceOrExitFn;
+export const parseU64OrExit = parseOrExit(parseU64);
 
 // A function that takes a parsing function and returns a new function that does tries to parse or prints the error and exits
 function parseOrExit<T>(parse: (input: any) => T): (input: any) => T {
@@ -55,6 +56,29 @@ export function parseIntegerInternal(input: any): number {
 
     const int = Number.parseInt(input as string, 10);
     return int;
+}
+
+export function parseU64(input: unknown): bigint {
+    const MAX_U64 = BigInt('18446744073709551615');
+    const MIN_U64 = BigInt(0);
+
+    let bigIntValue: bigint;
+
+    try {
+        bigIntValue = BigInt(input as any);
+    } catch {
+        throw new Error('Must be a valid integer');
+    }
+
+    if (bigIntValue < MIN_U64) {
+        throw new Error('Must be non-negative');
+    }
+
+    if (bigIntValue > MAX_U64) {
+        throw new Error('Must be a valid unsigned 64-bit integer (u64)');
+    }
+
+    return bigIntValue;
 }
 
 export function parseZeroOrPositiveIntegerInternal(input: any): number {

@@ -6,6 +6,7 @@ import {
     parsePositiveIntegerInternal,
     parseHexStringInternal,
     parsePercentAsPerbillInternal,
+    parseU64,
 } from '../../lib/parsing';
 
 import { parseAmount, parseSubstrateAddress } from '../../commands/options';
@@ -280,5 +281,58 @@ describe('parsePercentAsPerbill', () => {
         const perbill = 'abcdef';
         const parsedInvalid = () => parsePercentAsPerbillInternal(perbill);
         expect(parsedInvalid).toThrowError(Error);
+    });
+});
+
+describe('parseU64', () => {
+    it('with valid integer argument, returns the correct input', () => {
+        const input = 100000000;
+        const result = parseU64(input);
+        const expected = BigInt(input);
+
+        expect(result).toBe(expected);
+    });
+
+    it('with valid string argument, returns the correct input', () => {
+        const input = '100000000';
+        const result = parseU64(input);
+        const expected = BigInt(input);
+
+        expect(result).toBe(expected);
+    });
+
+    it('with invalid argument, integer < lower boundary, throws an error', () => {
+        const input = -10;
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be non-negative'));
+    });
+
+    it('with invalid argument, string < lower boundary, throws an error', () => {
+        const input = '-100';
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be non-negative'));
+    });
+
+    it('with invalid argument, integer > upper boundary, throws an error', () => {
+        const input = 340282366920938463463374607431768211455n;
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be a valid unsigned 64-bit integer (u64)'));
+    });
+
+    it('with invalid argument, string > upper boundary, throws an error', () => {
+        const input = '340282366920938463463374607431768211455';
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be a valid unsigned 64-bit integer (u64)'));
+    });
+
+    it('with invalid argument, non integer input, throws an error', () => {
+        const input = 'Foo';
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be a valid integer'));
     });
 });
