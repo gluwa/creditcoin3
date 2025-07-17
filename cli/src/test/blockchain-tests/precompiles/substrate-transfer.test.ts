@@ -87,7 +87,6 @@ describe('Precompile: transfer_substrate()', (): void => {
             }),
         ).rejects.toThrow(/Dispatched call failed with error: Arithmetic\(Underflow\)/);
         // ^^^ appears to come from can_withdraw()
-        // ^^^ appears to come from do_transfer_reserved()
         // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/impl_fungible.rs#L113
 
         // Alice may have paid gas fees regardless of the error
@@ -104,9 +103,8 @@ describe('Precompile: transfer_substrate()', (): void => {
                 gasPrice,
             }),
         ).rejects.toThrow(/execution reverted:.*Dispatched call failed with error: Token\(FundsUnavailable\)/);
-        // ^^^ appears to come from can_withdraw()
         // ^^^ appears to come from do_transfer_reserved()
-        // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/impl_fungible.rs#L113
+        // https://github.com/paritytech/polkadot-sdk/blob/698d9ae5b32785d3a5a55b770e973bbdb59ad271/substrate/frame/balances/src/lib.rs
 
         // Alice may have paid gas fees regardless of the error
         const alithBalanceAfter: bigint = await provider.getBalance(alith.address);
