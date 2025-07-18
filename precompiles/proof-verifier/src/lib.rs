@@ -70,7 +70,7 @@ where
         let proof_bytes: Vec<u8> = proof.into();
 
         if proof_bytes.is_empty() {
-            error!("Empty proof submitted");
+            error!("Empty proof submitted. QueryId: {:?}", query.id());
             let encoded_revert = encode_revert_message("Invalid proof submitted");
             return Err(PrecompileFailure::Revert {
                 output: encoded_revert,
@@ -80,7 +80,10 @@ where
 
         let metadata: Vec<(u8, H256)> = StarkProgramMetadata::<Runtime>::iter().collect();
         if metadata.is_empty() {
-            error!("Verification failed: Stark program metadata not set");
+            error!(
+                "Verification failed: Stark program metadata not set, QueryId: {:?}",
+                query.id()
+            );
             let encoded_revert = encode_revert_message("Stark program metadata not set");
             return Err(PrecompileFailure::Revert {
                 output: encoded_revert,
@@ -147,9 +150,13 @@ where
     fn check_continuity_proof(
         continuity_proof_len: Option<u64>,
         continuity_checkpoint_digest: Option<H256>,
+        query_id: H256,
     ) -> Result<(u64, H256), PrecompileFailure> {
         if continuity_proof_len.is_none() || continuity_checkpoint_digest.is_none() {
-            error!("Missing continuity proof or checkpoint digest");
+            error!(
+                "Missing continuity proof or checkpoint digest. QueryId: {:?}",
+                query_id
+            );
             let encoded_revert =
                 encode_revert_message("Missing continuity proof or checkpoint digest");
             return Err(PrecompileFailure::Revert {
@@ -189,7 +196,7 @@ where
                 number
             } else {
                 let message = "Continuity digest doesn't match any attestation or checkpoint";
-                error!("{}", message);
+                error!("{}, QueryId: {:?}", message, query.id());
                 let encoded_revert = encode_revert_message(message);
                 return Err(PrecompileFailure::Revert {
                     output: encoded_revert,
@@ -200,8 +207,10 @@ where
 
         if checkpoint_block_number != expected_block_number {
             error!(
-                "Continuity proof block number mismatch: expected {}, got {}",
-                expected_block_number, checkpoint_block_number
+                "Continuity proof block number mismatch: expected {}, got {}. QueryId: {:?}",
+                expected_block_number,
+                checkpoint_block_number,
+                query.id()
             );
             let encoded_revert = encode_revert_message("Continuity proof block number mismatch");
             return Err(PrecompileFailure::Revert {
@@ -226,6 +235,7 @@ where
                     Self::check_continuity_proof(
                         continuity_proof_len,
                         continuity_checkpoint_digest,
+                        query.id(),
                     )?;
 
                 Self::check_continuity_block_number(
@@ -247,7 +257,11 @@ where
                     _ => "Proof verification failed: InvalidProofSubmitted",
                 };
 
-                error!("{}", error_msg);
+                error!(
+                    "Error verifying query. Error: {}, QueryId: {:?}",
+                    error_msg,
+                    query.id()
+                );
                 let encoded_revert = encode_revert_message(error_msg);
 
                 Err(PrecompileFailure::Revert {
