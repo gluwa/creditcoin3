@@ -6,8 +6,22 @@ export interface CreditcoinApi {
     api: ApiPromise;
 }
 
+export class ReconnectingWsProvider extends WsProvider {
+    async connectWithRetry() {
+        console.error('DEBUG: detected autoconnect ...');
+
+        await super.connectWithRetry();
+    }
+
+    async disconnect() {
+        console.error('DEBUG: going to disconnect ...');
+
+        await super.disconnect();
+    }
+}
+
 export const creditcoinApi = async (wsUrl: string, noInitWarn = false): Promise<CreditcoinApi> => {
-    const provider = new WsProvider(wsUrl);
+    const provider = new ReconnectingWsProvider(wsUrl);
     const api = await ApiPromise.create({ provider, noInitWarn });
     await api.isReady;
 
