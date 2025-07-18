@@ -252,21 +252,6 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         emit EscrowedPaymentReclaimed(queryId, escrowedAmount);
     }
 
-    function _removeQueryId(QueryId queryId) private onlyOwner {
-        uint256 length = queryIds.length;
-        for (uint256 i = 0; i < length; i++) {
-            // Cast both to bytes for comparison
-            if (QueryId.unwrap(queryIds[i]) == QueryId.unwrap(queryId)) {
-                if (i != length - 1) {
-                    queryIds[i] = queryIds[length - 1];
-                }
-                queryIds.pop();
-                delete queries[queryId];
-                return;
-            }
-        }
-    }
-
     function isQueryTimedOut(QueryId queryId) public view returns (bool) {
         return block.timestamp > queries[queryId].timestamp + timeout;
     }
