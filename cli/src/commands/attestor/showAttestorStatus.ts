@@ -17,14 +17,6 @@ async function showAttestorStatus(options: OptionValues) {
     const address = options.substrateAddress as string;
     const chainKey = options.chain as string;
 
-    const activeAttestors = await api.query.attestation.activeAttestors(chainKey);
-    for (const attestorItem of activeAttestors) {
-        if (attestorItem.toString() === address) {
-            console.log(`Address ${address} status is Elected`);
-            process.exit(0);
-        }
-    }
-
     const attestor = await api.query.attestation.attestors(chainKey, address);
     if (attestor.isNone) {
         console.log(`Address ${address} is not an attestor`);
