@@ -1,8 +1,9 @@
 import { U64 } from '@polkadot/types-codec';
+import { AttestorPrimitivesSignedAttestation } from '@polkadot/types/lookup';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { randomIntBetween } from '../utils';
+import { calculateThreshold, randomIntBetween } from '../utils';
 
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
@@ -40,6 +41,10 @@ describe('BlockAttested events', (): void => {
             '4': 0,
         };
         const initialBlock = (await getChainStatus(api)).bestNumber;
+        const expectedMinVotes: { [key: string]: bigint } = {
+            '2': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil1_Key)).toBigInt()),
+            '4': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil2_Key)).toBigInt()),
+        };
 
         return new Promise((resolve, reject): void => {
             // Subscribe to system events via storage
@@ -56,7 +61,12 @@ describe('BlockAttested events', (): void => {
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
                             const [supportedChainKey] = event.data;
                             const supportedChainKeyStr = (supportedChainKey as U64).toString();
+                            const signedAttestation = event.data[1] as AttestorPrimitivesSignedAttestation;
 
+                            // is this how many attestors voted for this attestation ?
+                            expect(BigInt(signedAttestation.attestors.length)).toBeGreaterThanOrEqual(
+                                expectedMinVotes[supportedChainKeyStr],
+                            );
                             attestedEvents[supportedChainKeyStr]++;
                         }
 
