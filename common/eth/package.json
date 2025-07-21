@@ -1,0 +1,16 @@
+{
+  "name": "@gluwa/creditcoin-public-prover",
+  "version": "0.1.0",
+  "description": "Provid Prover and Type contract for USC",
+  "main": "index.js",
+  "dependencies": {
+  },
+  "devDependencies": {
+    "mocha": "^10.8.2"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "author": "",
+  "license": "ISC"
+}
