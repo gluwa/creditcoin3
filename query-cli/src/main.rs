@@ -133,12 +133,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let eth_client = Client::new(&args.cc3_rpc_url, Some(&args.cc3_evm_private_key)).await?;
     let contract = evm::prover::new(args.prover_contract_address)?;
 
-    println!("Computing query cost...");
-    let computed_cost = contract
-        .compute_query_cost(&eth_client, query.clone())
-        .await?;
-    println!("Computed cost: {}\n", computed_cost);
-
     println!("Checking for existing result...");
     if let Some(result_segments) = contract
         .get_query_result(&eth_client, query.clone())
@@ -149,6 +143,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("\nNo existing result found, proceeding with query submission...");
+
+    println!("\nComputing query cost...");
+    let computed_cost = contract
+        .compute_query_cost(&eth_client, query.clone())
+        .await?;
+    println!("Computed cost: {}\n", computed_cost);
+
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
