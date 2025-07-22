@@ -196,6 +196,56 @@ impl GluwaPublicProverContract {
         Err(anyhow::anyhow!("Query submission stream ended"))
     }
 
+    pub async fn get_query_result(
+        &self,
+        client: &Client,
+        query: Query,
+    ) -> Result<Option<Vec<ResultSegment>>> {
+        let provider = client.get_wallet_ws_provider().await?;
+        let contract = CreditcoinPublicProver::new(self.address, provider);
+
+        let chain_query = CreditcoinPublicProver::ChainQuery {
+            chainId: query.chain_id,
+            height: query.height,
+            index: query.index,
+            layoutSegments: query
+                .layout_segments
+                .iter()
+                .map(|l| CreditcoinPublicProver::LayoutSegment {
+                    offset: l.offset,
+                    size: l.size,
+                })
+                .collect(),
+        };
+
+        let result_segments = contract.getQueryResult(chain_query).call().await?;
+
+        if result_segments._0.is_empty() {
+            Ok(None)
+        } else {
+            let res = result_segments
+                ._0
+                .into_iter()
+                .map(|r| {
+                    let offset = r
+                        .offset
+                        .try_into()
+                        .map_err(|_| anyhow::anyhow!("Offset too large to fit into u64"))?;
+
+                    let abi_bytes_vec = r.abiBytes.to_vec();
+                    if abi_bytes_vec.len() != 32 {
+                        return Err(anyhow::anyhow!("abiBytes must be exactly 32 bytes"));
+                    }
+
+                    let bytes = H256::from_slice(&abi_bytes_vec);
+                    Ok(ResultSegment { offset, bytes })
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            Ok(Some(res))
+        }
+    }
+
     pub async fn submit_query(&self, client: &Client, query: Query, cost: u64) -> Result<String> {
         let signer = client.get_signer()?;
         let principal = signer.address();

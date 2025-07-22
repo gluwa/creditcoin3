@@ -132,16 +132,12 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
     }
 
-    function submitQueryOrGetResults(ChainQuery calldata query, address principal) public payable returns (ResultSegment[] memory resultSegments) {
+    function getQueryResult(ChainQuery calldata query) public view returns (ResultSegment[] memory) {
         require(query.chainId == chainKey, "Chain not supported");
         QueryId queryId = computeQueryId(query);
-        
         if (queries[queryId].state == QueryState.ResultAvailable) {
             return queries[queryId].resultSegments;
         }
-        
-        submitQuery(query, principal);
-        
         return new ResultSegment[](0);
     }
 

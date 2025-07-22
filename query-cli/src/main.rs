@@ -139,7 +139,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     println!("Computed cost: {}\n", computed_cost);
 
-    println!("Submitting query...");
+    println!("Checking for existing result...");
+    if let Some(result_segments) = contract
+        .get_query_result(&eth_client, query.clone())
+        .await?
+    {
+        println!("\nResult segments already available: {:?}", result_segments);
+        return Ok(());
+    }
+
+    println!("\nNo existing result found, proceeding with query submission...");
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
