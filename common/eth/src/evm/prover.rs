@@ -77,6 +77,24 @@ pub fn new(address: String) -> Result<GluwaPublicProverContract> {
     })
 }
 
+/// Helper function to decode contract's ResultSegment type into the pallet's ResultSegment type
+fn decode_result_segment(
+    result_segment: CreditcoinPublicProver::ResultSegment,
+) -> Result<ResultSegment> {
+    let offset = result_segment
+        .offset
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Offset too large to fit into u64"))?;
+
+    let abi_bytes_vec = result_segment.abiBytes.to_vec();
+    if abi_bytes_vec.len() != 32 {
+        return Err(anyhow::anyhow!("abiBytes must be exactly 32 bytes"));
+    }
+
+    let bytes = H256::from_slice(&abi_bytes_vec);
+    Ok(ResultSegment { offset, bytes })
+}
+
 impl GluwaPublicProverContract {
     /// Compute the query cost
     pub async fn compute_query_cost(&self, client: &Client, query: Query) -> Result<u64> {
@@ -226,20 +244,7 @@ impl GluwaPublicProverContract {
             let res = result_segments
                 ._0
                 .into_iter()
-                .map(|r| {
-                    let offset = r
-                        .offset
-                        .try_into()
-                        .map_err(|_| anyhow::anyhow!("Offset too large to fit into u64"))?;
-
-                    let abi_bytes_vec = r.abiBytes.to_vec();
-                    if abi_bytes_vec.len() != 32 {
-                        return Err(anyhow::anyhow!("abiBytes must be exactly 32 bytes"));
-                    }
-
-                    let bytes = H256::from_slice(&abi_bytes_vec);
-                    Ok(ResultSegment { offset, bytes })
-                })
+                .map(decode_result_segment)
                 .collect::<Result<Vec<_>>>()?;
 
             Ok(Some(res))
@@ -301,20 +306,7 @@ impl GluwaPublicProverContract {
                 let segments = proof_verified
                     .resultSegments
                     .into_iter()
-                    .map(|r| {
-                        let offset = r
-                            .offset
-                            .try_into()
-                            .map_err(|_| anyhow::anyhow!("Offset too large to fit into u64"))?;
-
-                        let abi_bytes_vec = r.abiBytes.to_vec();
-                        if abi_bytes_vec.len() != 32 {
-                            return Err(anyhow::anyhow!("abiBytes must be exactly 32 bytes"));
-                        }
-
-                        let bytes = H256::from_slice(&abi_bytes_vec);
-                        Ok(ResultSegment { offset, bytes })
-                    })
+                    .map(decode_result_segment)
                     .collect::<Result<Vec<_>>>()?;
 
                 return Ok(segments);
