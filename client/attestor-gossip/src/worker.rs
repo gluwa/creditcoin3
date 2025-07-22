@@ -225,19 +225,19 @@ where
                 vote = votes.next() => {
                     if let Some(Message::Attestation(vote)) = vote {
                         let chain_key = vote.chain_key();
-                        debug!(target: LOG_TARGET, "📝 Got a vote from the network");
+                        debug!(target: LOG_TARGET, "📝 Received from gossip attestation with digest {:?}", vote.digest());
                         metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, chain_key);
                         match self.triage_message(Message::Attestation(vote.clone())).await {
                             Ok(()) => {
                                 metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
-                                debug!(target: LOG_TARGET, "📝 Got a valid gossiped message");
+                                debug!(target: LOG_TARGET, "📝 Got a valid gossiped attestation with digest {:?}", vote.digest());
                             },
                             Err(e) => {
-                                debug!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
+                                debug!(target: LOG_TARGET, "📝 Error for gossiped attestation with digest {:?} : {:?}", vote.digest(), e);
                             }
                         }
                     } else {
-                        warn!(target: LOG_TARGET, "📝 Got a vote, but it was invalid");
+                        warn!(target: LOG_TARGET, "📝 Received attestation from gossip, but it was invalid");
                         metric_inc!(self.metrics, attestor_invalid_votes);
                         break Error::GossipEngineExited;
                     }
@@ -255,7 +255,7 @@ where
                                 metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, chain_key);
 
                                 let round = attestation.round();
-                                debug!(target: LOG_TARGET, "📝 Got attestation to gossip with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
+                                debug!(target: LOG_TARGET, "📝 Will gossip attestation with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
 
                                 metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
                                 // Also process the message
