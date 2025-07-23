@@ -133,6 +133,49 @@ jobs:
           LC_WORKFLOW_ID: ${{ github.run_id }}
           LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
 
+  build-npm-package:
+    needs:
+      - sanity-check
+      - setup
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+          always-auth: true
+          scope: '@gluwa'
+
+      - name: Build @gluwa/creditcoin-public-prover package
+        working-directory: common/eth/
+        run: |
+          # WARNING: always use the same tag name as the release
+          sed -i "s/\"version\": \".*\"/\"version\": \"${{ needs.sanity-check.outputs.TAG_NAME }}\"/" package*.json
+          git diff
+
+          npm install
+          npm pack
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-for-npm-creditcoin-public-prover
+          path: "common/eth/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz"
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish @gluwa/creditcoin-public-prover package
+        working-directory: common/eth/
+        run: |
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_TOKEN }}
+
   build-native-runtime:
     needs:
       - sanity-check
@@ -307,6 +350,7 @@ jobs:
       - sanity-check
       - build-native-runtime
       - build-wasm-runtime
+      - build-npm-package
     steps:
       - uses: actions/checkout@v4
 
@@ -339,6 +383,7 @@ jobs:
         with:
           files: |
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz
             artifact/sol/*.sol
             artifact/Prover-ABI.json
           fail_on_unmatched_files: true

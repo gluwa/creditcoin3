@@ -1,5 +1,6 @@
 {
   "name": "@gluwa/creditcoin-public-prover",
+  "//": "WARNING: This will be overriden with release version in release.yml, L130",
   "version": "0.1.0",
   "description": "Provid Prover and Type contract for USC",
   "main": "index.js",
