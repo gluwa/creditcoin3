@@ -364,7 +364,7 @@ jobs:
         run: |
           ../stone-verifier/cpu_air_verifier --in_file=fibonacci_proof.json
 
-  sanity-test-cli:
+  sanity-test-npm-packages:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -391,7 +391,7 @@ jobs:
           npm install
           npx hardhat compile
 
-      - name: Install creditcoin-cli
+      - name: Build and install creditcoin-cli
         working-directory: ./cli
         run: |
           yarn install
@@ -405,6 +405,19 @@ jobs:
           creditcoin help
           creditcoin wizard --help
           creditcoin attestor --help
+
+      - name: Build @gluwa/creditcoin-public-prover package
+        working-directory: common/eth/
+        run: |
+          npm install
+          npm pack
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-for-npm-creditcoin-public-prover
+          path: "common/eth/gluwa-creditcoin-public-prover-*.tgz"
+          if-no-files-found: error
 
   sanity-test-solidity:
     runs-on: ubuntu-24.04
