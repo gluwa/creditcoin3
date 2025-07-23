@@ -195,7 +195,11 @@ describe('CreditcoinPublicProver', function () {
 
         const queryStates = [
             { name: 'QueryState.Submitted', value: 1, revertMessage: 'Query already submitted and still pending' },
-            { name: 'QueryState.ResultAvailable', value: 2, revertMessage: 'Query proof already generated' },
+            {
+                name: 'QueryState.ResultAvailable',
+                value: 2,
+                revertMessage: 'Query proof already generated, check contract storage for results',
+            },
             { name: 'QueryState.InvalidQuery', value: 3, revertMessage: 'Cannot resubmit an invalid query' },
         ];
         queryStates.forEach(({ name, value, revertMessage }) => {
