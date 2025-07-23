@@ -1,12 +1,12 @@
 import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
-import { substrateAddressOption } from '../options';
+import { substrateAddressOption, chainKeyOption } from '../options';
 
 export function showListAttestorsCommand() {
     const cmd = new Command('show-list-attestors');
     cmd.description('Show list of attestors for a given address and chain key');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
-    cmd.option('-c, --chain [chain]', 'Specify chain key to show list of attestors for');
+    cmd.addOption(chainKeyOption.makeOptionMandatory());
     cmd.action(showListAttestorsAction);
     return cmd;
 }
@@ -15,11 +15,11 @@ async function showListAttestorsAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const address = options.substrateAddress as string;
-    const chainKey = options.chain as string;
+    const chainKey = BigInt(options.chain);
 
     const attestorsKeys = await api.query.attestation.attestors.keys();
     for (const [_, key] of attestorsKeys.entries()) {
-        const chain = key.args[0].toString();
+        const chain = key.args[0].toBigInt();
         if (chain !== chainKey) {
             continue;
         }
