@@ -3,7 +3,7 @@ import { noInputOption, urlOption } from '../options';
 import { showAttestorBalanceActionCommand } from './balance';
 import { makeAttestorWithdrawUnbondedCommand } from './withdrawUnbonded';
 import { makeUnregisterAttestorCommand } from './unregisterAttestor';
-import { showListAttestorsCommand } from './showListAttestors';
+import { showAttestorsForCommand } from './showAttestorsFor';
 import { showClaimRewardsCommand } from './showUnclaimedRewards';
 import { setPayeeCommand } from './setPayee';
 import { makeShowAttestorStatusCommand } from './showAttestorStatus';
@@ -19,7 +19,7 @@ export function makeAttestorCommand() {
     cmd.addCommand(makeRegisterAttestorCommand());
     cmd.addCommand(setPayeeCommand());
     cmd.addCommand(makeShowAttestorStatusCommand());
-    cmd.addCommand(showListAttestorsCommand());
+    cmd.addCommand(showAttestorsForCommand());
     cmd.addCommand(showClaimRewardsCommand());
     cmd.addCommand(makeUnregisterAttestorCommand());
     cmd.addCommand(makeAttestorWithdrawUnbondedCommand());

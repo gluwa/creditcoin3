@@ -17,7 +17,7 @@ import { try_catch_else_finally } from '../../utils';
 import { ALICE_NODE_URL, initAliceKeyring, randomFundedAccount, waitEras, CLIBuilder } from '../helpers';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../../blockchain-tests/pallets/supported-chains/consts';
 
-describe('show-list-attestors', () => {
+describe('show-attestors-for', () => {
     let api: ApiPromise;
     let attestor: any;
     let stash: any;
@@ -45,7 +45,7 @@ describe('show-list-attestors', () => {
     it('should error when required option --substrate-address is not specified', () => {
         try_catch_else_finally(
             () => {
-                CLI('attestor show-list-attestors');
+                CLI('attestor show-attestors-for');
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
@@ -60,7 +60,7 @@ describe('show-list-attestors', () => {
     it('should error when required option --chain is not specified', () => {
         try_catch_else_finally(
             () => {
-                CLI(`attestor show-list-attestors --substrate-address ${stash.address}`);
+                CLI(`attestor show-attestors-for --substrate-address ${stash.address}`);
             },
             (error: any) => {
                 expect(error.exitCode).toEqual(1);
@@ -75,7 +75,7 @@ describe('show-list-attestors', () => {
     it('should display empty output when stash does not have attestors', () => {
         // note: attestor not registered yet!
         const result = CLI(
-            `attestor show-list-attestors --substrate-address ${stash.address} --chain ${chain_Anvil1_Key}`,
+            `attestor show-attestors-for --substrate-address ${stash.address} --chain ${chain_Anvil1_Key}`,
         );
         expect(result.exitCode).toEqual(0);
         expect(result.stdout).toEqual('');
@@ -127,7 +127,7 @@ describe('show-list-attestors', () => {
         it('should display empty output when passing attestor address as argument', () => {
             // note: using attestor's address instead of stash address!
             const result = CLI(
-                `attestor show-list-attestors --substrate-address ${attestor.address} --chain ${chain_Anvil1_Key}`,
+                `attestor show-attestors-for --substrate-address ${attestor.address} --chain ${chain_Anvil1_Key}`,
             );
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toEqual('');
@@ -135,7 +135,7 @@ describe('show-list-attestors', () => {
 
         it('should display attestor address when passing stash address as argument', () => {
             const result = CLI(
-                `attestor show-list-attestors --substrate-address ${stash.address} --chain ${chain_Anvil1_Key}`,
+                `attestor show-attestors-for --substrate-address ${stash.address} --chain ${chain_Anvil1_Key}`,
             );
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain(`Address ${attestor.address} is an attestor for chain ${chain_Anvil1_Key}`);

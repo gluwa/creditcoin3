@@ -2,16 +2,16 @@ import { Command, OptionValues } from 'commander';
 import { newApi } from '../../lib';
 import { substrateAddressOption, chainKeyOption } from '../options';
 
-export function showListAttestorsCommand() {
-    const cmd = new Command('show-list-attestors');
+export function showAttestorsForCommand() {
+    const cmd = new Command('show-attestors-for');
     cmd.description('Show list of attestors for a given address and chain key');
     cmd.addOption(substrateAddressOption.makeOptionMandatory());
     cmd.addOption(chainKeyOption.makeOptionMandatory());
-    cmd.action(showListAttestorsAction);
+    cmd.action(showAttestorsForAction);
     return cmd;
 }
 
-async function showListAttestorsAction(options: OptionValues) {
+async function showAttestorsForAction(options: OptionValues) {
     const { api } = await newApi(options.url as string);
 
     const address = options.substrateAddress as string;
