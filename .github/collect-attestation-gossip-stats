@@ -1,0 +1,194 @@
+#!/usr/bin/env python
+
+import glob
+import os
+import sys
+
+from collections import OrderedDict
+from datetime import datetime, timedelta
+
+
+def timestamp_from(line):
+    """
+    Extracts the timestamp from the given line
+    """
+    as_string = " ".join(line.split(" ")[0:2])
+    return datetime.strptime(as_string, "%Y-%m-%d %H:%M:%S.%f")
+
+
+def peer_id_from(line):
+    idx = line.index('PeerId("')
+    return line[idx+8:idx+60]
+
+def new_stats_for_period(peers = set()):
+    return {
+        # note: using set to keep entries unique b/c
+        # 'connection established' is reported twice in logs
+        "peers": peers.copy(),
+        "broadcasted_attestations": [],
+        "received_attestations": [],
+    }
+
+
+# holds all nodes participating in the network (as discovered from logs)
+# key is the node id, values are an OrderedDict((from, until) -> stats(dict)) of time series stats
+nodes = {}
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2 or sys.argv[1] == '--help' or sys.argv[1] == '-h':
+        print(f"USAGE: {sys.argv[0]} </path/to/directory/with/logs/>")
+        sys.exit(1)
+
+    logs_dir = sys.argv[1]
+    if not os.path.isdir(logs_dir):
+        print(f"ERROR: directory '{logs_dir}' does not exist")
+        sys.exit(2)
+
+    # parse logs and collect stats
+    for log_file in glob.glob(f"{logs_dir}/*.log"):
+        with open(log_file, "r") as creditcoin3_node_log:
+            current_stats = new_stats_for_period()
+            from_timestamp = None
+            until_timestamp = None
+            previous_timestamp = None
+
+            for line in creditcoin3_node_log:
+                if line.startswith("EVM accounts:"):
+                    continue
+
+                if line.startswith("WARNING: No public address specified, validator node may not be reachable"):
+                    continue
+
+                if line.find("Consider setting `--public-addr`") > -1:
+                    continue
+
+                if line.find("This will become a hard requirement in future versions") > -1:
+                    continue
+
+                timestamp = timestamp_from(line)
+
+                # if timestamps differ by at least 3 seconds definitely start a new series
+                # w/o any peers because this looks like the node was restarted
+                if previous_timestamp and timestamp - previous_timestamp > timedelta(seconds=3):
+                    # end previous series
+                    until_timestamp = previous_timestamp
+                    nodes[node_id][(from_timestamp, until_timestamp)] = current_stats
+
+                    # start new series with no peers, they will be discovered subsequently
+                    current_stats = new_stats_for_period()
+                    from_timestamp = timestamp
+                    until_timestamp = None
+
+                # find node identity and initialize data structure(s)
+                if line.find("Local node identity is:") > -1:
+                    node_id = line.split(":")[-1].strip()
+
+                    # probably restart of the same node or Ctrl^Z and logs ammened to the same file
+                    # skip b/c timestamps already accounted above
+                    if node_id in nodes:
+                        continue
+
+                    # this will keep a list of 'time series' stats
+                    # where the dict key is a tuple of (from, until) timestamps
+                    nodes[node_id] = OrderedDict()
+                    from_timestamp = timestamp
+
+                # detect peers establishing a connection
+                if line.find("libp2p_swarm: Connection established:") > -1:
+                    peer_id = peer_id_from(line)
+
+                    if peer_id not in current_stats["peers"]:
+                        # end previous series
+                        until_timestamp = timestamp
+                        nodes[node_id][(from_timestamp, until_timestamp)] = current_stats
+
+                        # start new series keeping older peers in the set
+                        current_stats = new_stats_for_period(current_stats["peers"])
+                        from_timestamp = timestamp
+                        until_timestamp = None
+
+                    # warning: we're parsing log files one by one and at this point in time we may have not
+                    # processed the log file for peer_id therefore not recording the reverse side of this
+                    # connection right now. It will be recorded once we process the logs file for the other node
+                    current_stats["peers"].add(peer_id)
+
+                # detect peer disconnected
+                if line.find("Libp2p => Disconnected(PeerId") > -1:
+                    # end previous series
+                    until_timestamp = timestamp
+                    nodes[node_id][(from_timestamp, until_timestamp)] = current_stats
+
+                    # start new series keeping older peers in the set
+                    current_stats = new_stats_for_period(current_stats["peers"])
+                    from_timestamp = timestamp
+                    until_timestamp = None
+
+                    peer_id = peer_id_from(line)
+
+                    # warning: we're parsing log files one by one and at this point in time we may have not
+                    # processed the log file for peer_id therefore not removing the reverse side of this
+                    # connection right now. It will be reflected once we process the logs file for the other node
+                    current_stats["peers"].discard(peer_id)
+
+                # detect attestation broadcasted to peers
+                if line.find("Will gossip attestation with digest") > -1:
+                    digest = line.split(" ")[11].strip(",")
+                    if not digest.startswith("0x"):
+                        raise RuntimeError(f"Incorrect digest '{digest}' detected")
+
+                    current_stats["broadcasted_attestations"].append(digest)
+
+                # detect attestation received from some of the other peers
+                if line.find("Received from gossip attestation with digest") > -1:
+                    digest = line.split(" ")[12].strip(",")
+                    if not digest.startswith("0x"):
+                        raise RuntimeError(f"Incorrect digest '{digest}' detected")
+
+                    current_stats["received_attestations"].append(digest)
+
+                # save state from previous iteration
+                previous_timestamp = timestamp
+
+            # EOF of log file reached. End previous series
+            until_timestamp = timestamp
+            nodes[node_id][(from_timestamp, until_timestamp)] = current_stats
+
+    # print raw data
+    from pprint import pprint
+    print("====== RAW DATA =====")
+    pprint(nodes)
+    print("====== END RAW DATA =====")
+
+    # check how many of the broadcasted messages were received by connected peers
+    total_broadcasted = 0
+    total_received = 0
+    total_not_received = 0
+    for (node_id, time_slots) in nodes.items():
+        for (period, stats) in time_slots.items():
+            total_broadcasted += len(stats["broadcasted_attestations"])
+            total_received += len(stats["received_attestations"])
+            for digest in stats["broadcasted_attestations"]:
+                for peer_id in stats["peers"]:
+
+                    received = 0
+                    (bcast_from, bcast_until) = period
+
+                    # scan all periods from the peer b/c they won't match exactly
+                    # it's like a search with a sliding window
+                    for ((peer_from, peer_until), peer_stats) in nodes[peer_id].items():
+                        # skip peer intervals which are outside of the broadcasting period
+                        if peer_until < bcast_from:
+                            continue
+
+                        if bcast_until < peer_from:
+                            continue
+
+                        received += peer_stats["received_attestations"].count(digest)
+
+                    if received == 0:
+                        total_not_received += 1
+                        print(f"FAIL: {digest} broadcasted from {node_id}@{period} not received by {peer_id}")
+
+    print(f"INFO: Total broadcasted messages: {total_broadcasted}")
+    print(f"INFO: Total received messages: {total_received}")
+    print(f"INFO: Not received rate: {total_not_received/total_broadcasted:.2%}")
