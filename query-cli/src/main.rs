@@ -150,6 +150,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     println!("Computed cost: {}\n", computed_cost);
 
+    println!("Submitting query...");
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
