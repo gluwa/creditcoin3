@@ -242,15 +242,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Figure out tag name
-        shell: bash
-        run: |
-          TAG_NAME=$(git describe --tag)
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-
       - name: Build ${{ github.repository }} docker image
         run: |
-          docker build -t ${{ github.repository }}:${{needs.sanity-check.outputs.TAG_NAME }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
+          docker build -t ${{ github.repository }}:${{ needs.sanity-check.outputs.TAG_NAME }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
 
           echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
           docker push ${{ github.repository }}:${{ needs.sanity-check.outputs.TAG_NAME }}
