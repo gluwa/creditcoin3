@@ -1345,14 +1345,14 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.46.0"
+version = "3.47.0"
 dependencies = [
  "clap",
 ]
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.46.0"
+version = "3.47.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1431,7 +1431,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.46.0"
+version = "3.47.0"
 dependencies = [
  "ethereum",
  "evm-tracing-events",
@@ -3270,7 +3270,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.46.0"
+version = "3.47.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
