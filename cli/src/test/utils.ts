@@ -161,3 +161,9 @@ export async function expectIsFinalizing() {
 export function randomIntBetween(min: number, max: number) {
     return min + Math.floor(Math.random() * (max - min));
 }
+
+// Function to calculate the threshold for a committee set size to reach majority vote
+// Duplicate of pub fn calculate_threshold(target_sample_size: u32) -> u32 (Path: creditcoin3-next/primitives/attestor/src/lib.rs)
+export function calculateThreshold(targetSampleSize: bigint): bigint {
+    return (BigInt(2) * targetSampleSize) / BigInt(3);
+}
