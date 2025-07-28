@@ -36,7 +36,7 @@ const REBROADCAST_AFTER: Duration = Duration::from_secs(5);
 pub struct GossipFilter<AccountId> {
     pub epoch: u64,
     pub round: BTreeMap<ChainKey, (u64, u64)>,
-    pub validators: BTreeMap<ChainKey, Vec<AccountId>>,
+    pub attestors: BTreeMap<ChainKey, Vec<AccountId>>,
 }
 
 impl<AccountId> GossipFilter<AccountId>
@@ -44,8 +44,8 @@ where
     AccountId: Eq + PartialEq,
 {
     fn attestor_included(&self, chain_key: ChainKey, attestor: &AccountId) -> bool {
-        if let Some(validators) = self.validators.get(&chain_key) {
-            validators.contains(attestor)
+        if let Some(attestors) = self.attestors.get(&chain_key) {
+            attestors.contains(attestor)
         } else {
             false
         }
@@ -60,11 +60,11 @@ where
         let chain_key = round.0;
         let block_height = round.1;
 
-        if let Some((start, end)) = self.round.get(&chain_key) {
+        if let Some((start, window)) = self.round.get(&chain_key) {
             if block_height < *start {
                 return Consider::RejectPast;
             }
-            if block_height > *end {
+            if block_height > *start + window {
                 return Consider::RejectFuture;
             }
             Consider::Accept
@@ -72,6 +72,17 @@ where
             Consider::CannotEvaluate
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct GossipFilterCfg<'a, AccountId> {
+    pub chain_key: ChainKey,
+    pub epoch: u64,
+    pub start: u64,
+    // Window indicates the range of blocks that are considered valid for this round.
+    // For example, if start is 100 and window is 100, then we accept attestations for blocks 100 to 200.
+    pub window: u64,
+    pub attestors: &'a Vec<AccountId>,
 }
 
 pub struct AttestorGossipValidator<B, AccountId, N>
@@ -106,7 +117,7 @@ where
             gossip_filter: RwLock::new(GossipFilter {
                 epoch: 0,
                 round: BTreeMap::new(),
-                validators: BTreeMap::new(),
+                attestors: BTreeMap::new(),
             }),
             next_rebroadcast: Mutex::new(Instant::now() + REBROADCAST_AFTER),
             network,
@@ -117,18 +128,13 @@ where
         self.network.report_peer(who, cost_benefit);
     }
 
-    pub fn update_filter(
-        &self,
-        epoch: u64,
-        chain_key: ChainKey,
-        start: u64,
-        end: u64,
-        validators: Vec<AccountId>,
-    ) {
+    pub fn update_filter(&self, cfg: GossipFilterCfg<'_, AccountId>) {
         let mut filter = self.gossip_filter.write();
-        filter.round.insert(chain_key, (start, end));
-        filter.validators.insert(chain_key, validators);
-        filter.epoch = epoch;
+        filter.round.insert(cfg.chain_key, (cfg.start, cfg.window));
+        filter
+            .attestors
+            .insert(cfg.chain_key, cfg.attestors.clone());
+        filter.epoch = cfg.epoch;
     }
 
     fn verify_signature(
@@ -166,6 +172,15 @@ where
         }
 
         Action::Keep(self.votes_topic, benefit::VOTE_MESSAGE)
+    }
+
+    pub fn expire(&self, round: Round) {
+        let mut filter = self.gossip_filter.write();
+
+        if let Some((start, _)) = filter.round.get_mut(&round.0) {
+            debug!(target: LOG_TARGET, "📝 Setting new start for round #{:?} to {}", round, round.1);
+            *start = round.1;
+        }
     }
 }
 
@@ -395,7 +410,9 @@ pub(crate) mod tests {
         let attestor = Attestor::new();
         let validator_set = vec![attestor.account_id.clone()];
 
-        let attestation_data = simulate_attestation_data(1, 1);
+        let chain_key = 1;
+
+        let attestation_data = simulate_attestation_data(chain_key, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data.clone());
 
         let network = TestNetwork::new();
@@ -411,7 +428,13 @@ pub(crate) mod tests {
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::Discard));
 
-        gossip_validator.update_filter(0, 1, 0, 10, validator_set.clone());
+        gossip_validator.update_filter(GossipFilterCfg {
+            chain_key,
+            epoch: 1,
+            start: 0,
+            window: 1,
+            attestors: &validator_set,
+        });
 
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::ProcessAndKeep(_)));
@@ -434,7 +457,15 @@ pub(crate) mod tests {
         let attestation_data = simulate_attestation_data(1, 0);
         let attestation = create_signed_attestation(&attestor, attestation_data);
         let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
-        gossip_validator.update_filter(0, 1, 10, 200, validator_set);
+
+        gossip_validator.update_filter(GossipFilterCfg {
+            chain_key,
+            epoch: 2,
+            start: 100,
+            window: 100,
+            attestors: &validator_set,
+        });
+
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::Discard));
     }
@@ -446,7 +477,9 @@ pub(crate) mod tests {
         let attestor = Attestor::new();
         let validator_set = vec![attestor.account_id.clone()];
 
-        let attestation_data = simulate_attestation_data(1, 1);
+        let chain_key = 1;
+
+        let attestation_data = simulate_attestation_data(chain_key, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data.clone());
 
         let network = TestNetwork::new();
@@ -462,7 +495,13 @@ pub(crate) mod tests {
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::Discard));
 
-        gossip_validator.update_filter(0, 1, 0, 10, validator_set.clone());
+        gossip_validator.update_filter(GossipFilterCfg {
+            chain_key,
+            epoch: 1,
+            start: 0,
+            window: 10,
+            attestors: &validator_set,
+        });
 
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::ProcessAndKeep(_)));
@@ -471,8 +510,118 @@ pub(crate) mod tests {
         let attestation_data = simulate_attestation_data(1, 0);
         let attestation = create_signed_attestation(&attestor, attestation_data);
         let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
-        gossip_validator.update_filter(1, 1, 10, 200, validator_set);
+
+        gossip_validator.update_filter(GossipFilterCfg {
+            chain_key,
+            epoch: 2,
+            start: 0,
+            window: 10,
+            attestors: &validator_set,
+        });
+
         let res = gossip_validator.validate(&mut context, &sender, &encoded);
         assert!(matches!(res, ValidationResult::Discard));
+    }
+
+    #[test]
+    fn messages_allowed_and_expired() {
+        let _ = env_logger::try_init();
+
+        let attestor = Attestor::new();
+        let validator_set = vec![attestor.account_id.clone()];
+
+        let chain_key = 1;
+
+        let attestation_data = simulate_attestation_data(chain_key, 50);
+        let attestation = create_signed_attestation(&attestor, attestation_data.clone());
+
+        let network = TestNetwork::new();
+
+        let gv = AttestorGossipValidator::<Block, AccountId32, _>::new(Arc::new(network));
+
+        gv.update_filter(GossipFilterCfg {
+            chain_key,
+            epoch: 1,
+            start: 50,
+            window: 50,
+            attestors: &validator_set,
+        });
+
+        // Check if message is allowed
+        let sender = PeerId::random();
+        let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
+        let intent = MessageIntent::Broadcast;
+        let topic = Default::default();
+
+        let mut allowed = gv.message_allowed();
+        let mut expired = gv.message_expired();
+
+        // check bad vote format
+        assert!(!allowed(&sender, intent, &topic, &mut [0u8; 16]));
+        assert!(expired(topic, &mut [0u8; 16]));
+
+        // check good vote format
+        assert!(allowed(&sender, intent, &topic, &encoded));
+        assert!(!expired(topic, &encoded));
+
+        // future round
+        let attestation_data = simulate_attestation_data(chain_key, 110);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+        let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
+        assert!(!allowed(&sender, intent, &topic, &encoded));
+        assert!(expired(topic, &encoded));
+
+        // expired round
+        let attestation_data = simulate_attestation_data(1, 10);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+        let encoded = Message::<Block, AccountId32>::Attestation(attestation.clone()).encode();
+        assert!(!allowed(&sender, intent, &topic, &encoded));
+        assert!(expired(topic, &encoded));
+    }
+
+    #[test]
+    fn messages_rebroadcast() {
+        let attestor = Attestor::new();
+        let validator_set = vec![attestor.account_id.clone()];
+
+        let chain_key = 1;
+
+        let network = TestNetwork::new();
+
+        let gv = AttestorGossipValidator::<Block, AccountId32, _>::new(Arc::new(network));
+
+        gv.update_filter(GossipFilterCfg {
+            chain_key,
+            epoch: 1,
+            start: 50,
+            window: 50,
+            attestors: &validator_set,
+        });
+
+        let sender = sc_network_types::PeerId::random();
+        let topic = Default::default();
+
+        let mut encoded_vote = Message::<Block, AccountId32>::Attestation(
+            create_signed_attestation(&attestor, simulate_attestation_data(chain_key, 50)),
+        )
+        .encode();
+
+        // re-broadcasting only allowed at `REBROADCAST_AFTER` intervals
+        let intent = MessageIntent::PeriodicRebroadcast;
+        let mut allowed = gv.message_allowed();
+
+        // rebroadcast not allowed so soon after GossipValidator creation
+        assert!(!allowed(&sender, intent, &topic, &mut encoded_vote));
+
+        // hack the inner deadline to be `now`
+        *gv.next_rebroadcast.lock() = Instant::now();
+
+        // still not allowed on old `allowed` closure result
+        assert!(!allowed(&sender, intent, &topic, &mut encoded_vote));
+
+        // renew closure result
+        let mut allowed = gv.message_allowed();
+        // rebroadcast should be allowed now
+        assert!(allowed(&sender, intent, &topic, &mut encoded_vote));
     }
 }

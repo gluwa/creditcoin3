@@ -27,7 +27,7 @@ use randomness_primitives::api::RandomnessPalletApi;
 use supported_chains_primitives::api::SupportedChainsApi;
 
 use super::{inherent, AttestorComms, Client, HashFor, Message, LOG_TARGET};
-use crate::communication::{Attestation, Error};
+use crate::communication::{validator::GossipFilterCfg, Attestation, Error};
 use crate::state::{State, VoteImportResult};
 use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
@@ -393,6 +393,10 @@ where
             self.current_epoch_index,
         )?;
 
+        // expire all votes before and including this round
+        // we can safely do this because we finalized this round and the rounds before are presumably finalized
+        self.comms.gossip_validator.expire(round);
+
         Ok(())
     }
 
@@ -689,15 +693,13 @@ where
 
         // Have a sliding window of 10 checkpoints where attestations are valid
         debug!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
-        self.comms.gossip_validator.update_filter(
-            epoch,
+        self.comms.gossip_validator.update_filter(GossipFilterCfg {
             chain_key,
-            current_block,
-            current_block
-                .checked_add(three_checkpoints)
-                .ok_or(Error::Overflow)?,
-            active_attestors,
-        );
+            epoch,
+            start: current_block,
+            window: three_checkpoints,
+            attestors: &active_attestors,
+        });
         Ok(())
     }
 }
