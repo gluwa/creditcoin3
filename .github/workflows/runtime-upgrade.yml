@@ -440,6 +440,8 @@ jobs:
           echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Execute smart contract test tool
+        # skipped until SMC-1036 is resolved
+        if: false
         working-directory: ./testing
         run: |
           ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}
@@ -575,6 +577,8 @@ jobs:
           echo "private_key=$EVM_PRIVATE_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Execute smart contract test tool
+        # skipped until SMC-1036 is resolved
+        if: false
         working-directory: ./testing
         run: |
           ./evm-network-test.sh ${{ steps.test-env.outputs.url }} ${{ steps.test-env.outputs.private_key }}

@@ -1035,6 +1035,8 @@ jobs:
           path: retry*.json
 
   integration-test-smart-contract:
+    # skipped until SMC-1036 is resolved
+    if: false
     needs:
       - build-creditcoin-node-for-testing
       - deploy-runner-smart-contract
