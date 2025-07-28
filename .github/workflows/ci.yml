@@ -986,6 +986,8 @@ jobs:
           sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
 
   deploy-runner-smart-contract:
+    # skipped until SMC-1036 is resolved
+    if: false
     needs:
       - build-creditcoin-node-for-testing
     timeout-minutes: 15
@@ -1035,8 +1037,6 @@ jobs:
           path: retry*.json
 
   integration-test-smart-contract:
-    # skipped until SMC-1036 is resolved
-    if: false
     needs:
       - build-creditcoin-node-for-testing
       - deploy-runner-smart-contract
