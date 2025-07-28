@@ -58,6 +58,9 @@ pub struct Prover {
         help = "Timeout in seconds for the prover to submit the query proof back to the contract, default value = 30 minutes (1800 seconds)"
     )]
     timeout: u64,
+
+    #[arg(long, help = "Reset the database to its initial state")]
+    reset_db: bool,
 }
 
 #[tokio::main]
@@ -98,12 +101,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cost_per_byte: args.cost_per_byte,
         base_fee: args.base_fee,
         claim_buffer: args.claim_buffer,
-        postgres_uri: args.postgres_uri,
+        postgres_uri: args.postgres_uri.clone(),
         prover_be_socket_addr: args.prover_be_socket_addr,
         be_api_key: args.be_api_key,
         name: args.name,
         timeout: args.timeout,
     };
+
+    if args.reset_db {
+        info!("Resetting database...");
+        prover::postgres::db::reset_database(args.postgres_uri).await?;
+        info!("Database reset successful");
+        return Ok(());
+    }
 
     let mut server = Server::new(config).await?;
     server.run().await?;

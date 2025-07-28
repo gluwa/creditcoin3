@@ -37,6 +37,7 @@ pub struct NewQueryFragmentType {
 }
 
 impl NewQueryFragmentType {
+    #[must_use]
     pub fn new(query_id: String, chain_key: u64, height: u64, fragment_type: String) -> Self {
         Self {
             query_id,

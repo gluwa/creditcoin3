@@ -33,6 +33,7 @@ pub struct AttestationCheckpoint {
 
 impl AttestationCheckpoint {
     // Mapper from the OnChainCheckpoint to the db type
+    #[must_use]
     pub fn from_on_chain(value: &OnChainCheckpoint, chain_key: u64) -> Self {
         AttestationCheckpoint {
             chain_key: super::to_storage_type(chain_key),

@@ -23,7 +23,7 @@ pub mod config;
 mod attestation;
 mod cc3;
 mod contract;
-mod postgres;
+pub mod postgres;
 mod query;
 
 use crate::attestation::fragment::Error;
