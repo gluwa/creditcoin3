@@ -217,7 +217,13 @@ where
                 vote = votes.next() => {
                     if let Some(Message::Attestation(vote)) = vote {
                         let chain_key = vote.chain_key();
-                        debug!(target: LOG_TARGET, "📝 Received from gossip attestation with digest {:?}", vote.digest());
+                        debug!(
+                            target: LOG_TARGET,
+                            "📝 Received from gossip attestation with digest {:?}, for chain_key {:?}, from attestor {}",
+                            vote.digest(),
+                            chain_key,
+                            vote.attestor_id().account_id()
+                        );
                         metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, chain_key);
                         match self.triage_message(Message::Attestation(vote.clone())).await {
                             Ok(()) => {
@@ -247,7 +253,13 @@ where
                                 metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, chain_key);
 
                                 let round = attestation.round();
-                                debug!(target: LOG_TARGET, "📝 Will gossip attestation with digest {:?}, on topic: {:?} for round {:?}", attestation.digest(), topic, round);
+                                debug!(
+                                    target: LOG_TARGET,
+                                    "📝 Will gossip attestation with digest {:?}, for chain_key {:?}, from attestor {}",
+                                    attestation.digest(),
+                                    chain_key,
+                                    attestation.attestor_id().account_id()
+                                );
 
                                 metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
                                 // Also process the message
