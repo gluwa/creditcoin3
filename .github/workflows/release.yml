@@ -46,6 +46,30 @@ jobs:
         run: |
           ./.github/check-version-vs-git-tag.sh
 
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Check if tag name is a valid NPM version
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          node dist/scripts/npm-semver-check.js "${{ env.TAG_NAME }}"
+
   setup:
     runs-on: ubuntu-24.04
     needs: sanity-check

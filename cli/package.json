@@ -39,6 +39,7 @@
         "@types/prompts": "^2.4.8",
         "@typescript-eslint/eslint-plugin": "8.36.0",
         "@typescript-eslint/parser": "8.36.0",
+        "@types/validator": "13.15.2",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^9.1.0",
         "esno": "^4.8.0",
@@ -49,7 +50,8 @@
         "ts-jest": "^29.1.1",
         "ts-node": "^10.9.1",
         "tsconfig-paths": "^4.2.0",
-        "typescript": "^5.8.2"
+        "typescript": "^5.8.2",
+        "validator": "13.15.15"
     },
     "dependencies": {
         "@polkadot/api": "16.4.1",
