@@ -1,0 +1,64 @@
+---
+name: Reusable workflow to build a native client
+
+on:
+  workflow_call:
+    inputs:
+      build-options:
+        required: true
+        type: string
+      version-string:
+        required: true
+        type: string
+      cache-key-name:
+        required: false
+        type: string
+
+permissions: read-all
+
+jobs:
+  build-creditcoin-node:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ inputs.cache-key-name }}
+
+      - name: Build SUT
+        uses: gluwa/cargo@dev
+        with:
+          command: build
+          args: ${{ inputs.build-options }}
+
+      - name: Upload creditcoin-node binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-for-${{ inputs.version-string }}
+          path: target/release/creditcoin3-node
+
+      - name: Upload WASM runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
