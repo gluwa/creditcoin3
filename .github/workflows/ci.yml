@@ -404,135 +404,47 @@ jobs:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
 
-  build-creditcoin-node:
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [devnet, testnet]
-    name: build-creditcoin-node-for-${{ matrix.target }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
+  build-creditcoin-node-for-devnet:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime --features=devnet"
+      version-string: devnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
+  build-creditcoin-node-for-testnet:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release"
+      version-string: testnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
-
-  build-creditcoin-node-for-testing:
+  build-creditcoin-node-for-testing-devnet:
     needs:
-      - build-creditcoin-node
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [devnet, ci]
-    name: build-creditcoin-node-for-testing-${{ matrix.target }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
+      - build-creditcoin-node-for-devnet
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime --features=devnet"
+      version-string: testing-devnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-for-testing-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+  build-creditcoin-node-for-testing-ci:
+    needs:
+      - build-creditcoin-node-for-devnet
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      version-string: testing-ci
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
   integration-test-smart-contract:
     # skipped until SMC-1036 is resolved
     if: false
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -542,7 +454,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -578,7 +490,7 @@ jobs:
 
   integration-test-check-extrinsics:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -593,7 +505,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Run Extrinsics Ordering
@@ -791,7 +703,7 @@ jobs:
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-github-runner
     runs-on:
       [
@@ -813,7 +725,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -938,7 +850,7 @@ jobs:
 
   integration-test-blockchain:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -948,7 +860,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -992,7 +904,8 @@ jobs:
 
   integration-test-chainspec:
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-for-devnet
+      - build-creditcoin-node-for-testnet
     strategy:
       fail-fast: false
       matrix:
@@ -1007,7 +920,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-${{ matrix.chainspec }}
+          name: binary-for-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
@@ -1134,7 +1047,7 @@ jobs:
 
   docs-smart-contract-development-with-hardhat:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -1144,7 +1057,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
