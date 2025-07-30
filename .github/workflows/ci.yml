@@ -22,15 +22,19 @@ env:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS="
+      version-string: "latest"
+
+  docker-test:
+    needs:
+      - docker-build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
-
-      - name: Build docker image
-        run: |
-          docker build -t gluwa/creditcoin3 .
 
       - name: Start a Devnet container from image
         run: |
