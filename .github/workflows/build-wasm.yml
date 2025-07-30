@@ -1,0 +1,56 @@
+---
+name: Reusable workflow to build WASM runtime
+
+on:
+  workflow_call:
+    inputs:
+      build-options:
+        required: true
+        type: string
+      version-string:
+        required: true
+        type: string
+
+permissions: read-all
+
+jobs:
+  build-wasm-runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Build WASM runtime
+        id: srtool_build
+        uses: chevdor/srtool-actions@v0.8.0
+        with:
+          chain: "creditcoin"
+          runtime_dir: runtime
+          package: creditcoin3-runtime
+          workdir: ${{ github.workspace }}
+          tag: ${{ env.RUSTC_VERSION }}
+        env:
+          BUILD_OPTS: "${{ inputs.build-options }}"
+
+      - name: DEBUG
+        run: |
+          echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
+          cat creditcoin-srtool-digest.json
+          echo "Runtime location: ${{ steps.srtool_build.outputs.wasm_compressed }}"
+
+      - name: Rename file
+        run: |
+          mv ${{ steps.srtool_build.outputs.wasm_compressed }} creditcoin-${{ inputs.version-string }}-runtime.wasm
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-for-wasm
+          path: "*.wasm"
+          if-no-files-found: error
