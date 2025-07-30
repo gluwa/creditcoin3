@@ -137,14 +137,14 @@ jobs:
       - name: Build WASM runtime
         id: srtool_build
         uses: chevdor/srtool-actions@v0.8.0
-        env:
-          BUILD_OPTS: "--features metadata-hash ${{ needs.setup.outputs.build_options }}"
         with:
           chain: "creditcoin"
           runtime_dir: runtime
           package: creditcoin3-runtime
-          tag: ${{ env.RUSTC_VERSION }}
           workdir: ${{ github.workspace }}
+          tag: ${{ env.RUSTC_VERSION }}
+        env:
+          BUILD_OPTS: "--features metadata-hash ${{ needs.setup.outputs.build_options }}"
 
       - name: DEBUG
         run: |
