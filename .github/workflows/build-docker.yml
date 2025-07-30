@@ -1,0 +1,45 @@
+---
+name: Reusable workflow to build docker image
+
+on:
+  workflow_call:
+    inputs:
+      build-options:
+        required: true
+        type: string
+      version-string:
+        required: true
+        type: string
+
+permissions: read-all
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Build docker image
+        run: |
+          docker build -t gluwa/creditcoin3:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" .
+          docker images
+
+      - name: Push docker image
+        # executes only when credentials are specified in the caller workflow
+        if: env.DOCKER_PUSH_USERNAME
+        env:
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        run: |
+          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
+          docker push gluwa/creditcoin3:${{ inputs.version-string }}
+
+          # only -mainnet images are tagged as :latest
+          # shellcheck disable=SC2046,SC2143
+          if [ $(echo "${{ inputs.version-string }}" | grep "mainnet") ]; then
+              docker tag gluwa/creditcoin3:${{ inputs.version-string  }} gluwa/creditcoin3:latest
+              docker push gluwa/creditcoin3:latest
+          fi
+
+          docker logout
