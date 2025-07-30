@@ -767,82 +767,29 @@ jobs:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
 
-  build-creditcoin-node:
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [devnet, testnet]
-    name: build-creditcoin-node-for-${{ matrix.target }}
+  build-creditcoin-node-for-devnet:
     needs:
       - deploy-runner-build-creditcoin-for
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-build-creditcoin-node-for-${{ matrix.target }}",
-      ]
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime --features=devnet"
+      version-string: devnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
+  build-creditcoin-node-for-testnet:
+    needs:
+      - deploy-runner-build-creditcoin-for
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release"
+      version-string: testnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
   deploy-runner-build-creditcoin-for-testing:
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-for-devnet
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -890,119 +837,32 @@ jobs:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
 
-  build-creditcoin-node-for-testing:
+  build-creditcoin-node-for-testing-benchmarks:
     needs:
-      - build-creditcoin-node
       - deploy-runner-build-creditcoin-for-testing
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [benchmarks, ci]
-    name: build-creditcoin-node-for-testing-${{ matrix.target }}
-    runs-on:
-      [
-        self-hosted,
-        "workflow-${{ github.run_id }}",
-        "proxy-build-creditcoin-node-for-testing-${{ matrix.target }}",
-      ]
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime --features=runtime-benchmarks"
+      version-string: testing-benchmarks
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'benchmarks'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=runtime-benchmarks" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-for-testing-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Install subkey
-        if: matrix.target == 'ci'
-        uses: gluwa/cargo@dev
-        with:
-          command: install
-          args: --locked --git https://github.com/paritytech/polkadot-sdk --rev 7304295 subkey
-
-      - name: Upload subkey binary
-        if: matrix.target == 'ci'
-        uses: actions/upload-artifact@v4
-        with:
-          name: subkey
-          path: ~/.cargo/bin/subkey
-
-      - name: Upload attestor binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: attestor-for-testing-${{ matrix.target }}
-          path: |
-            target/release/attestor
-            target/release/attestor_zombienet
-
-      - name: Upload prover binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: prover-for-testing-${{ matrix.target }}
-          path: target/release/prover
-
-      - name: Upload query-cli binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: query-cli-for-testing-${{ matrix.target }}
-          path: target/release/query-cli
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
-
-      # keep this always as the last step
-      - name: Schedule self-hosted shutdown
-        if: always()
-        run: |
-          # unreliable
-          sudo nohup shutdown +10 1>/dev/null 2>/dev/null & disown
+  build-creditcoin-node-for-testing-ci:
+    needs:
+      - deploy-runner-build-creditcoin-for-testing
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      build-subkey: true
+      version-string: testing-ci
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
   deploy-runner-smart-contract:
     # skipped until SMC-1036 is resolved
     if: false
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -1051,7 +911,7 @@ jobs:
 
   integration-test-smart-contract:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-runner-smart-contract
     runs-on:
       [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
@@ -1061,7 +921,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -1123,7 +983,7 @@ jobs:
   integration-test-check-extrinsics:
     if: github.base_ref == 'dev'
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -1136,7 +996,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Run Extrinsics Ordering
@@ -1559,7 +1419,8 @@ jobs:
   rm-gh-runner-build-creditcoin-node:
     runs-on: ubuntu-24.04
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-for-devnet
+      - build-creditcoin-node-for-testnet
     if: ${{ always() }}
 
     strategy:
@@ -1596,7 +1457,8 @@ jobs:
   rm-gh-runner-build-creditcoin-node-for-testing:
     runs-on: ubuntu-24.04
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-benchmarks
+      - build-creditcoin-node-for-testing-ci
     if: ${{ always() }}
 
     strategy:
@@ -1812,7 +1674,7 @@ jobs:
 
   deploy-runner-attestator-network:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -1861,22 +1723,16 @@ jobs:
 
   integration-test-attestator-network:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-runner-attestator-network
     runs-on: [self-hosted, "proxy-attestator-network"]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download creditcoin-node binary
+      - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
-          path: target/release
-
-      - name: Download attestor binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: attestor-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Start creditcoin3-node - Alice
@@ -2027,7 +1883,7 @@ jobs:
 
   deploy-runner-integration-test-cli:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -2121,7 +1977,7 @@ jobs:
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-runner-integration-test-cli
     runs-on:
       [
@@ -2168,7 +2024,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: DEBUG
@@ -2327,7 +2183,7 @@ jobs:
 
   deploy-runner-blockchain:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -2376,7 +2232,7 @@ jobs:
 
   integration-test-blockchain:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-runner-blockchain
     runs-on: [self-hosted, "proxy-blockchain"]
     steps:
@@ -2385,7 +2241,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -2466,7 +2322,8 @@ jobs:
 
   integration-test-chainspec:
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-for-devnet
+      - build-creditcoin-node-for-testnet
     strategy:
       fail-fast: false
       matrix:
@@ -2479,7 +2336,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-${{ matrix.chainspec }}
+          name: binary-for-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
@@ -2642,7 +2499,7 @@ jobs:
 
   docs-smart-contract-development-with-hardhat:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -2650,7 +2507,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -2774,7 +2631,7 @@ jobs:
 
   deploy-runner-benchmark:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-benchmarks
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -2824,7 +2681,7 @@ jobs:
   benchmark:
     needs:
       # because of the shared cache
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-benchmarks
       - deploy-runner-benchmark
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
     steps:
@@ -2876,7 +2733,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-benchmarks
+          name: binary-for-testing-benchmarks
           path: target/release
 
       - name: DEBUG
@@ -2925,7 +2782,7 @@ jobs:
 
   deploy-runner-cc3-indexer:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -2974,22 +2831,16 @@ jobs:
 
   cc3-indexer-testing:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-runner-cc3-indexer
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-cc3-indexer"]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download creditcoin-node binary
+      - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
-          path: target/release
-
-      - name: Download attestor binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: attestor-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Set up Python for Cairo - Verifier + Prover
@@ -3135,12 +2986,6 @@ jobs:
           docker compose --project-name anvil-1 up -d
           docker compose --project-name anvil-2 up -d
 
-      - name: Download prover binary
-        uses: actions/download-artifact@v4
-        with:
-          name: prover-for-testing-ci
-          path: target/release
-
       - name: Start Prover for Alice - Anvil-1
         env:
           RUST_LOG_STYLE: never
@@ -3231,13 +3076,6 @@ jobs:
         run: |
           .github/check-grapqhl-schema-types.sh
 
-      - name: Download query-cli binary
-        if: always()
-        uses: actions/download-artifact@v4
-        with:
-          name: query-cli-for-testing-ci
-          path: target/release
-
       - name: Run query-cli e2e
         if: always()
         run: |
@@ -3317,7 +3155,7 @@ jobs:
   # easily trigger all of them when something fails
   trigger-attestor-cli:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -3385,7 +3223,7 @@ jobs:
 
   attestor-cli-testing:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-runner-attestor-cli
     strategy:
       fail-fast: false
@@ -3415,16 +3253,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download creditcoin-node binary
+      - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
-          path: target/release
-
-      - name: Download attestor binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: attestor-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Download subkey binary

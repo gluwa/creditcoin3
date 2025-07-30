@@ -176,71 +176,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_TOKEN }}
 
-  build-native-runtime:
-    needs:
-      - sanity-check
-      - setup
-      - deploy-github-runner
-    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "type-native"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        shell: bash
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Figure out platform
-        shell: bash
-        run: |
-          PLATFORM=$(rustup target list --installed | grep "$(uname -m)")
-          echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
-
-      - name: DEBUG
-        shell: bash
-        run: |
-          echo "Tag & Platform is '${{ needs.sanity-check.outputs.TAG_NAME }}-${{ env.PLATFORM }}'"
-
-      - name: Build
-        continue-on-error: true
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release ${{ needs.setup.outputs.build_options}}
-
-      - name: Compress
-        continue-on-error: true
-        uses: thedoctor0/zip-release@0.7.6
-        with:
-          command: "sudo apt-get install zip"
-          type: "zip"
-          directory: "target/release/"
-          path: "creditcoin3-node*"
-          filename: "../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-${{ env.PLATFORM }}.zip"
-          exclusions: "creditcoin3-node.d"
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-for-linux
-          path: "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-*.zip"
-          if-no-files-found: warn
-
       - name: Upload smart contract(s)
         uses: actions/upload-artifact@v4
         with:
@@ -249,6 +184,17 @@ jobs:
             common/eth/contracts/sol/*.sol
             common/eth/contracts/prover.json
           if-no-files-found: warn
+
+  build-native-runtime:
+    needs:
+      - sanity-check
+      - setup
+      - deploy-github-runner
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release ${{ needs.setup.outputs.build_options}}"
+      version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
+    secrets: inherit
 
   build-wasm-runtime:
     needs:
@@ -333,9 +279,13 @@ jobs:
         run: |
           mv artifact/prover.json artifact/Prover-ABI.json
 
-      - name: DEBUG
+      - name: Compress creditcoin-node binary
         shell: bash
+        working-directory: artifact/
         run: |
+          # -m removes the uncompressed file b/c we don't want to be uploading it
+          zip -m "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" creditcoin3-node
+
           ls -lR
 
       - name: Make the release
