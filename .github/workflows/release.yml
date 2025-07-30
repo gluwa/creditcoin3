@@ -76,33 +76,11 @@ jobs:
     needs:
       - sanity-check
       - setup
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Figure out tag name
-        shell: bash
-        run: |
-          TAG_NAME=$(git describe --tag)
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-
-      - name: Build docker image
-        run: |
-          docker build -t gluwa/creditcoin3:${{needs.sanity-check.outputs.TAG_NAME }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash" .
-
-          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
-          docker push gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }}
-
-          # only -mainnet images are tagged as :latest
-          # shellcheck disable=SC2046,SC2143
-          if [ $(echo "${{ needs.sanity-check.outputs.TAG_NAME }}" | grep "mainnet") ]; then
-              docker tag gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }} gluwa/creditcoin3:latest
-              docker push gluwa/creditcoin3:latest
-          fi
-
-          docker logout
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash"
+      version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
+    secrets: inherit
 
   create-release:
     permissions:
@@ -112,6 +90,7 @@ jobs:
       - sanity-check
       - build-native-runtime
       - build-wasm-runtime
+      - docker-build
     steps:
       - uses: actions/checkout@v4
         with:
