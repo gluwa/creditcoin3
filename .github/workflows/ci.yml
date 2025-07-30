@@ -28,24 +28,31 @@ jobs:
   docker-build:
     needs:
       - deploy-runner-docker-build
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS="
+      version-string: "latest"
+
+  docker-test:
+    needs:
+      - deploy-runner-docker-test
     runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-build"]
+      [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
     steps:
-      - uses: actions/checkout@v4
+      - name: Download locally built docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/gluwa/
 
-      - name: Build ${{ github.repository }}:indexer-for-${{ github.sha }} docker image
+      - name: Load locally built docker image
         run: |
-          docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ github.sha }} .
-
-      - name: Build ${{ github.repository }} docker image
-        run: |
-          docker build -t ${{ github.repository }} .
-
-      - name: List docker images
-        run: |
+          docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
           docker images
 
-      - name: Start a container from image
+      - uses: actions/checkout@v4
+
+      - name: Start a Devnet container from image
         run: |
           # see https://opensource.com/article/18/5/how-find-ip-address-linux
           IP_ADDRESS=$(curl https://ifconfig.me)
@@ -1203,6 +1210,55 @@ jobs:
           name: linode-${{ matrix.proxy }}-logs
           path: retry*.json
 
+  deploy-runner-docker-test:
+    needs:
+      - docker-build
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: docker-test
+
+    name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          # WARNING: using env.RUNNER_VM_NAME directly in job outputs above
+          # doesn't evaluate the $GITHUB_RUN_ID reference
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Provision VM
+        if: env.LC_GITHUB_REPO_ADMIN_TOKEN
+        run: |
+          .github/provision-linode-vm.sh
+        env:
+          LC_OWNER_REPO_SLUG: ${{ github.repository }}
+          LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+          LC_PROXY_ENABLED: ${{ matrix.proxy }}
+          LC_WORKFLOW_ID: ${{ github.run_id }}
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+
+      - name: Upload Linode logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linode-${{ matrix.proxy }}-logs
+          path: retry*.json
+
   deploy-runner-unit-test-creditcoin:
     timeout-minutes: 15
     strategy:
@@ -1575,6 +1631,42 @@ jobs:
       matrix:
         include:
           - proxy: docker-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
+      - name: Create matrix.txt
+        run: |
+          echo "proxy=${{ matrix.proxy }} /  / type=" > matrix.txt
+
+      - name: Evaluate env vars
+        id: get-env
+        run: |
+          HASH_VALUE=$(echo "${{ hashFiles('matrix.txt') }}" | cut -c1-7)
+          rm matrix.txt
+
+          echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove VM
+        continue-on-error: true
+        run: |
+          .github/remove-linode-vm.sh
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LC_RUNNER_VM_NAME: ${{ steps.get-env.outputs.runner_vm_name }}
+
+  rm-gh-runner-docker-test:
+    runs-on: ubuntu-24.04
+    needs:
+      - docker-test
+    if: ${{ always() }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: docker-test
 
     steps:
       - uses: actions/checkout@v4
