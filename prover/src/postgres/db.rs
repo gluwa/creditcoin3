@@ -49,7 +49,5 @@ pub async fn reset_database(postgres_uri: String) -> Result<()> {
     })
     .await?;
 
-    debug!("Re-running database migrations...");
-    run_migrations(postgres_uri).await?;
     Ok(())
 }
