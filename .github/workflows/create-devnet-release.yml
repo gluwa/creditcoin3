@@ -1,0 +1,55 @@
+---
+name: Create Devnet release
+
+on:
+  schedule:
+    # every month, on the 2nd @ 6am
+    - cron: "0 6 2 * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          components: rustfmt
+
+      - name: Bump version
+        id: bump-version
+        run: |
+          .github/bump-version.sh
+
+          git status
+          git diff
+
+      - name: Commit & push changes to dev branch
+        if: env.GITHUB_TOKEN
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "Cargo.toml Cargo.lock runtime/src/version.rs"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: git tag && git push
+        run: |
+          git tag "${{ steps.bump-version.outputs.new_version }}-devnet"
+          git push origin "${{ steps.bump-version.outputs.new_version }}-devnet"
