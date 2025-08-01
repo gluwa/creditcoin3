@@ -30,7 +30,7 @@
         "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests"
     },
     "devDependencies": {
-        "@polkadot/typegen": "16.1.1",
+        "@polkadot/typegen": "16.4.3",
         "@types/jest": "^29.5.8",
         "@types/prompts": "^2.4.8",
         "@typescript-eslint/eslint-plugin": "^8.33.0",
@@ -47,11 +47,11 @@
         "typescript": "^5.8.2"
     },
     "dependencies": {
-        "@polkadot/api": "16.1.1",
-        "@polkadot/types-augment": "16.1.1",
+        "@polkadot/api": "16.4.3",
+        "@polkadot/types-augment": "16.4.3",
         "cli-table3": "^0.6.3",
         "commander": "^14.0.0",
-        "ethers": "^6.14.3",
+        "ethers": "^6.15.0",
         "execa": "5.1.1",
         "js-guid": "^1.0.0",
         "prompts": "^2.4.2",
