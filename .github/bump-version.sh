@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+GITHUB_OUTPUT=${GITHUB_OUTPUT:-/dev/null}
 MAJOR=$(grep authoring_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
 MINOR=$(grep spec_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
 PATCH=$(grep impl_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
@@ -12,6 +13,7 @@ echo "INFO: current version is $CURRENT_VERSION"
 NEW_MINOR=$((MINOR+1))
 NEW_VERSION="$MAJOR.$NEW_MINOR.$PATCH"
 echo "INFO: new version will be $NEW_VERSION"
+echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
 # modify version.rs
 sed -i "s/spec_version: $MINOR,/spec_version: $NEW_MINOR,/" runtime/src/version.rs

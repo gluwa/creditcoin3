@@ -24,6 +24,14 @@ jobs:
     outputs:
       TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
     steps:
+      - name: Report to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Release pipeline started! cc <@U028EMRHS3S>"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -268,6 +276,15 @@ jobs:
             artifact/Prover-ABI.json
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Release pipeline finished! cc <@U028EMRHS3S>"
 
   rm-gh-runner-docker:
     runs-on: ubuntu-24.04
