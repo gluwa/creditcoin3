@@ -73,9 +73,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {
+        std::env::set_var("$DEBUG_MODE", "true");
         debug!("debug mode enabled!");
         "debug"
     } else {
+        std::env::set_var("$DEBUG_MODE", "false");
         "prover=info"
     };
 
@@ -120,7 +122,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Wait for Ctrl+C signal
     signal::ctrl_c().await?;
-    info!("Ctrl+C received, shutting down...");
+    info!("🛑 Ctrl+C received, shutting down...");
 
     Ok(())
 }

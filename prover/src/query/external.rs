@@ -84,7 +84,7 @@ pub async fn handle_proof_order(
     prover_be_socket_addr: &str,
     be_api_key: &str,
 ) -> Result<Proof, Error> {
-    info!("Handling external proof order");
+    info!("🔄 Handling external proof order");
     let client = Client::new();
 
     let response = build_and_post_order_with_retries(
@@ -117,7 +117,7 @@ async fn build_and_post_order_with_retries(
         if let Err(error) = response_or_err {
             match error {
                 Error::ReqwestSendError(message) => {
-                    warn!("Sending proving request to BE failed. Make sure prover has stable internet. Error: {:?}", message);
+                    warn!("⚠️ Sending proving request to BE failed. Make sure prover has stable internet. Error: {:?}", message);
                 }
                 _ => return Err(error),
             }
@@ -158,7 +158,7 @@ async fn post_work_order(
                 .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?;
 
             debug!(
-                "Received post_work_order response: {:?}",
+                "📝 Received post_work_order response: {:?}",
                 String::from_utf8_lossy(&bytes)
             );
 
@@ -193,14 +193,14 @@ async fn poll_for_result(
             }
             Err(error) => match error {
                 Error::ReqwestSendError(message) => {
-                    warn!("Polling BE for proof result failed. Make sure prover has stable internet. Error: {:?}", message);
+                    warn!("⚠️ Polling BE for proof result failed. Make sure prover has stable internet. Error: {:?}", message);
                 }
                 _ => return Err(error),
             },
         }
 
         info!(
-            "Result not yet available... QueryId: 0x{}, Elapsed: {:?}, Timeout: {:?}",
+            "🚧 Result not yet available... QueryId: 0x{:?}, Elapsed: {:?}, Timeout: {:?}",
             query_id,
             start.elapsed().as_secs(),
             timeout.as_secs()
@@ -261,7 +261,7 @@ async fn prepare_proof_order_form(
         let request_field = match get_request_field(&filename_string) {
             Ok(field_name) => field_name,
             Err(e) => {
-                warn!("Unexpected file in proof inputs dir. Error: {:?}", e);
+                warn!("⚠️ Unexpected file in proof inputs dir. Error: {:?}", e);
                 continue;
             }
         };
@@ -273,7 +273,7 @@ async fn prepare_proof_order_form(
     }
 
     let query_id_string: String = query_id.encode_hex();
-    info!("Posting work order with query_id: {}", query_id_string);
+    info!("📝 Posting work order with query_id: {}", query_id_string);
 
     // Add query id to the form
     form = form.text("queryId", query_id_string);

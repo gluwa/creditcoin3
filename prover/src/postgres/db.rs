@@ -6,7 +6,7 @@ use diesel_async::{
     AsyncPgConnection,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use tracing::debug;
+use tracing::{debug, info};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -19,7 +19,7 @@ pub fn get_pool(postgres_uri: &str) -> Result<Pool<AsyncPgConnection>> {
 }
 
 pub async fn run_migrations(postgres_uri: String) -> Result<()> {
-    debug!("Running database migrations...");
+    info!("🛠️ Running database migrations...");
     // Blocking task because diesel_async doesn't support async migrations (yet)
     tokio::task::spawn_blocking(move || {
         let mut async_wrapper: AsyncConnectionWrapper<AsyncPgConnection> =
@@ -35,7 +35,7 @@ pub async fn run_migrations(postgres_uri: String) -> Result<()> {
 }
 
 pub async fn reset_database(postgres_uri: String) -> Result<()> {
-    debug!("Connecting to database to reset...");
+    debug!("🔌 Connecting to database to reset...");
     let uri = postgres_uri.clone();
     tokio::task::spawn_blocking(move || {
         let mut connection: AsyncConnectionWrapper<AsyncPgConnection> =

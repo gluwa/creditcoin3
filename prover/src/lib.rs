@@ -59,7 +59,7 @@ impl Server {
 
         // Create attestations cache
         let attestations_cache: AttestationCacheType = Arc::new(AttestationCache::new(db_pool));
-        info!("Created attestations cache");
+        info!("✅ Created attestations cache");
 
         // Deploy the prover contract
         // This will deploy it on ccnext chain
@@ -89,7 +89,7 @@ impl Server {
             config.timeout,
         )
         .await?;
-        info!("Deployed prover contract");
+        info!("✅ Deployed prover contract");
 
         Ok(Server {
             config,
@@ -130,7 +130,10 @@ impl Server {
         });
 
         // Build historical cache
-        info!("Building historical cache for chain with id: {}", chain_key);
+        info!(
+            "🛠️ Building historical cache for chain with id: {}",
+            chain_key
+        );
         attestation::cache::build_historical_cache_for_chain(
             chain_key,
             attestations_cache.clone(),
@@ -188,11 +191,11 @@ impl Server {
                     let query_id = new_query.id();
 
                     if !self.received_query_ids.insert(query_id) {
-                        warn!("Received duplicate query {:?}, ignoring.", query_id);
+                        warn!("⚠️ Received duplicate query {:?}, ignoring.", query_id);
                         continue;
                     }
 
-                    info!("Received query {:?}, checking for readiness...", query_id);
+                    info!("📝 Received query {:?}, checking for readiness...", query_id);
 
                     let last_attestation_height = from_storage_type(self.attestations_cache.last_synced_attestation(new_query.chain_id).await
                         .map_err(|e| Error::ProverDBError(e.to_string()))?
@@ -202,7 +205,7 @@ impl Server {
                     // Check if the query is ready to be processed
                     if last_attestation_height < new_query.height {
                         info!(
-                            "Query {:?} is not ready. Last attestation: {}, needed: {}. Adding to waiting queue.",
+                            "🔄 Query {:?} is not ready. Last attestation: {}, needed: {}. Adding to waiting queue.",
                             query_id, last_attestation_height, new_query.height
                         );
 
@@ -213,7 +216,7 @@ impl Server {
                             .push(new_query);
 
                     } else {
-                        info!("Query {:?} is ready for immediate processing.", query_id);
+                        info!("✅ Query {:?} is ready for immediate processing.", query_id);
                         let queries_to_process = vec![new_query];
 
                         if self.config.prover_be_socket_addr.is_some() {
@@ -229,7 +232,7 @@ impl Server {
                     }
                 },
                 Some(block_height) = new_attestation_receiver.recv() => {
-                    info!("Received notification for new attestation at height {}", block_height);
+                    debug!("📝 Received notification for new attestation at height {}", block_height);
                     let mut processable_queries = Vec::new();
 
                     let keys_to_process: Vec<u64> = self.waiting_queries
@@ -245,8 +248,8 @@ impl Server {
                     }
 
                     if !processable_queries.is_empty() {
-                        info!(
-                            "Found {} waiting queries with height <= {}. Processing now.",
+                        debug!(
+                            "🔍 Found {} waiting queries with height <= {}. Processing now.",
                             processable_queries.len(),
                             block_height
                         );
@@ -294,15 +297,15 @@ impl Server {
         let query_id = query.id();
 
         if let Either::Left(proof) = r {
-            info!("Submitting proof for query: {:?}", query_id);
+            info!("📝 Submitting proof for query: {:?}", query_id);
             match contract::submit_proof(&self.cc3_client, query, proof).await {
                 Ok(_) => {
-                    info!("Proof submitted successfully for query: {:?}", query_id);
+                    info!("✅ Proof submitted successfully for query: {:?}", query_id);
                     Ok(())
                 }
                 Err(e) => {
                     error!(
-                        "Failed to submit proof for query: {:?}, Error: {:?}",
+                        "❌ Failed to submit proof for query: {:?}, Error: {:?}",
                         query_id, e
                     );
                     Err(e)
@@ -337,7 +340,7 @@ impl Server {
                 query::process(eth_client.clone(), &query, &self.attestations_cache, false).await?;
 
             if let Either::Right(stone_proof_public_input) = r {
-                info!("Handling external proof for query: {:?}", query.id());
+                info!("🔄 Handling external proof for query: {:?}", query.id());
                 // Cloning handles for config strings
                 let addr_clone = prover_be_socket_addr.clone();
                 let key_clone = be_api_key.clone();
@@ -368,7 +371,7 @@ impl Server {
             .retain(|query| !self.queued_light_proving_queries.contains(&query.id()));
 
         info!(
-            "Found {} new unprocessed queries",
+            "🔍 Found {} new unprocessed queries",
             unprocessed_queries.len()
         );
         // Save these off to use later without cloning queries
@@ -380,7 +383,7 @@ impl Server {
                 }
             }
             Err(e) => {
-                error!("Queuing light proving for queries failed, Error: {e:?}");
+                error!("❌ Queuing light proving for queries failed, Error: {e:?}");
             }
         };
         // All queries were successfully queued as light proving jobs.
@@ -395,15 +398,15 @@ impl Server {
         unprocessed_queries: Vec<Query>,
     ) -> Result<()> {
         for query in unprocessed_queries {
-            info!("Processing unprocessed query: {:?}", query);
+            info!("🔄 Processing unprocessed query: {:?}", query);
             if let Err(e) = self.stone_proof_query(query.clone()).await {
-                error!("Query processing failed, Error: {e:?}");
+                error!("❌ Query processing failed, Error: {e:?}");
                 // Try to mark a query as invalid, but dont fail if it errors
                 if let Err(mark_err) =
                     mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await
                 {
                     error!(
-                        "Failed to mark query {:?} as invalid: {:?}",
+                        "❌ Failed to mark query {:?} as invalid: {:?}",
                         query.id(),
                         mark_err
                     );
@@ -430,13 +433,13 @@ impl Server {
             Ok((query, result_inner)) => {
                 match result_inner {
                     Ok(proof) => {
-                        info!("Submitting proof for query: {:?}", query);
+                        info!("📝 Submitting proof for query: {:?}", query);
                         // Prevent unnecessary clone
                         let query_id = query.id();
                         if let Err(e) = contract::submit_proof(&self.cc3_client, query, proof).await
                         {
                             error!(
-                                "Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
+                                "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
                                 query_id, e
                             );
                             mark_query_as_invalid(&self.cc3_client, query_id, e.to_string())
@@ -444,7 +447,7 @@ impl Server {
                         }
                     }
                     Err(e) => {
-                        error!("Query processing failed, Error: {e:?}");
+                        error!("❌ Query processing failed, Error: {e:?}");
                         if let LightProvingError::ProofGenerationFailed = e {
                             panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
                         } else {

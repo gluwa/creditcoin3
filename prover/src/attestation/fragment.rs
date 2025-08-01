@@ -4,7 +4,7 @@ use anyhow::Result;
 use hex::ToHex;
 use sp_core::H256;
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 
 use attestation_chain::attestation_fragment::{AttestationFragment, AttestationFragmentError};
 use attestation_chain::continuity_chain::Manager as FragmentManager;
@@ -135,8 +135,8 @@ pub async fn get_for_claim(
 
     // If not all fragment blocks are in the cache, then add them.
     let fragment_blocks = if db_fragment.len() as u64 == expected_fragment_size {
-        info!(
-            "All blocks for fragment found in cache, chain_key: {}, lower_bound: {}, upper_bound: {}",
+        debug!(
+            "✅ All blocks for fragment found in cache, chain_key: {}, lower_bound: {}, upper_bound: {}",
             chain_key, lower_endpoint.block_number, upper_endpoint.block_number
         );
         db_fragment
@@ -205,8 +205,8 @@ async fn construct_fragment(
     lower_endpoint: &IntervalEndpoint,
     upper_endpoint: &IntervalEndpoint,
 ) -> Result<Vec<BlockWithDigest>> {
-    info!(
-        "Not all blocks of attestation fragment found in cache, creating fragment for chain_key: {}, lower_bound: {}, upper_bound: {}",
+    debug!(
+        "🧱 Not all blocks of attestation fragment found in cache, creating fragment for chain_key: {}, lower_bound: {}, upper_bound: {}",
         chain_key, lower_endpoint.block_number, upper_endpoint.block_number
     );
 
@@ -216,7 +216,7 @@ async fn construct_fragment(
         eth_client,
     );
 
-    info!("Providing lower endpoint: {:?}", lower_endpoint);
+    debug!("📝 Providing lower endpoint: {:?}", lower_endpoint);
     let fragment = fragment_manager.create(lower_endpoint.digest).await?;
 
     // Transform the fragment into a list of blocks
@@ -257,8 +257,8 @@ async fn get_endpoints_for_claim(
     // attestations. Thus we change how we calculate our interval based on the height of the query
     // block.
     let fragment_type = fragment_type(query, attestation_cache).await?;
-    info!(
-        "Interval bounds found for fragment type: {:?}",
+    debug!(
+        "🔍 Interval bounds found for fragment type: {:?}",
         fragment_type
     );
     fetch_interval_ends(query, fragment_type, attestation_cache).await
@@ -280,7 +280,7 @@ async fn fragment_type(
         .await?;
 
     if let Some(latest_checkpoint) = maybe_latest_checkpoint {
-        info!("Latest checkpoint: {:?}", latest_checkpoint.digest);
+        debug!("📈 Latest checkpoint: {:?}", latest_checkpoint.digest);
         let last_checkpoint = attestation_cache
             .get_checkpoint_by_digest(latest_checkpoint.digest)
             .await?;

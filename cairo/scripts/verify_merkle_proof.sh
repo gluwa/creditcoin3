@@ -1,5 +1,6 @@
 #!/bin/sh
 
+
 # Function
 # - compiles ./verify_merkle_proof.cairo
 # - runs the previously compiled program ./verify_merkle_proof_compiled.json
@@ -9,6 +10,11 @@
 #
 # Example
 # source verify_merkle_proof.sh <path to the program_input.json> <proof_mode>
+
+# Logs debug messages to stdout only if DEBUG_MODE environment variable is set to "true"
+log_debug() {
+  [ "${DEBUG_MODE:-false}" = true ] && echo "$@"
+}
 
 if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
   echo "expected arguments: input_path proof_mode(optional)"
@@ -71,17 +77,17 @@ PUBLIC_INPUT="$INPUT_PATH/public_input.json"
 TRACE_FILE="$INPUT_PATH/trace.json"
 MEMORY_FILE="$INPUT_PATH/memory.json"
 OUTPUT_FILE="$INPUT_PATH/output.txt"
-echo "program: $COMPILED_FILE"
-echo "program input: $PROGRAM_INPUT_FILE"
+ log_debug "program: $COMPILED_FILE"
+ log_debug "program input: $PROGRAM_INPUT_FILE"
 #echo "trace_file: $TRACE_FILE"
 #echo "memory_file: $MEMORY_FILE"
-echo "program output: $OUTPUT_FILE"
+ log_debug "program output: $OUTPUT_FILE"
 
 if [ "$PROOF_MODE" = "proof_mode" ]; then
-  echo "air_private_input: $PRIVATE_INPUT"
-  echo "air_public_input: $PUBLIC_INPUT"
+ log_debug "air_private_input: $PRIVATE_INPUT"
+ log_debug "air_public_input: $PUBLIC_INPUT"
 
-  echo "cairo-running..."
+ log_debug "cairo-running..."
   message=$(cairo-run \
     --program="$COMPILED_FILE" \
     --layout=recursive \
@@ -94,7 +100,7 @@ if [ "$PROOF_MODE" = "proof_mode" ]; then
     --proof_mode 2>&1)
 
 else
-  echo "cairo-running..."
+ log_debug "cairo-running..."
   message=$(
     cairo-run \
       --program="$COMPILED_FILE" \

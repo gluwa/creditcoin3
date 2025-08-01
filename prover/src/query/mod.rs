@@ -64,7 +64,7 @@ pub async fn process(
     stone_proof: bool,
 ) -> Result<Either<Proof, Vec<PathBuf>>, Error> {
     let query_id = query.id();
-    info!("Processing query with id: {:?}", query_id);
+    debug!("Processing query with id: {:?}", query_id);
 
     // Retry strategy with Fibonacci backoff and jitter (1, 1, 2, 3, 5, ...)
     let retry_strategy = FibonacciBackoff::from_millis(1000).map(jitter).take(5);
@@ -91,24 +91,27 @@ pub async fn process(
         Err(e) => {
             // This path is taken for any other error after all retries have failed.
             error!(
-                "Failed to get attestation fragment for query {:?} after multiple retries: {:?}",
+                "🔴 Failed to get attestation fragment for query {:?} after multiple retries: {:?}",
                 query_id, e
             );
             return Err(e.into());
         }
     };
 
-    info!("Got attestation fragment for query with id: {:?}", query_id);
+    debug!(
+        "🟢 Got attestation fragment for query with id: {:?}",
+        query_id
+    );
 
     let claim_serializable = get_serializable(query);
 
-    info!("Claim serializable: {:?}", claim_serializable);
+    debug!("🟢 Claim serializable: {:?}", claim_serializable);
 
     let block = Retry::spawn(retry_strategy, || eth_client.get_block(query.height))
         .await
         .map_err(|e| {
             error!(
-                "Failed to get block {} after multiple retries: {:?}",
+                "🔴 Failed to get block {} after multiple retries: {:?}",
                 query.height, e
             );
             e
@@ -118,17 +121,17 @@ pub async fn process(
     let maybe_force_stone_proving =
         check_and_update_fragment_type(query, query_id, attestation_cache).await?;
 
-    info!("Generating proof for query with id: {:?}", query_id);
+    debug!("🟢 Preparing query for proving with id: {:?}", query_id);
     // Generate proof
     let query_prover =
         match proof::run_cairo_verifier(claim_serializable, &attestation_fragment, block).await {
             Ok(cairo_output) => {
-                info!("Generated proof for query with id: {:?}", query_id);
+                info!("📝 Prepared query for proving with id: {:?}", query_id);
                 cairo_output
             }
             Err(e) => {
-                info!(
-                    "Failed to run cairo verifier for query with id: {:?}, error: {:?}",
+                error!(
+                    "🔴 Failed to run cairo verifier for query with id: {:?}, error: {:?}",
                     query_id, e
                 );
                 return Err(Error::Proof);
@@ -141,7 +144,7 @@ pub async fn process(
                 .await
                 .map_err(|e| {
                     error!(
-                        "Failed to generate proof for query with id: {:?}, error: {:?}",
+                        "🔴 Failed to generate proof for query with id: {:?}, error: {:?}",
                         query_id, e
                     );
                     Error::Proof
@@ -161,7 +164,7 @@ pub async fn process(
                 Ok(Either::Left(proof_json.as_bytes().to_vec()))
             }
             either::Right(_claim_files) => {
-                warn!("We shouldn't really fall in this code path");
+                warn!("⚠️ We shouldn't really fall in this code path");
                 Err(Error::Proof)
             }
         }

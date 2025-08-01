@@ -138,7 +138,7 @@ impl Client {
                 Some(CcEvent::BlockAttested(attestation)) => {
                     // Process the attestation
                     info!(
-                        "Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
+                        "📝 Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
                         attestation.chain_key(),
                         attestation.header_number(),
                         attestation.digest()
@@ -148,7 +148,7 @@ impl Client {
                 }
                 Some(CcEvent::CheckpointReached(chain_key, checkpoint)) => {
                     info!(
-                        "Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
+                        "📝 Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
                         chain_key,
                         checkpoint.block_number,
                         checkpoint.digest,

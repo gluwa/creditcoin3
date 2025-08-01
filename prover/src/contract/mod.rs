@@ -26,10 +26,10 @@ pub async fn deploy(
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
     let artifact = if artifacts::has_artifact(chain_id).await? {
-        info!("Found existing deployment artifact, fetching...");
+        info!("🔍 Found existing deployment artifact, fetching...");
         artifacts::get_deployment_artifact(chain_id).await?
     } else {
-        info!("Deploying Gluwa Public Prover contract");
+        info!("🚀 Deploying Gluwa Public Prover contract");
         let contract = eth::evm::prover::deploy(
             eth_client,
             None,
@@ -46,7 +46,7 @@ pub async fn deploy(
     };
 
     info!(
-        "Creditcoin Public Prover contract address({:?}) on chain {chain_id}",
+        "📜 Creditcoin Public Prover contract address({:?}) on chain {chain_id}",
         artifact.contract.address
     );
 
@@ -74,10 +74,10 @@ pub async fn provide_unprocessed_queries(
     eth_client: &Client,
     query_channel: mpsc::UnboundedSender<Query>,
 ) -> Result<()> {
-    info!("Polling for all existing unprocessed queries...");
+    info!("🔄 Polling for all existing unprocessed queries...");
     match get_initial_unprocessed_queries(eth_client).await {
         Ok(queries) => {
-            info!("Found {} existing queries to process.", queries.len());
+            info!("🔍 Found {} existing queries to process.", queries.len());
             for query in queries {
                 if query_channel.send(query).is_err() {
                     return Err(anyhow::anyhow!(
@@ -94,14 +94,14 @@ pub async fn provide_unprocessed_queries(
         }
     }
 
-    info!("Initial poll complete. Subscribing for new queries...");
+    info!("🔄 Initial poll complete. Subscribing for new queries...");
     subscribe_query_submissions(eth_client, query_channel).await
 }
 
 pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
     info!(
-        "Submitting proof for query {:?}, chain id {}",
+        "📝 Submitting proof for query {:?}, chain id {}",
         query.id(),
         chain_id
     );
@@ -117,11 +117,11 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
 
     match tx_hash {
         Ok(tx_hash) => {
-            info!("Proof submitted successfully, tx_hash: {}", tx_hash);
+            info!("📝 Proof submitted successfully, tx_hash: {}", tx_hash);
             Ok(tx_hash.to_string())
         }
         Err(e) => {
-            error!("Failed to submit proof: {:?}", e);
+            error!("❌ Failed to submit proof: {:?}", e);
             Err(e)
         }
     }
@@ -140,7 +140,7 @@ pub async fn subscribe_query_submissions(
         .subscribe_query_submissions(eth_client, query_channel)
         .await?;
 
-    info!("Subscribed to query submissions on chain {}", chain_id);
+    info!("✅ Subscribed to query submissions on chain {}", chain_id);
     Ok(())
 }
 
@@ -159,7 +159,7 @@ pub async fn mark_query_as_invalid(
         .await?;
 
     info!(
-        "Query with id {} marked as invalid, tx_hash: {}",
+        "📝 Query with id {} marked as invalid, tx_hash: {}",
         query_id, tx_hash
     );
 
