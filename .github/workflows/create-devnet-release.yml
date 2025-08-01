@@ -13,6 +13,8 @@ permissions: read-all
 jobs:
   bump-version:
     runs-on: ubuntu-24.04
+    # checkov:skip=CKV2_GHA_1:We need this for auto-commit
+    permissions: write-all
     steps:
       - uses: actions/checkout@v4
         with:
