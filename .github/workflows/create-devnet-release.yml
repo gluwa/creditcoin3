@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
+          token: ${{ secrets.ATODOROV_TOKEN }}
 
       - name: Configure rustc version
         run: |
@@ -40,15 +41,12 @@ jobs:
           git diff
 
       - name: Commit, tag & push changes to dev branch
-        if: env.GITHUB_TOKEN
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
         with:
           push: true
           add: "Cargo.toml Cargo.lock runtime/src/version.rs"
-          author_name: gluwa-bot
-          author_email: creditcoin@gluwa.com
+          author_name: "Alex Todorov"
+          author_email: alex.todorov@gluwa.com
           message: "Bump version to ${{ steps.bump-version.outputs.new_version }}"
           tag: "${{ steps.bump-version.outputs.new_version }}-devnet"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.ATODOROV_TOKEN }}
