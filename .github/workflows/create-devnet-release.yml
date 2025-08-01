@@ -39,19 +39,16 @@ jobs:
           git status
           git diff
 
-      - name: Commit & push changes to dev branch
+      - name: Commit, tag & push changes to dev branch
         if: env.GITHUB_TOKEN
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: EndBug/add-and-commit@v9
         with:
+          push: true
           add: "Cargo.toml Cargo.lock runtime/src/version.rs"
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com
           message: "Bump version to ${{ steps.bump-version.outputs.new_version }}"
+          tag: "${{ steps.bump-version.outputs.new_version }}-devnet"
           github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: git tag && git push
-        run: |
-          git tag "${{ steps.bump-version.outputs.new_version }}-devnet"
-          git push origin "${{ steps.bump-version.outputs.new_version }}-devnet"
