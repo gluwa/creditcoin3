@@ -20,4 +20,4 @@ sed -i "s/spec_version: $MINOR,/spec_version: $NEW_MINOR,/" runtime/src/version.
 
 # modify Cargo.toml & Cargo.lock
 sed -i "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
-cargo generate-lockfile
+cargo update --workspace
