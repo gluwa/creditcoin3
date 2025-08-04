@@ -23,8 +23,20 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t gluwa/creditcoin3:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" .
+          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" .
           docker images
+
+      - name: Export docker image into a file
+        run: |
+          mkdir -p "${{ runner.temp }}/gluwa/"
+          docker image save ${{ github.repository }}:${{ inputs.version-string }} > ${{ runner.temp }}/${{ github.repository }}.tar
+
+      - name: Upload exported image for use by other CI jobs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/${{ github.repository }}.tar
 
       - name: Push docker image
         # executes only when credentials are specified in the caller workflow

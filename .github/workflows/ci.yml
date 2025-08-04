@@ -32,6 +32,17 @@ jobs:
       - docker-build
     runs-on: ubuntu-24.04
     steps:
+      - name: Download locally built docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/gluwa/
+
+      - name: Load locally built docker image
+        run: |
+          docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
+          docker images
+
       - uses: actions/checkout@v4
         with:
           lfs: true
