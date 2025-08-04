@@ -202,6 +202,7 @@ jobs:
     with:
       build-options: "--release ${{ needs.setup.outputs.build_options}}"
       version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
     secrets: inherit
 
   build-wasm-runtime:
@@ -213,6 +214,7 @@ jobs:
     with:
       build-options: "${{ needs.setup.outputs.build_options }}"
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-wasm']"
 
   docker-build:
     needs:
@@ -223,6 +225,7 @@ jobs:
     with:
       build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }}"
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-docker']"
     secrets: inherit
 
   create-release:

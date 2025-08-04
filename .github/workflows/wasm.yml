@@ -20,6 +20,7 @@ jobs:
     with:
       build-options: "--features fast-runtime"
       version-string: ${{ github.sha }}
+      runs-on: ubuntu-24.04
 
   # try installing subwasm b/c we use this version in multiple places
   # and need to know whether it builds with current rustc

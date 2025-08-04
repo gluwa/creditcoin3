@@ -10,12 +10,15 @@ name: Reusable workflow to build WASM runtime
       version-string:
         required: true
         type: string
+      runs-on:
+        required: true
+        type: string
 
 permissions: read-all
 
 jobs:
   build-wasm-runtime:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
       - uses: actions/checkout@v4
         with:
