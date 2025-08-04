@@ -22,8 +22,10 @@ COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 FROM devel-base as rust-builder
 ARG BUILD_ARGS=""
 USER 0
-RUN apt-get install -y --no-install-recommends \
-    cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler \
+    || apt-get install -y --fix-missing
 USER creditcoin
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
 
