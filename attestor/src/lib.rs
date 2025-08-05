@@ -3,14 +3,14 @@ use engine::AsyncEngine;
 use tokio::{sync::mpsc, time::sleep};
 use tracing::{debug, error, info, warn};
 
-pub mod engine;
-
 mod attestation;
 mod cc3;
 mod ccsub;
 mod continuity;
+pub mod engine;
 mod error;
 mod eth_sub;
+mod prom;
 mod retry;
 mod sync_state;
 
@@ -32,6 +32,9 @@ pub struct Config {
     pub cc3_key: String,
     pub maturity_delay: u64,
     pub chain_key: u64,
+    pub enable_prometheus_metrics: bool,
+    pub prometheus_host: String,
+    pub prometheus_port: u16,
     //pub bls_key: [u8; 32],
 }
 

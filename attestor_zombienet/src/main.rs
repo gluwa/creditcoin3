@@ -79,6 +79,13 @@ pub struct AttestorZombienet {
         help = "If true, the program will fetch the current block number of the source chain and configure that as a genesis block for the attestors. This is useful for testing purposes."
     )]
     configure_genesis: bool,
+
+    #[arg(
+        long,
+        default_value = "false",
+        help = "If true, the attestor will expose prometheus metrics"
+    )]
+    enable_attestor_prometheus_metrics: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,6 +266,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Spawn child processes
         let mut rng = rand::thread_rng();
 
+        let mut start_prometheus_port = 9100;
+
         for attestor_key in keys {
             let command = config.default_command.clone();
             let mut attestor_args = config.default_args.clone().unwrap_or_default();
@@ -266,6 +275,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             attestor_args.push(format!("--cc3-key={}", attestor_key.secret));
             attestor_args.push(format!("--eth-rpc-url={}", args.eth_rpc_url));
             attestor_args.push(format!("--chain-key={}", args.chain_key));
+
+            if args.enable_attestor_prometheus_metrics {
+                attestor_args.push("--enable-prometheus-metrics".to_string());
+
+                attestor_args.push(format!("--prometheus-port={}", start_prometheus_port));
+                start_prometheus_port += 1;
+            }
 
             // get random number out of args.port_ranges
             // if single_node is true, use 9944

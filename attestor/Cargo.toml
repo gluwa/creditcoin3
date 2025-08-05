@@ -26,6 +26,8 @@ release = false
 
 [dependencies]
 anyhow = "1.0"
+axum = "0.8"
+prometheus = "0.14"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Creditcoin deps
@@ -52,3 +54,7 @@ sp-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = "0.5"

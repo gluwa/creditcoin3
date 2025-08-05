@@ -3,7 +3,6 @@ use std::error::Error;
 use tracing::debug;
 
 use attestor::{Config, Server};
-
 #[derive(Parser, Debug)]
 #[command(name = "attestor")]
 pub struct Attestor {
@@ -23,6 +22,28 @@ pub struct Attestor {
 
     #[arg(long, required = true, help = "Mnemonic for a creditcoin3 account")]
     cc3_key: String,
+
+    #[arg(
+        long,
+        required = false,
+        help = "Flag indicating the attestor will launch a server to expose metrics."
+    )]
+    enable_prometheus_metrics: bool,
+
+    #[arg(
+        long,
+        default_value = "0.0.0.0",
+        help = "Bind address for the prometheus metrics server."
+    )]
+    prometheus_host: String,
+
+    #[arg(
+        long,
+        required = false,
+        default_value_t = 9100,
+        help = "Port to expose the Prometheus metrics endpoint on. Defaults to 9100."
+    )]
+    prometheus_port: u16,
 
     #[arg(short, long, help = "Turn on verbose logging")]
     verbose: bool,
@@ -67,6 +88,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cc3_key: args.cc3_key,
         maturity_delay: args.maturity_delay,
         chain_key: args.chain_key,
+        enable_prometheus_metrics: args.enable_prometheus_metrics,
+        prometheus_host: args.prometheus_host,
+        prometheus_port: args.prometheus_port,
     };
 
     let mut server = Server::new(config);

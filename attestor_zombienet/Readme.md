@@ -91,3 +91,11 @@ If you want the program to automatically determine the current blocknumber for t
 ```bash
 ./target/release/attestor_zombienet --cc3-key "//Alice" --configure-genesis
 ```
+
+## Enable attestor prometheus metrics
+
+If you want the attestors to expose prometheus metrics, you can set the `--enable-prometheus` flag when running the attestor zombienet binary. It will start the first attestor prometheus server on 9100 and the rest of the attestors will start on 9101, 9102, etc.
+
+```bash
+./target/release/attestor_zombienet --cc3-key "//Bob" --config-file attestor_zombienet/config.yaml --enable-attestor-prometheus-metrics
+```

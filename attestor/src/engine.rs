@@ -19,7 +19,12 @@ use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, Chain
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
 
-use crate::{cc3, ccsub, continuity, error::Error, eth_sub, sync_state::SyncState, Config};
+use crate::{
+    cc3, ccsub, continuity, error::Error, eth_sub, metric_set_label, prom, sync_state::SyncState,
+    Config,
+};
+
+use crate::prom::AttestorMetrics;
 
 pub const ATTESTATION_BUFFER_SIZE: usize = 100;
 
@@ -65,6 +70,8 @@ pub struct Engine {
     maturity_delay: u64,
     // Shutdown channel to gracefully stop the engine
     shutdown_channel: UnboundedSender<()>,
+    // Prometheus metrics
+    metrics: Option<AttestorMetrics>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +92,6 @@ impl State {
         matches!(self, Self::Halted(_))
     }
 }
-
 #[derive(Debug)]
 pub struct AsyncEngine {
     inner: Arc<Mutex<Engine>>,
@@ -108,6 +114,7 @@ impl AsyncEngine {
         let eth_client = Client::new(&config.eth_rpc_url, None).await?;
         let target = eth_client.get_last_block().await?;
         let chain_id = eth_client.chain_id();
+
         debug!("Opened connection to ethereum chain with id {}", chain_id);
 
         let cc3_client = cc3::Client::new(
@@ -133,6 +140,14 @@ impl AsyncEngine {
 
         let current_epoch = cc3_client.get_current_epoch().await?;
 
+        // Register metrics server if configured
+        let metrics = if config.enable_prometheus_metrics {
+            debug!("Starting Prometheus metrics server");
+            prom::start_prom_server(config)
+        } else {
+            None
+        };
+
         let engine: Engine = Engine {
             state: State::NotRunning,
             eth_client: eth_client.clone(),
@@ -147,6 +162,7 @@ impl AsyncEngine {
             continuity_cache: continuity::Cache::new(eth_client.clone()),
             maturity_delay: config.maturity_delay,
             shutdown_channel: shutdown,
+            metrics,
         };
 
         Ok(Self {
@@ -274,6 +290,16 @@ impl AsyncEngine {
                     return Err(e.into());
                 }
             };
+
+            // update source chain height
+            let inner = self.inner.lock().await;
+            metric_set_label!(
+                inner.metrics,
+                source_chain_height,
+                inner.chain_key(),
+                last_eth_block_number
+            );
+            drop(inner);
 
             // If the attestation is mature, return it
             if attestation.header_number <= last_eth_block_number - delay {
@@ -459,6 +485,13 @@ impl Engine {
         debug!(
             "Last voted for: {:}, last finalized attestation: {:}",
             last_voted_for_block, last_finalized
+        );
+        // set last voted for
+        metric_set_label!(
+            self.metrics,
+            last_voted_for,
+            self.chain_key(),
+            last_voted_for_block
         );
 
         // Determine drift baseline
@@ -651,6 +684,13 @@ impl Engine {
             "Last finalized attestation: {:}, last voted for: {:}",
             header, last_voted_for
         );
+        // set last finalized attesation
+        metric_set_label!(
+            self.metrics,
+            last_finalized_attestation,
+            self.chain_key(),
+            header
+        );
 
         // Check if we can start again
         // By subtracting the restart window from the last voted for block
@@ -678,6 +718,10 @@ impl Engine {
     async fn note_epoch_change(&mut self, epoch: u64) -> Result<(), Error> {
         debug!("Noting current epoch: {}", epoch);
         self.current_epoch = epoch;
+
+        // set current epoch
+        let chain_key = self.chain_key();
+        metric_set_label!(self.metrics, cc_current_epoch, chain_key, epoch);
 
         match self.state {
             State::Running => return Ok(()),
