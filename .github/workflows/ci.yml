@@ -3228,6 +3228,13 @@ jobs:
             --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
             --data-choice 4
 
+      - name: Collect Prover DB logs
+        if: always()
+        working-directory: ./prover
+        run: |
+          docker compose --project-name anvil-1 logs --no-color > /var/tmp/cc3-indexer-testing/prover-1-db.log
+          docker compose --project-name anvil-2 logs --no-color > /var/tmp/cc3-indexer-testing/prover-2-db.log
+
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
       # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
