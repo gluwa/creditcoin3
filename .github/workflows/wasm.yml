@@ -3,7 +3,7 @@ name: Build WASM Runtime
 
 "on":
   push:
-    branches: [main, testnet, dev]
+    branches: [main, testnet, dev, poc_external_attestation_network]
   pull_request:
     branches: [testnet, dev]
   workflow_dispatch:
