@@ -10,3 +10,7 @@ d103b6518efc18d8fcef9dd0bb211036fbec9543:chainspecs/devnetSpec.json:generic-api-
 68b67ae9fb7477445373e03b2f6f871313b9734e:chainspecs/dryRunSpec.json:generic-api-key:147
 6f55319db6d92462e373ce14198f80698b0a1ba4:eth_scripts/index.js:generic-api-key:52
 6f55319db6d92462e373ce14198f80698b0a1ba4:eth_scripts/index.js:generic-api-key:53
+e0d2b9cca696d82e85dae9f9a6b4805ae54ddd93:chainspecs/testnetSpec.json:generic-api-key:280
+4cd44c2003e693a026602a0dcb3764c9a8b41c19:chainspecs/testnetSpec.json:generic-api-key:280
+b63df652a827251d7731161b0473da1381458e73:ccnextTestnetSpec.json:generic-api-key:270
+c66285b87c7714e0e461e658751ed406bc1ccac9:ccnextTestnetSpec.json:generic-api-key:270
