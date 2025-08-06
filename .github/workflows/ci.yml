@@ -3083,6 +3083,9 @@ jobs:
           docker compose --project-name anvil-1 up -d
           docker compose --project-name anvil-2 up -d
 
+          # wait for DBs to start accepting connections
+          sleep 60
+
       - name: Start Prover for Alice - Anvil-1
         env:
           RUST_LOG_STYLE: never
