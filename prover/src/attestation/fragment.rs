@@ -90,7 +90,7 @@ pub async fn get_for_claim(
     eth_client: &Client,
     query: &Query,
     attestation_cache: &AttestationCacheType,
-) -> std::result::Result<AttestationFragment, Error> {
+) -> Result<AttestationFragment, Error> {
     let chain_key = query.chain_id;
 
     // Before processing claim, check that it is for a valid block number. All blocks up
@@ -221,7 +221,6 @@ async fn construct_fragment(
 
     // Transform the fragment into a list of blocks
     let fragment_result = fragment
-        .continuity_proof
         .blocks()
         .iter()
         .map(|block| {
@@ -236,16 +235,7 @@ async fn construct_fragment(
         })
         .collect::<Vec<_>>();
 
-    // Join 2 lists
-    let mut previous_block_with_digest = vec![BlockWithDigest {
-        chain_key: chain_key as i64,
-        digest: lower_endpoint.digest.encode_hex(),
-        header_number: lower_endpoint.block_number as i64,
-        merkle_root: hex::encode(fragment.previous_fragment_block.root.to_bytes_be()),
-    }];
-    previous_block_with_digest.extend(fragment_result);
-
-    Ok(previous_block_with_digest)
+    Ok(fragment_result)
 }
 
 async fn get_endpoints_for_claim(

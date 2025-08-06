@@ -36,8 +36,8 @@ impl AttestationFragment {
         self.blocks.last()
     }
 
-    pub fn head_prev_digest(&self) -> Option<&Felt> {
-        self.head().map(|block| &block.prev_digest)
+    pub fn head_digest(&self) -> Option<&Felt> {
+        self.head().map(|block| &block.digest)
     }
 
     pub fn tail(&self) -> Option<&Block> {
@@ -240,6 +240,10 @@ impl AttestationFragmentSerializable {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn head(&self) -> Option<&BlockSerializable> {
+        self.blocks.last()
     }
 }
 

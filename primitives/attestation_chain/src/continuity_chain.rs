@@ -32,13 +32,6 @@ pub struct Manager<'a> {
     eth_client: &'a Client,
 }
 
-#[derive(Debug, Default)]
-pub struct CreateResult {
-    pub continuity_proof: AttestationFragment,
-    pub previous_fragment_block: FragmentBlock,
-    pub prev_digest: Option<H256>,
-}
-
 impl<'a> Manager<'a> {
     pub fn new(start_block: u64, end_block: u64, eth_client: &'a Client) -> Self {
         Self {
@@ -48,11 +41,11 @@ impl<'a> Manager<'a> {
         }
     }
 
-    pub async fn create(&self, prev_digest: H256) -> Result<CreateResult, Error> {
+    pub async fn create(&self, prev_digest: H256) -> Result<AttestationFragment, Error> {
         // Only for genesis block we don't need to build a fragment
         if self.end_block == 0 {
             debug!("No need to build full fragment for genesis block");
-            return Ok(CreateResult::default());
+            return Ok(AttestationFragment::default());
         }
 
         // Fragment size is the difference between the attestation header number and the last finalized attestation header number
@@ -67,17 +60,6 @@ impl<'a> Manager<'a> {
         debug!(
             "Building fragment for interval: {} - {}",
             self.start_block, self.end_block
-        );
-
-        // Construct the previous fragment block (in this case it will always be an attestation or checkpoint)
-        // This is needed because the prover needs to be able to always have the previous block in the fragment
-        let previous_block_number = self.start_block.saturating_sub(1);
-        let previous_block = self.eth_client.get_block(previous_block_number).await?;
-        let prev_merkle_root = eth::starknet_pedersen_mmr(&previous_block);
-        let previous_fragment_block = FragmentBlock::new_with_digest(
-            previous_block_number,
-            prev_merkle_root.root().0,
-            Felt::from_bytes_be(&prev_digest.0),
         );
 
         // Get all blocks first in parallel
@@ -110,8 +92,8 @@ impl<'a> Manager<'a> {
 
             let fragment_block = FragmentBlock::new(block.number(), merkle_root.root().0);
             let fragment_block = if fragment.is_empty() {
-                debug!("Constructing first block from previous block");
-                FragmentBlock::new_from_prev(
+                debug!("Constructing first block from start block");
+                FragmentBlock::new_from_prev_digest(
                     block.number(),
                     merkle_root.root().0,
                     Felt::from_bytes_be(&prev_digest.0),
@@ -127,16 +109,6 @@ impl<'a> Manager<'a> {
             fragment.try_append_block(fragment_block)?;
         }
 
-        // Construct the prev digest for the fragment
-        let mut prev_digest = None;
-        if let Some(last_block) = fragment.head() {
-            prev_digest = Some(H256::from(last_block.prev_digest().to_bytes_be()));
-        }
-
-        Ok(CreateResult {
-            continuity_proof: fragment,
-            previous_fragment_block,
-            prev_digest,
-        })
+        Ok(fragment)
     }
 }

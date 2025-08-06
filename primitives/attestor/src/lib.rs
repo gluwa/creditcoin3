@@ -230,6 +230,10 @@ where
         H256::from(digest.to_bytes_be())
     }
 
+    pub fn prev_digest(&self) -> Option<Digest> {
+        self.prev_digest
+    }
+
     pub fn round(&self) -> Round {
         (self.chain_key, self.header_number)
     }

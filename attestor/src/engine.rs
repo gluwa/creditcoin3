@@ -540,7 +540,7 @@ impl Engine {
 
         // Eligiblity check
         let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
-            error!("Error signing vrf: {:?}", e);
+            debug!("Error signing vrf: {:?}", e);
             Error::NotSelected(header_number)
         })?;
 
@@ -552,7 +552,7 @@ impl Engine {
         // Set the previous digest
         attestation.prev_digest = Some(
             continuity_fragment
-                .head_prev_digest()
+                .head_digest()
                 .map_or_else(sp_core::H256::zero, |d| H256::from(d.to_bytes_be())),
         );
         debug!("Previous digest set, {:?}", attestation.prev_digest);
@@ -593,13 +593,9 @@ impl Engine {
                 "Last finalized source block found: header_number={}, digest={}",
                 header_number, digest
             );
-            // Last attested source block + 1 because the last attested one is accessible on the receiving nodes
-            // Only if the last attested is genesis, we need to start from the genesis block
-            if header_number == 0 {
-                (0, H256::zero())
-            } else {
-                (header_number.saturating_add(1), digest)
-            }
+            // No need to include the last finalized attestation inside the continuity proof
+            // We should start from the next block and provide the finalized digest to the fragment creation
+            (header_number.saturating_add(1), digest)
         } else {
             warn!("No last finalized source block found, starting from configured starting block");
             // Treating provided start block as genesis block
@@ -611,11 +607,20 @@ impl Engine {
             return Err(Error::AlreadyAttestedTo(attestation_header_number));
         }
 
+        let until_block = if attestation_header_number == from_header {
+            // Meaning it's the first attestation in the chain
+            attestation_header_number
+        } else {
+            // We don't need to include the attestation itself inside the continuity proof
+            // So we subtract 1 from the attestation header number
+            attestation_header_number.saturating_sub(1)
+        };
+
         // Create the fragment for the signed attestation
         // This is the continuity proof of this signed attestation
         let fragment = self
             .continuity_cache
-            .async_retry_create(from_header, from_digest, attestation_header_number)
+            .async_retry_create(from_header, from_digest, until_block)
             .await?;
 
         debug!(

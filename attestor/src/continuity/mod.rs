@@ -2,14 +2,14 @@ use anyhow::Result;
 use sp_core::H256;
 use std::collections::BTreeMap;
 use thiserror::Error;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info};
 
 use attestation_chain::{block::Block, continuity_chain::Manager};
 use eth::Client;
 
 pub use attestation_chain::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    continuity_chain::{CreateResult, Error as ContinuityError},
+    continuity_chain::Error as ContinuityError,
 };
 
 #[derive(Debug, Clone)]
@@ -44,81 +44,131 @@ impl Cache {
         self.blocks.retain(|&k, _| k >= block_number);
     }
 
-    /// Creates a new fragment from the specified block range.
+    /// Creates a new attestation fragment from the specified block range.
+    /// If any blocks in the range are missing from the local cache,
+    /// they will be fetched using the `continuity_chain::Manager` and added to the cache.
+    ///
+    /// The function ensures digest continuity by:
+    /// - Using the explicitly provided `from_digest` when the fragment starts at `start_block`
+    /// - Falling back to the digest of the cached block at `missing_start - 1`
+    /// - Using `from_digest` as a fallback if no previous block is cached
+    ///
+    /// # Arguments
+    /// * `start_block` - The starting block number of the fragment (inclusive)
+    /// * `from_digest` - The digest of the block immediately before `start_block`
+    /// * `end_block` - The ending block number of the fragment (inclusive)
+    ///
+    /// # Returns
+    /// * `AttestationFragment` if the range is successfully constructed
+    ///
+    /// # Errors
+    /// * Returns `Error::InvalidParameters` if `start_block` > `end_block`
+    /// * Returns `Error::ContinuityError` if fragment creation or retry fails
     pub async fn async_retry_create(
         &mut self,
         start_block: u64,
         from_digest: H256,
         end_block: u64,
     ) -> Result<AttestationFragment, Error> {
+        // Validate input range
         if start_block > end_block {
             return Err(Error::InvalidParameters(start_block, end_block));
         }
 
-        debug!(
-            "Creating fragment from block {} to {}",
-            start_block, end_block
+        info!(
+            "Creating fragment from block {} to {}, provided from_digest: {:?}",
+            start_block, end_block, from_digest
         );
 
         debug!("Cached blocks len: {}", self.blocks.len());
 
-        let mut missing_ranges = Vec::new();
-        let mut range_start = None;
+        // Determine block number ranges that are missing in the cache
+        let mut missing_ranges = Vec::new(); // Vec to store (start, end) of missing block ranges
+        let mut range_start = None; // Tracks start of a missing range
 
         for block_number in start_block..=end_block {
             if !self.blocks.contains_key(&block_number) {
+                // Start of a missing range
                 if range_start.is_none() {
                     range_start = Some(block_number);
                 }
             } else if let Some(start) = range_start.take() {
+                // End of a missing range
                 missing_ranges.push((start, block_number - 1));
             }
         }
+
+        // If we ended with a missing range at the tail end
         if let Some(start) = range_start {
             missing_ranges.push((start, end_block));
         }
 
+        // Iterate through each missing range and fetch fragments
         for (missing_start, missing_end) in &missing_ranges {
-            // Determine prev_digest
-            let prev_digest = if let Some(prev_block) = self.blocks.get(&(missing_start - 1)) {
-                H256::from(prev_block.digest.to_bytes_be()) // Assuming `digest` is the hash of the block
+            // Determine the digest to use for the fragment's starting point
+            let prev_digest = if *missing_start == start_block {
+                // If this is the first range, use the explicitly provided digest
+                debug!(
+                    "❔Missing fragment starts at {}, using provided from_digest: {:?}",
+                    missing_start, from_digest
+                );
+                from_digest
+            } else if let Some(prev_block) = self.blocks.get(&(missing_start - 1)) {
+                // Use the digest of the block immediately before the missing range
+                debug!(
+                    "❔Missing fragment starts at {}, using previous block digest: {:?}",
+                    missing_start,
+                    prev_block.digest()
+                );
+                H256::from(prev_block.digest().to_bytes_be())
             } else {
-                warn!(
-                    "Cannot find previous block digest for missing range starting at {}",
+                // Fallback: no digest available for previous block, use the passed one
+                debug!(
+                    "❔Cannot find previous block digest for missing range starting at {:?}",
                     missing_start
                 );
                 from_digest
             };
 
+            // Log fragment fetch details
             debug!(
                 "Fetching missing fragment from {} to {}, using prev_digest: {}",
                 missing_start, missing_end, prev_digest
             );
 
+            // Create a new fragment manager for the given range
             let fragment_manager = Manager::new(*missing_start, *missing_end, &self.eth_client);
 
-            let fragment: CreateResult = crate::retry::ret(
+            // Use retry logic to ensure fragment creation is attempted multiple times
+            let fragment: AttestationFragment = crate::retry::ret(
                 || async { fragment_manager.create(prev_digest).await },
-                10,
-                10,
-                Some(60),
+                10,       // max_retries
+                10,       // delay between retries (seconds)
+                Some(60), // max retry duration (seconds)
             )
             .await?;
 
-            for block in fragment.continuity_proof.blocks() {
+            // Insert the newly fetched blocks into the local cache
+            for block in fragment.blocks() {
                 self.blocks.insert(block.block_number, block.clone());
             }
         }
 
-        // Construct final fragment only from the required range
+        // Construct the final fragment from the now-complete block range in cache
         let final_fragment = AttestationFragment::from_blocks(
             (start_block..=end_block)
                 .filter_map(|num| self.blocks.get(&num).cloned())
                 .collect(),
         );
 
+        // Log the final fragment's blocks and their digests
         for block in final_fragment.blocks() {
-            debug!("Block({}) digest: {}", block.block_number, block.digest());
+            debug!(
+                "Block({}) digest: {:?}, prev_digest: {:?}",
+                block.block_number,
+                H256::from(block.digest().to_bytes_be()),
+                H256::from(block.prev_digest().to_bytes_be())
+            );
         }
 
         Ok(final_fragment)

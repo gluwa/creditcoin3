@@ -956,7 +956,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: install
-          args: --locked --git https://github.com/paritytech/polkadot-sdk subkey
+          args: --locked --git https://github.com/paritytech/polkadot-sdk --rev 7304295 subkey
 
       - name: Upload subkey binary
         if: matrix.target == 'ci'

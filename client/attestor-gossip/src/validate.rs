@@ -101,55 +101,62 @@ where
             return Err(Error::InvalidAttestationContinuityProof);
         }
 
-        let mut last_block_digest = runtime.last_digest(block_hash, chain_key)?;
+        let mut last_block_digest = match runtime.last_digest(block_hash, chain_key)? {
+            Some(digest) => digest,
+            None => {
+                info!(target: LOG_TARGET, "📝 No last digest found for block hash: {:?}, assuming genesis block", block_hash);
+                // Genesis could be non-zero so just return a zero value but make sure we log this
+                H256::zero()
+            }
+        };
+
+        // Validate the attestation's previous digest,
+        match attestation.prev_digest() {
+            Some(digest) => {
+                if digest.is_zero() && !last_block_digest.is_zero() {
+                    error!(target: LOG_TARGET, "❌ Attestation has a zero prev digest and we don't have a finalized attestation yet");
+                    return Err(Error::InvalidAttestationContinuityProof);
+                }
+            }
+            None => {
+                if !last_block_digest.is_zero() {
+                    error!(target: LOG_TARGET, "❌ Attestation has no prev digest and we don't have a finalized attestation yet");
+                    return Err(Error::InvalidAttestationContinuityProof);
+                }
+            }
+        }
+
         info!(target: LOG_TARGET, "📝 Checking Continuity proof, length: {:?}, round: {:?}, last_block_digest: {:?}", attestation.continuity_proof.len(), attestation.round(), last_block_digest);
 
-        for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
-            let block: Block = Block::try_from(serializable)
+        // Validate the prev digest of the attestation against the head of the continuity proof
+        if let Some(attestation_head) = attestation.continuity_proof.head() {
+            let block: Block = Block::try_from(attestation_head.clone())
                 .map_err(|_| Error::InvalidAttestationContinuityProof)?;
+            let block_digest = H256::from_slice(&block.digest.to_bytes_be());
 
-            let computed_digest =
-                Block::hash_payload(&block.block_number.into(), &block.root, &block.prev_digest);
-
-            if computed_digest != block.digest {
-                error!(target: LOG_TARGET, "❌ Invalid digest in continuity proof for block {:?}", block);
+            if block_digest != attestation.prev_digest().unwrap_or_default() {
+                error!(target: LOG_TARGET, "❌ Continuity proof head digest mismatch, expected {:?}, got {:?}", attestation.prev_digest().unwrap_or_default(), block_digest);
                 return Err(Error::InvalidAttestationContinuityProof);
             }
+        }
+
+        for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
+            let block: Block = Block::try_from(serializable.clone())
+                .map_err(|_| Error::InvalidAttestationContinuityProof)?;
 
             let block_digest = H256::from_slice(&block.digest.to_bytes_be());
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
 
-            match last_block_digest {
-                Some(last_digest) if last_digest == block_prev_digest => {
-                    last_block_digest = Some(block_digest);
-                }
-                Some(_) => {
-                    if block_prev_digest.is_zero() {
-                        let valid = runtime.contains_digest(block_hash, chain_key, block_digest)?
-                            || runtime
-                                .last_checkpoint(block_hash, chain_key)?
-                                .map_or(false, |ck| ck.digest == block_digest);
-
-                        if !valid {
-                            error!(target: LOG_TARGET, "❌ Invalid continuity proof for block {:?}", block);
-                            return Err(Error::InvalidAttestationContinuityProof);
-                        }
-
-                        debug!(target: LOG_TARGET, "✅ Valid continuity proof for block {:?}", block);
-                        last_block_digest = Some(block_digest);
-                    } else if runtime.contains_digest(block_hash, chain_key, block_prev_digest)? {
-                        debug!(target: LOG_TARGET, "✅ Valid continuity proof for block {:?}", block);
-                        last_block_digest = Some(block_digest);
-                    } else {
-                        error!(target: LOG_TARGET, "❌ Invalid continuity proof for block {:?}", block);
-                        return Err(Error::InvalidAttestationContinuityProof);
-                    }
-                }
-                None => {
-                    // Genesis case
-                    last_block_digest = Some(block_digest);
-                }
+            // Check if the last block digest matches the previous digest of the current block
+            // This to ensure that the continuity proof is valid
+            if last_block_digest == block_prev_digest {
+                debug!(target: LOG_TARGET, "📝 Continuity proof continues with block {:?}", block);
+            } else {
+                error!(target: LOG_TARGET, "❌ Continuity proof invalid, expected {:?}, got {:?}, block: {:?}", last_block_digest, block_prev_digest, block);
+                return Err(Error::InvalidAttestationContinuityProof);
             }
+            // Update the last block digest to the current block's digest
+            last_block_digest = block_digest;
         }
 
         info!(target: LOG_TARGET, "✅ Attestation continuity proof & signature are valid.");

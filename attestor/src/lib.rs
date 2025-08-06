@@ -86,7 +86,7 @@ impl Server {
                             }
                             Err(e) => {
                                 if e.is_not_selected_error() {
-                                    warn!("Failed to create proof of inclusion, attestor not selected.");
+                                    warn!("Failed to attest, attestor not selected.");
                                 } else if e.is_not_running_error() {
                                     info!("Engine not running, continuing ...");
                                 } else if e.is_double_vote_error() {

@@ -687,6 +687,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {
         Attestations::<T>::contains_key(chain_key, digest)
+            || Checkpoints::<T>::contains_key(chain_key, digest)
     }
 
     pub fn attestor_bls_pubkey(
