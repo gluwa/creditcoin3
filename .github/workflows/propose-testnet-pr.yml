@@ -1,0 +1,63 @@
+---
+name: Propose Testnet PR
+
+on:
+  schedule:
+    # every week @ 7am on Monday
+    - cron: "0 7 * * 1"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+env:
+  SOURCE_BRANCH: dev
+  TARGET_BRANCH: testnet
+
+jobs:
+  open-new-pr:
+    runs-on: ubuntu-24.04
+    # checkov:skip=CKV2_GHA_1:We need this for auto-commit
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          token: ${{ secrets.ATODOROV_TOKEN }}
+
+      - name: Figure out working branch name
+        run: |
+          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-dev-into-testnet" >> "$GITHUB_ENV"
+
+      - name: Create ${{ env.BRANCH_NAME }} from ${{ env.SOURCE_BRANCH }}
+        run: |
+          git checkout -b "${{ env.BRANCH_NAME }}" "origin/${{ env.SOURCE_BRANCH }}"
+          git branch
+
+      - name: Rebase ${{ env.BRANCH_NAME }} against ${{ env.TARGET_BRANCH }}
+        run: |
+          git rebase "origin/${{ env.TARGET_BRANCH }}"
+          git branch
+
+      - name: Push ${{ env.BRANCH_NAME }}
+        run: |
+          git push origin "${{ env.BRANCH_NAME }}"
+
+      - name: Open PR against ${{ env.TARGET_BRANCH }}
+        id: open-pr
+        uses: rematocorp/open-pull-request-action@v1
+        with:
+          github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
+          from-branch: ${{ env.BRANCH_NAME }}
+          to-branch: ${{ env.TARGET_BRANCH }}
+          repository-owner: gluwa
+          repository: creditcoin3
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "${{ env.SOURCE_BRANCH }} -> ${{ env.TARGET_BRANCH }}: https://github.com/gluwa/creditcoin3/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"
