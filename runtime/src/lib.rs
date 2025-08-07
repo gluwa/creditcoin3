@@ -449,6 +449,13 @@ impl pallet_ethereum::Config for Runtime {
     type StateRoot = pallet_ethereum::IntermediateStateRoot<Self::Version>;
     type PostLogContent = PostBlockAndTxnHashes;
     type ExtraDataLength = ConstU32<30>;
+    type Randomness = Runtime;
+}
+
+impl fp_ethereum::RandomnessProvider for Runtime {
+    fn random_value() -> H256 {
+        H256(pallet_babe::Pallet::<Runtime>::author_vrf_randomness().unwrap_or_default())
+    }
 }
 
 parameter_types! {
@@ -1181,6 +1188,7 @@ impl_runtime_apis! {
             //new method arrived
             // pallet_ethereum::Pallet::<Runtime>::initialize_pending_block(header);
         }
+
         fn chain_id() -> u64 {
             <Runtime as pallet_evm::Config>::ChainId::get()
         }
@@ -1375,11 +1383,11 @@ impl_runtime_apis! {
         }
     }
 
-    impl fp_rpc::RandomnessRuntimeApi<Block> for Runtime {
-        fn randomness() -> Option<[u8; 32]> {
-            pallet_babe::Pallet::<Runtime>::author_vrf_randomness()
-        }
-    }
+    // impl fp_rpc::RandomnessRuntimeApi<Block> for Runtime {
+    //     fn randomness() -> Option<[u8; 32]> {
+    //         pallet_babe::Pallet::<Runtime>::author_vrf_randomness()
+    //     }
+    // }
 
     impl pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<
         Block,

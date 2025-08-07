@@ -24,9 +24,7 @@ use sp_runtime::traits::Block as BlockT;
 // Frontier
 pub use fc_rpc::{EthBlockDataCacheTask, EthConfig};
 pub use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
-use fp_rpc::{
-    ConvertTransaction, ConvertTransactionRuntimeApi, EthereumRuntimeRPCApi, RandomnessRuntimeApi,
-};
+use fp_rpc::{ConvertTransaction, ConvertTransactionRuntimeApi, EthereumRuntimeRPCApi};
 use sc_network::service::traits::NetworkService as NetworkServiceTrait;
 
 /// Extra dependencies for Ethereum compatibility.
@@ -89,8 +87,7 @@ where
     C::Api: BabeApi<B>
         + BlockBuilderApi<B>
         + ConvertTransactionRuntimeApi<B>
-        + EthereumRuntimeRPCApi<B>
-        + RandomnessRuntimeApi<B>,
+        + EthereumRuntimeRPCApi<B>,
     C: HeaderBackend<B> + HeaderMetadata<B, Error = BlockChainError>,
     C: BlockchainEvents<B> + AuxStore + UsageProvider<B> + StorageProvider<B, BE> + 'static,
     BE: Backend<B> + 'static,

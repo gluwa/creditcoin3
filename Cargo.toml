@@ -164,36 +164,36 @@ xcm = { package = "staging-xcm", git = "https://github.com/paritytech/polkadot-s
 sp-genesis-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 
 # Frontier Client
-fc-api = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
-fc-cli = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fc-consensus = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
-fc-db = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fc-mapping-sync = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fc-rpc = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fc-rpc-core = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
-fc-storage = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
+fc-api = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash" }
+fc-cli = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fc-consensus = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash" }
+fc-db = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fc-mapping-sync = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fc-rpc = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fc-rpc-core = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash" }
+fc-storage = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash" }
 # Frontier Primitive
-fp-account = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-consensus = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-dynamic-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-ethereum = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-evm = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-rpc = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-self-contained = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-fp-storage = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+fp-account = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-consensus = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-dynamic-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-ethereum = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-evm = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-rpc = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-self-contained = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+fp-storage = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
 # Frontier FRAME
-pallet-base-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-dynamic-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-ethereum = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-evm = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-evm-chain-id = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-evm-precompile-modexp = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-evm-precompile-sha3fips = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-evm-precompile-simple = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
-pallet-evm-test-vector-support = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash" }
-pallet-hotfix-sufficients = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+pallet-base-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-dynamic-fee = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-ethereum = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-evm = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-evm-chain-id = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-evm-precompile-modexp = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-evm-precompile-sha3fips = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-evm-precompile-simple = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
+pallet-evm-test-vector-support = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash" }
+pallet-hotfix-sufficients = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
 # Frontier Utility
-precompile-utils = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable_2409_mixhash", default-features = false }
+precompile-utils = { git = "https://github.com/DylanVerstraete/frontier", branch = "stable2409_new_mixhash", default-features = false }
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
