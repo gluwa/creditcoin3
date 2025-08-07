@@ -26,8 +26,9 @@ jobs:
           token: ${{ secrets.ATODOROV_TOKEN }}
           fetch-depth: 0
 
-      - name: Figure out working branch name
+      - name: Setup
         run: |
+          sudo apt-get install colordiff
           echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-dev-into-testnet" >> "$GITHUB_ENV"
 
       - name: Create ${{ env.BRANCH_NAME }} from ${{ env.SOURCE_BRANCH }}
@@ -38,7 +39,14 @@ jobs:
       - name: Rebase ${{ env.BRANCH_NAME }} against ${{ env.TARGET_BRANCH }}
         run: |
           git rebase "origin/${{ env.TARGET_BRANCH }}"
+
+      - name: DEBUG
+        if: always()
+        run: |
+          cat .git/rebase-merge/git-rebase-todo.backup || echo
+          git status
           git branch
+          git diff --diff-filter=U | colordiff
 
       - name: Push ${{ env.BRANCH_NAME }}
         run: |
