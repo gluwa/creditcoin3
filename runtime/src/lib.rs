@@ -1181,12 +1181,8 @@ impl_runtime_apis! {
     }
 
     impl fp_rpc::EthereumRuntimeRPCApi<Block> for Runtime {
-
-        fn initialize_pending_block(_header: &<Block as BlockT>::Header){
-            //todo
-            todo!()
-            //new method arrived
-            // pallet_ethereum::Pallet::<Runtime>::initialize_pending_block(header);
+        fn initialize_pending_block(header: &<Block as BlockT>::Header) {
+            Executive::initialize_block(header);
         }
 
         fn chain_id() -> u64 {
