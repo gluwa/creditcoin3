@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt()
         .compact()
         .with_file(false)
-        .with_target(true)
+        .with_target(args.verbose)
         .with_env_filter(env_filter)
         .try_init();
 
