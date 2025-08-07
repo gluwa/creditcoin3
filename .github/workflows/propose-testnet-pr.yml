@@ -24,6 +24,7 @@ jobs:
         with:
           lfs: true
           token: ${{ secrets.ATODOROV_TOKEN }}
+          fetch-depth: 0
 
       - name: Figure out working branch name
         run: |
