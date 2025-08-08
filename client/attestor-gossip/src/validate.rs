@@ -104,9 +104,17 @@ where
         let mut last_block_digest = match runtime.last_digest(block_hash, chain_key)? {
             Some(digest) => digest,
             None => {
-                info!(target: LOG_TARGET, "📝 No last digest found for block hash: {:?}, assuming genesis block", block_hash);
-                // Genesis could be non-zero so just return a zero value but make sure we log this
-                H256::zero()
+                match runtime.last_checkpoint(block_hash, chain_key)? {
+                    Some(checkpoint) => {
+                        info!(target: LOG_TARGET, "📝 No last digest found for block hash: {:?}, using checkpoint digest: {:?}", block_hash, checkpoint.digest);
+                        checkpoint.digest
+                    }
+                    None => {
+                        // If no last digest or checkpoint is found, assume genesis block
+                        info!(target: LOG_TARGET, "📝 No last digest or checkpoint found for block hash: {:?}, assuming genesis block", block_hash);
+                        H256::zero()
+                    }
+                }
             }
         };
 
