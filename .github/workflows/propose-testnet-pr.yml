@@ -10,63 +10,11 @@ on:
 
 permissions: read-all
 
-env:
-  SOURCE_BRANCH: dev
-  TARGET_BRANCH: testnet
-
 jobs:
   open-new-pr:
-    runs-on: ubuntu-24.04
-    # checkov:skip=CKV2_GHA_1:We need this for auto-commit
     permissions: write-all
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-          token: ${{ secrets.ATODOROV_TOKEN }}
-          fetch-depth: 0
-
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff
-          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-${{ env.SOURCE_BRANCH }}-into-${{ env.TARGET_BRANCH }}" >> "$GITHUB_ENV"
-
-      - name: Create ${{ env.BRANCH_NAME }} from ${{ env.SOURCE_BRANCH }}
-        run: |
-          git checkout -b "${{ env.BRANCH_NAME }}" "origin/${{ env.SOURCE_BRANCH }}"
-          git branch
-
-      - name: Rebase ${{ env.BRANCH_NAME }} against ${{ env.TARGET_BRANCH }}
-        run: |
-          git rebase "origin/${{ env.TARGET_BRANCH }}"
-
-      - name: DEBUG
-        if: always()
-        run: |
-          cat .git/rebase-merge/git-rebase-todo.backup || echo
-          git status
-          git branch
-          git diff --diff-filter=U | colordiff
-
-      - name: Push ${{ env.BRANCH_NAME }}
-        run: |
-          git push origin "${{ env.BRANCH_NAME }}"
-
-      - name: Open PR against ${{ env.TARGET_BRANCH }}
-        id: open-pr
-        uses: rematocorp/open-pull-request-action@v1
-        with:
-          github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
-          from-branch: ${{ env.BRANCH_NAME }}
-          to-branch: ${{ env.TARGET_BRANCH }}
-          repository-owner: gluwa
-          repository: creditcoin3
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#protocol-internal"
-          message: "${{ env.SOURCE_BRANCH }} -> ${{ env.TARGET_BRANCH }}: https://github.com/gluwa/creditcoin3/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"
+    uses: ./.github/workflows/rebase-branch-and-propose-pr.yml
+    with:
+      source-branch: dev
+      target-branch: testnet
+    secrets: inherit
