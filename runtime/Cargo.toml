@@ -92,6 +92,7 @@ substrate-wasm-builder = { workspace = true, optional = true }
 default = ["std"]
 fast-runtime = []
 devnet = []
+drynet = []
 std = [
   "parity-scale-codec/std",
   "scale-info/std",
