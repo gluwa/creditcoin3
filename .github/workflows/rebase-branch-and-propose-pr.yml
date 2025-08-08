@@ -45,6 +45,9 @@ jobs:
           git branch
           git diff --diff-filter=U | colordiff
 
+          echo "Most Recent Common Ancestor"
+          git merge-base "${{ env.BRANCH_NAME }}" "origin/${{ inputs.target-branch }}" --all
+
       - name: Push ${{ env.BRANCH_NAME }}
         run: |
           git push origin "${{ env.BRANCH_NAME }}"
