@@ -87,7 +87,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "cc3next_rpc_url{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "cc3next_rpc_url{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -168,7 +168,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "cc3next_rpc_url{instance=\"$instance\"}",
+          "expr": "cc3next_rpc_url{instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -233,7 +233,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "source_chain_rpc_url{instance=\"$instance\"}",
+          "expr": "source_chain_rpc_url{instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -316,7 +316,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "cc_current_epoch{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "cc_current_epoch{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -382,7 +382,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "source_chain_height{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "source_chain_height{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -451,7 +451,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "last_block_voted_for{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "last_block_voted_for{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -513,7 +513,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "last_finalized_attestation{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "last_finalized_attestation{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -623,7 +623,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "cc_current_epoch{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "cc_current_epoch{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -720,7 +720,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "source_chain_height{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "source_chain_height{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -817,7 +817,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "last_block_voted_for{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "last_block_voted_for{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -914,7 +914,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "last_finalized_attestation{chain_key=\"$chain_key\", instance=\"$instance\"}",
+          "expr": "last_finalized_attestation{chain_key=~\"$chain_key\", instance=~\"$instance\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -942,33 +942,47 @@
         "type": "datasource"
       },
       {
-        "allValue": ".+",
         "datasource": "$datasource",
         "label": "Select Attestor Job",
         "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
         "name": "job",
         "options": [],
-        "query": "query_result(up{})",
+        "query": "label_values(up, job)",
         "refresh": 2,
-        "regex": ".*job=\"(.*?)\".*",
         "type": "query"
       },
       {
-        "allValue": ".+",
         "datasource": "$datasource",
-        "definition": "query_result(up{})",
-        "description": "",
         "label": "Select Attestor Instance",
         "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
         "name": "instance",
         "options": [],
+        "query": "label_values(up, instance)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(cc_current_epoch, chain_key)",
+        "description": "",
+        "includeAll": true,
+        "multi": true,
+        "name": "chain_key",
+        "options": [],
         "query": {
-          "qryType": 3,
-          "query": "query_result(up{})",
+          "qryType": 1,
+          "query": "label_values(cc_current_epoch, chain_key)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
-        "refresh": 2,
-        "regex": ".*instance=\"(.*?)\".*",
+        "refresh": 1,
+        "regex": "/^[0-9]+$/",
         "type": "query"
       },
       {
@@ -1009,26 +1023,6 @@
         "refresh": 2,
         "regex": "/^wss?:\\/\\/.+$/",
         "type": "query"
-      },
-      {
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "definition": "label_values(chain_key)",
-        "description": "",
-        "includeAll": true,
-        "multi": true,
-        "name": "chain_key",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(chain_key)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "regex": "/^[0-9]+$/",
-        "type": "query"
       }
     ]
   },
@@ -1040,5 +1034,5 @@
   "timezone": "browser",
   "title": "Attestor Metrics Dashboard",
   "uid": "5b0f32c6-90e8-44a9-a2e4-9c740e9e69b9",
-  "version": 119
+  "version": 120
 }
