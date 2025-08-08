@@ -29,7 +29,7 @@ jobs:
       - name: Setup
         run: |
           sudo apt-get install colordiff
-          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-dev-into-testnet" >> "$GITHUB_ENV"
+          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-${{ env.SOURCE_BRANCH }}-into-${{ env.TARGET_BRANCH }}" >> "$GITHUB_ENV"
 
       - name: Create ${{ env.BRANCH_NAME }} from ${{ env.SOURCE_BRANCH }}
         run: |
