@@ -112,11 +112,62 @@ pub fn testnet_config() -> Result<ChainSpec, String> {
 }
 
 pub fn dry_run_config() -> Result<ChainSpec, String> {
-    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/dryRunSpecRaw.json")[..])
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetDryrunSpecRaw.json")[..])
 }
 
 pub fn mainnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
+}
+
+pub fn mainnet_dryrun_config() -> ChainSpec {
+    let wasm_binary = WASM_BINARY.expect("WASM not available");
+
+    ChainSpec::from_genesis(
+        // Name
+        "Creditcoin3 Mainnet Dryrun",
+        // ID
+        "mainnet_dryrun",
+        ChainType::Custom("Dryrun".into()),
+        move || {
+            testnet_genesis(
+                wasm_binary,
+                // Initial PoA authorities
+                // Sudo account (Alice)
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
+                // Pre-funded accounts
+                vec![
+                    get_account_id_from_seed::<sr25519::Public>("Alice"),
+                    get_account_id_from_seed::<sr25519::Public>("Bob"),
+                    get_account_id_from_seed::<sr25519::Public>("Charlie"),
+                    get_account_id_from_seed::<sr25519::Public>("Dave"),
+                    get_account_id_from_seed::<sr25519::Public>("Eve"),
+                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+                ],
+                vec![
+                    hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
+                    hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
+                    hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
+                    hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
+                    hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
+                    hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
+                ],
+                vec![authority_keys_from_seed("Alice")],
+                SS58Prefix::get() as u64,
+            )
+        },
+        // Bootnodes
+        vec![],
+        // Telemetry
+        None,
+        // Protocol ID
+        None,
+        // Fork ID
+        None,
+        // Properties
+        Some(properties()),
+        // Extensions
+        None,
+    )
 }
 
 pub fn development_config(enable_manual_seal: Option<bool>) -> DevChainSpec {
