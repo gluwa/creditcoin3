@@ -192,6 +192,40 @@ jobs:
         run: |
           sudo killall -9 creditcoin3-node
 
+  git-rebase-sanity-check:
+    runs-on: ubuntu-24.04
+    if: github.base_ref == 'dev'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff
+          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-testnet" >> "$GITHUB_ENV"
+
+      - name: Rebase current PR against `testnet`
+        run: |
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          git branch
+          git rebase "origin/testnet"
+
+      - name: DEBUG
+        if: always()
+        run: |
+          cat .git/rebase-merge/git-rebase-todo.backup || echo
+          git status
+          git branch
+          git diff --diff-filter=U | colordiff
+
+          echo "Most Recent Common Ancestor"
+          git merge-base "${{ env.BRANCH_NAME }}" origin/testnet --all
+
+
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:

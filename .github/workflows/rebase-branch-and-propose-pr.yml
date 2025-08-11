@@ -1,0 +1,72 @@
+---
+name: Reusable workflow to rebase a branch and propose a PR
+
+on:
+  workflow_call:
+    inputs:
+      source-branch:
+        required: true
+        type: string
+      target-branch:
+        required: true
+        type: string
+
+jobs:
+  open-new-pr:
+    runs-on: ubuntu-24.04
+    # checkov:skip=CKV2_GHA_1:We need this for auto-commit
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          token: ${{ secrets.ATODOROV_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff
+          echo "BRANCH_NAME=$(date +%Y-%m-%d)/merge-${{ inputs.source-branch }}-into-${{ inputs.target-branch }}" >> "$GITHUB_ENV"
+
+      - name: Create ${{ env.BRANCH_NAME }} from ${{ inputs.source-branch }}
+        run: |
+          git checkout -b "${{ env.BRANCH_NAME }}" "origin/${{ inputs.source-branch }}"
+          git branch
+
+      - name: Rebase ${{ env.BRANCH_NAME }} against ${{ inputs.target-branch }}
+        run: |
+          git rebase "origin/${{ inputs.target-branch }}"
+
+      - name: DEBUG
+        if: always()
+        run: |
+          cat .git/rebase-merge/git-rebase-todo.backup || echo
+          git status
+          git branch
+          git diff --diff-filter=U | colordiff
+
+          echo "Most Recent Common Ancestor"
+          git merge-base "${{ env.BRANCH_NAME }}" "origin/${{ inputs.target-branch }}" --all
+
+      - name: Push ${{ env.BRANCH_NAME }}
+        run: |
+          git push origin "${{ env.BRANCH_NAME }}"
+
+      - name: Open PR against ${{ inputs.target-branch }}
+        id: open-pr
+        uses: rematocorp/open-pull-request-action@v1
+        with:
+          github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
+          from-branch: ${{ env.BRANCH_NAME }}
+          to-branch: ${{ inputs.target-branch }}
+          repository-owner: gluwa
+          repository: creditcoin3
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "${{ inputs.source-branch }} -> ${{ inputs.target-branch }}: https://github.com/gluwa/creditcoin3/pull/${{ steps.open-pr.outputs.pull_number }}! Check for results in ~2hrs; cc <@U028EMRHS3S>"

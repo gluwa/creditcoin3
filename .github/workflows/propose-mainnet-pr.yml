@@ -1,10 +1,10 @@
 ---
-name: Propose Testnet PR
+name: Propose Mainnet PR
 
 on:
   schedule:
-    # every week @ 7am on Monday
-    - cron: "0 7 * * 1"
+    # every month on the 2nd @ 7am
+    - cron: "0 7 2 * *"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -15,6 +15,6 @@ jobs:
     permissions: write-all
     uses: ./.github/workflows/rebase-branch-and-propose-pr.yml
     with:
-      source-branch: dev
-      target-branch: testnet
+      source-branch: testnet
+      target-branch: main
     secrets: inherit
