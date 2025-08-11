@@ -210,6 +210,9 @@ jobs:
 
       - name: Rebase current PR against `testnet`
         run: |
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
           git checkout -b "${{ env.BRANCH_NAME }}"
           git branch
           git rebase "origin/testnet"
