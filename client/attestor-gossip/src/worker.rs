@@ -638,15 +638,11 @@ where
             // Update round configuration
             self.state.add_round_config(chain_key, round_config.clone());
 
-            let last_header_number = if let Some(digest) =
-                runtime_api.last_digest(notif.hash, chain_key)?
+            let last_header_number = if let Some(checkpoint) =
+                runtime_api.last_checkpoint(notif.hash, chain_key)?
             {
-                if let Some(attestation) = runtime_api.get(notif.hash, chain_key, digest)? {
-                    attestation.header_number()
-                } else {
-                    debug!(target: LOG_TARGET, "📝 No last attestation found for chain key: {:?}", chain_key);
-                    return Err(Error::GossipEngineExited);
-                }
+                debug!(target: LOG_TARGET, "📝 Using last checkpoint for chain key: {:?}", chain_key);
+                checkpoint.block_number
             } else {
                 debug!(target: LOG_TARGET, "📝 Allowing bootstrap of chain: {chain_key}");
                 // If no last digest, we assume the genesis block number, it can either be 0 or set to some value by sudo

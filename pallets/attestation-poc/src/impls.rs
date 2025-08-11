@@ -683,6 +683,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {
         LastDigest::<T>::get(chain_key)
+            .or_else(|| LastCheckpoint::<T>::get(chain_key).map(|c| c.digest))
     }
 
     pub fn contains_digest(chain_key: ChainKey, digest: Digest) -> bool {

@@ -101,20 +101,13 @@ where
             return Err(Error::InvalidAttestationContinuityProof);
         }
 
+        // Get last digest, either checkpoint or last attestation
         let mut last_block_digest = match runtime.last_digest(block_hash, chain_key)? {
             Some(digest) => digest,
             None => {
-                match runtime.last_checkpoint(block_hash, chain_key)? {
-                    Some(checkpoint) => {
-                        info!(target: LOG_TARGET, "📝 No last digest found for block hash: {:?}, using checkpoint digest: {:?}", block_hash, checkpoint.digest);
-                        checkpoint.digest
-                    }
-                    None => {
-                        // If no last digest or checkpoint is found, assume genesis block
-                        info!(target: LOG_TARGET, "📝 No last digest or checkpoint found for block hash: {:?}, assuming genesis block", block_hash);
-                        H256::zero()
-                    }
-                }
+                // If no last digest is found, assume genesis block
+                info!(target: LOG_TARGET, "📝 No last digest or checkpoint found for block hash: {:?}, assuming genesis block", block_hash);
+                H256::zero()
             }
         };
 
