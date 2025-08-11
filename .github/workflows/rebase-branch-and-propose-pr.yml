@@ -59,7 +59,7 @@ jobs:
         id: open-pr
         uses: rematocorp/open-pull-request-action@v1
         with:
-          github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
+          github-token: ${{ secrets.ATODOROV_TOKEN }}
           from-branch: ${{ env.BRANCH_NAME }}
           to-branch: ${{ inputs.target-branch }}
           repository-owner: gluwa
