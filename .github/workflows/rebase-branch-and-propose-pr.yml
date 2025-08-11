@@ -35,6 +35,9 @@ jobs:
 
       - name: Rebase ${{ env.BRANCH_NAME }} against ${{ inputs.target-branch }}
         run: |
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
           git rebase "origin/${{ inputs.target-branch }}"
 
       - name: DEBUG
