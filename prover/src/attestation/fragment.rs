@@ -1,13 +1,17 @@
 use std::str::FromStr;
 
 use anyhow::Result;
+use attestation_chain::block::Block;
 use hex::ToHex;
 use sp_core::H256;
+use starknet_types_core::felt::Felt;
 use thiserror::Error;
 use tracing::debug;
 
 use attestation_chain::attestation_fragment::{AttestationFragment, AttestationFragmentError};
-use attestation_chain::continuity_chain::Manager as FragmentManager;
+use attestation_chain::continuity_chain::{
+    Error as FragmentManagerError, Manager as FragmentManager,
+};
 use eth::Client;
 use pallet_prover_primitives::Query;
 
@@ -81,11 +85,14 @@ pub enum Error {
     FailedToGetChainKey,
     #[error("Wrong chain: expected {0}, got {1}")]
     WrongChain(u64, u64),
+    #[error("Fragment manager error: {0}")]
+    FragmentManagerError(#[from] FragmentManagerError),
 }
 
 // Get the attestation fragment for a claim
 // This function will either get the fragment from the cache or create it and store it in the cache
 // The fragment is created by querying the chain for the attestation chain interval and then querying the chain for the attestation fragment
+
 pub async fn get_for_claim(
     eth_client: &Client,
     query: &Query,
@@ -93,8 +100,7 @@ pub async fn get_for_claim(
 ) -> Result<AttestationFragment, Error> {
     let chain_key = query.chain_id;
 
-    // Before processing claim, check that it is for a valid block number. All blocks up
-    // to the height of the latest attestation should be valid.
+    // 1) Guard: the query must not be more recent than the latest attestation we synced
     let last_attestation_height = from_storage_type(
         attestation_cache
             .last_synced_attestation(chain_key)
@@ -103,139 +109,152 @@ pub async fn get_for_claim(
             .ok_or(Error::NoAttestationsSynced)?
             .header_number,
     );
-
     if last_attestation_height < query.height {
         return Err(Error::QueryTooRecent(last_attestation_height, query.height));
     }
 
-    // Fetch interval ends for the attestation chain
-    let (lower_endpoint, upper_endpoint) = get_endpoints_for_claim(query, attestation_cache)
+    // 2) Resolve interval [lower, upper] (exclusive of lower, inclusive of upper for block list)
+    let (lower, upper) = get_endpoints_for_claim(query, attestation_cache)
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    let expected_fragment_size = upper_endpoint.block_number - lower_endpoint.block_number;
+    let expected_len = upper.block_number - lower.block_number;
 
-    // Get fragment from cache
-    let db_fragment = attestation_cache
-        .get_attestation_fragment(
-            chain_key,
-            lower_endpoint.block_number,
-            upper_endpoint.block_number,
-        )
+    // 3) Try cache first
+    let cached = attestation_cache
+        .get_attestation_fragment(chain_key, lower.block_number, upper.block_number)
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    // We keep track of whether the end block was fetched from the source chain.
-    // This lets us provide more information to the user when the prover crashes with a LastFragmentBlockMismatch
-    let mut fetched_end = true;
-    if let Some(last_frag_block) = db_fragment.last() {
-        fetched_end =
-            from_storage_type(last_frag_block.header_number) != upper_endpoint.block_number;
-    };
+    let fetched_end_from_chain = cached.last().map_or(true, |b| {
+        from_storage_type(b.header_number) != upper.block_number
+    });
 
-    // If not all fragment blocks are in the cache, then add them.
-    let fragment_blocks = if db_fragment.len() as u64 == expected_fragment_size {
+    let blocks: Vec<BlockWithDigest> = if cached.len() as u64 == expected_len {
         debug!(
-            "✅ All blocks for fragment found in cache, chain_key: {}, lower_bound: {}, upper_bound: {}",
-            chain_key, lower_endpoint.block_number, upper_endpoint.block_number
+            "✅ Fragment found in cache (chain={}, {}..={})",
+            chain_key, lower.block_number, upper.block_number
         );
-        db_fragment
+        validate_end_digest(&cached, upper.digest, fetched_end_from_chain)?;
+        cached
     } else {
-        construct_fragment(
-            // db_fragment,
-            eth_client,
-            chain_key,
-            &lower_endpoint,
-            &upper_endpoint,
-        )
-        .await
-        .map_err(|e| Error::Other(e.to_string()))?
+        debug!(
+            "🧱 Cache miss/partial (have {}, need {}): building via FragmentManager",
+            cached.len(),
+            expected_len
+        );
+        // Build once via FragmentManager
+        let fragment = build_with_manager(eth_client, &lower, &upper).await?;
+        validate_end_digest_fragment(&fragment, upper.digest, true)?;
+
+        // Persist to cache (single upsert) and return the mapped blocks
+        let mapped = map_fragment_blocks(chain_key, &fragment);
+        attestation_cache
+            .upsert_fragment(&mapped)
+            .await
+            .map_err(|e| Error::ProverDBError(e.to_string()))?;
+        mapped
     };
 
-    // Sanity check that the end attestation digest matches the last fragment block digest
-    let last_fragment_block = fragment_blocks
-        .last()
-        .ok_or_else(|| Error::NoLastBlockFound)?;
-
-    if upper_endpoint.digest
-        != H256::from_str(&last_fragment_block.digest).map_err(|_| Error::InvalidFragmentDigest)?
-    {
-        return Err(Error::LastFragmentBlockMismatch(
-            upper_endpoint.digest,
-            last_fragment_block.digest.clone(),
-            fetched_end,
-        ));
-    };
-
-    // Store the fragment in the cache
-    attestation_cache
-        .upsert_fragment(&fragment_blocks)
-        .await
-        .map_err(|e| Error::ProverDBError(e.to_string()))?;
-
-    // Initialize the attestation fragment
-    let mut attestation_fragment = AttestationFragment::new(
-        usize::try_from(expected_fragment_size).map_err(|e| Error::Other(e.to_string()))?,
-    );
-
-    // We use a dummy value rather than an Option::None here for simplicity
-    let mut prev_block_digest: String = H256::zero().encode_hex();
-
-    // Construct the attestation fragment
-    for fragment_block in &fragment_blocks {
-        let block_with_prev_digest =
-            create_block_with_prev_digest(fragment_block, &prev_block_digest)
-                .map_err(|e| Error::Other(e.to_string()))?;
-
-        // Update prev digest for the next block
-        prev_block_digest = hex::encode(block_with_prev_digest.digest.to_bytes_be());
-
-        attestation_fragment.try_append_block(block_with_prev_digest)?;
-    }
-
-    Ok(attestation_fragment)
+    // 4) Turn blocks into AttestationFragment (functional, no explicit for-loop)
+    blocks_to_fragment(&blocks, &lower)
 }
 
-// Construct a list of blocks for a given chain_key and interval. This function will query
-// the source chain for the blocks in the interval and then generate digests for those
-// blocks. They are mapped to the database model and returned.
-async fn construct_fragment(
+/// Build fragment using `FragmentManager` in a single call.
+async fn build_with_manager(
     eth_client: &Client,
-    chain_key: u64,
-    lower_endpoint: &IntervalEndpoint,
-    upper_endpoint: &IntervalEndpoint,
-) -> Result<Vec<BlockWithDigest>> {
-    debug!(
-        "🧱 Not all blocks of attestation fragment found in cache, creating fragment for chain_key: {}, lower_bound: {}, upper_bound: {}",
-        chain_key, lower_endpoint.block_number, upper_endpoint.block_number
-    );
+    lower: &IntervalEndpoint,
+    upper: &IntervalEndpoint,
+) -> Result<AttestationFragment, Error> {
+    let manager = FragmentManager::new(lower.block_number + 1, upper.block_number, eth_client);
+    debug!("📝 Providing lower endpoint: {:?}", lower);
+    let fragment = manager.create(lower.digest).await?;
+    Ok(fragment)
+}
 
-    let fragment_manager = FragmentManager::new(
-        lower_endpoint.block_number + 1,
-        upper_endpoint.block_number,
-        eth_client,
-    );
+/// Verify that the last block in `blocks` matches `expected_end`.
+fn validate_end_digest(
+    blocks: &[BlockWithDigest],
+    expected_end: H256,
+    fetched_end_from_chain: bool,
+) -> Result<(), Error> {
+    let last = blocks.last().ok_or(Error::NoLastBlockFound)?;
+    let last_digest = H256::from_str(&last.digest).map_err(|_| Error::InvalidFragmentDigest)?;
+    if last_digest != expected_end {
+        return Err(Error::LastFragmentBlockMismatch(
+            expected_end,
+            last.digest.clone(),
+            fetched_end_from_chain,
+        ));
+    }
+    Ok(())
+}
 
-    debug!("📝 Providing lower endpoint: {:?}", lower_endpoint);
-    let fragment = fragment_manager.create(lower_endpoint.digest).await?;
+/// Same as above, but for a fresh `AttestationFragment`.
+fn validate_end_digest_fragment(
+    fragment: &AttestationFragment,
+    expected_end: H256,
+    fetched_end_from_chain: bool,
+) -> Result<(), Error> {
+    let last = fragment.blocks().last().ok_or(Error::NoLastBlockFound)?;
+    let last_digest = H256::from(last.digest().to_bytes_be());
+    if last_digest != expected_end {
+        return Err(Error::LastFragmentBlockMismatch(
+            expected_end,
+            last_digest.encode_hex(),
+            fetched_end_from_chain,
+        ));
+    }
+    Ok(())
+}
 
-    // Transform the fragment into a list of blocks
-    let fragment_result = fragment
+/// Map `AttestationFragment` blocks to your DB model for persistence.
+fn map_fragment_blocks(chain_key: u64, fragment: &AttestationFragment) -> Vec<BlockWithDigest> {
+    fragment
         .blocks()
         .iter()
-        .map(|block| {
-            let hash = H256::from(block.digest().to_bytes_be());
-
+        .map(|b| {
+            let hash = H256::from(b.digest().to_bytes_be());
             BlockWithDigest {
                 chain_key: chain_key as i64,
                 digest: hash.encode_hex(),
-                header_number: block.block_number as i64,
-                merkle_root: hex::encode(block.root.to_bytes_be()),
+                header_number: b.block_number as i64,
+                merkle_root: hex::encode(b.root.to_bytes_be()),
             }
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
-    Ok(fragment_result)
+/// Turn cached DB rows into `AttestationFragment` without a manual mutable loop.
+/// Needs a lower endpoint to start with, which is used to compute the first block's previous digest.
+fn blocks_to_fragment(
+    blocks: &[BlockWithDigest],
+    lower: &IntervalEndpoint,
+) -> Result<AttestationFragment, Error> {
+    let mut frag = AttestationFragment::new(blocks.len() + 1);
+
+    // Append the first block with the lower endpoint's digest.
+    // This is the first block in the fragment, so it has no previous digest.
+    frag.try_append_block(Block::new_from_digest(
+        lower.block_number,
+        Felt::from_bytes_be(&lower.digest.0),
+    ))?;
+
+    // Keep the previous digest as an owned String we can update each step.
+    let mut prev = lower.digest.encode_hex::<String>();
+
+    for b in blocks {
+        let block_with_prev =
+            create_block_with_prev_digest(b, &prev).map_err(|e| Error::Other(e.to_string()))?;
+
+        // compute next "prev" as hex string
+        prev = hex::encode(block_with_prev.digest.to_bytes_be());
+
+        // append to the fragment we're building
+        frag.try_append_block(block_with_prev)?;
+    }
+
+    Ok(frag)
 }
 
 async fn get_endpoints_for_claim(

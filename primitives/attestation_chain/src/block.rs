@@ -48,6 +48,16 @@ impl Block {
         }
     }
 
+    /// Creates a new block with the given block number and digest, initializing root and prev_digest to default values.
+    pub fn new_from_digest(block_number: u64, digest: Felt) -> Self {
+        Self {
+            block_number,
+            root: Default::default(),
+            prev_digest: Default::default(),
+            digest,
+        }
+    }
+
     pub fn n(&self) -> u64 {
         self.block_number
     }
