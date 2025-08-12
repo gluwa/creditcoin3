@@ -1942,6 +1942,18 @@ jobs:
           # also wait for Anvil_2 attestors (chain 4)
           .github/wait-for-attestors.sh 'http://127.0.0.1:9955'
 
+      - name: Start creditcoin3-node - Charlie
+        env:
+          RUST_LOG: debug
+        run: |
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --charlie  --pruning archive \
+            --node-key 0000000000000000000000000000000000000000000000000000000000000001 \
+            --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au \
+            --port 30336 --rpc-port 9966 \
+            --base-path ./charlie-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-charlie.log 2>&1 &
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -1977,6 +1989,7 @@ jobs:
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/
 
       - name: Set up Python
+        if: always()
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
