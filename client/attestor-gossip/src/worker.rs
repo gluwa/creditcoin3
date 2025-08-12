@@ -160,21 +160,13 @@ where
     N: NetworkPeers,
 {
     pub fn new(params: WorkerParams<B, RA, BE, C, AccountId, S, N>) -> Self {
-        let block_hash = params.backend.blockchain().info().finalized_hash;
-
-        let current_epoch_index = params
-            .runtime
-            .runtime_api()
-            .current_epoch(block_hash)
-            .expect("Failed to get current epoch index");
-
         let metrics = register_metrics(params.prometheus_registry);
         Worker {
             comms: params.comms,
             runtime: params.runtime.clone(),
             client: params.client,
             state: State::default(),
-            current_epoch_index: current_epoch_index.epoch_index,
+            current_epoch_index: 0,
             backend: params.backend.clone(),
             inherent_provider: params.inherent_provider,
             metrics,
@@ -670,6 +662,11 @@ where
         current_block: u64,
         epoch: u64,
     ) -> Result<(), Error> {
+        if epoch == 0 {
+            debug!(target: LOG_TARGET, "📝 Skipping gossip filter update for epoch 0");
+            return Ok(());
+        }
+
         let runtime_api = self.runtime.runtime_api();
         // Get active attestor set
         let active_attestors = runtime_api.active_attestor_set(block_hash, chain_key)?;
