@@ -16,6 +16,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100000000000000000000),
+        voteAcceptanceWindow: BigInt(3),
     });
     const supportedChain1 = SupportedChain.create({
         id: 'chain_1',
@@ -38,6 +39,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100000000000000000000),
+        voteAcceptanceWindow: BigInt(3),
     });
     const supportedChain2 = SupportedChain.create({
         id: 'chain_2',
@@ -60,6 +62,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100000000000000000000),
+        voteAcceptanceWindow: BigInt(3),
     });
     const supportedChain3 = SupportedChain.create({
         id: 'chain_3',
@@ -82,6 +85,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100000000000000000000),
+        voteAcceptanceWindow: BigInt(3),
     });
     const supportedChain4 = SupportedChain.create({
         id: 'chain_4',

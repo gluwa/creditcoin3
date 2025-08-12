@@ -42,6 +42,7 @@ describe('handleSupportedChainRegistered()', () => {
                         null,
                         null,
                         null,
+                        null,
                     ),
                 )
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });

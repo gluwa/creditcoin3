@@ -605,4 +605,18 @@ mod benchmarks {
             Attestation::<T>::on_initialize(One::one());
         }
     }
+
+    #[benchmark]
+    fn set_vote_acceptance_window() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let vote_acceptance_window: u64 = 3;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            vote_acceptance_window,
+        )
+    }
 }

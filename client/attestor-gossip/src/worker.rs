@@ -572,7 +572,7 @@ where
     }
 
     /// Handle finality notification
-    /// This handlers is repsonsible for updating gossip messager filter
+    /// This handler is repsonsible for updating gossip messager filter
     /// It will check if the current epoch has changed, and update the gossip filter accordingly
     /// This is done by getting the active attestor set, and the last finalized attestation
     /// Based on that we allow attestations to be gossip for a sliding window of 2 checkpoints
@@ -676,13 +676,15 @@ where
             return Ok(());
         }
 
-        // Get attestation interval and checkpoint interval
+        // Get attestation interval, checkpoint interval and vote acceptance window
         let attestation_interval = runtime_api.chain_attestation_interval(block_hash, chain_key)?;
         let checkpoint_interval =
             runtime_api.attestation_checkpoint_interval(block_hash, chain_key)?;
+        let vote_acceptance_window =
+            runtime_api.chain_vote_acceptance_window(block_hash, chain_key)?;
 
-        // Calculate three checkpoints in number of attestations
-        let three_checkpoints = attestation_interval * checkpoint_interval as u64 * 3;
+        let window_in_blocks =
+            attestation_interval * (checkpoint_interval as u64) * vote_acceptance_window;
 
         // Have a sliding window of 10 checkpoints where attestations are valid
         debug!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
@@ -690,7 +692,7 @@ where
             chain_key,
             epoch,
             start: current_block,
-            window: three_checkpoints,
+            window: window_in_blocks,
             attestors: &active_attestors,
         });
         Ok(())

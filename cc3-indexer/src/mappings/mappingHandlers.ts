@@ -30,6 +30,7 @@ import {
     ChainRemoved,
     AttestationChainData,
     MaxAttestorsChanged,
+    VoteAcceptanceWindowChanged,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
@@ -133,6 +134,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         maxSetSize: 100,
         targetSampleSize: 3,
         minBondRequirement: BigInt(100),
+        voteAcceptanceWindow: BigInt(3),
     });
 
     logger.info(`New Supported Chain event created at block ${blockNumber}`);
@@ -982,4 +984,36 @@ export async function handleMaxAttestorsChanged(event: SubstrateEvent): Promise<
     }
 
     await maxAttestorsChanged.save();
+}
+
+export async function handleEventVoteAcceptanceWindowChanged(event: SubstrateEvent): Promise<void> {
+    logger.info(`New VoteAcceptanceWindowChanged event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, u64],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyNumber = BigInt(chainKey.toString());
+
+    const voteAcceptanceWindowChanged = VoteAcceptanceWindowChanged.create({
+        id: `${blockNumber}-${event.idx}`,
+        blockNumber,
+        date: event.block.timestamp,
+        chainKey: chainKeyNumber,
+        voteAcceptanceWindow: BigInt(u64.toString()),
+    });
+
+    logger.info(`Going to update chainKey ${chainKeyNumber} with voteAcceptanceWindow ${u64.toString()}`);
+    const data = await getChainData(chainKeyNumber);
+    if (data) {
+        logger.info(`VoteAcceptanceWindowChanged event found for chainKey ${chainKeyNumber}`);
+        data.voteAcceptanceWindow = BigInt(u64.toString());
+        await data.save();
+    }
+
+    await voteAcceptanceWindowChanged.save();
 }

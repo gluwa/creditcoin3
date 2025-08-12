@@ -220,7 +220,15 @@ export const attestationDatasources: SubstrateRuntimeDatasource =
                     module: 'attestation',
                     method: 'MaxAttestorsChanged',
                 },
-            }
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleEventVoteAcceptanceWindowChanged',
+                filter: {
+                    module: 'attestation',
+                    method: 'VoteAcceptanceWindowChanged',
+                },
+            },
         ],
     },
 }

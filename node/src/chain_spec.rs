@@ -147,6 +147,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 2,
@@ -155,6 +156,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 3,
@@ -163,6 +165,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 4,
@@ -171,6 +174,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 5,
@@ -188,6 +192,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                     )
                     .unwrap(),
                 )],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 6,
@@ -196,6 +201,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
         ],
     );
@@ -249,6 +255,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 2,
@@ -257,6 +264,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 3,
@@ -265,6 +273,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 4,
@@ -273,6 +282,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 5,
@@ -281,6 +291,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
             AttestationChainConfiguration {
                 chain_key: 6,
@@ -289,6 +300,7 @@ pub fn local_testnet_config() -> ChainSpec {
                 chain_reward: 1000,
                 target_sample_size: 3,
                 checkpoints: vec![],
+                vote_acceptance_window: 3,
             },
         ],
     );

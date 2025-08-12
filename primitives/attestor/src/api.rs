@@ -36,5 +36,7 @@ sp_api::decl_runtime_apis! {
         fn last_checkpoint(chain_key: ChainKey) -> Option<AttestationCheckpoint>;
 
         fn attestation_chain_genesis_block_number(chain_key: ChainKey) -> u64;
+
+        fn chain_vote_acceptance_window(chain_key: ChainKey) -> u64;
     }
 }

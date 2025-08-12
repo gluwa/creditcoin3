@@ -129,6 +129,8 @@ pub mod pallet {
         type MaxCheckpointsImportedPerCall: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationChainGenesisBlockNumber: Get<u64>;
+        #[pallet::constant]
+        type DefaultVoteAcceptanceWindow: Get<u64>;
     }
 
     pub trait WeightInfo {
@@ -153,6 +155,7 @@ pub mod pallet {
         fn on_initialize(a: u32) -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
+        fn set_vote_acceptance_window() -> Weight;
     }
 
     #[pallet::storage]
@@ -376,6 +379,19 @@ pub mod pallet {
         AttestationChainGenesisBlockNumberDefault<T>,
     >;
 
+    /// The vote acceptance window for the attestation chain.
+    /// This represents the number checkpoints worth of votes the chain accepts at a given time.
+    #[pallet::storage]
+    #[pallet::getter(fn vote_acceptance_window)]
+    pub type VoteAcceptanceWindow<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u64,
+        ValueQuery,
+        AttestationChainGenesisBlockNumberDefault<T>,
+    >;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -404,6 +420,10 @@ pub mod pallet {
                 AttestationCheckpointInterval::<T>::insert(
                     chain_configuration.chain_key,
                     chain_configuration.attestations_per_checkpoint,
+                );
+                VoteAcceptanceWindow::<T>::insert(
+                    chain_configuration.chain_key,
+                    chain_configuration.vote_acceptance_window,
                 );
                 ChainReward::<T>::insert(
                     chain_configuration.chain_key,
@@ -498,6 +518,8 @@ pub mod pallet {
         MaxAttestorsChanged(ChainKey, u32),
         /// Attestation chain genesis block number was set for a chain.
         AttestationChainGenesisBlockNumberSet(ChainKey, u64),
+        /// Note a change in the voter acceptance window for a chain.
+        VoteAcceptanceWindowChanged(ChainKey, u64),
     }
 
     #[pallet::error]
@@ -562,6 +584,8 @@ pub mod pallet {
         AttestationFoundWhileImporting,
         // Invalid attestation chain block number.
         InvalidAttestationBlockNumber,
+        // Tried to set vote acceptance window to an invalid value.
+        InvalidVoteAcceptanceWindow,
     }
 
     #[pallet::hooks]
@@ -941,6 +965,35 @@ pub mod pallet {
 
             Ok(())
         }
+
+        #[pallet::call_index(20)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_vote_acceptance_window())]
+        pub fn set_vote_acceptance_window(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            vote_acceptance_window: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure! {
+                vote_acceptance_window > 0,
+                Error::<T>::InvalidVoteAcceptanceWindow
+            };
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            VoteAcceptanceWindow::<T>::set(chain_key, vote_acceptance_window);
+
+            Self::deposit_event(Event::<T>::VoteAcceptanceWindowChanged(
+                chain_key,
+                vote_acceptance_window,
+            ));
+
+            Ok(())
+        }
     }
 
     #[pallet::inherent]
@@ -1046,6 +1099,7 @@ pub mod pallet {
             max_attestors: Option<u32>,
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
+            vote_acceptance_window: Option<u64>,
         ) {
             TargetSampleSize::<T>::insert(
                 chain_key,
@@ -1077,6 +1131,16 @@ pub mod pallet {
                 chain_key,
                 attestation_checkpoint_interval
                     .unwrap_or(T::DefaultAttestationsPerCheckpoint::get()),
+            ));
+
+            VoteAcceptanceWindow::<T>::insert(
+                chain_key,
+                vote_acceptance_window.unwrap_or(T::DefaultVoteAcceptanceWindow::get()),
+            );
+
+            Self::deposit_event(Event::<T>::VoteAcceptanceWindowChanged(
+                chain_key,
+                vote_acceptance_window.unwrap_or(T::DefaultVoteAcceptanceWindow::get()),
             ));
 
             ChainReward::<T>::insert(

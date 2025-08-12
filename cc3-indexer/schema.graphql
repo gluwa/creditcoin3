@@ -13,17 +13,19 @@ type AttestationChainData @entity {
     # Attestation interval
     attestationInterval: BigInt!
     # Checkpoint interval
-    checkpointInterval: Int!  # this-is-expected
+    checkpointInterval: Int! # this-is-expected
     # Target sample size
-    targetSampleSize: Int!  # this-is-expected
+    targetSampleSize: Int! # this-is-expected
     # Max set size
-    maxSetSize: Int!  # this-is-expected
+    maxSetSize: Int! # this-is-expected
     # Last checkpoint header number
     lastCheckpointHeaderNumber: BigInt!
     # Last attested header number
     lastAttestedHeaderNumber: BigInt!
     # Last attested digest
     lastAttestedDigest: String!
+    # Vote acceptance window
+    voteAcceptanceWindow: BigInt!
 }
 
 type Transfer @entity {
@@ -119,8 +121,7 @@ type Attestors @entity {
     """
     1 - Registred, 2 Unregistered, 3 - Elected, 4 - Activated, 5 - Chilled
     """
-    status: Int!  # this-is-expected
-
+    status: Int! # this-is-expected
     blsPublicKey: String!
 }
 
@@ -228,7 +229,7 @@ type TargetSampleSizeChanged @entity {
 
     chainKey: BigInt!
 
-    eventNewTargetSampleSize: Int!  # this-is-expected
+    eventNewTargetSampleSize: Int! # this-is-expected
 }
 
 type MaxAttestorsChanged @entity {
@@ -243,7 +244,7 @@ type MaxAttestorsChanged @entity {
 
     chainKey: BigInt!
 
-    eventNewMaxSize: Int!  # this-is-expected
+    eventNewMaxSize: Int! # this-is-expected
 }
 
 type Bonded @entity {
@@ -492,7 +493,7 @@ type CheckpointIntervalChanged @entity {
 
     chainKey: BigInt!
 
-    interval: Int!  # this-is-expected
+    interval: Int! # this-is-expected
 }
 
 type PendingAttestationIntervalSet @entity {
@@ -558,10 +559,10 @@ type ChainQueries @entity {
 }
 
 enum QueryStatus {
-    Uninitialized,
-    Submitted,
-    ResultAvailable,
-    TimedOut,
+    Uninitialized
+    Submitted
+    ResultAvailable
+    TimedOut
     InvalidQuery
 }
 
@@ -650,4 +651,19 @@ type ChainRemoved @entity {
     at: BigInt!
     # account that removed chain
     who: Account!
+}
+
+type VoteAcceptanceWindowChanged @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    chainKey: BigInt!
+
+    voteAcceptanceWindow: BigInt!
 }

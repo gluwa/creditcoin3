@@ -1,7 +1,8 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee } from '../../../utils';
+import { chain_Anvil2_Key } from '../supported-chains/consts';
 
-describe('RegisterChain', (): void => {
+describe('SetVoteAcceptanceWindow', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
 
@@ -15,27 +16,11 @@ describe('RegisterChain', (): void => {
     });
 
     it('fee is min 0.01 CTC', async (): Promise<void> => {
-        // unique integer to serve as chain id during testing
-        const chainId = Date.now();
-
         const nonce = await api.rpc.system.accountNextIndex(root.address);
-
         return new Promise((resolve, reject): void => {
+            // note: using chain Anvil2 b/c this may lead to side effects in other test scenarios
             const unsubscribe = api.tx.sudo
-                .sudo(
-                    api.tx.supportedChains.registerChain(
-                        chainId,
-                        `Test Chain ${chainId}`,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                    ),
-                )
+                .sudo(api.tx.attestation.setVoteAcceptanceWindow(chain_Anvil2_Key, 2))
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })

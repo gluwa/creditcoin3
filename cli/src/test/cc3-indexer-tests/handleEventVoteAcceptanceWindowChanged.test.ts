@@ -4,12 +4,12 @@ import { waitEras } from '../integration-tests/helpers';
 import { forElapsedBlocks, randomIntBetween } from '../utils';
 import { graphQLQuery } from './common';
 
-describe('handleEventAttestationIntervalChanged()', () => {
+describe('handleVoteAcceptanceWindowChanged()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: bigint;
-    // avoid the default of 10
-    const newInterval = BigInt(randomIntBetween(11, 21));
+    // avoid the default of 3
+    const newVoteAcceptanceWindow = BigInt(randomIntBetween(1, 2));
     // unique integer to serve as chain id during testing
     const newChainId = Date.now();
     const newChainName = `Test Chain ${newChainId}`;
@@ -52,14 +52,13 @@ describe('handleEventAttestationIntervalChanged()', () => {
         await api.disconnect();
     });
 
-    describe('when new chain attestation interval is set', () => {
+    describe('when new vote acceptance window is set', () => {
         beforeAll(async () => {
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0n);
 
-            // NOTE: by defauilt it is 10
             await api.tx.sudo
-                .sudo(api.tx.attestation.setChainAttestationInterval(newChainKey, newInterval))
+                .sudo(api.tx.attestation.setVoteAcceptanceWindow(newChainKey, newVoteAcceptanceWindow))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             // wait for the pending change to take effect
             await waitEras(1, api);
@@ -68,21 +67,29 @@ describe('handleEventAttestationIntervalChanged()', () => {
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 300_000);
 
-        it('graphQL returns known AttestationIntervalChanged entity', async () => {
+        it('graphQL returns known VoteAcceptanceWindowChanged entity', async () => {
             const response = await graphQLQuery(
-                `query { attestationIntervalChangeds(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, chainKey, interval }}}`,
+                `query { 
+                    voteAcceptanceWindowChangeds(
+                        orderBy: BLOCK_NUMBER_ASC,
+                        last: 1,
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
+                    ) { 
+                        nodes { id, blockNumber, date, chainKey, voteAcceptanceWindow }
+                    }
+                }`,
             );
-            expect(response.data.attestationIntervalChangeds.nodes).toBeTruthy();
-            expect(response.data.attestationIntervalChangeds.nodes.length).toEqual(1);
+            expect(response.data.voteAcceptanceWindowChangeds.nodes).toBeTruthy();
+            expect(response.data.voteAcceptanceWindowChangeds.nodes.length).toEqual(1);
 
-            for (const node of response.data.attestationIntervalChangeds.nodes) {
+            for (const node of response.data.voteAcceptanceWindowChangeds.nodes) {
                 expect(node.id).toBeTruthy();
                 // note: inspecting only last record
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
-                expect(BigInt(node.interval)).toEqual(newInterval);
+                expect(BigInt(node.voteAcceptanceWindow)).toEqual(newVoteAcceptanceWindow);
             }
         });
 
@@ -94,13 +101,13 @@ describe('handleEventAttestationIntervalChanged()', () => {
                         last: 1,
                         filter: { chainKey: { equalTo: "${newChainKey}" }},
                     ) {
-                        nodes { id, attestationInterval }
+                        nodes { id, voteAcceptanceWindow }
                     }
                 }`,
             );
             expect(response.data.attestationChainData.nodes.length).toEqual(1);
             for (const node of response.data.attestationChainData.nodes) {
-                expect(BigInt(node.attestationInterval)).toEqual(newInterval);
+                expect(BigInt(node.voteAcceptanceWindow)).toEqual(newVoteAcceptanceWindow);
             }
         });
     });

@@ -934,6 +934,7 @@ export default {
             ClearedStorageForRemovedChain: 'u64',
             MaxAttestorsChanged: '(u64,u32)',
             AttestationChainGenesisBlockNumberSet: '(u64,u64)',
+            VoteAcceptanceWindowChanged: '(u64,u64)',
         },
     },
     /**
@@ -2609,6 +2610,10 @@ export default {
                 chainKey: 'u64',
                 genesisBlockNumber: 'u64',
             },
+            set_vote_acceptance_window: {
+                chainKey: 'u64',
+                voteAcceptanceWindow: 'u64',
+            },
         },
     },
     /**
@@ -2636,6 +2641,7 @@ export default {
                 maxAttestors: 'Option<u32>',
                 maxInvulnerables: 'Option<u32>',
                 attestationChainGenesisBlockNumber: 'Option<u64>',
+                voteAcceptanceWindow: 'Option<u64>',
             },
             remove_chain: {
                 chainKey: 'u64',
@@ -3071,6 +3077,7 @@ export default {
             'InvalidTargetSampleSize',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
+            'InvalidVoteAcceptanceWindow',
         ],
     },
     /**

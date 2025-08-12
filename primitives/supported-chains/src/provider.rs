@@ -22,5 +22,6 @@ pub trait OnRegisterChainProvider {
         max_attestors: Option<u32>,
         max_invulnerables: Option<u32>,
         attestation_chain_genesis_block_number: Option<u64>,
+        vote_acceptance_window: Option<u64>,
     );
 }
