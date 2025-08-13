@@ -10,8 +10,8 @@ permissions: read-all
 env:
   RUNNER_VM_NAME: "${{ github.event.repository.name }}-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
   LINODE_REGION: "us-ord"
-  # Shared CPU, Linode 32 GB, 8 vCPU, disk: 640 GB, 0.288 $/hr
-  LINODE_VM_SIZE: "g6-standard-8"
+  # Shared CPU, Linode 64 GB, 16 vCPU, disk: 1280 GB, 0.576 $/hr
+  LINODE_VM_SIZE: "g6-standard-16"
 
 jobs:
   setup:
