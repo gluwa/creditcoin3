@@ -41,6 +41,7 @@ services:
             - --batch-size=30
             - --unfinalized-blocks=true
             - --monitor-file-size="100"
+            - --unsafe
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://subquery-node:3000/ready']
             interval: 3s

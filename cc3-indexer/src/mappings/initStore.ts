@@ -1,104 +1,96 @@
 import { SubstrateBlock } from '@subql/types';
 import { AttestationChainData, SupportedChain } from '../types';
+import type { ApiPromise } from '@polkadot/api';
+
+// SubQuery injects a height-scoped ApiPromise into the sandbox
+declare const api: ApiPromise;
+
+const BI = (v: number | string) => BigInt(v);
 
 export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<void> {
-    logger.info(`Initiating store and database at block #${block.block.header.number.toString()}`);
+    logger.info(`--- Initiating store and database at block #${block.block.header.number.toString()}`);
 
-    const chain1 = AttestationChainData.create({
-        id: 'chain_1',
-        chainKey: BigInt(1),
-        attestationInterval: BigInt(10),
-        checkpointInterval: 10,
-        chainReward: BigInt(1000),
-        lastAttestedDigest: '',
-        lastAttestedHeaderNumber: BigInt(0),
-        lastCheckpointHeaderNumber: BigInt(0),
-        maxSetSize: 100,
-        targetSampleSize: 3,
-        minBondRequirement: BigInt(100000000000000000000),
-        voteAcceptanceWindow: BigInt(3),
-    });
-    const supportedChain1 = SupportedChain.create({
-        id: 'chain_1',
-        chainKey: BigInt(1),
-        chainName: 'Ethereum',
-        chainId: BigInt(1),
-        at: block.block.header.number.toBigInt(),
-    });
-    await Promise.all([chain1.save(), supportedChain1.save()]);
+    // Read all supported chains at the current indexed height
+    const rawEntries = await (api.query as any).supportedChains.supportedChains.entries();
 
-    const chain2 = AttestationChainData.create({
-        id: 'chain_2',
-        chainKey: BigInt(2),
-        attestationInterval: BigInt(10),
-        checkpointInterval: 10,
-        chainReward: BigInt(1000),
-        lastAttestedDigest: '',
-        lastAttestedHeaderNumber: BigInt(0),
-        lastCheckpointHeaderNumber: BigInt(0),
-        maxSetSize: 100,
-        targetSampleSize: 3,
-        minBondRequirement: BigInt(100000000000000000000),
-        voteAcceptanceWindow: BigInt(3),
+    // Normalize to [chainKey, { chainId, chainNameHex }]
+    const entries: [bigint, { chainId: bigint; chainName: string }][] = rawEntries.map(([storageKey, value]: any) => {
+        const chainKey = BI(storageKey.args[0].toString());
+        const j = value?.toJSON?.() ?? {};
+        const chainId = value?.chainId?.toBigInt?.() ?? (j.chainId != null ? BI(j.chainId as number) : BI(0));
+        const chainNameHex =
+            value?.chainName?.toHex?.() ??
+            value?.chainName?.toString?.() ??
+            (typeof j.chainName === 'string' ? j.chainName : '0x');
+        return [chainKey, { chainId, chainName: chainNameHex }];
     });
-    const supportedChain2 = SupportedChain.create({
-        id: 'chain_2',
-        chainKey: BigInt(2),
-        chainName: 'Anvil1',
-        chainId: BigInt(31337),
-        at: block.block.header.number.toBigInt(),
-    });
-    await Promise.all([chain2.save(), supportedChain2.save()]);
 
-    const chain3 = AttestationChainData.create({
-        id: 'chain_3',
-        chainKey: BigInt(3),
-        attestationInterval: BigInt(10),
-        checkpointInterval: 10,
-        chainReward: BigInt(1000),
-        lastAttestedDigest: '',
-        lastAttestedHeaderNumber: BigInt(0),
-        lastCheckpointHeaderNumber: BigInt(0),
-        maxSetSize: 100,
-        targetSampleSize: 3,
-        minBondRequirement: BigInt(100000000000000000000),
-        voteAcceptanceWindow: BigInt(3),
-    });
-    const supportedChain3 = SupportedChain.create({
-        id: 'chain_3',
-        chainKey: BigInt(3),
-        chainName: 'Sepolia ethereum',
-        chainId: BigInt(11155111),
-        at: block.block.header.number.toBigInt(),
-    });
-    await Promise.all([chain3.save(), supportedChain3.save()]);
+    for (const [chainKey, { chainId, chainName }] of entries) {
+        const id = `chain_${chainKey.toString()}`;
+        logger.info(`Processing chain ${id} with key ${chainKey.toString()}`);
+        logger.info(`Chain ID: ${chainId.toString()}`);
+        logger.info(`Chain Name (Hex): ${chainName}`);
+        const name = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
 
-    const chain4 = AttestationChainData.create({
-        id: 'chain_4',
-        chainKey: BigInt(4),
-        attestationInterval: BigInt(10),
-        checkpointInterval: 10,
-        chainReward: BigInt(1000),
-        lastAttestedDigest: '',
-        lastAttestedHeaderNumber: BigInt(0),
-        lastCheckpointHeaderNumber: BigInt(0),
-        maxSetSize: 100,
-        targetSampleSize: 3,
-        minBondRequirement: BigInt(100000000000000000000),
-        voteAcceptanceWindow: BigInt(3),
-    });
-    const supportedChain4 = SupportedChain.create({
-        id: 'chain_4',
-        chainKey: BigInt(4),
-        chainName: 'Anvil2',
-        chainId: BigInt(31338),
-        at: block.block.header.number.toBigInt(),
-    });
-    await Promise.all([chain4.save(), supportedChain4.save()]);
+        const att = (api.query as any).attestation;
+
+        // attestation pallet lookups (your list)
+        const attestationInterval = (await att.chainAttestationInterval(chainKey)).toBigInt(); // u64
+        const checkpointInterval = (await att.attestationCheckpointInterval(chainKey)).toNumber(); // u32
+
+        const chainRewardOpt = await att.chainReward(chainKey); // Option<u128>
+        const chainReward = chainRewardOpt && chainRewardOpt.isSome ? chainRewardOpt.unwrap().toBigInt() : BI(0);
+
+        const lastDigestOpt = await att.lastDigest(chainKey); // Option<H256>
+        const lastAttestedDigest = lastDigestOpt && lastDigestOpt.isSome ? lastDigestOpt.unwrap().toHex() : '';
+
+        const maxSetSize = (await att.maxAttestors(chainKey)).toNumber(); // u32
+        const targetSampleSize = (await att.targetSampleSize(chainKey)).toNumber(); // u32
+
+        // Need this for devnet as this storage item was upgraded during it's lifetime
+        let minBondRequirement = BigInt(100000000000000000000); // u128, default to 100000000000000000000 if not set
+        try {
+            minBondRequirement = (await att.minBondRequirement(chainKey)).toBigInt(); // u128
+        } catch {
+            logger.warn(`minBondRequirement not found for chainKey ${chainKey}, defaulting to 100000000000000000000`);
+        }
+
+        let voteAcceptanceWindow = BI(3); // u32, default to 3 if not set
+        try {
+            voteAcceptanceWindow = (await att.voteAcceptanceWindow(chainKey)).toBigInt(); //
+        } catch {
+            logger.warn(`voteAcceptanceWindow not found for chainKey ${chainKey}, defaulting to 3`);
+        }
+
+        const supported = SupportedChain.create({
+            id,
+            chainKey,
+            chainName: name,
+            chainId,
+            at: block.block.header.number.toBigInt(),
+        });
+
+        const acd = AttestationChainData.create({
+            id,
+            chainKey,
+            attestationInterval,
+            checkpointInterval,
+            chainReward,
+            lastAttestedDigest,
+            lastAttestedHeaderNumber: BI(0), // fill in later if you want to derive these
+            lastCheckpointHeaderNumber: BI(0),
+            maxSetSize,
+            targetSampleSize,
+            minBondRequirement,
+            voteAcceptanceWindow,
+        });
+
+        await Promise.all([supported.save(), acd.save()]);
+        logger.info(`Saved ${id}(${name})`);
+    }
 }
 
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents */
-export async function getChainData(chainKey: bigint): Promise<AttestationChainData | null> {
+export async function getChainData(chainKey: bigint) {
     const a = await AttestationChainData.getByChainKey(chainKey, { limit: 1 });
     return a[0];
 }
