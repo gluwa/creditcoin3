@@ -76,7 +76,7 @@ impl Cache {
         }
 
         info!(
-            "Creating fragment from block {} to {}, provided from_digest: {:?}",
+            "⛓️ Creating fragment from block {} to {}, provided from_digest: {:?}",
             start_block, end_block, from_digest
         );
 

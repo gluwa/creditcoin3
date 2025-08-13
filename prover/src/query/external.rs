@@ -98,7 +98,7 @@ pub async fn handle_proof_order(
 
     // Poll for the result
     let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
-    info!("Work order proof len: {}", proof_bytes.len());
+    debug!("Work order proof len: {}", proof_bytes.len());
     Ok(proof_bytes)
 }
 

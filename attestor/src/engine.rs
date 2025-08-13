@@ -306,9 +306,11 @@ impl AsyncEngine {
                 return Ok(attestation);
             }
 
-            info!("👶 Attestation not mature, waiting for block to mature. Current block: {}, required block: {}",
-                      last_eth_block_number,
-                      attestation.header_number + delay);
+            info!(
+                "👶 Attestation not mature, Current block: {}, required block: {}, waiting...",
+                last_eth_block_number,
+                attestation.header_number + delay
+            );
 
             // Wait for check interval before checking again
             sleep(check_interval).await;
