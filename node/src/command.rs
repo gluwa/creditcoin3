@@ -58,7 +58,7 @@ impl SubstrateCli for Cli {
     }
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn ChainSpec>, String> {
-        Ok(match id {
+        let ret = match id {
             "dev" => {
                 let enable_manual_seal = self.sealing.map(|_| true);
                 Box::new(chain_spec::development_config(enable_manual_seal))
@@ -66,16 +66,17 @@ impl SubstrateCli for Cli {
             "devnet" => Box::new(chain_spec::devnet_config()?),
             "testnet" => Box::new(chain_spec::testnet_config()?),
             "" | "local" => Box::new(chain_spec::local_testnet_config()),
-            "dryrun" => Box::new(chain_spec::dry_run_config()?),
             "mainnet" => Box::new(chain_spec::mainnet_config()?),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
             )?),
-        })
+        };
+        Ok(ret)
     }
 }
 
 /// Parse and run command line arguments
+#[allow(deprecated)]
 pub fn run() -> sc_cli::Result<()> {
     let cli = Cli::from_args();
 
@@ -188,7 +189,9 @@ pub fn run() -> sc_cli::Result<()> {
 
             let runner = cli.create_runner(cmd)?;
             match cmd {
-                BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| cmd.run::<Block, ()>(config)),
+                BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| {
+                    cmd.run::<sp_runtime::traits::HashingFor<Block>, ()>(config)
+                }),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
                     cmd.run(client)
@@ -238,11 +241,12 @@ pub fn run() -> sc_cli::Result<()> {
             runner.sync_run(|mut config| {
                 let (client, _, _, _, frontier_backend) =
                     service::new_chain_ops(&mut config, &cli.eth)?;
-                let frontier_backend = match frontier_backend {
-                    fc_db::Backend::KeyValue(kv) => std::sync::Arc::new(kv),
+                let binding = frontier_backend.clone();
+                let frontier_backend = match &*binding {
+                    fc_db::Backend::KeyValue(kv) => kv,
                     _ => panic!("Only fc_db::Backend::KeyValue supported"),
                 };
-                cmd.run(client, frontier_backend)
+                cmd.run(client, frontier_backend.clone())
             })
         }
         None => {

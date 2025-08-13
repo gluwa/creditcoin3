@@ -1,0 +1,61 @@
+---
+name: Create Devnet release
+
+on:
+  schedule:
+    # every month, on the 2nd @ 6am
+    - cron: "0 6 2 * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-24.04
+    # checkov:skip=CKV2_GHA_1:We need this for auto-commit
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          token: ${{ secrets.ATODOROV_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          components: rustfmt
+
+      - name: Bump version
+        id: bump-version
+        run: |
+          .github/bump-version.sh
+
+          git status
+          git diff
+
+      - name: Commit, tag & push changes to dev branch
+        uses: EndBug/add-and-commit@v9
+        with:
+          push: true
+          add: "Cargo.toml Cargo.lock runtime/src/version.rs"
+          author_name: "Alex Todorov"
+          author_email: alex.todorov@gluwa.com
+          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}"
+          tag: "${{ steps.bump-version.outputs.new_version }}-devnet"
+          github_token: ${{ secrets.ATODOROV_TOKEN }}
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}-devnet! Check for release in 1hr; cc <@U028EMRHS3S>"

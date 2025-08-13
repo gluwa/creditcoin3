@@ -25,15 +25,15 @@ sp-std = { workspace = true }
 [features]
 default = ["std"]
 std = [
-	"environmental/std",
-	"ethereum-types/std",
-	"ethereum/std",
-	"hex",
-	"parity-scale-codec/std",
-	"serde",
-	"sp-api/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-runtime/std",
-	"sp-std/std",
+  "environmental/std",
+  "ethereum-types/std",
+  "ethereum/std",
+  "hex",
+  "parity-scale-codec/std",
+  "serde",
+  "sp-api/std",
+  "sp-core/std",
+  "sp-io/std",
+  "sp-runtime/std",
+  "sp-std/std",
 ]

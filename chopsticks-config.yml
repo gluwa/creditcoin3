@@ -1,0 +1,13 @@
+endpoint: wss://mainnet3.creditcoin.network
+allow-unresolved-imports: true
+mock-signature-host: true
+
+import-storage:
+  Sudo:
+    Key: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY # Alice
+  System:
+    Account:
+      - - - 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+        - providers: 1
+          data:
+            free: "100000000000000000000000"

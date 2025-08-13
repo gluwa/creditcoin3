@@ -30,12 +30,14 @@ import type {
     FrameSupportTokensMiscBalanceStatus,
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsCommissionChangeRate,
+    PalletNominationPoolsCommissionClaimPermission,
     PalletNominationPoolsPoolState,
-    PalletStakingExposure,
     PalletStakingForcing,
+    PalletStakingRewardDestination,
     PalletStakingValidatorPrefs,
     SpConsensusGrandpaAppPublic,
     SpRuntimeDispatchError,
+    SpStakingExposure,
 } from '@polkadot/types/lookup';
 
 export type __AugmentedEvent<ApiType extends ApiTypes> = AugmentedEvent<ApiType>;
@@ -131,6 +133,10 @@ declare module '@polkadot/api-base/types/events' {
              * Some balance was thawed.
              **/
             Thawed: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * The `TotalIssuance` was forcefully changed.
+             **/
+            TotalIssuanceForced: AugmentedEvent<ApiType, [old: u128, new_: u128], { old: u128; new_: u128 }>;
             /**
              * Transfer succeeded.
              **/
@@ -266,6 +272,23 @@ declare module '@polkadot/api-base/types/events' {
         };
         identity: {
             /**
+             * A username authority was added.
+             **/
+            AuthorityAdded: AugmentedEvent<ApiType, [authority: AccountId32], { authority: AccountId32 }>;
+            /**
+             * A username authority was removed.
+             **/
+            AuthorityRemoved: AugmentedEvent<ApiType, [authority: AccountId32], { authority: AccountId32 }>;
+            /**
+             * A dangling username (as in, a username corresponding to an account that has removed its
+             * identity) has been removed.
+             **/
+            DanglingUsernameRemoved: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes],
+                { who: AccountId32; username: Bytes }
+            >;
+            /**
              * A name was cleared, and the given balance returned.
              **/
             IdentityCleared: AugmentedEvent<
@@ -310,6 +333,18 @@ declare module '@polkadot/api-base/types/events' {
                 { who: AccountId32; registrarIndex: u32 }
             >;
             /**
+             * A queued username passed its expiration without being claimed and was removed.
+             **/
+            PreapprovalExpired: AugmentedEvent<ApiType, [whose: AccountId32], { whose: AccountId32 }>;
+            /**
+             * A username was set as a primary and can be looked up from `who`.
+             **/
+            PrimaryUsernameSet: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes],
+                { who: AccountId32; username: Bytes }
+            >;
+            /**
              * A registrar was added.
              **/
             RegistrarAdded: AugmentedEvent<ApiType, [registrarIndex: u32], { registrarIndex: u32 }>;
@@ -339,6 +374,22 @@ declare module '@polkadot/api-base/types/events' {
                 { sub: AccountId32; main: AccountId32; deposit: u128 }
             >;
             /**
+             * A username was queued, but `who` must accept it prior to `expiration`.
+             **/
+            UsernameQueued: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes, expiration: u32],
+                { who: AccountId32; username: Bytes; expiration: u32 }
+            >;
+            /**
+             * A username was set for `who`.
+             **/
+            UsernameSet: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes],
+                { who: AccountId32; username: Bytes }
+            >;
+            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;
@@ -361,8 +412,8 @@ declare module '@polkadot/api-base/types/events' {
              **/
             SomeOffline: AugmentedEvent<
                 ApiType,
-                [offline: Vec<ITuple<[AccountId32, PalletStakingExposure]>>],
-                { offline: Vec<ITuple<[AccountId32, PalletStakingExposure]>> }
+                [offline: Vec<ITuple<[AccountId32, SpStakingExposure]>>],
+                { offline: Vec<ITuple<[AccountId32, SpStakingExposure]>> }
             >;
             /**
              * Generic event
@@ -394,11 +445,29 @@ declare module '@polkadot/api-base/types/events' {
              * A member has been removed from a pool.
              *
              * The removal can be voluntary (withdrawn all unbonded funds) or involuntary (kicked).
+             * Any funds that are still delegated (i.e. dangling delegation) are released and are
+             * represented by `released_balance`.
              **/
             MemberRemoved: AugmentedEvent<
                 ApiType,
-                [poolId: u32, member: AccountId32],
-                { poolId: u32; member: AccountId32 }
+                [poolId: u32, member: AccountId32, releasedBalance: u128],
+                { poolId: u32; member: AccountId32; releasedBalance: u128 }
+            >;
+            /**
+             * Topped up deficit in frozen ED of the reward pool.
+             **/
+            MinBalanceDeficitAdjusted: AugmentedEvent<
+                ApiType,
+                [poolId: u32, amount: u128],
+                { poolId: u32; amount: u128 }
+            >;
+            /**
+             * Claimed excess frozen ED of af the reward pool.
+             **/
+            MinBalanceExcessAdjusted: AugmentedEvent<
+                ApiType,
+                [poolId: u32, amount: u128],
+                { poolId: u32; amount: u128 }
             >;
             /**
              * A payout has been made to a member.
@@ -423,6 +492,14 @@ declare module '@polkadot/api-base/types/events' {
                 ApiType,
                 [poolId: u32, commission: u128],
                 { poolId: u32; commission: u128 }
+            >;
+            /**
+             * Pool commission claim permission has been updated.
+             **/
+            PoolCommissionClaimPermissionUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, permission: Option<PalletNominationPoolsCommissionClaimPermission>],
+                { poolId: u32; permission: Option<PalletNominationPoolsCommissionClaimPermission> }
             >;
             /**
              * A pool's commission setting has been changed.
@@ -598,6 +675,10 @@ declare module '@polkadot/api-base/types/events' {
              **/
             Chilled: AugmentedEvent<ApiType, [stash: AccountId32], { stash: AccountId32 }>;
             /**
+             * Report of a controller batch deprecation.
+             **/
+            ControllerBatchDeprecated: AugmentedEvent<ApiType, [failures: u32], { failures: u32 }>;
+            /**
              * The era payout has been set; the first balance is the validator-payout; the second is
              * the remainder from the maximum amount of reward.
              **/
@@ -632,9 +713,13 @@ declare module '@polkadot/api-base/types/events' {
                 { eraIndex: u32; validatorStash: AccountId32 }
             >;
             /**
-             * The nominator has been rewarded by this amount.
+             * The nominator has been rewarded by this amount to this destination.
              **/
-            Rewarded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            Rewarded: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, dest: PalletStakingRewardDestination, amount: u128],
+                { stash: AccountId32; dest: PalletStakingRewardDestination; amount: u128 }
+            >;
             /**
              * A staker (validator or nominator) has been slashed by the given amount.
              **/
@@ -696,11 +781,19 @@ declare module '@polkadot/api-base/types/events' {
         };
         sudo: {
             /**
-             * The \[sudoer\] just switched identity; the old key is supplied if one existed.
+             * The sudo key has been updated.
              **/
-            KeyChanged: AugmentedEvent<ApiType, [oldSudoer: Option<AccountId32>], { oldSudoer: Option<AccountId32> }>;
+            KeyChanged: AugmentedEvent<
+                ApiType,
+                [old: Option<AccountId32>, new_: AccountId32],
+                { old: Option<AccountId32>; new_: AccountId32 }
+            >;
             /**
-             * A sudo just took place. \[result\]
+             * The key was permanently removed.
+             **/
+            KeyRemoved: AugmentedEvent<ApiType, []>;
+            /**
+             * A sudo call just took place.
              **/
             Sudid: AugmentedEvent<
                 ApiType,
@@ -708,7 +801,7 @@ declare module '@polkadot/api-base/types/events' {
                 { sudoResult: Result<Null, SpRuntimeDispatchError> }
             >;
             /**
-             * A sudo just took place. \[result\]
+             * A [sudo_as](Pallet::sudo_as) call just took place.
              **/
             SudoAsDone: AugmentedEvent<
                 ApiType,
@@ -753,6 +846,14 @@ declare module '@polkadot/api-base/types/events' {
              * On on-chain remark happened.
              **/
             Remarked: AugmentedEvent<ApiType, [sender: AccountId32, hash_: H256], { sender: AccountId32; hash_: H256 }>;
+            /**
+             * An upgrade was authorized.
+             **/
+            UpgradeAuthorized: AugmentedEvent<
+                ApiType,
+                [codeHash: H256, checkVersion: bool],
+                { codeHash: H256; checkVersion: bool }
+            >;
             /**
              * Generic event
              **/

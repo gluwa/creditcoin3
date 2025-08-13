@@ -17,7 +17,6 @@ use sc_consensus_babe::BabeWorkerHandle;
 use sc_consensus_grandpa::FinalityProofProvider;
 use sc_consensus_manual_seal::rpc::EngineCommand;
 use sc_rpc::SubscriptionTaskExecutor;
-use sc_rpc_api::DenyUnsafe;
 use sc_service::TaskManager;
 use sc_service::TransactionPool;
 use sc_transaction_pool::ChainApi;
@@ -28,7 +27,6 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
-use fc_rpc::OverrideHandle;
 use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
 use sc_client_api::BlockOf;
 use sp_block_builder::BlockBuilder;
@@ -40,9 +38,7 @@ mod eth;
 
 use crate::client::RuntimeApiCollection;
 
-pub use self::eth::{
-    consensus_data_provider::BabeConsensusDataProvider, create_eth, overrides_handle, EthDeps,
-};
+pub use self::eth::{consensus_data_provider::BabeConsensusDataProvider, create_eth, EthDeps};
 
 type HasherFor<Block> = <<Block as BlockT>::Header as HeaderT>::Hashing;
 
@@ -52,8 +48,6 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     pub client: Arc<C>,
     /// Transaction pool instance.
     pub pool: Arc<P>,
-    /// Whether to deny unsafe calls
-    pub deny_unsafe: DenyUnsafe,
     /// Manual seal command sink
     pub command_sink: Option<mpsc::Sender<EngineCommand<Hash>>>,
     /// Ethereum-compatibility specific dependencies.
@@ -86,16 +80,16 @@ pub struct BabeDeps {
 }
 
 pub struct DefaultEthConfig<C, BE>(std::marker::PhantomData<(C, BE)>);
-
+use fc_storage::StorageOverride;
 pub struct SpawnTasksParams<'a, B: BlockT, C, BE> {
     pub task_manager: &'a TaskManager,
     pub client: Arc<C>,
     pub substrate_backend: Arc<BE>,
-    pub frontier_backend: fc_db::Backend<B>,
-    pub filter_pool: Option<FilterPool>,
-    pub overrides: Arc<OverrideHandle<B>>,
-    pub fee_history_limit: u64,
-    pub fee_history_cache: FeeHistoryCache,
+    pub frontier_backend: Arc<fc_db::Backend<B, C>>,
+    pub _filter_pool: Option<FilterPool>,
+    pub overrides: Arc<dyn StorageOverride<B>>,
+    pub _fee_history_limit: u64,
+    pub _fee_history_cache: FeeHistoryCache,
 }
 
 pub struct TracingConfig {
@@ -143,8 +137,8 @@ where
     CT: fp_rpc::ConvertTransaction<<Block as BlockT>::Extrinsic> + Send + Sync + 'static,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
-    use creditcoin3_rpc_debug::{Debug, DebugServer};
-    use creditcoin3_rpc_trace::{Trace, TraceServer};
+    use moonbeam_rpc_debug::{Debug, DebugServer};
+    use moonbeam_rpc_trace::{Trace, TraceServer};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
@@ -155,7 +149,6 @@ where
     let FullDeps {
         client,
         pool,
-        deny_unsafe,
         command_sink,
         eth,
         babe: BabeDeps {
@@ -166,7 +159,7 @@ where
         grandpa,
     } = deps;
 
-    io.merge(System::new(Arc::clone(&client), Arc::clone(&pool), deny_unsafe).into_rpc())?;
+    io.merge(System::new(Arc::clone(&client), Arc::clone(&pool)).into_rpc())?;
     io.merge(TransactionPayment::new(Arc::clone(&client)).into_rpc())?;
 
     if let Some(command_sink) = command_sink {
@@ -178,16 +171,7 @@ where
     }
 
     if let Some(babe_worker) = babe_worker {
-        io.merge(
-            Babe::new(
-                client.clone(),
-                babe_worker,
-                keystore,
-                select_chain,
-                deny_unsafe,
-            )
-            .into_rpc(),
-        )?;
+        io.merge(Babe::new(client.clone(), babe_worker, keystore, select_chain).into_rpc())?;
     }
 
     if let Some(GrandpaDeps {

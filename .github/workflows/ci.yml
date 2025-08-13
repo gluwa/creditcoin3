@@ -22,26 +22,76 @@ env:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   docker-build:
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS="
+      version-string: "latest"
+
+  docker-test:
+    needs:
+      - docker-build
     runs-on: ubuntu-24.04
     steps:
+      - name: Download locally built docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/gluwa/
+
+      - name: Load locally built docker image
+        run: |
+          docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
+          docker images
+
       - uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Build docker image
-        run: |
-          docker build -t gluwa/creditcoin3 .
-
-      - name: Start a container from image
+      - name: Start a Devnet container from image
         run: |
           # see https://opensource.com/article/18/5/how-find-ip-address-linux
           IP_ADDRESS=$(curl https://ifconfig.me)
           echo "INFO: IP_ADDRESS=$IP_ADDRESS"
 
-          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
-              --validator --chain testnet                                   \
-              --name "test-node-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+          docker run --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain devnet                                   \
+              --name "test-node-devnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
               --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --node-key ${{ secrets.CI_VALIDATOR_NODE_KEY }} \
+              --prometheus-external \
+              --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
+              --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+              --bootnodes "/dns4/cc3-dev-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWFCBMV5VosXByvDGKAr9bcg6iW6p6KjgGZHjJSuszVYq8" \
+              --port 30333 --unsafe-rpc-external
+
+      - name: Healtcheck
+        run: |
+          sleep 60
+          .github/check-health.sh
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator-devnet.log 2>&1
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start a Testnet container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain testnet                                   \
+              --name "test-node-testnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --node-key ${{ secrets.CI_VALIDATOR_NODE_KEY }} \
               --prometheus-external \
               --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
               --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
@@ -52,6 +102,48 @@ jobs:
         run: |
           sleep 60
           .github/check-health.sh
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator-testnet.log 2>&1
+
+      - name: Kill the container
+        if: github.base_ref == 'main'
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start a Mainnet container from image
+        if: github.base_ref == 'main'
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 gluwa/creditcoin3   \
+              --validator --chain mainnet                                   \
+              --name "test-node-mainnet-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT" \
+              --public-addr "/dns4/$IP_ADDRESS/tcp/30333" \
+              --node-key ${{ secrets.CI_VALIDATOR_NODE_KEY }} \
+              --prometheus-external \
+              --telemetry-url "wss://telemetry.polkadot.io/submit/ 0" \
+              --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
+              --bootnodes "/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" \
+              --port 30333 --unsafe-rpc-external
+
+      - name: Healtcheck
+        if: github.base_ref == 'main'
+        run: |
+          sleep 60
+          .github/check-health.sh
+
+      - name: Collect docker logs
+        if: github.base_ref == 'main'
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator-mainnet.log 2>&1
 
       - name: Sanity test creditcoin-cli inside the container
         run: |
@@ -65,11 +157,6 @@ jobs:
               docker exec creditcoin-validator  ls -l "/$spec"
           done
 
-      - name: Collect docker logs
-        if: always()
-        run: |
-          docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
-
       - name: Kill the container
         run: |
           sudo killall -9 creditcoin3-node
@@ -77,7 +164,9 @@ jobs:
           docker rm -f creditcoin-validator
           sleep 10
 
-      - name: Start container via compose
+      - name: Start Testnet container via compose
+        env:
+          NODE_KEY: ${{ secrets.CI_VALIDATOR_NODE_KEY }}
         run: |
           docker compose up -d
 
@@ -90,7 +179,7 @@ jobs:
       - name: Collect compose logs
         if: always()
         run: |
-          docker compose logs --no-color > docker-compose.log
+          docker compose logs --no-color > docker-compose-testnet.log
 
       - name: Upload logs
         if: always()
@@ -102,6 +191,43 @@ jobs:
       - name: Kill the container
         run: |
           sudo killall -9 creditcoin3-node
+
+  git-rebase-sanity-check:
+    runs-on: ubuntu-24.04
+    if: github.base_ref == 'dev'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff
+          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-testnet" >> "$GITHUB_ENV"
+
+      - name: Rebase current PR against `testnet`
+        run: |
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          git branch
+          git rebase "origin/testnet"
+
+      - name: DEBUG
+        if: always()
+        run: |
+          cat .git/rebase-merge/git-rebase-todo.backup || echo
+          git status
+          git branch
+          git diff --diff-filter=U | colordiff
+
+          echo "Most Recent Common Ancestor"
+          git merge-base "${{ env.BRANCH_NAME }}" origin/testnet --all
+
 
   sanity-tests:
     runs-on: ubuntu-24.04
@@ -220,11 +346,9 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          profile: minimal
-          override: true
           components: rustfmt
 
       - name: Check formatting
@@ -252,13 +376,11 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
-          components: clippy
+          targets: wasm32-unknown-unknown
+          components: clippy, rust-src
       - uses: Swatinem/rust-cache@v2
 
       - name: Run Clippy
@@ -289,12 +411,10 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
       - name: Check Build
@@ -323,12 +443,11 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          targets: wasm32-unknown-unknown
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests
@@ -337,135 +456,47 @@ jobs:
           command: test
           args: --features=runtime-benchmarks -- --test-threads 1
 
-  build-creditcoin-node:
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [devnet, testnet]
-    name: build-creditcoin-node-for-${{ matrix.target }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
+  build-creditcoin-node-for-devnet:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime --features=devnet"
+      version-string: devnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
+  build-creditcoin-node-for-testnet:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release"
+      version-string: testnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=fast-runtime --features=devnet" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
-
-  build-creditcoin-node-for-testing:
+  build-creditcoin-node-for-testing-devnet:
     needs:
-      - build-creditcoin-node
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [devnet, ci]
-    name: build-creditcoin-node-for-testing-${{ matrix.target }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
+      - build-creditcoin-node-for-devnet
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime --features=devnet"
+      version-string: testing-devnet
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-
-      - name: Extra compiler flags
-        if: matrix.target == 'devnet'
-        id: compiler-flags
-        run: |
-          echo "extra=--features=devnet" >> "$GITHUB_OUTPUT"
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release --features=fast-runtime ${{ steps.compiler-flags.outputs.extra }}
-
-      - name: Upload creditcoin-node binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin-node-for-testing-${{ matrix.target }}
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: creditcoin_node_runtime.compact.compressed.wasm-for-${{ matrix.target }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+  build-creditcoin-node-for-testing-ci:
+    needs:
+      - build-creditcoin-node-for-devnet
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      version-string: testing-ci
+      cache-key-name: build-creditcoin-node
+    secrets: inherit
 
   integration-test-smart-contract:
+    # skipped until SMC-1036 is resolved
+    if: false
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -475,7 +506,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -511,7 +542,7 @@ jobs:
 
   integration-test-check-extrinsics:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -526,7 +557,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Run Extrinsics Ordering
@@ -570,7 +601,7 @@ jobs:
           yarn install
           yarn test:unit
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v5
         with:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
@@ -724,7 +755,7 @@ jobs:
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
       - deploy-github-runner
     runs-on:
       [
@@ -746,7 +777,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -863,7 +894,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload code coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: cli/coverage/lcov.info
           fail_ci_if_error: false
@@ -871,7 +902,7 @@ jobs:
 
   integration-test-blockchain:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -881,7 +912,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
@@ -925,7 +956,8 @@ jobs:
 
   integration-test-chainspec:
     needs:
-      - build-creditcoin-node
+      - build-creditcoin-node-for-devnet
+      - build-creditcoin-node-for-testnet
     strategy:
       fail-fast: false
       matrix:
@@ -940,7 +972,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-${{ matrix.chainspec }}
+          name: binary-for-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
@@ -1003,12 +1035,10 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo audit
@@ -1069,7 +1099,7 @@ jobs:
 
   docs-smart-contract-development-with-hardhat:
     needs:
-      - build-creditcoin-node-for-testing
+      - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -1079,7 +1109,7 @@ jobs:
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v4
         with:
-          name: creditcoin-node-for-testing-ci
+          name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js

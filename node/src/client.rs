@@ -1,5 +1,6 @@
 // Substrate
-use sc_executor::{NativeElseWasmExecutor, NativeExecutionDispatch, NativeVersion};
+#[allow(deprecated)]
+use sc_executor::WasmExecutor;
 // Local
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Nonce};
 
@@ -8,33 +9,25 @@ use crate::eth::EthCompatRuntimeApiCollection;
 /// Full backend.
 pub type FullBackend = sc_service::TFullBackend<Block>;
 /// Full client.
-pub type FullClient<RuntimeApi, Executor> =
-    sc_service::TFullClient<Block, RuntimeApi, NativeElseWasmExecutor<Executor>>;
+#[allow(deprecated)]
+pub type FullClient<RuntimeApi> =
+    sc_service::TFullClient<Block, RuntimeApi, WasmExecutor<HostFunctions>>;
 
-pub type Client = FullClient<creditcoin3_runtime::RuntimeApi, TemplateRuntimeExecutor>;
+pub type Client = FullClient<creditcoin3_runtime::RuntimeApi>;
 
 /// Only enable the benchmarking host functions when we actually want to benchmark.
 #[cfg(feature = "runtime-benchmarks")]
 pub type HostFunctions = (
+    sp_io::SubstrateHostFunctions,
     frame_benchmarking::benchmarking::HostFunctions,
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
 );
 /// Otherwise we use empty host functions for ext host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
-pub type HostFunctions = (creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,);
-
-pub struct TemplateRuntimeExecutor;
-impl NativeExecutionDispatch for TemplateRuntimeExecutor {
-    type ExtendHostFunctions = HostFunctions;
-
-    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        creditcoin3_runtime::api::dispatch(method, data)
-    }
-
-    fn native_version() -> NativeVersion {
-        creditcoin3_runtime::native_version()
-    }
-}
+pub type HostFunctions = (
+    sp_io::SubstrateHostFunctions,
+    creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+);
 
 /// A set of APIs that every runtimes must implement.
 pub trait BaseRuntimeApiCollection:

@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Redirect output to stderr.
+exec 1>&2
+echo "INFO: pre-commit: checking if sources are formatted correctly"
+
+cargo fmt --check --
+RESULT=$?
+
+if [ "$RESULT" != "0" ]; then
+    echo "INFO: pre-commit: cargo fmt failed"
+    echo "FAIL: pre-commit: aborting the commit"
+    exit $RESULT
+fi
+
+# Check if there are any .toml files that have changed
+if git diff --cached --name-only | grep -q '\.toml$'; then
+    taplo format --check
+    RESULT=$?
+    if [ "$RESULT" != "0" ]; then
+        echo "INFO: pre-commit: taplo format failed"
+        echo "FAIL: pre-commit: aborting the commit"
+        exit $RESULT
+    fi
+fi
+
+exit $RESULT

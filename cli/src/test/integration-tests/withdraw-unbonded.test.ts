@@ -122,15 +122,22 @@ describe('withdraw-unbonded', () => {
                 const maxIterations = 200;
                 for (let i = 0; i < maxIterations; i++) {
                     const errMsg = `Failed on iteration #${i}/${maxIterations}`;
+
+                    // note: we sleep exactly blockTime but the other calls still take some time
+                    // and it's possible that at some iterations the query spans 2 blocks
                     await sleep(blockTime);
                     const newUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
 
                     // time always decreases towards zero
                     expect(oldUnbonding, errMsg).toBeGreaterThanOrEqual(newUnbonding);
 
-                    // diff between 2 consequtive queries is no more than 5 seconds
                     const difference = oldUnbonding - newUnbonding;
-                    expect(difference, errMsg).toBeLessThanOrEqual(blockTime);
+
+                    // diff between 2 consequtive queries is [5, 10] seconds
+                    // the upper range to account for race condition b/c when block is stored
+                    //  on chain and when we actually query for this information
+                    expect(difference, errMsg).toBeGreaterThanOrEqual(blockTime);
+                    expect(difference, errMsg).toBeLessThanOrEqual(blockTime * 2);
 
                     oldUnbonding = newUnbonding;
                 }
@@ -162,7 +169,7 @@ describe('withdraw-unbonded', () => {
                     );
                 }
             },
-            60_000,
+            90_000,
         );
 
         testIf(
@@ -178,6 +185,7 @@ describe('withdraw-unbonded', () => {
                     );
                 }
             },
+            90_000,
         );
 
         testIf(

@@ -14,6 +14,14 @@ jobs:
     outputs:
       TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
     steps:
+      - name: Report to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Release pipeline started! cc <@U028EMRHS3S>"
+
       - uses: actions/checkout@v4
         with:
           lfs: true
@@ -57,177 +65,30 @@ jobs:
     needs:
       - sanity-check
       - setup
-    strategy:
-      fail-fast: false
-      matrix:
-        operating-system: [ubuntu-24.04, windows-2022, macos-13]
-    runs-on: ${{ matrix.operating-system }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        shell: bash
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          target: wasm32-unknown-unknown
-          profile: minimal
-          override: true
-
-      - name: Install MacOS aarch64 target
-        if: matrix.operating-system == 'macos-13'
-        uses: gluwa/toolchain@dev
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          target: aarch64-apple-darwin
-          profile: minimal
-          override: true
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Figure out platform
-        shell: bash
-        run: |
-          PLATFORM=$(rustup target list --installed | grep "$(uname -m)")
-          echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
-
-      - name: DEBUG
-        shell: bash
-        run: |
-          echo "Tag & Platform is '${{ needs.sanity-check.outputs.TAG_NAME }}-${{ env.PLATFORM }}'"
-
-      - name: Build
-        continue-on-error: true
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release ${{ needs.setup.outputs.build_options}}
-
-      - name: Build MacOS aarch64 target
-        if: matrix.operating-system == 'macos-13'
-        continue-on-error: true
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release --target aarch64-apple-darwin
-
-      - name: Compress
-        continue-on-error: true
-        uses: thedoctor0/zip-release@0.7.6
-        with:
-          type: "zip"
-          directory: "target/release/"
-          path: "creditcoin3-node*"
-          filename: "../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-${{ env.PLATFORM }}.zip"
-          exclusions: "creditcoin3-node.d"
-
-      - name: Compress MacOS aarch64 target
-        if: matrix.operating-system == 'macos-13'
-        continue-on-error: true
-        uses: thedoctor0/zip-release@0.7.6
-        with:
-          type: "zip"
-          directory: "target/aarch64-apple-darwin/release/"
-          path: "creditcoin3-node*"
-          filename: "../../../creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-aarch64-apple-darwin.zip"
-          exclusions: "creditcoin3-node.d"
-
-      - name: Upload binary
-        if: matrix.operating-system != 'windows-2022'
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-for-${{ matrix.operating-system }}
-          path: "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-*.zip"
-          if-no-files-found: warn
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features metadata-hash ${{ needs.setup.outputs.build_options}}"
+      version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
+    secrets: inherit
 
   build-wasm-runtime:
     needs:
       - sanity-check
       - setup
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Build WASM runtime
-        id: srtool_build
-        uses: chevdor/srtool-actions@v0.8.0
-        env:
-          BUILD_OPTS: "--release ${{ needs.setup.outputs.build_options }}"
-        with:
-          chain: "creditcoin"
-          runtime_dir: runtime
-          package: creditcoin3-runtime
-          tag: ${{ env.RUSTC_VERSION }}
-          workdir: ${{ github.workspace }}
-
-      - name: DEBUG
-        run: |
-          echo '${{ steps.srtool_build.outputs.json }}' | jq . > creditcoin-srtool-digest.json
-          cat creditcoin-srtool-digest.json
-          echo "Runtime location: ${{ steps.srtool_build.outputs.wasm }}"
-
-      - name: Rename file
-        run: |
-          mv ${{ steps.srtool_build.outputs.wasm }} creditcoin-${{ needs.sanity-check.outputs.TAG_NAME  }}-runtime.wasm
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-for-wasm
-          path: "*.wasm"
-          if-no-files-found: error
+    uses: ./.github/workflows/build-wasm.yml
+    with:
+      build-options: "--features metadata-hash ${{ needs.setup.outputs.build_options }}"
+      version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
 
   docker-build:
     needs:
       - sanity-check
       - setup
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Figure out tag name
-        shell: bash
-        run: |
-          TAG_NAME=$(git describe --tag)
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-
-      - name: Build docker image
-        run: |
-          docker build -t gluwa/creditcoin3:${{needs.sanity-check.outputs.TAG_NAME  }} --build-arg="BUILD_ARGS=${{ needs.setup.outputs.build_options }}" .
-
-          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
-          docker push gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }}
-
-          # only -mainnet images are tagged as :latest
-          # shellcheck disable=SC2046,SC2143
-          if [ $(echo "${{ needs.sanity-check.outputs.TAG_NAME }}" | grep "mainnet") ]; then
-              docker tag gluwa/creditcoin3:${{ needs.sanity-check.outputs.TAG_NAME  }} gluwa/creditcoin3:latest
-              docker push gluwa/creditcoin3:latest
-          fi
-
-          docker logout
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash"
+      version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
+    secrets: inherit
 
   create-release:
     permissions:
@@ -237,6 +98,7 @@ jobs:
       - sanity-check
       - build-native-runtime
       - build-wasm-runtime
+      - docker-build
     steps:
       - uses: actions/checkout@v4
         with:
@@ -249,14 +111,27 @@ jobs:
           pattern: binary-for-*
           merge-multiple: true
 
-      - name: DEBUG
+      - name: Compress creditcoin-node binary
         shell: bash
+        working-directory: artifact/
         run: |
+          # -m removes the uncompressed file b/c we don't want to be uploading it
+          zip -m "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" creditcoin3-node
+
           ls -lR
 
       - name: Make the release
         uses: softprops/action-gh-release@v2
         with:
-          files: "artifact/creditcoin-*${{ needs.sanity-check.outputs.TAG_NAME }}*"
+          files: "artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*"
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Release pipeline finished! cc <@U028EMRHS3S>"

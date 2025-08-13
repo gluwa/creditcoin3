@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - type-runtime-upgrade
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # Ignore the specific error from shellcheck
+      - "shellcheck reported issue in this script: SC2129:.+"

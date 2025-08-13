@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Redirect output to stderr.
+exec 1>&2
+
+# Check for Merge commits in the last 100
+commits=$(git log HEAD~100..HEAD | grep "Merge: ")
+if [ -n "$commits" ]; then
+    echo "FAIL: pre-push: found Merge: commit(s)"
+    exit 1
+fi
+
+exit 0
