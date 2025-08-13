@@ -26,7 +26,7 @@ edition = "2021"
 license = "Unlicense"
 publish = false
 repository = "https://github.com/gluwa/creditcoin3-next/"
-version = "3.46.0"
+version = "3.47.0"
 
 [workspace.dependencies]
 assert_matches = "1.5.0"
