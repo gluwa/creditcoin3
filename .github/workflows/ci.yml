@@ -493,8 +493,6 @@ jobs:
     secrets: inherit
 
   integration-test-smart-contract:
-    # skipped until SMC-1036 is resolved
-    if: false
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
