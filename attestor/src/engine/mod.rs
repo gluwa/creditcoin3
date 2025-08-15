@@ -1,10 +1,9 @@
-use anyhow::Result;
-use eth::Client;
-use sp_core::H256;
-use std::collections::BTreeSet;
-use std::sync::Arc;
-use std::time::Duration;
+// --- std ---
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
+// --- external crates ---
+use anyhow::Result;
+use sp_core::H256;
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender, UnboundedSender},
@@ -15,16 +14,19 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
+// --- workspace crates ---
 use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest};
 use cc_client::attestation::Subscription;
 use creditcoin3_attestor_gossip::communication::Attestation;
+use eth::Client;
 
-use crate::{
-    cc3, ccsub, continuity, error::Error, eth_sub, metric_set_label, prom, sync_state::SyncState,
-    Config,
-};
+// --- local crate ---
+use crate::{cc3, continuity, error::Error, metric_set_label, prom, prom::AttestorMetrics, Config};
 
-use crate::prom::AttestorMetrics;
+mod source_chain;
+mod sync_state;
+
+use sync_state::SyncState;
 
 pub const ATTESTATION_BUFFER_SIZE: usize = 100;
 
@@ -92,6 +94,7 @@ impl State {
         matches!(self, Self::Halted(_))
     }
 }
+
 #[derive(Debug)]
 pub struct AsyncEngine {
     inner: Arc<Mutex<Engine>>,
@@ -259,7 +262,7 @@ impl AsyncEngine {
 
     /// Note a cc event
     /// This is used to handle events from the creditcoin chain
-    pub async fn note_cc_event(&mut self, event: ccsub::Event) -> Result<(), Error> {
+    pub async fn note_cc_event(&mut self, event: cc3::Event) -> Result<(), Error> {
         let mut engine = self.inner.lock().await;
         engine.note_cc_event(event).await
     }
@@ -635,19 +638,19 @@ impl Engine {
 
     /// Note a cc event
     /// This is used to handle events from the creditcoin chain
-    pub async fn note_cc_event(&mut self, event: ccsub::Event) -> Result<(), Error> {
+    pub async fn note_cc_event(&mut self, event: cc3::Event) -> Result<(), Error> {
         match event.clone() {
-            ccsub::Event::AttestationIntervalChanged((_chain_key, interval)) => {
+            cc3::Event::AttestationIntervalChanged((_chain_key, interval)) => {
                 self.note_interval_change(interval).await?;
             }
-            ccsub::Event::BlockAttested(attestation) => {
+            cc3::Event::BlockAttested(attestation) => {
                 self.note_last_attested_header(attestation.header_number())
                     .await?;
             }
-            ccsub::Event::RandomnessChanged((epoch, _randomness)) => {
+            cc3::Event::RandomnessChanged((epoch, _randomness)) => {
                 self.note_epoch_change(epoch).await?;
             }
-            ccsub::Event::CheckpointReached(ck, checkpoint) => {
+            cc3::Event::CheckpointReached(ck, checkpoint) => {
                 if self.chain_key() != ck {
                     debug!("Ignoring checkpoint for different chain key");
                     return Ok(());
@@ -776,7 +779,7 @@ async fn subscribe_to_new_heads_task(
     let checkpoint_interval = cc3_client.get_checkpoint_interval().await?;
     let target_header = start_block + (u64::from(checkpoint_interval) * attestation_interval);
 
-    Ok(eth_sub::attest_to_heads(
+    Ok(source_chain::attest_to_heads(
         eth_client,
         sender,
         start,

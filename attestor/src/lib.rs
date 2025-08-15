@@ -3,16 +3,12 @@ use engine::AsyncEngine;
 use tokio::{sync::mpsc, time::sleep};
 use tracing::{debug, error, info, warn};
 
-mod attestation;
 mod cc3;
-mod ccsub;
 mod continuity;
-pub mod engine;
+mod engine;
 mod error;
-mod eth_sub;
 mod prom;
-mod retry;
-mod sync_state;
+mod util;
 
 #[derive(Debug, Clone)]
 /// Attestor server is configured using `Config`
@@ -54,7 +50,8 @@ impl Server {
 
         // Create a task for ccsub and monitor it
         let mut ccsub_engine = engine.clone();
-        let mut ccsub_handle = tokio::spawn(async move { ccsub::run(&mut ccsub_engine).await });
+        let mut ccsub_handle =
+            tokio::spawn(async move { cc3::ccsub::run(&mut ccsub_engine).await });
 
         loop {
             tokio::select! {

@@ -140,7 +140,7 @@ impl Cache {
             let fragment_manager = Manager::new(*missing_start, *missing_end, &self.eth_client);
 
             // Use retry logic to ensure fragment creation is attempted multiple times
-            let fragment: AttestationFragment = crate::retry::ret(
+            let fragment: AttestationFragment = crate::util::retry::ret(
                 || async { fragment_manager.create(prev_digest).await },
                 10,       // max_retries
                 10,       // delay between retries (seconds)

@@ -17,6 +17,23 @@ use vrf::ProofOfInclusion;
 
 use crate::error::Error;
 
+pub mod ccsub;
+
+pub type Randomness = [u8; 32];
+pub type RandomnessChange = (u64, Randomness);
+pub type AttestationIntervalChange = (ChainKey, u64);
+
+/// Event that can be received from the client
+/// - `RandomnessChanged`: Randomness changed
+/// - `AttestationIntervalChanged`: Attestation interval changed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Event {
+    RandomnessChanged(RandomnessChange),
+    AttestationIntervalChanged(AttestationIntervalChange),
+    BlockAttested(SignedAttestation<H256, AccountId32>),
+    CheckpointReached(ChainKey, AttestationCheckpoint),
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {
     pub chain_key: ChainKey,

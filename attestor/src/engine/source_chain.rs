@@ -1,10 +1,11 @@
 use anyhow::Result;
-use attestor_primitives::{Attestation, ChainKey};
-use eth::{self, subscription::SubscriptionConfig};
 use sp_core::H256;
 use std::time::Duration;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info};
+
+use attestor_primitives::{Attestation, ChainKey};
+use eth::{self, subscription::SubscriptionConfig};
 
 use crate::error::Error;
 
@@ -60,7 +61,7 @@ pub async fn attest_to_heads(
             Ok(next) => {
                 if let Some(block) = next {
                     // Continuously await new blocks and notify the attestor
-                    let attestation = crate::attestation::create(chain_key, &block);
+                    let attestation = crate::util::create_attestation(chain_key, &block);
 
                     debug!("Sending attestation: {:?}", attestation.round());
                     // Send an attestation back on the channel

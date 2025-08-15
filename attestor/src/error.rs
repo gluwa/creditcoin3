@@ -7,8 +7,6 @@ use attestor_primitives::Attestation;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Failed to submit attestation")]
-    FailedToSubmit,
     #[error("Double vote for block: {0}")]
     DoubleVote(u64),
     #[error("Engine is not running")]
@@ -65,11 +63,6 @@ impl Error {
     #[must_use]
     pub fn is_double_vote_error(&self) -> bool {
         matches!(self, Error::DoubleVote(_))
-    }
-
-    #[must_use]
-    pub fn is_client_error(&self) -> bool {
-        matches!(self, Error::Cclient(cc_client::Error::SubxtError(_)))
     }
 
     #[must_use]

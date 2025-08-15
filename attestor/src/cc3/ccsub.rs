@@ -1,27 +1,10 @@
 use anyhow::Result;
-use sp_core::H256;
 use tracing::{debug, info};
 
-use cc_client::{attestation::CcEvent, AccountId32};
+use cc_client::attestation::CcEvent;
 
-use attestor_primitives::{AttestationCheckpoint, ChainKey, SignedAttestation};
-
+use super::Event;
 use crate::engine::AsyncEngine;
-
-pub type Randomness = [u8; 32];
-pub type RandomnessChange = (u64, Randomness);
-pub type AttestationIntervalChange = (ChainKey, u64);
-
-/// Event that can be received from the client
-/// - `RandomnessChanged`: Randomness changed
-/// - `AttestationIntervalChanged`: Attestation interval changed
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event {
-    RandomnessChanged(RandomnessChange),
-    AttestationIntervalChanged(AttestationIntervalChange),
-    BlockAttested(SignedAttestation<H256, AccountId32>),
-    CheckpointReached(ChainKey, AttestationCheckpoint),
-}
 
 pub async fn run(engine: &mut AsyncEngine) -> Result<()> {
     let mut event_sub = engine.event_sub().await?;
