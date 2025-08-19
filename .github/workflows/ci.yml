@@ -260,7 +260,7 @@ jobs:
 
   git-rebase-sanity-check:
     runs-on: ubuntu-24.04
-    if: github.base_ref == 'dev'
+    if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
     steps:
       - uses: actions/checkout@v4
         with:

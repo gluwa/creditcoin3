@@ -15,6 +15,6 @@ jobs:
     permissions: write-all
     uses: ./.github/workflows/rebase-branch-and-propose-pr.yml
     with:
-      source-branch: dev
+      source-branch: poc_external_attestation_network
       target-branch: testnet
     secrets: inherit
