@@ -63,7 +63,7 @@ jobs:
           from-branch: ${{ env.BRANCH_NAME }}
           to-branch: ${{ inputs.target-branch }}
           repository-owner: gluwa
-          repository: creditcoin3
+          repository: creditcoin3-next
 
       - name: Report result to Slack
         if: always()
