@@ -29,6 +29,7 @@ anyhow = "1.0"
 axum = "0.8"
 prometheus = "0.14"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
 
 # Creditcoin deps
 attestation-chain = { workspace = true }

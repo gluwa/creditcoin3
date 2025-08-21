@@ -6,6 +6,7 @@ use mmr::traits::MerkleTreeTrait;
 use tracing::debug;
 
 pub mod retry;
+pub mod sanitize_url;
 
 // Create the attestation data from a NewBlock
 #[must_use]

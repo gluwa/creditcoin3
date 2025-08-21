@@ -2,6 +2,7 @@ use prometheus::{Error, Gauge, GaugeVec, Opts, Registry};
 use std::sync::Arc;
 use tracing::{debug, error};
 
+use crate::util::sanitize_url::sanitize_rpc_url_api_key;
 use crate::Config;
 
 pub mod http;
@@ -19,7 +20,7 @@ pub fn start_prom_server(config: &Config) -> Option<AttestorMetrics> {
     metric_set_labels!(
         metrics,
         source_chain_rpc_url,
-        &config.eth_rpc_url,
+        sanitize_rpc_url_api_key(&config.eth_rpc_url),
         &config.chain_key,
         1
     );

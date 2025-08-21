@@ -74,6 +74,7 @@ impl HttpServer {
 mod tests {
     use super::HttpServer;
     use crate::prom::{register_metrics, AttestorMetrics};
+    use crate::util::sanitize_url::sanitize_rpc_url_api_key;
     use crate::{metric_set, metric_set_labels};
     use axum::{
         body::{to_bytes, Body},
@@ -81,7 +82,6 @@ mod tests {
     };
     use prometheus::Registry;
     use std::sync::Arc;
-
     use tower::util::ServiceExt;
 
     #[tokio::test]
@@ -154,5 +154,49 @@ mod tests {
 
         assert_eq!(body_str, expected_body);
         assert!(body_str.contains("source_chain_rpc_url=\"localhost:8545\"}"));
+    }
+
+    #[tokio::test]
+    async fn prometheus_metrics_contain_redacted_api_key() {
+        let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
+        let metrics: Option<AttestorMetrics> = register_metrics(&prometheus_registry.clone());
+
+        metric_set_labels!(
+            metrics,
+            source_chain_rpc_url,
+            sanitize_rpc_url_api_key(
+                "https://sepolia.infura.io/v3/12345678901234567890123456789012"
+            ),
+            2,
+            1
+        );
+        let http_server = HttpServer {
+            prometheus_registry,
+            bind_address: "0.0.0.0".to_string(),
+            port: 9100,
+        };
+
+        let app = http_server.app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_str = String::from_utf8(bytes.to_vec()).unwrap();
+        let expected_body = "# HELP attestor_chain_key Attestor chain key\n# TYPE attestor_chain_key gauge\nattestor_chain_key 0\n# HELP source_chain_rpc_url Source chain node rpc url\n# TYPE source_chain_rpc_url gauge\nsource_chain_rpc_url{chain_key=\"2\",source_chain_rpc_url=\"https://sepolia.infura.io/v3/redacted\"} 1\n".to_string();
+
+        assert_eq!(body_str, expected_body);
+        assert!(
+            body_str.contains("source_chain_rpc_url=\"https://sepolia.infura.io/v3/redacted\"}")
+        );
     }
 }
