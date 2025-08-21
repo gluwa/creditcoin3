@@ -1,6 +1,6 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::query::QueryId;
 use artifacts::ChainDeploymentArtifact;
@@ -100,7 +100,7 @@ pub async fn provide_unprocessed_queries(
 
 pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-    info!(
+    debug!(
         "📝 Submitting proof for query {:?}, chain id {}",
         query.id(),
         chain_id
@@ -117,7 +117,11 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
 
     match tx_hash {
         Ok(tx_hash) => {
-            info!("📝 Proof submitted successfully, tx_hash: {}", tx_hash);
+            info!(
+                "✅ Proof submitted successfully for query: {:?}, tx_hash: {}",
+                query.id(),
+                tx_hash
+            );
             Ok(tx_hash.to_string())
         }
         Err(e) => {
@@ -125,6 +129,26 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
             Err(e)
         }
     }
+}
+
+pub async fn subscribe_proof_verification_events(
+    eth_client: &Client,
+    proof_channel: mpsc::UnboundedSender<QueryId>,
+) -> Result<()> {
+    let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
+
+    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+
+    artifact
+        .contract
+        .subscribe_proof_verification_events(eth_client, proof_channel)
+        .await?;
+
+    info!(
+        "✅ Subscribed to proof verification events on chain {}",
+        chain_id
+    );
+    Ok(())
 }
 
 pub async fn subscribe_query_submissions(

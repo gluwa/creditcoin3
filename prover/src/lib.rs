@@ -131,7 +131,7 @@ impl Server {
 
         // Build historical cache
         info!(
-            "🛠️ Building historical cache for chain with id: {}",
+            "🛠️  Building historical cache for chain with id: {}",
             chain_key
         );
         attestation::cache::build_historical_cache_for_chain(
@@ -149,26 +149,29 @@ impl Server {
 
         // Spawn a task to check for queries on contract storage and subscribe to new submissions
         tokio::spawn(async move {
-            let retry_delay = std::time::Duration::from_secs(10);
+            contract::provide_unprocessed_queries(&client_clone, new_query_sender.clone()).await
+        });
 
-            loop {
-                if let Err(e) =
-                    contract::provide_unprocessed_queries(&client_clone, new_query_sender.clone())
-                        .await
-                {
-                    error!(
-                        "🔴 Query provider failed: {:?}. Retrying after {:?}...",
-                        e, retry_delay
-                    );
-                }
-                tokio::time::sleep(retry_delay).await;
-            }
+        let (proof_verified_event_sender, proof_verified_event_receiver) =
+            mpsc::unbounded_channel::<H256>();
+
+        let proof_client_clone = self.cc3_client.clone();
+
+        // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
+        info!("🛰️  Subscribing to proof verification events on the contract");
+        tokio::spawn(async move {
+            contract::subscribe_proof_verification_events(
+                &proof_client_clone,
+                proof_verified_event_sender.clone(),
+            )
+            .await
         });
 
         self.handle_ongoing_queries_and_fatal_errors(
             sync_cache_handle,
             new_attestation_receiver,
             new_query_receiver,
+            proof_verified_event_receiver,
         )
         .await?;
         Ok(())
@@ -179,6 +182,7 @@ impl Server {
         mut sync_cache_handle: JoinHandle<()>,
         mut new_attestation_receiver: mpsc::UnboundedReceiver<u64>,
         mut new_query_receiver: mpsc::UnboundedReceiver<Query>,
+        mut proof_event_receiver: mpsc::UnboundedReceiver<H256>,
     ) -> Result<()> {
         let mut light_prover_queries = FuturesUnordered::new();
 
@@ -278,7 +282,11 @@ impl Server {
                     if let Some(id) = query_id {
                         self.cleanup_query(id);
                     }
-                }
+                },
+                Some(query_id) = proof_event_receiver.recv() => {
+                    // Log the proof verification event for now. Could also return result segments to the prover if needed
+                    info!("🛰️  Proof verification event received for query: {:?}", query_id);
+                },
             }
         }
     }
@@ -300,7 +308,7 @@ impl Server {
             info!("📝 Submitting proof for query: {:?}", query_id);
             match contract::submit_proof(&self.cc3_client, query, proof).await {
                 Ok(_) => {
-                    info!("✅ Proof submitted successfully for query: {:?}", query_id);
+                    info!("🏁 Proof verified successfully for query: {:?}", query_id);
                     Ok(())
                 }
                 Err(e) => {
@@ -436,6 +444,7 @@ impl Server {
                         info!("📝 Submitting proof for query: {:?}", query);
                         // Prevent unnecessary clone
                         let query_id = query.id();
+
                         if let Err(e) = contract::submit_proof(&self.cc3_client, query, proof).await
                         {
                             error!(

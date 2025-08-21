@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{debug, info};
 
 use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use sp_core::H256;
@@ -136,7 +136,7 @@ impl GluwaPublicProverContract {
         query_id: FixedBytes<32>,
         proof: Proof,
     ) -> Result<String> {
-        info!("Submitting query proof for query: {:?}", query_id);
+        debug!("Submitting query proof for query: {:?}", query_id);
 
         let provider = client.get_wallet_ws_provider().await?;
 
@@ -282,12 +282,34 @@ impl GluwaPublicProverContract {
         Ok(result.to_string())
     }
 
+    pub async fn subscribe_proof_verification_events(
+        &self,
+        client: &Client,
+        proof_channel: mpsc::UnboundedSender<H256>,
+    ) -> Result<()> {
+        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
+
+        let sub = contract.QueryProofVerified_filter().subscribe().await?;
+        let mut stream = sub.into_stream();
+
+        info!("Subscribed to proof verification events");
+
+        while let Some(proof) = stream.next().await {
+            let (proof_verified, _log) = proof?;
+            let query_id = proof_verified.queryId;
+
+            proof_channel.send(H256::from_slice(&query_id[..]))?;
+        }
+
+        Err(anyhow::anyhow!("Proof verification event stream ended"))
+    }
+
     pub async fn subscribe_proof_verification(
         &self,
         client: &Client,
         query_id: FixedBytes<32>,
     ) -> Result<Vec<ResultSegment>> {
-        info!(
+        debug!(
             "Subscribing to proof verification for query: {:?}",
             query_id
         );
@@ -297,7 +319,7 @@ impl GluwaPublicProverContract {
         let sub = contract.QueryProofVerified_filter().subscribe().await?;
         let mut stream = sub.into_stream();
 
-        info!("Subscribed to proof verification");
+        debug!("Subscribed to proof verification");
 
         while let Some(proof) = stream.next().await {
             let (proof_verified, _log) = proof?;
