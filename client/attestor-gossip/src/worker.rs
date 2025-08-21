@@ -306,7 +306,7 @@ where
         attestation: Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
         if self.sync.is_major_syncing() {
-            warn!(target: LOG_TARGET, "📝 Node is syncing, skipping message");
+            warn!(target: LOG_TARGET, "📝 Node is syncing, skipping message for digest {:?}", attestation.digest());
             return Err(Error::WorkerInSync);
         }
         metric_set_chain!(
@@ -323,7 +323,7 @@ where
         let round = attestation.round();
         match import_result {
             VoteImportResult::DoubleVote => {
-                warn!(target: LOG_TARGET, "📝 Double vote detected, round: {:?}", round);
+                warn!(target: LOG_TARGET, "📝 Double vote detected, round: {:?} for digest {:?}", round, attestation.digest());
                 metric_inc_chain!(
                     self.metrics,
                     attestor_equivocation_votes_per_chain,
@@ -338,12 +338,12 @@ where
                     attestation.chain_key(),
                     attestation.header_number()
                 );
-                info!(target: LOG_TARGET, "📝 Attestation added to round: {:?}", round);
+                info!(target: LOG_TARGET, "📝 Attestation added to round: {:?} for digest {:?}", round, attestation.digest());
                 // Validate the vote
                 return self.validate_vote(&attestation);
             }
             VoteImportResult::Stale => {
-                info!(target: LOG_TARGET, "📝 Stale vote detected, round: {:?}", round);
+                info!(target: LOG_TARGET, "📝 Stale vote detected, round: {:?} for digest {:?}", round, attestation.digest());
                 metric_inc_chain!(
                     self.metrics,
                     attestor_stale_votes_per_chain,
@@ -352,7 +352,7 @@ where
                 return Err(Error::StaleVote);
             }
             VoteImportResult::RoundConcluded => {
-                info!(target: LOG_TARGET, "📝 Round {:?} concluded", round);
+                info!(target: LOG_TARGET, "📝 Round {:?} concluded for digest {:?}", round, attestation.digest());
                 self.finalize_vote(attestation)?;
             }
         }
