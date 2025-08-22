@@ -268,7 +268,15 @@ where
         let filter = self.gossip_filter.read();
         Box::new(move |_who, intent, _topic, data| {
             if let MessageIntent::PeriodicRebroadcast = intent {
-                return do_rebroadcast;
+                // gate on both timer AND filter
+                if let Ok(Message::Attestation(msg)) =
+                    Message::<Block, AccountId>::decode(&mut &data[..])
+                {
+                    let round = msg.round();
+                    let allowed = filter.consider_vote(round, msg.epoch) == Consider::Accept;
+                    return do_rebroadcast && allowed;
+                }
+                return false;
             }
 
             match Message::<Block, AccountId>::decode(&mut &data[..]) {

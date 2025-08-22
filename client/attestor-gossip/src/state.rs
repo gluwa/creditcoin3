@@ -176,6 +176,7 @@ where
     pub fn note_vote(
         &mut self,
         attestation: Attestation<H, AccountId>,
+        from_rpc: bool,
     ) -> Result<VoteImportResult, Error> {
         let round = attestation.round();
 
@@ -198,7 +199,8 @@ where
         if let Some(vote_round) = self.chain_head_votes.get_mut(&chain_key) {
             let old_vote = vote_round.add_vote(attestation.clone(), round_config.current_epoch);
             if let Some(old_vote) = old_vote {
-                if old_vote == attestation {
+                // If we have an old vote, we check if it is the same as the new one and if it's received from RPC
+                if old_vote == attestation && from_rpc {
                     // If the vote is the same, we can return DoubleVote
                     // Otherwise it means the vote is different and we can proceed
                     debug!(target: LOG_TARGET, "📝 Attestor({:?}) already voted for round {:?}, header number: {}", attestor_id, (chain_key, header_number), header_number);
@@ -276,8 +278,8 @@ where
     pub fn add_round_config(&mut self, chain_key: ChainKey, round_config: RoundConfig) {
         if let Some(rc) = self.get_round_config(chain_key) {
             if rc != &round_config {
-                // Reset best round
-                self.best_round = BTreeMap::new();
+                // Reset the best round for this chain key
+                self.best_round.remove(&chain_key);
             }
         }
 
@@ -335,7 +337,7 @@ mod tests {
         let attestation_data = simulate_attestation_data(1, 1);
         let attestation = create_signed_attestation(&attestor, attestation_data);
 
-        let result = state.note_vote(attestation.clone());
+        let result = state.note_vote(attestation.clone(), false);
 
         assert!(
             result.is_err(),
@@ -361,7 +363,7 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        let result = state.note_vote(attestation.clone()).unwrap();
+        let result = state.note_vote(attestation.clone(), false).unwrap();
         assert_eq!(result, VoteImportResult::RoundConcluded);
 
         let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
@@ -388,7 +390,7 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        let result = state.note_vote(attestation.clone()).unwrap();
+        let result = state.note_vote(attestation.clone(), false).unwrap();
         assert_eq!(result, VoteImportResult::Ok);
 
         let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
@@ -398,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn test_double_vote() {
+    fn test_double_vote_from_rpc() {
         let mut state = State::default();
 
         let attestor = Attestor::new();
@@ -414,10 +416,33 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation.clone()).unwrap();
-        let result = state.note_vote(attestation.clone()).unwrap();
+        state.note_vote(attestation.clone(), true).unwrap();
+        let result = state.note_vote(attestation.clone(), true).unwrap();
 
         assert_eq!(result, VoteImportResult::DoubleVote);
+    }
+
+    #[test]
+    fn test_double_vote_not_from_rpc() {
+        let mut state = State::default();
+
+        let attestor = Attestor::new();
+
+        let attestation_data = simulate_attestation_data(1, 1);
+        let attestation = create_signed_attestation(&attestor, attestation_data);
+
+        let round_config = RoundConfig {
+            committee_set_size: 2,
+            target_sample_size: 2,
+            threshold: 2,
+            current_epoch: 1,
+        };
+        state.add_round_config(1, round_config.clone());
+
+        state.note_vote(attestation.clone(), false).unwrap();
+        let result = state.note_vote(attestation.clone(), false).unwrap();
+
+        assert_eq!(result, VoteImportResult::Ok);
     }
 
     #[test]
@@ -437,7 +462,7 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        let result = state.note_vote(attestation_1.clone()).unwrap();
+        let result = state.note_vote(attestation_1.clone(), false).unwrap();
         assert_eq!(result, VoteImportResult::RoundConcluded);
     }
 
@@ -460,12 +485,12 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        let result = state.note_vote(attestation_1.clone()).unwrap();
+        let result = state.note_vote(attestation_1.clone(), false).unwrap();
         assert_eq!(result, VoteImportResult::RoundConcluded);
 
         // Let attestor_2 vote on the same round
         // Should resolve to Stale vote
-        let result = state.note_vote(attestation_2.clone()).unwrap();
+        let result = state.note_vote(attestation_2.clone(), false).unwrap();
         assert_eq!(result, VoteImportResult::Stale);
     }
 
@@ -488,8 +513,8 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation_1.clone()).unwrap();
-        let result = state.note_vote(attestation_2.clone()).unwrap();
+        state.note_vote(attestation_1.clone(), false).unwrap();
+        let result = state.note_vote(attestation_2.clone(), false).unwrap();
 
         assert_eq!(result, VoteImportResult::RoundConcluded);
     }
@@ -515,8 +540,8 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation_1.clone()).unwrap();
-        state.note_vote(attestation_2.clone()).unwrap();
+        state.note_vote(attestation_1.clone(), false).unwrap();
+        state.note_vote(attestation_2.clone(), false).unwrap();
 
         let votes_header_1 = state.get_attestations_by_chain_and_header(1, 1).unwrap();
         let votes_header_2 = state.get_attestations_by_chain_and_header(1, 2).unwrap();
@@ -546,8 +571,8 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation_1.clone()).unwrap();
-        state.note_vote(attestation_2.clone()).unwrap();
+        state.note_vote(attestation_1.clone(), false).unwrap();
+        state.note_vote(attestation_2.clone(), false).unwrap();
 
         let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
         let (_major_digest, count) = find_major_digest(votes);
@@ -575,7 +600,7 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation.clone()).unwrap();
+        state.note_vote(attestation.clone(), false).unwrap();
 
         assert!(
             !state.chain_head_votes.is_empty(),
@@ -590,7 +615,7 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation.clone()).unwrap();
+        state.note_vote(attestation.clone(), false).unwrap();
 
         let votes = state.get_attestations_by_chain_and_header(1, 1).unwrap();
         assert!(
@@ -617,7 +642,7 @@ mod tests {
         };
         state.add_round_config(1, round_config.clone());
 
-        state.note_vote(attestation.clone()).unwrap();
+        state.note_vote(attestation.clone(), false).unwrap();
 
         assert!(
             !state.chain_head_votes.is_empty(),

@@ -263,7 +263,7 @@ where
 
                                 metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
                                 // Also process the message
-                                match self.process_attestation_message(attestation).await {
+                                match self.process_attestation_message(attestation, true).await {
                                     Ok(()) => {
                                         debug!(target: LOG_TARGET, "📝 Got a valid incoming message from rpc, round: {:?}", round);
                                         // Gossip now
@@ -294,7 +294,7 @@ where
     async fn triage_message(&mut self, message: Message<B, AccountId>) -> Result<(), Error> {
         match message {
             Message::Attestation(attestation) => {
-                self.process_attestation_message(attestation).await?;
+                self.process_attestation_message(attestation, false).await?;
             }
         }
 
@@ -304,6 +304,7 @@ where
     async fn process_attestation_message(
         &mut self,
         attestation: Attestation<HashFor<B>, AccountId>,
+        from_rpc: bool,
     ) -> Result<(), Error> {
         if self.sync.is_major_syncing() {
             warn!(target: LOG_TARGET, "📝 Node is syncing, skipping message for digest {:?}", attestation.digest());
@@ -317,7 +318,7 @@ where
         );
 
         // First we import the vote.
-        let import_result = self.state.note_vote(attestation.clone())?;
+        let import_result = self.state.note_vote(attestation.clone(), from_rpc)?;
 
         // in cases where the vote is already imported or stale we don't validate it further because we don't have to
         let round = attestation.round();
