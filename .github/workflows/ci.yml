@@ -1994,10 +1994,10 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Collect attestation gossip stats from logs
+      - name: Examine gossip stats from logs
         if: always()
         run: |
-          .github/collect-attestation-gossip-stats /var/tmp/integration-test-attestor-network/
+          .github/check-round-conclusion-for-peers /var/tmp/integration-test-attestor-network/
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
