@@ -1,3 +1,4 @@
+import { Option, U32, U64, U128 } from '@polkadot/types-codec';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
@@ -96,6 +97,74 @@ describe('handleSupportedChainRegistered()', () => {
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.chainName).toEqual(newChainName);
                 expect(BigInt(node.chainId)).toEqual(newChainId);
+            }
+        });
+
+        it('graphQL returns known AttestationChainData entity', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    attestationChainData(
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
+                        last: 1,
+                    ) {
+                        nodes {
+                            id,
+                            chainKey,
+                            attestationInterval,
+                            checkpointInterval,
+                            chainReward,
+                            lastAttestedDigest,
+                            lastAttestedHeaderNumber,
+                            lastCheckpointHeaderNumber,
+                            maxSetSize,
+                            targetSampleSize,
+                            minBondRequirement,
+                            voteAcceptanceWindow
+                        }
+                    }
+                }`,
+            );
+            expect(response.data.attestationChainData.nodes).toBeTruthy();
+            expect(response.data.attestationChainData.nodes.length).toEqual(1);
+
+            for (const node of response.data.attestationChainData.nodes) {
+                expect(node.id).toEqual(newChainKey.toString());
+                expect(BigInt(node.chainKey)).toEqual(newChainKey);
+
+                const attestationInterval = (
+                    (await api.query.attestation.chainAttestationInterval(node.chainKey)) as U64
+                ).toBigInt();
+                expect(BigInt(node.attestationInterval)).toEqual(attestationInterval);
+
+                const checkpointInterval = (
+                    (await api.query.attestation.attestationCheckpointInterval(node.chainKey)) as U32
+                ).toNumber();
+                expect(node.checkpointInterval).toEqual(checkpointInterval);
+
+                const chainReward = ((await api.query.attestation.chainReward(node.chainKey)) as Option<U128>)
+                    .unwrap()
+                    .toBigInt();
+                expect(BigInt(node.chainReward)).toEqual(chainReward);
+
+                expect(node.lastAttestedDigest).toEqual('');
+                expect(BigInt(node.lastAttestedHeaderNumber)).toEqual(0n);
+                expect(BigInt(node.lastCheckpointHeaderNumber)).toEqual(0n);
+
+                const maxAttestors = ((await api.query.attestation.maxAttestors(node.chainKey)) as U32).toNumber();
+                expect(node.maxSetSize).toEqual(maxAttestors);
+
+                const targetSampleSize = (
+                    (await api.query.attestation.targetSampleSize(node.chainKey)) as U32
+                ).toNumber();
+                expect(node.targetSampleSize).toEqual(targetSampleSize);
+
+                const minBondRequirement = (await api.query.attestation.minBondRequirement(node.chainKey)) as U128;
+                expect(node.minBondRequirement).toEqual(minBondRequirement.toString());
+
+                const voteAcceptanceWindow = (
+                    (await api.query.attestation.voteAcceptanceWindow(node.chainKey)) as U64
+                ).toBigInt();
+                expect(BigInt(node.voteAcceptanceWindow)).toEqual(voteAcceptanceWindow);
             }
         });
     });

@@ -69,7 +69,6 @@ describe('initiateStoreAndDatabase()', () => {
                 ).toNumber();
                 expect(node.targetSampleSize).toEqual(targetSampleSize);
 
-                // note: this is not per-chain for now
                 const minBondRequirement = (await api.query.attestation.minBondRequirement(node.chainKey)) as U128;
                 expect(node.minBondRequirement).toEqual(minBondRequirement.toString());
 
