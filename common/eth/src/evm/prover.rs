@@ -1,8 +1,8 @@
 use anyhow::Result;
-use futures_util::StreamExt;
+use futures_util::{stream_select, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use sp_core::H256;
@@ -14,6 +14,11 @@ use alloy::{
     sol,
 };
 use attestor_primitives::ChainKey;
+
+enum StreamMessage<T1, T2> {
+    FromQueryProofVerified(T1),
+    FromQueryProofVerificationFailed(T2),
+}
 
 sol! {
     #[sol(rpc)]
@@ -316,22 +321,54 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
 
-        let sub = contract.QueryProofVerified_filter().subscribe().await?;
-        let mut stream = sub.into_stream();
+        let verification_filter = contract.QueryProofVerified_filter().topic1(query_id);
 
-        debug!("Subscribed to proof verification");
+        let failure_filter = contract
+            .QueryProofVerificationFailed_filter()
+            .topic1(query_id);
 
-        while let Some(proof) = stream.next().await {
-            let (proof_verified, _log) = proof?;
+        let stream_verified = verification_filter
+            .subscribe()
+            .await?
+            .into_stream()
+            .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerified(event));
 
-            if proof_verified.queryId == query_id {
-                let segments = proof_verified
-                    .resultSegments
-                    .into_iter()
-                    .map(decode_result_segment)
-                    .collect::<Result<Vec<_>>>()?;
+        let stream_failed = failure_filter
+            .subscribe()
+            .await?
+            .into_stream()
+            .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerificationFailed(event));
 
-                return Ok(segments);
+        let mut combined = stream_select!(stream_verified, stream_failed);
+
+        info!("Subscribed to proof verification");
+
+        while let Some(message) = combined.next().await {
+            match message {
+                Ok(StreamMessage::FromQueryProofVerified(event)) => {
+                    if event.queryId == query_id {
+                        let segments = event
+                            .resultSegments
+                            .into_iter()
+                            .map(decode_result_segment)
+                            .collect::<Result<Vec<_>>>()?;
+
+                        return Ok(segments);
+                    }
+                }
+                Ok(StreamMessage::FromQueryProofVerificationFailed(event)) => {
+                    if event.queryId == query_id {
+                        info!("Verification failed for {:?}: {}", query_id, event.reason);
+                        return Err(anyhow::anyhow!(
+                            "Query {:?} verification failed: {}",
+                            event.queryId,
+                            event.reason
+                        ));
+                    }
+                }
+                Err(e) => {
+                    error!("event stream error: {e:?}");
+                }
             }
         }
 
