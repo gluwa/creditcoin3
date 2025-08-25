@@ -32,7 +32,7 @@ jobs:
     name: deploy-github-runner / ${{ matrix.build }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -73,7 +73,7 @@ jobs:
           - build: wasm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -110,7 +110,7 @@ jobs:
   dry-run-install-subwasm:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure rustc version
         run: |
@@ -133,11 +133,11 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/dev'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: binary-for-wasm
           path: wasm

@@ -41,7 +41,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
     steps:
       - name: Download locally built docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/gluwa/
@@ -51,7 +51,7 @@ jobs:
           docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
           docker images
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Start a Devnet container from image
         run: |
@@ -205,7 +205,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           # checks out the branch of the PR, not in a detached state,
@@ -262,7 +262,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.base_ref == 'dev' || github.base_ref == 'poc_external_attestation_network'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -298,7 +298,7 @@ jobs:
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -347,7 +347,7 @@ jobs:
   sanity-test-cairo:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -367,7 +367,7 @@ jobs:
   sanity-test-stone-binaries:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -412,7 +412,7 @@ jobs:
   sanity-test-npm-packages:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -467,7 +467,7 @@ jobs:
   sanity-test-solidity:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Solidity compiler
         run: |
@@ -584,7 +584,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure rustc version
         run: |
@@ -615,7 +615,7 @@ jobs:
       - deploy-runner-clippy
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-clippy"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -656,7 +656,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -712,7 +712,7 @@ jobs:
         "proxy-unit-test-creditcoin",
       ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -776,7 +776,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} / / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -848,7 +848,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -922,7 +922,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -965,10 +965,10 @@ jobs:
     runs-on:
       [self-hosted, "workflow-${{ github.run_id }}", "proxy-smart-contract"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -1035,7 +1035,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Node Dependencies
         uses: actions/setup-node@v4
         with:
@@ -1043,7 +1043,7 @@ jobs:
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -1075,7 +1075,7 @@ jobs:
   unit-test-cli:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -1122,7 +1122,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1169,7 +1169,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1216,7 +1216,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1265,7 +1265,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1312,7 +1312,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1383,7 +1383,7 @@ jobs:
     name: remove-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1419,7 +1419,7 @@ jobs:
           - proxy: benchmark
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1455,7 +1455,7 @@ jobs:
           - proxy: attestator-network
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1491,7 +1491,7 @@ jobs:
           - proxy: blockchain
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1529,7 +1529,7 @@ jobs:
           - proxy: build-creditcoin-node-for-testnet
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1567,7 +1567,7 @@ jobs:
           - proxy: build-creditcoin-node-for-testing-ci
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1603,7 +1603,7 @@ jobs:
           - proxy: clippy
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1639,7 +1639,7 @@ jobs:
           - proxy: check
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1675,7 +1675,7 @@ jobs:
           - proxy: docker-build
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1711,7 +1711,7 @@ jobs:
           - proxy: docker-test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1747,7 +1747,7 @@ jobs:
           - proxy: smart-contract
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1783,7 +1783,7 @@ jobs:
           - proxy: unit-test-creditcoin
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1819,7 +1819,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -1861,10 +1861,10 @@ jobs:
       - deploy-runner-attestator-network
     runs-on: [self-hosted, "proxy-attestator-network"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -2059,7 +2059,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -2137,7 +2137,7 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -2169,7 +2169,7 @@ jobs:
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -2341,7 +2341,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -2383,10 +2383,10 @@ jobs:
       - deploy-runner-blockchain
     runs-on: [self-hosted, "proxy-blockchain"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -2478,10 +2478,10 @@ jobs:
     name: integration-test-chainspec-${{ matrix.chainspec }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-${{ matrix.chainspec }}
           path: target/release
@@ -2548,7 +2548,7 @@ jobs:
     if: github.base_ref == 'dev'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -2590,7 +2590,7 @@ jobs:
     name: "🐚 Shellcheck"
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         env:
@@ -2607,7 +2607,7 @@ jobs:
         command: [lint, typecheck, check-format]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -2649,10 +2649,10 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -2789,7 +2789,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -2832,7 +2832,7 @@ jobs:
       - deploy-runner-benchmark
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Inspect benchmark CI config
         run: |
@@ -2878,7 +2878,7 @@ jobs:
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-benchmarks
           path: target/release
@@ -2940,7 +2940,7 @@ jobs:
     name: deploy-runner / proxy=${{ matrix.proxy }} /  / type=
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -2982,10 +2982,10 @@ jobs:
       - deploy-runner-cc3-indexer
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-cc3-indexer"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -3285,7 +3285,7 @@ jobs:
           - proxy: cc3-indexer
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -3315,7 +3315,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
   deploy-runner-attestor-cli:
     needs:
@@ -3340,7 +3340,7 @@ jobs:
     name: runner-attestor-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -3408,16 +3408,16 @@ jobs:
         "type-${{ matrix.proxy_type }}",
       ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Download subkey binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: subkey
           path: ~/.cargo/bin
@@ -3567,7 +3567,7 @@ jobs:
     name: remove-attestor-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt

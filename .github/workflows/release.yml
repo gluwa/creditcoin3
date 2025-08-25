@@ -32,7 +32,7 @@ jobs:
           channel: "#protocol-internal"
           message: "Release pipeline started! cc <@U028EMRHS3S>"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -112,7 +112,7 @@ jobs:
     name: deploy-github-runner / ${{ matrix.build }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -147,7 +147,7 @@ jobs:
       - setup
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -239,17 +239,17 @@ jobs:
       - build-npm-package
       - docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifact
           pattern: binary-for-*
           merge-multiple: true
 
       - name: Download smart contract(s)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifact
           pattern: smart-contracts
@@ -302,7 +302,7 @@ jobs:
           - build: docker
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -338,7 +338,7 @@ jobs:
           - build: native
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
@@ -374,7 +374,7 @@ jobs:
           - build: wasm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # See https://github.com/actions/runner/issues/1879#issuecomment-1123196869
       - name: Create matrix.txt
