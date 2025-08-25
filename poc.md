@@ -12,16 +12,6 @@ Components in this proof of concept:
 - Attestation network: Attestor module that will connect to the Ethereum compatible chain and attest to blocks on ccnext chain. In this PoC orchestrated by the `attestor_zombienet`.
 - Query client: Client that will create queries and send them to the prover.
 
-## Useful links
-
-### Devnet deployment
-
-- Ccnext: [https://rpc.ccnext-devnet.creditcoin.network](https://rpc.ccnext-devnet.creditcoin.network) for http, websocket: [wss://rpc.ccnext-devnet.creditcoin.network](wss://rpc.ccnext-devnet.creditcoin.network)
-- Ethereum (anvil): [https://anvil.ccnext-devnet.creditcoin.network](https://anvil.ccnext-devnet.creditcoin.network)
-- Gluwa public prover contract address: `0x21cb3940e6ba5284e1750f1109131a8e8062b9f1`
-- PolkadotJS explorer link: [https://polkadot.js.org/apps/?rpc=wss%3A%2F%2Frpc.ccnext-devnet.creditcoin.network%2Fws#/explorer](https://polkadot.js.org/apps/?rpc=wss%3A%2F%2Frpc.ccnext-devnet.creditcoin.network%2Fws#/explorer)
-- Anvil explorer: [https://explorer.ccnext-devnet.creditcoin.network/](https://explorer.ccnext-devnet.creditcoin.network/)
-
 ## Pre-requisites
 
 - Rust
