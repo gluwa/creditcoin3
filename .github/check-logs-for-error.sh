@@ -14,14 +14,15 @@ fi
 for LOG_FILE in $(find "$TARGET_FILE" -type f ); do
     echo "INFO: inspecting file '$LOG_FILE'"
 
-    # check for errors in the logs
+    # check for errors in creditcoin3-node logs
+    # NOTICE: ignoring libp2p connection errors
     set +e
-    ERR_COUNT=$(grep -c -i "ERROR:" "$LOG_FILE")
+    ERR_COUNT=$(grep -i "ERROR:" "$LOG_FILE" | grep -v "libp2p" | grep -c -i "ERROR:")
     set -e
     if [[ "$ERR_COUNT" -gt 0 ]]; then
         echo "FAIL: found $ERR_COUNT errors in $LOG_FILE"
         echo "======"
-        grep -i "ERROR:" "$LOG_FILE"
+        grep -i "ERROR:" "$LOG_FILE" | grep -v "libp2p"
         echo "======"
         exit "$ERR_COUNT"
     else
