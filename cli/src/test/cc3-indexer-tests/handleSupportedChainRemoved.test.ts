@@ -110,5 +110,17 @@ describe('handleSupportedChainRemoved()', () => {
             expect(response.data.supportedChains.nodes).toBeTruthy();
             expect(response.data.supportedChains.nodes.length).toEqual(0);
         });
+
+        it('known AttestationChainData entity should be removed', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    attestationChainData(
+                        filter: { chainKey: { equalTo: "${newChainKey}" }},
+                        last: 1,
+                    ) { nodes { id, chainKey }}}`,
+            );
+            expect(response.data.attestationChainData.nodes).toBeTruthy();
+            expect(response.data.attestationChainData.nodes.length).toEqual(0);
+        });
     });
 });
