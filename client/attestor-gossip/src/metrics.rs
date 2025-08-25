@@ -44,7 +44,7 @@ impl PrometheusRegister for VoterMetrics {
                         "substrate_attestor_votes_sent",
                         "Number of votes sent by this node per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -54,7 +54,7 @@ impl PrometheusRegister for VoterMetrics {
                         "substrate_attestor_best_block",
                         "Best block finalized by attestor per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -65,7 +65,7 @@ impl PrometheusRegister for VoterMetrics {
                         "substrate_attestor_best_voted",
                         "Best block voted on by attestor per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -82,7 +82,7 @@ impl PrometheusRegister for VoterMetrics {
                         "substrate_attestor_successful_handled_votes",
                         "Number of good votes successfully handled per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -92,7 +92,7 @@ impl PrometheusRegister for VoterMetrics {
                         "substrate_attestor_equivocation_votes",
                         "Number of equivocation votes received per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -109,7 +109,7 @@ impl PrometheusRegister for VoterMetrics {
                         "attestor_imported_votes",
                         "Number of valid votes successfully imported per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -119,7 +119,7 @@ impl PrometheusRegister for VoterMetrics {
                         "attestor_votes_from_rpc",
                         "Number of attestor votes received from RPC per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -129,7 +129,7 @@ impl PrometheusRegister for VoterMetrics {
                         "attestor_stale_votes",
                         "Number of attestor stale votes received per chain",
                     ),
-                    &["chain_key"],
+                    &["chain", "chain_key"],
                 )?,
                 registry,
             )?,
@@ -164,13 +164,15 @@ pub(crate) fn register_metrics<T: PrometheusRegister>(
 // if expr does not derive `Display`.
 #[macro_export]
 macro_rules! metric_set_chain {
-    ($metrics:expr, $m:ident, $chain_key:expr, $v:expr) => {{
+    ($metrics:expr, $m:ident, [ $( $label:expr ),* $(,)? ], $v:expr) => {{
         let val: u64 = format!("{}", $v).parse().unwrap();
 
         if let Some(metrics) = $metrics.as_ref() {
             metrics
                 .$m
-                .with_label_values(&[&$chain_key.to_string()])
+                .with_label_values(&[
+                    $( &$label.to_string(), )*
+                ])
                 .set(val);
         }
     }};
@@ -178,11 +180,13 @@ macro_rules! metric_set_chain {
 
 #[macro_export]
 macro_rules! metric_inc_chain {
-    ($metrics:expr, $m:ident, $chain_key:expr) => {{
+    ($metrics:expr, $m:ident, [ $( $label:expr ),* $(,)? ]) => {{
         if let Some(metrics) = $metrics.as_ref() {
             metrics
                 .$m
-                .with_label_values(&[&$chain_key.to_string()])
+                .with_label_values(&[
+                    $( &$label.to_string(), )*
+                ])
                 .inc();
         }
     }};

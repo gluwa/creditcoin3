@@ -86,6 +86,8 @@ where
 
     /// Validator for attestations
     pub attestation_validator: AttestationValidator<B, AccountId, RuntimeApi>,
+
+    pub chain_name: String,
 }
 
 pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
@@ -129,6 +131,9 @@ where
     pub is_authority: bool,
 
     pub prometheus_registry: Option<Registry>,
+
+    /// Chain name for metrics labeling
+    pub chain_name: String,
 }
 
 impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
@@ -173,6 +178,7 @@ where
             is_authority: params.is_authority,
             sync: params.sync,
             attestation_validator: AttestationValidator::new(params.runtime.clone()),
+            chain_name: params.chain_name,
         }
     }
 
@@ -224,10 +230,10 @@ where
                             chain_key,
                             vote.attestor_id().account_id()
                         );
-                        metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, chain_key);
+                        metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, [self.chain_name, chain_key]);
                         match self.triage_message(Message::Attestation(vote.clone())).await {
                             Ok(()) => {
-                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
+                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, [self.chain_name, chain_key]);
                                 debug!(target: LOG_TARGET, "📝 Got a valid gossiped attestation with digest {:?}", vote.digest());
                             },
                             Err(e) => {
@@ -250,7 +256,7 @@ where
                         match message.clone() {
                             Message::Attestation(attestation) => {
                                 let chain_key = attestation.chain_key();
-                                metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, chain_key);
+                                metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, [self.chain_name, chain_key]);
 
                                 let round = attestation.round();
                                 debug!(
@@ -261,13 +267,13 @@ where
                                     attestation.attestor_id().account_id()
                                 );
 
-                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, chain_key);
+                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, [self.chain_name, chain_key]);
                                 // Also process the message
                                 match self.process_attestation_message(attestation, true).await {
                                     Ok(()) => {
                                         debug!(target: LOG_TARGET, "📝 Got a valid incoming message from rpc, round: {:?}", round);
                                         // Gossip now
-                                        metric_inc_chain!(self.metrics, attestor_votes_sent_per_chain, chain_key);
+                                        metric_inc_chain!(self.metrics, attestor_votes_sent_per_chain, [self.chain_name, chain_key]);
                                         self.comms.gossip_engine.gossip_message(
                                             topic,
                                             message.encode(),
@@ -313,7 +319,7 @@ where
         metric_set_chain!(
             self.metrics,
             attestor_best_block_per_chain,
-            attestation.chain_key(),
+            [self.chain_name, attestation.chain_key()],
             attestation.header_number()
         );
 
@@ -328,7 +334,7 @@ where
                 metric_inc_chain!(
                     self.metrics,
                     attestor_equivocation_votes_per_chain,
-                    attestation.chain_key()
+                    [self.chain_name, attestation.chain_key()]
                 );
                 return Err(Error::DoubleVote);
             }
@@ -336,7 +342,7 @@ where
                 metric_set_chain!(
                     self.metrics,
                     attestor_best_voted_per_chain,
-                    attestation.chain_key(),
+                    [self.chain_name, attestation.chain_key()],
                     attestation.header_number()
                 );
                 info!(target: LOG_TARGET, "📝 Attestation added to round: {:?} for digest {:?}", round, attestation.digest());
@@ -348,7 +354,7 @@ where
                 metric_inc_chain!(
                     self.metrics,
                     attestor_stale_votes_per_chain,
-                    attestation.chain_key()
+                    [self.chain_name, attestation.chain_key()]
                 );
                 return Err(Error::StaleVote);
             }
