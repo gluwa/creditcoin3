@@ -24,11 +24,12 @@ mod attestation;
 mod cc3;
 mod contract;
 pub mod postgres;
+mod prom;
 mod query;
 
-use crate::attestation::fragment::Error;
 use crate::contract::mark_query_as_invalid;
 use crate::postgres::from_storage_type;
+use crate::{attestation::fragment::Error, prom::ProverMetrics};
 use config::Config;
 
 /// `AttestationCacheType` cache type
@@ -36,6 +37,9 @@ pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
 
 /// `CcClientArc` type
 pub type CcClientArc = Arc<cc3::Client>;
+
+/// `ChainName` type
+pub type ChainName = String;
 
 /// Prover server is configured using `Config`
 pub struct Server {
@@ -49,6 +53,10 @@ pub struct Server {
     queued_light_proving_queries: HashSet<H256>,
     // Queries that have been received
     received_query_ids: HashSet<H256>,
+    // Prometheus metrics
+    metrics: Option<ProverMetrics>,
+    // Chain name
+    chain_name: ChainName,
 }
 
 impl Server {
@@ -91,6 +99,20 @@ impl Server {
         .await?;
         info!("✅ Deployed prover contract");
 
+        // Register metrics server if configured
+        let metrics = if config.enable_prometheus_metrics {
+            debug!("Starting Prometheus metrics server");
+            prom::start_prom_server(&config)
+        } else {
+            None
+        };
+
+        let chain_name = cc3_client
+            .cc_client()
+            .get_chain_name()
+            .await
+            .unwrap_or_else(|_| "unknown-chain".to_string());
+
         Ok(Server {
             config,
             cc3_client: cc3_eth_client,
@@ -98,6 +120,8 @@ impl Server {
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
             received_query_ids: HashSet::new(),
+            metrics,
+            chain_name,
         })
     }
 
@@ -177,6 +201,7 @@ impl Server {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn handle_ongoing_queries_and_fatal_errors(
         &mut self,
         mut sync_cache_handle: JoinHandle<()>,
@@ -200,7 +225,12 @@ impl Server {
                     }
 
                     info!("📝 Received query {:?}, checking for readiness...", query_id);
-
+                    metric_inc_with_labels!(
+                        self.metrics,
+                        queries_received,
+                        self.chain_name,
+                        self.config.chain_key
+                    );
                     let last_attestation_height = from_storage_type(self.attestations_cache.last_synced_attestation(new_query.chain_id).await
                         .map_err(|e| Error::ProverDBError(e.to_string()))?
                         .ok_or(Error::NoAttestationsSynced)?
@@ -237,6 +267,13 @@ impl Server {
                 },
                 Some(block_height) = new_attestation_receiver.recv() => {
                     debug!("📝 Received notification for new attestation at height {}", block_height);
+                    metric_set_label_in_prover!(
+                        self.metrics,
+                        attestation_network_height,
+                        self.config.chain_key,
+                        block_height
+                    );
+
                     let mut processable_queries = Vec::new();
 
                     let keys_to_process: Vec<u64> = self.waiting_queries
@@ -309,12 +346,24 @@ impl Server {
             match contract::submit_proof(&self.cc3_client, query, proof).await {
                 Ok(_) => {
                     info!("🏁 Proof verified successfully for query: {:?}", query_id);
+                    metric_inc_with_labels!(
+                        self.metrics,
+                        queries_proofs_submitted,
+                        self.chain_name,
+                        self.config.chain_key
+                    );
                     Ok(())
                 }
                 Err(e) => {
                     error!(
                         "❌ Failed to submit proof for query: {:?}, Error: {:?}",
                         query_id, e
+                    );
+                    metric_inc_with_labels!(
+                        self.metrics,
+                        queries_proofs_failed,
+                        self.chain_name,
+                        self.config.chain_key
                     );
                     Err(e)
                 }

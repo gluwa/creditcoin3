@@ -1,0 +1,18 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "prometheus"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+prometheus_std = { package = "prometheus", version = "0.14" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { workspace = true }

@@ -61,6 +61,28 @@ pub struct Prover {
 
     #[arg(long, help = "Reset the database to its initial state")]
     reset_db: bool,
+
+    #[arg(
+        long,
+        default_value = "0.0.0.0",
+        help = "Bind address for the prometheus metrics server."
+    )]
+    prometheus_host: String,
+
+    #[arg(
+        long,
+        required = false,
+        default_value_t = 9100,
+        help = "Port to expose the Prometheus metrics endpoint on. Defaults to 9100."
+    )]
+    prometheus_port: u16,
+
+    #[arg(
+        long,
+        required = false,
+        help = "Flag indicating the attestor will launch a server to expose metrics."
+    )]
+    enable_prometheus_metrics: bool,
 }
 
 #[tokio::main]
@@ -108,6 +130,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         be_api_key: args.be_api_key,
         name: args.name,
         timeout: args.timeout,
+        prometheus_host: args.prometheus_host,
+        prometheus_port: args.prometheus_port,
+        enable_prometheus_metrics: args.enable_prometheus_metrics,
     };
 
     if args.reset_db {

@@ -1,17 +1,16 @@
-use prometheus::{Error, Gauge, GaugeVec, Opts, Registry};
+use prometheus::{
+    register_metrics, Error, Gauge, GaugeVec, HttpServer, Opts, PrometheusRegister, Registry,
+};
 use std::sync::Arc;
-use tracing::{debug, error};
 
 use crate::util::sanitize_url::sanitize_rpc_url_api_key;
 use crate::Config;
-
-pub mod http;
 
 use crate::{metric_set, metric_set_labels};
 
 /// Starts the Prometheus metrics server and registers the attestor metrics.
 /// returns an optional `AttestorMetrics` instance if registration is successful.
-pub fn start_prom_server(config: &Config) -> Option<AttestorMetrics> {
+pub fn start_prom_server(config: &Config, chain_name: &str) -> Option<AttestorMetrics> {
     let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
     let metrics: Option<AttestorMetrics> = register_metrics(&prometheus_registry.clone());
 
@@ -20,19 +19,21 @@ pub fn start_prom_server(config: &Config) -> Option<AttestorMetrics> {
     metric_set_labels!(
         metrics,
         source_chain_rpc_url,
-        sanitize_rpc_url_api_key(&config.eth_rpc_url),
-        &config.chain_key,
+        [
+            chain_name,
+            &config.chain_key,
+            sanitize_rpc_url_api_key(&config.eth_rpc_url)
+        ],
         1
     );
     metric_set_labels!(
         metrics,
         cc3next_rpc_url,
-        &config.cc3_rpc_url,
-        &config.chain_key,
+        [chain_name, &config.chain_key, &config.cc3_rpc_url],
         1
     );
     // Create http server for metrics
-    let http_server = Arc::new(http::HttpServer {
+    let http_server = Arc::new(HttpServer {
         prometheus_registry,
         bind_address: config.prometheus_host.clone(),
         port: config.prometheus_port,
@@ -41,15 +42,6 @@ pub fn start_prom_server(config: &Config) -> Option<AttestorMetrics> {
 
     metrics
 }
-
-type PrometheusError = Error;
-const LOG_TARGET: &str = "attestor";
-/// Helper trait for registering attestor metrics to Prometheus registry.
-pub(crate) trait PrometheusRegister<T: Sized = Self>: Sized {
-    const DESCRIPTION: &'static str;
-    fn register(registry: &Registry) -> Result<Self, PrometheusError>;
-}
-
 #[derive(Clone, Debug)]
 pub struct AttestorMetrics {
     pub last_voted_for: GaugeVec,
@@ -63,13 +55,13 @@ pub struct AttestorMetrics {
 
 impl PrometheusRegister for AttestorMetrics {
     const DESCRIPTION: &'static str = "attestor";
-    fn register(registry: &Registry) -> Result<Self, PrometheusError> {
+    fn register(registry: &Registry) -> Result<Self, Error> {
         let last_voted_for = GaugeVec::new(
             Opts::new(
                 "last_block_voted_for",
                 "The last block the attestor voted for",
             ),
-            &["chain_key"],
+            &["chain", "chain_key"],
         )?;
         registry.register(Box::new(last_voted_for.clone()))?;
 
@@ -78,7 +70,7 @@ impl PrometheusRegister for AttestorMetrics {
                 "last_finalized_attestation",
                 "The last finalized attestation header",
             ),
-            &["chain_key"],
+            &["chain", "chain_key"],
         )?;
         registry.register(Box::new(last_finalized_attestation.clone()))?;
 
@@ -87,13 +79,13 @@ impl PrometheusRegister for AttestorMetrics {
                 "source_chain_height",
                 "The last finalized source chain header",
             ),
-            &["chain_key"],
+            &["chain", "chain_key"],
         )?;
         registry.register(Box::new(source_chain_height.clone()))?;
 
         let cc_current_epoch = GaugeVec::new(
             Opts::new("cc_current_epoch", "The current epoch of the cc chain"),
-            &["chain_key"],
+            &["chain", "chain_key"],
         )?;
         registry.register(Box::new(cc_current_epoch.clone()))?;
 
@@ -102,13 +94,13 @@ impl PrometheusRegister for AttestorMetrics {
 
         let source_chain_rpc_url = GaugeVec::new(
             Opts::new("source_chain_rpc_url", "Source chain node rpc url"),
-            &["source_chain_rpc_url", "chain_key"],
+            &["chain", "chain_key", "source_chain_rpc_url"],
         )?;
         registry.register(Box::new(source_chain_rpc_url.clone()))?;
 
         let cc3next_rpc_url = GaugeVec::new(
             Opts::new("cc3next_rpc_url", "cc3next node rpc url"),
-            &["cc3next_rpc_url", "chain_key"],
+            &["chain", "chain_key", "cc3next_rpc_url"],
         )?;
         registry.register(Box::new(cc3next_rpc_url.clone()))?;
 
@@ -121,26 +113,6 @@ impl PrometheusRegister for AttestorMetrics {
             source_chain_rpc_url,
             cc3next_rpc_url,
         })
-    }
-}
-
-pub(crate) fn register_metrics<T: PrometheusRegister>(
-    prometheus_registry: &Arc<prometheus::Registry>,
-) -> Option<T> {
-    match T::register(prometheus_registry) {
-        Ok(metrics) => {
-            debug!(target: LOG_TARGET, "📈 Registered {} metrics", T::DESCRIPTION);
-            Some(metrics)
-        }
-        Err(err) => {
-            error!(
-                target: LOG_TARGET,
-                "📈 Failed to register {} metrics: {:?}",
-                T::DESCRIPTION,
-                err
-            );
-            None
-        }
     }
 }
 
@@ -175,26 +147,107 @@ macro_rules! metric_set_label {
 
 #[macro_export]
 macro_rules! metric_set_labels {
-    ($metrics:expr, $m:ident, $metric_label_1:expr, $metric_label_2:expr, $v:expr) => {{
+    ($metrics:expr, $m:ident, [ $( $label:expr ),* $(,)? ], $v:expr) => {{
         let val: u64 = format!("{}", $v).parse().unwrap();
 
         if let Some(metrics) = $metrics.as_ref() {
             #[allow(clippy::cast_precision_loss)]
             metrics
                 .$m
-                .with_label_values(&[&$metric_label_1.to_string(), &$metric_label_2.to_string()])
+                .with_label_values(&[
+                    $( &$label.to_string(), )*
+                ])
                 .set(val as f64);
         }
     }};
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
+mod tests {
+    use super::AttestorMetrics;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+    };
+    use prometheus::{register_metrics, HttpServer, Registry};
+    use std::sync::Arc;
 
-    #[test]
-    fn should_register_metrics() {
-        let registry = Arc::new(Registry::new());
-        assert!(register_metrics::<AttestorMetrics>(&registry.clone()).is_some());
+    use tower::util::ServiceExt;
+
+    #[tokio::test]
+    async fn prometheus_metrics_are_correctly_set_for_attestor() {
+        let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
+        let metrics: Option<AttestorMetrics> = register_metrics(&prometheus_registry.clone());
+
+        metric_set!(metrics, attestor_chain_key, 2);
+
+        let http_server = HttpServer {
+            prometheus_registry,
+            bind_address: "0.0.0.0".to_string(),
+            port: 9100,
+        };
+
+        let app = http_server.app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let headers = &response.headers()["content-type"].clone();
+        let expected_headers = "text/plain";
+
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_str = String::from_utf8(bytes.to_vec()).unwrap();
+        let expected_body = "# HELP attestor_chain_key Attestor chain key\n# TYPE attestor_chain_key gauge\nattestor_chain_key 2\n".to_string();
+
+        assert_eq!(body_str, expected_body);
+        assert_eq!(headers, expected_headers);
+    }
+
+    #[tokio::test]
+    async fn prometheus_metrics_contain_correct_labels_when_set_for_attestor() {
+        let prometheus_registry: Arc<Registry> = Arc::new(Registry::new());
+        let metrics: Option<AttestorMetrics> = register_metrics(&prometheus_registry.clone());
+
+        metric_set_labels!(
+            metrics,
+            source_chain_rpc_url,
+            ["Test Chain", 2, "localhost:8545"],
+            1
+        );
+        let http_server = HttpServer {
+            prometheus_registry,
+            bind_address: "0.0.0.0".to_string(),
+            port: 9100,
+        };
+
+        let app = http_server.app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_str = String::from_utf8(bytes.to_vec()).unwrap();
+        let expected_body = "# HELP attestor_chain_key Attestor chain key\n# TYPE attestor_chain_key gauge\nattestor_chain_key 0\n# HELP source_chain_rpc_url Source chain node rpc url\n# TYPE source_chain_rpc_url gauge\nsource_chain_rpc_url{chain=\"Test Chain\",chain_key=\"2\",source_chain_rpc_url=\"localhost:8545\"} 1\n".to_string();
+
+        assert_eq!(body_str, expected_body);
+        assert!(body_str.contains("source_chain_rpc_url{chain=\"Test Chain\",chain_key=\"2\",source_chain_rpc_url=\"localhost:8545\"}"));
     }
 }

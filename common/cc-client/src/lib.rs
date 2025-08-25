@@ -70,6 +70,8 @@ pub enum Error {
     InvalidUrl,
     #[error("Failed to create proof of inclusion")]
     FailedToCreateProofOfInclusion(#[from] VrfError),
+    #[error("Failed to get chain name")]
+    FailedToGetChainName,
 }
 
 #[derive(Clone)]
@@ -138,6 +140,16 @@ impl<'a> Client {
             .await?;
 
         Ok(chain_key)
+    }
+
+    pub async fn get_chain_name(&self) -> Result<String, Error> {
+        let chain_name = self
+            .rpc
+            .request("system_chain".to_string(), None)
+            .await
+            .map_err(|_| Error::FailedToGetChainName)?;
+
+        Ok(chain_name.get().to_string())
     }
 
     pub async fn get_supported_chain(&self, chain_key: ChainKey) -> Result<Option<SupportedChain>> {

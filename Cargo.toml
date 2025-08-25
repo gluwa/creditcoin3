@@ -36,6 +36,7 @@ assert_matches = "1.5.0"
 affix = "0.1"
 anyhow = { version = "1.0", default-features = false }
 async-trait = { version = "0.1.42" }
+axum = "0.8"
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 clap = { version = "4.5.3", features = ["derive"] }
 derive_more = "0.99.17"
@@ -71,10 +72,10 @@ slices = "0.2.0"
 thiserror = { version = "1.0.63", default-features = false }
 tiny-bip39 = { version = "0.8", default-features = false }
 tokio = { version = "1.37.0" }
+tower = { version = "0.5", default-features = false }
 tracing = "0.1.37"
 url = { version = "2.4.0" }
 wasm-timer = { version = "0.2" }
-
 # Alloy
 alloy = { version = "0.11", features = [
     "node-bindings",
@@ -269,19 +270,19 @@ proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
 
 # Common
+attestation-blocks-online-builder = { path = "attestation-blocks-online-builder" }
+attestation-db = { path = "attestation-db" }
+attestor-online-sim = { path = "attestor-online-sim" }
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [
     "pairing",
 ] }
 cc-client = { path = "common/cc-client" }
 eth = { path = "common/eth" }
 mmr = { path = "common/mmr", features = ["par_mmr"], default-features = false }
+prometheus = { path = "common/prometheus" }
+prover-attestation-db-online-builder = { path = "prover-attestation-db-online-builder" }
 utils = { path = "common/utils", default-features = false }
 vrf = { path = "common/vrf", default-features = false }
-
-attestation-blocks-online-builder = { path = "attestation-blocks-online-builder" }
-attestation-db = { path = "attestation-db" }
-attestor-online-sim = { path = "attestor-online-sim" }
-prover-attestation-db-online-builder = { path = "prover-attestation-db-online-builder" }
 
 [profile.release]
 # Substrate runtime requires unwinding.

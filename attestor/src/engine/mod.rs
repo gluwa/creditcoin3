@@ -21,7 +21,13 @@ use creditcoin3_attestor_gossip::communication::Attestation;
 use eth::Client;
 
 // --- local crate ---
-use crate::{cc3, continuity, error::Error, metric_set_label, prom, prom::AttestorMetrics, Config};
+use crate::{
+    cc3, continuity,
+    error::Error,
+    metric_set_labels,
+    prom::{self, AttestorMetrics},
+    Config,
+};
 
 mod source_chain;
 mod sync_state;
@@ -74,6 +80,8 @@ pub struct Engine {
     shutdown_channel: UnboundedSender<()>,
     // Prometheus metrics
     metrics: Option<AttestorMetrics>,
+    // Chain name
+    chain_name: ChainName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,11 +103,15 @@ impl State {
     }
 }
 
+/// Mapping key for cc next source chains
+pub type ChainName = String;
+
 #[derive(Debug)]
 pub struct AsyncEngine {
     inner: Arc<Mutex<Engine>>,
     eth_client: Arc<Client>,
     pub chain_key: ChainKey,
+    pub chain_name: ChainName,
 }
 
 impl Clone for AsyncEngine {
@@ -108,6 +120,7 @@ impl Clone for AsyncEngine {
             inner: Arc::clone(&self.inner),
             eth_client: Arc::clone(&self.eth_client),
             chain_key: self.chain_key,
+            chain_name: self.chain_name.clone(),
         }
     }
 }
@@ -130,6 +143,11 @@ impl AsyncEngine {
         cc3_client.init().await?;
 
         let chain_key = cc3_client.get_chain_key();
+        let chain_name = cc3_client
+            .inner
+            .get_chain_name()
+            .await
+            .unwrap_or_else(|_| "unknown-chain".to_string());
 
         let (attestation_tx, attestation_rx) = tokio::sync::mpsc::channel(ATTESTATION_BUFFER_SIZE);
 
@@ -146,7 +164,7 @@ impl AsyncEngine {
         // Register metrics server if configured
         let metrics = if config.enable_prometheus_metrics {
             debug!("Starting Prometheus metrics server");
-            prom::start_prom_server(config)
+            prom::start_prom_server(config, &chain_name)
         } else {
             None
         };
@@ -166,12 +184,14 @@ impl AsyncEngine {
             maturity_delay: config.maturity_delay,
             shutdown_channel: shutdown,
             metrics,
+            chain_name: chain_name.clone(),
         };
 
         Ok(Self {
             inner: Arc::new(Mutex::new(engine)),
             eth_client: Arc::new(eth_client),
             chain_key,
+            chain_name,
         })
     }
 
@@ -296,10 +316,10 @@ impl AsyncEngine {
 
             // update source chain height
             let inner = self.inner.lock().await;
-            metric_set_label!(
+            metric_set_labels!(
                 inner.metrics,
                 source_chain_height,
-                inner.chain_key(),
+                [self.chain_name, self.chain_key],
                 last_eth_block_number
             );
             drop(inner);
@@ -491,11 +511,12 @@ impl Engine {
             "Last voted for: {:}, last finalized attestation: {:}",
             last_voted_for_block, last_finalized
         );
+
         // set last voted for
-        metric_set_label!(
+        metric_set_labels!(
             self.metrics,
             last_voted_for,
-            self.chain_key(),
+            [self.chain_name, self.chain_key()],
             last_voted_for_block
         );
 
@@ -694,11 +715,12 @@ impl Engine {
             "Last finalized attestation: {:}, last voted for: {:}",
             header, last_voted_for
         );
+
         // set last finalized attesation
-        metric_set_label!(
+        metric_set_labels!(
             self.metrics,
             last_finalized_attestation,
-            self.chain_key(),
+            [self.chain_name, self.chain_key()],
             header
         );
 
@@ -731,7 +753,12 @@ impl Engine {
 
         // set current epoch
         let chain_key = self.chain_key();
-        metric_set_label!(self.metrics, cc_current_epoch, chain_key, epoch);
+        metric_set_labels!(
+            self.metrics,
+            cc_current_epoch,
+            [self.chain_name, chain_key],
+            epoch
+        );
 
         match self.state {
             State::Running => return Ok(()),

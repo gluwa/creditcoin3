@@ -29,6 +29,7 @@ release = false
 
 [dependencies]
 anyhow = "1.0"
+axum = { workspace = true }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
 diesel = { version = "2.1", features = ["postgres"] }
 diesel-async = { version = "0.4", features = [
@@ -66,7 +67,11 @@ dotenv = "0.15.0"
 eth = { workspace = true }
 mmr = { workspace = true, features = ["par_mmr"] }
 pallet-prover-primitives = { workspace = true }
+prometheus = { workspace = true }
 proof = { workspace = true }
 prover-primitives = { workspace = true }
 serde_json.workspace = true
 utils = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true }

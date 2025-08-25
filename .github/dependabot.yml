@@ -59,6 +59,7 @@ updates:
       - "/common/mmr"
       - "/common/utils"
       - "/common/vrf"
+      - "/common/prometheus"
       - "/host"
       - "/node"
       - "/node/cli-opt"
