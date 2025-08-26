@@ -184,7 +184,7 @@ where
         let header_number = attestation.header_number();
 
         // Check if the round is already concluded
-        if self.is_concluded(chain_key, header_number) {
+        if self.is_concluded(&round) {
             return Ok(VoteImportResult::Stale);
         }
 
@@ -290,8 +290,8 @@ where
         self.round_configs.get(&chain_key)
     }
 
-    fn is_concluded(&self, chain_key: ChainKey, header_number: u64) -> bool {
-        self.best_round.get(&chain_key) >= Some(&header_number)
+    pub fn is_concluded(&self, round: &Round) -> bool {
+        self.best_round.get(&round.0) >= Some(&round.1)
     }
 }
 

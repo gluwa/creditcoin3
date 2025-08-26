@@ -139,8 +139,8 @@ if __name__ == "__main__":
                     current_stats["broadcasted_attestations"].append(digest)
 
                 # detect attestation received from some of the other peers
-                if line.find("Received from gossip attestation with digest") > -1:
-                    digest = line.split(" ")[12].strip(",")
+                if line.find("GOSSIP: Got an attestation for round") > -1:
+                    digest = line.split(" ")[10].strip(",")
                     if not digest.startswith("0x"):
                         raise RuntimeError(f"Incorrect digest '{digest}' detected")
 

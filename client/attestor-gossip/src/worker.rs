@@ -220,29 +220,15 @@ where
                     break Error::GossipEngineExited;
                 },
                 // Handler that handles incoming attestation from the gossip netowrk
-                vote = votes.next() => {
-                    if let Some(Message::Attestation(vote)) = vote {
-                        let chain_key = vote.chain_key();
-                        debug!(
-                            target: LOG_TARGET,
-                            "📝 Received from gossip attestation with digest {:?}, for chain_key {:?}, from attestor {}",
-                            vote.digest(),
-                            chain_key,
-                            vote.attestor_id().account_id()
-                        );
-                        metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, [self.chain_name, chain_key]);
-                        match self.triage_message(Message::Attestation(vote.clone())).await {
-                            Ok(()) => {
-                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, [self.chain_name, chain_key]);
-                                debug!(target: LOG_TARGET, "📝 Got a valid gossiped attestation with digest {:?}", vote.digest());
-                            },
-                            Err(e) => {
-                                debug!(target: LOG_TARGET, "📝 Error for gossiped attestation with digest {:?} : {:?}", vote.digest(), e);
-                            }
+                attestation = votes.next() => {
+                    if let Some(attestation) = attestation {
+                        if self.triage_message(attestation, false).is_ok() {
+                            debug!(target: LOG_TARGET, "📝 Attestation from gossip network processed");
+                        } else {
+                            warn!(target: LOG_TARGET, "📝 Attestation from gossip network failed to process");
+                            metric_inc!(self.metrics, attestor_invalid_votes);
                         }
                     } else {
-                        warn!(target: LOG_TARGET, "📝 Received attestation from gossip, but it was invalid");
-                        metric_inc!(self.metrics, attestor_invalid_votes);
                         break Error::GossipEngineExited;
                     }
                 },
@@ -251,42 +237,12 @@ where
                 // It will handle incoming attestations, and gossip them to the network
                 message = message_stream.next() => {
                     if let Some(message) = message {
-                        let topic = votes_topic::<B>();
-
-                        match message.clone() {
-                            Message::Attestation(attestation) => {
-                                let chain_key = attestation.chain_key();
-                                metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, [self.chain_name, chain_key]);
-
-                                let round = attestation.round();
-                                debug!(
-                                    target: LOG_TARGET,
-                                    "📝 Will gossip attestation with digest {:?}, for chain_key {:?}, from attestor {}",
-                                    attestation.digest(),
-                                    chain_key,
-                                    attestation.attestor_id().account_id()
-                                );
-
-                                metric_inc_chain!(self.metrics, attestor_good_votes_processed_per_chain, [self.chain_name, chain_key]);
-                                // Also process the message
-                                match self.process_attestation_message(attestation, true).await {
-                                    Ok(()) => {
-                                        debug!(target: LOG_TARGET, "📝 Got a valid incoming message from rpc, round: {:?}", round);
-                                        // Gossip now
-                                        metric_inc_chain!(self.metrics, attestor_votes_sent_per_chain, [self.chain_name, chain_key]);
-                                        self.comms.gossip_engine.gossip_message(
-                                            topic,
-                                            message.encode(),
-                                            false,
-                                        );
-                                    },
-                                    Err(e) => {
-                                        debug!(target: LOG_TARGET, "📝 Got error for message err: {:?}", e);
-                                    }
-                                }
-
-                            },
-                        };
+                        if self.triage_message(message, true).is_ok() {
+                            debug!(target: LOG_TARGET, "📝 Attestation from rpc endpoint processed");
+                        } else {
+                            warn!(target: LOG_TARGET, "📝 Attestation from rpc endpoint failed to process");
+                            metric_inc!(self.metrics, attestor_invalid_votes);
+                        }
                     }
                 }
             }
@@ -295,23 +251,74 @@ where
         (error, self.comms)
     }
 
-    /// Triage incoming messages
-    /// This function is responsible for deciding what to do with incoming messages
-    async fn triage_message(&mut self, message: Message<B, AccountId>) -> Result<(), Error> {
+    fn triage_message(
+        &mut self,
+        message: Message<B, AccountId>,
+        from_rpc: bool,
+    ) -> Result<(), Error> {
         match message {
             Message::Attestation(attestation) => {
-                self.process_attestation_message(attestation, false).await?;
+                let chain_key = attestation.chain_key();
+                let digest = attestation.digest();
+                let round = attestation.round();
+
+                if from_rpc {
+                    debug!(
+                        target: LOG_TARGET,
+                        "📝 RPC: Got an attestation for round: {:?}, with digest {:?}, from attestor {}",
+                        round,
+                        digest,
+                        attestation.attestor_id().account_id()
+                    );
+                    metric_inc_chain!(
+                        self.metrics,
+                        attestor_votes_from_rpc_per_chain,
+                        [self.chain_name, chain_key]
+                    );
+                } else {
+                    debug!(
+                        target: LOG_TARGET,
+                        "📝 GOSSIP: Got an attestation for round: {:?}, with digest {:?}, from attestor {}",
+                        round,
+                        digest,
+                        attestation.attestor_id().account_id()
+                    );
+                    metric_inc_chain!(
+                        self.metrics,
+                        attestor_imported_votes_per_chain,
+                        [self.chain_name, chain_key]
+                    );
+                }
+
+                match self.process_attestation_message(attestation, from_rpc) {
+                    Ok(()) => {
+                        metric_inc_chain!(
+                            self.metrics,
+                            attestor_good_votes_processed_per_chain,
+                            [self.chain_name, chain_key]
+                        );
+                        debug!(target: LOG_TARGET, "📝 Attestation processed for round: {:?}, with digest {:?}", round, digest);
+                    }
+                    Err(e) => {
+                        debug!(target: LOG_TARGET, "📝 Error for attestation for round: {:?}, with digest {:?}, err: {:?}", round, digest, e);
+                    }
+                }
+
+                Ok(())
             }
         }
-
-        Ok(())
     }
 
-    async fn process_attestation_message(
+    /// Process attestation message
+    /// Takes care of importing the vote, validating it, gossiping it if from rpc
+    /// and finalizing it if the round is concluded (submitting an inherent)
+    fn process_attestation_message(
         &mut self,
         attestation: Attestation<HashFor<B>, AccountId>,
         from_rpc: bool,
     ) -> Result<(), Error> {
+        let chain_key = attestation.chain_key();
+
         if self.sync.is_major_syncing() {
             warn!(target: LOG_TARGET, "📝 Node is syncing, skipping message for digest {:?}", attestation.digest());
             return Err(Error::WorkerInSync);
@@ -319,11 +326,14 @@ where
         metric_set_chain!(
             self.metrics,
             attestor_best_block_per_chain,
-            [self.chain_name, attestation.chain_key()],
+            [self.chain_name, chain_key],
             attestation.header_number()
         );
 
-        // First we import the vote.
+        // First we Validate the vote
+        self.validate_vote(&attestation)?;
+
+        // Then we import the vote.
         let import_result = self.state.note_vote(attestation.clone(), from_rpc)?;
 
         // in cases where the vote is already imported or stale we don't validate it further because we don't have to
@@ -334,7 +344,7 @@ where
                 metric_inc_chain!(
                     self.metrics,
                     attestor_equivocation_votes_per_chain,
-                    [self.chain_name, attestation.chain_key()]
+                    [self.chain_name, chain_key]
                 );
                 return Err(Error::DoubleVote);
             }
@@ -342,34 +352,54 @@ where
                 metric_set_chain!(
                     self.metrics,
                     attestor_best_voted_per_chain,
-                    [self.chain_name, attestation.chain_key()],
+                    [self.chain_name, chain_key],
                     attestation.header_number()
                 );
                 info!(target: LOG_TARGET, "📝 Attestation added to round: {:?} for digest {:?}", round, attestation.digest());
-                // Validate the vote
-                return self.validate_vote(&attestation);
             }
             VoteImportResult::Stale => {
                 info!(target: LOG_TARGET, "📝 Stale vote detected, round: {:?} for digest {:?}", round, attestation.digest());
                 metric_inc_chain!(
                     self.metrics,
                     attestor_stale_votes_per_chain,
-                    [self.chain_name, attestation.chain_key()]
+                    [self.chain_name, chain_key]
                 );
                 return Err(Error::StaleVote);
             }
             VoteImportResult::RoundConcluded => {
                 info!(target: LOG_TARGET, "📝 Round {:?} concluded for digest {:?}", round, attestation.digest());
-                self.finalize_vote(attestation)?;
             }
         }
+
+        // Gossip now
+        metric_inc_chain!(
+            self.metrics,
+            attestor_votes_sent_per_chain,
+            [self.chain_name, chain_key]
+        );
+        debug!(target: LOG_TARGET,
+            "📝 Will gossip attestation with digest {:?}, for chain_key {:?}, from attestor {}",
+            attestation.digest(),
+            chain_key,
+            attestation.attestor_id().account_id()
+        );
+        self.comms.gossip_engine.gossip_message(
+            votes_topic::<B>(),
+            Message::<B, AccountId>::Attestation(attestation.clone()).encode(),
+            false,
+        );
+
+        // If we are concluded, finalize the vote
+        if self.state.is_concluded(&round) {
+            self.finalize_vote(attestation)?;
+        }
+
         Ok(())
     }
 
     // Finalize the vote
     // This function is responsible for finalizing the vote
-    // It will check if the vote is valid, and if it is, it will submit the attestation if we are an authority
-    // If the vote is not valid, it will remove the vote from the state
+    // We can only finalize if we are an authority
     // It will also update the gossip filter based on the finalized block hash, chain key and header number
     fn finalize_vote(
         &mut self,
@@ -379,7 +409,6 @@ where
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number();
 
-        self.validate_vote(&attestation)?;
         // Submit attestation
         // Only submit if we are an authority
         if self.is_authority {
@@ -395,18 +424,22 @@ where
 
         // Flush memory
         self.state.clear_votes(round.0, round.1);
-        // Update gossip filter
+
+        // Calculate new start
         let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
+        let runtime_api = self.runtime.runtime_api();
+        let attestation_interval =
+            runtime_api.chain_attestation_interval(finalized_block_hash, chain_key)?;
+        let new_start = header_number + attestation_interval;
+
+        // Update the gossip filter
+        // We will not accept any more votes for this round since it is finalized
         self.update_gossip_filter(
             finalized_block_hash,
             chain_key,
-            header_number,
+            new_start,
             self.current_epoch_index,
         )?;
-
-        // expire all votes before and including this round
-        // we can safely do this because we finalized this round and the rounds before are presumably finalized
-        self.comms.gossip_validator.expire(round);
 
         Ok(())
     }
@@ -649,15 +682,34 @@ where
             // Update round configuration
             self.state.add_round_config(chain_key, round_config.clone());
 
-            let last_header_number = if let Some(checkpoint) =
-                runtime_api.last_checkpoint(notif.hash, chain_key)?
-            {
-                debug!(target: LOG_TARGET, "📝 Using last checkpoint for chain key: {:?}", chain_key);
-                checkpoint.block_number
-            } else {
-                debug!(target: LOG_TARGET, "📝 Allowing bootstrap of chain: {chain_key}");
-                // If no last digest, we assume the genesis block number, it can either be 0 or set to some value by sudo
-                runtime_api.attestation_chain_genesis_block_number(notif.hash, chain_key)?
+            // Returns the best known header number for `chain_key`:
+            // 1) last attested header (if present)
+            // 2) last checkpoint
+            // 3) chain genesis block number
+            let last_header_number = {
+                // Common fallback path (checkpoint → genesis)
+                let fallback = || -> Result<_, _> {
+                    if let Some(checkpoint) = runtime_api.last_checkpoint(notif.hash, chain_key)? {
+                        debug!(target: LOG_TARGET, "📝 Using last checkpoint for chain key: {:?}", chain_key);
+                        Ok(checkpoint.block_number)
+                    } else {
+                        debug!(target: LOG_TARGET, "📝 Allowing bootstrap of chain: {chain_key}");
+                        runtime_api.attestation_chain_genesis_block_number(notif.hash, chain_key)
+                    }
+                };
+
+                let last_attested_digest = runtime_api.last_digest(notif.hash, chain_key)?;
+                if let Some(digest) = last_attested_digest {
+                    match runtime_api.get(notif.hash, chain_key, digest)? {
+                        Some(last_attested_header) => {
+                            debug!(target: LOG_TARGET, "📝 Using last attested header for chain key: {:?}", chain_key);
+                            Ok(last_attested_header.header_number())
+                        }
+                        None => fallback(),
+                    }
+                } else {
+                    fallback()
+                }?
             };
 
             self.update_gossip_filter(
@@ -706,7 +758,13 @@ where
             attestation_interval * (checkpoint_interval as u64) * vote_acceptance_window;
 
         // Have a sliding window of 10 checkpoints where attestations are valid
-        debug!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {:?}", chain_key);
+        debug!(target: LOG_TARGET, "📝 Updating gossip filter for chain key: {}, epoch: {}, start: {}, window_in_blocks: {}, active_attestors: {}",
+            chain_key,
+            epoch,
+            current_block,
+            window_in_blocks,
+            active_attestors.len()
+        );
         self.comms.gossip_validator.update_filter(GossipFilterCfg {
             chain_key,
             epoch,
