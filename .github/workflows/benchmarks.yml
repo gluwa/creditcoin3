@@ -189,7 +189,7 @@ jobs:
           LAST_COMMIT=$(git rev-parse HEAD)
           BRANCH_NAME=auto-update-weights-for-dev-${{ github.sha }}
 
-          git checkout -b "$BRANCH_NAME" origin/dev
+          git checkout -b "$BRANCH_NAME" origin/poc_external_attestation_network
           git cherry-pick "$LAST_COMMIT"
           git push origin "$BRANCH_NAME"
 
@@ -202,7 +202,7 @@ jobs:
         with:
           github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
           from-branch: auto-update-weights-for-dev-${{ github.sha }}
-          to-branch: dev
+          to-branch: poc_external_attestation_network
           repository-owner: ${{ github.repository_owner }}
           repository: ${{ steps.prepare-commit.outputs.repo_name }}
 
