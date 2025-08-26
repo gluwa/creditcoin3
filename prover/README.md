@@ -31,7 +31,7 @@ discover the following external components:
 
 - `cpu_air_prover`
 - `cpu_air_verifier`
-- `stone_prove_claim.sh`
+- `stone_prove_query.sh`
 - `verify_merkle_proof.sh`
 
 In order for this to actually happen you have to adjust the `PATH` environment

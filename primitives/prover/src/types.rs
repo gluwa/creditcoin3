@@ -13,11 +13,11 @@ use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 
 #[derive(Serialize)]
-pub struct ClaimDigestRoot {
+pub struct QueryDigestRoot {
     merkle_root: String,
 }
 
-impl ClaimDigestRoot {
+impl QueryDigestRoot {
     pub fn new(merkle_root: &Felt) -> Self {
         Self {
             merkle_root: merkle_root.to_string(),
@@ -39,11 +39,11 @@ pub fn felt_from_dec_str(s: &str) -> anyhow::Result<Felt> {
 
 #[derive(Debug, Clone)]
 pub struct CairoVerifierOutput {
-    pub claim_index: u64,
+    pub query_index: u64,
     pub continuity_checkpoint_digest: Felt,
     pub continuity_proof_length: u64,
     pub query_hash: Felt,
-    pub claim_fields: Vec<Felt>,
+    pub query_fields: Vec<Felt>,
 }
 
 impl CairoVerifierOutput {
@@ -88,7 +88,7 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
 
         let mut it = ss.iter();
 
-        let claim_index = Self::parse_field(it.next(), try_parse_u64, "index")?;
+        let query_index = Self::parse_field(it.next(), try_parse_u64, "index")?;
         let continuity_checkpoint_digest =
             Self::parse_field(it.next(), try_parse_felt, "continuity_checkpoint_digest")?;
 
@@ -99,13 +99,12 @@ impl TryFrom<&[&str]> for CairoVerifierOutput {
             .enumerate()
             .map(|(i, s)| Self::parse_field(Some(s), try_parse_felt, &format!("felt[{i}]")))
             .collect::<Result<Vec<_>, _>>()
-            .map(|claim_fields| Self {
-                claim_index,
-                //                claim_id,
+            .map(|query_fields| Self {
+                query_index,
                 continuity_checkpoint_digest,
                 continuity_proof_length,
                 query_hash,
-                claim_fields,
+                query_fields,
             })
     }
 }
@@ -116,13 +115,14 @@ pub struct MerkleProofSerializable {
     arity: usize,
     root: String,
     path: Vec<Vec<String>>,
-    claim_subject: Vec<u8>,
+    #[serde(rename = "claim_subject")]
+    subject: Vec<u8>,
     leaf_hash_prefix: u8,
     inner_node_hash_prefix: u8,
 }
 
 impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
-    fn from((proof, claim_subject): (StarknetPedersenMerkleProof, Vec<u8>)) -> Self {
+    fn from((proof, subject): (StarknetPedersenMerkleProof, Vec<u8>)) -> Self {
         Self {
             height: proof.height(),
             arity: StarknetPedersenMerkleProof::arity(),
@@ -141,7 +141,7 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
                     v
                 })
                 .collect(),
-            claim_subject,
+            subject,
             leaf_hash_prefix: mmr::LEAF_HASH_PREPEND_VALUE,
             inner_node_hash_prefix: mmr::INNER_HASH_PREPEND_VALUE,
         }
@@ -149,12 +149,12 @@ impl From<(StarknetPedersenMerkleProof, Vec<u8>)> for MerkleProofSerializable {
 }
 
 #[derive(Debug)]
-pub enum ClaimProverError {
+pub enum QueryProverError {
     AttestationFragmentMismatch(u64, Option<u64>, Option<u64>),
     SerializationFailure(String),
     BlockFetchFailure(String),
-    ClaimNotIdentified,
-    ClaimNotUnique,
+    QueryNotIdentified,
+    QueryNotUnique,
     InputFileNameNotSet,
     OutputFileNameNotSet,
     OutputParseFailure(String),
@@ -163,7 +163,7 @@ pub enum ClaimProverError {
     Other(String),
 }
 
-impl From<ScriptError> for ClaimProverError {
+impl From<ScriptError> for QueryProverError {
     fn from(err: ScriptError) -> Self {
         Self::Cairo(err)
     }

@@ -42,7 +42,7 @@ pub fn hash_layout_segments(query: &Query) -> Result<Felt, &'static str> {
     Ok(pedersen_array(&felts_offsets))
 }
 
-pub fn get(claim_felts: &[Felt], layout_segments: &[LayoutSegment]) -> Result<Vec<ResultSegment>> {
+pub fn get(query_felts: &[Felt], layout_segments: &[LayoutSegment]) -> Result<Vec<ResultSegment>> {
     // 1. Convert byte-based segments into felt-based offsets and sizes (31-byte alignment)
     let felt_segments = convert_segments_to_felt_segments(layout_segments);
 
@@ -50,7 +50,7 @@ pub fn get(claim_felts: &[Felt], layout_segments: &[LayoutSegment]) -> Result<Ve
     let sanitized = sanitize(&felt_segments);
 
     // 3. Retrieve felt-aligned bytes from the felt array based on the felt ranges
-    let result_felts = extract_felt_ranges_from_felt_array(claim_felts, &sanitized);
+    let result_felts = extract_felt_ranges_from_felt_array(query_felts, &sanitized);
 
     // 4. Convert sanitized segments into felt segments with original layout
     let felt_segments = extract_original_felt_ranges_from_sanitized(result_felts, &felt_segments);
@@ -234,7 +234,7 @@ mod tests {
         let query = get_test_query();
         // This process used on the prover side
         let ranges =
-            prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
+            prover_primitives::query::prepare_query_segments_for_prover(&query.layout_segments);
         // This process used on verifier side
         let segments = get_segments(&query);
 
@@ -248,7 +248,7 @@ mod tests {
 
         // This process used on the prover side
         let ranges =
-            prover_primitives::claim::prepare_query_segments_for_prover(&query.layout_segments);
+            prover_primitives::query::prepare_query_segments_for_prover(&query.layout_segments);
         // This process used on verifier side
         let segments = get_segments(&query);
 

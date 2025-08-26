@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 
 use pallet_prover_primitives::{ContinuityProofLength, LayoutSegment, Query, ResultSegment};
 use prover_primitives::{
-    claim::ClaimValidationError::{self, *},
+    query::QueryValidationError::{self, *},
     stark_program_auth::{
         StarkProgramAuth, StarkProgramAuthHash, StarkProgramMetadata, StarkProgramMetadataStorage,
     },
@@ -106,9 +106,9 @@ pub fn run_verifier(
     );
     if output.status.success() {
         // Return result segments along with message on success
-        let claim_felts = cairo_verifier_output.claim_fields.clone();
+        let query_felts = cairo_verifier_output.query_fields.clone();
         let result_segments: Vec<ResultSegment> =
-            result_segments::get(&claim_felts, &unsanitized_layout_segments)?;
+            result_segments::get(&query_felts, &unsanitized_layout_segments)?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok((
@@ -140,13 +140,13 @@ fn blake2_256_stark_program_auth_hasher(bytes: &[u8]) -> StarkProgramAuthHash {
 pub fn validate_query_against_proof(
     query: Query,
     cairo_verifier_output: &CairoVerifierOutput,
-) -> Result<(), ClaimValidationError> {
-    match query.index.cmp(&cairo_verifier_output.claim_index) {
-        Ordering::Greater => Err(QueryOutOfBounds(cairo_verifier_output.claim_index)),
+) -> Result<(), QueryValidationError> {
+    match query.index.cmp(&cairo_verifier_output.query_index) {
+        Ordering::Greater => Err(QueryOutOfBounds(cairo_verifier_output.query_index)),
 
         Ordering::Equal => {
-            if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.claim_fields {
-                Err(QueryOutOfBounds(cairo_verifier_output.claim_index))
+            if felts_from_bytes(&NULL_ABI[..]) == cairo_verifier_output.query_fields {
+                Err(QueryOutOfBounds(cairo_verifier_output.query_index))
             } else {
                 // Sanitized layout segments are used to generate the layout segments hash in
                 // verify_merkle_proof.cairo. So we validate using sanitized segments here as well.
@@ -184,7 +184,7 @@ pub fn validate_query_against_proof(
 
         Ordering::Less => Err(QueryTransactionIdMismatch(
             query.index,
-            cairo_verifier_output.claim_index,
+            cairo_verifier_output.query_index,
         )),
     }
 }
@@ -192,7 +192,7 @@ pub fn validate_query_against_proof(
 fn validate_layout_segments(layout_segments: &[LayoutSegment]) -> Result<(), VerifierError> {
     if layout_segments.is_empty() {
         return Err(VerifierError::QueryValidationError(
-            ClaimValidationError::QueryLayoutSegmentsError(
+            QueryValidationError::QueryLayoutSegmentsError(
                 "Layout segments cannot be empty".to_string(),
             ),
         ));
@@ -202,7 +202,7 @@ fn validate_layout_segments(layout_segments: &[LayoutSegment]) -> Result<(), Ver
     for segment in layout_segments {
         if segment.size == 0 {
             return Err(VerifierError::QueryValidationError(
-                ClaimValidationError::QueryLayoutSegmentsError(
+                QueryValidationError::QueryLayoutSegmentsError(
                     "Layout segments must have a non-zero byte size".to_string(),
                 ),
             ));
@@ -253,7 +253,7 @@ pub mod arch_independent_tests {
         assert!(matches!(
             result.err().unwrap(),
             VerifierError::QueryValidationError(
-                super::ClaimValidationError::QueryLayoutSegmentsError(_)
+                super::QueryValidationError::QueryLayoutSegmentsError(_)
             )
         ));
     }
@@ -269,7 +269,7 @@ pub mod arch_independent_tests {
         assert!(matches!(
             result.err().unwrap(),
             VerifierError::QueryValidationError(
-                super::ClaimValidationError::QueryLayoutSegmentsError(_)
+                super::QueryValidationError::QueryLayoutSegmentsError(_)
             )
         ));
     }
@@ -421,7 +421,7 @@ pub mod tests {
             VerifierError::QueryValidationError(e) => {
                 assert_eq!(
                     e,
-                    super::ClaimValidationError::QueryLayoutSegmentsError(
+                    super::QueryValidationError::QueryLayoutSegmentsError(
                         "Layout segments must have a non-zero byte size".to_string()
                     )
                 );
@@ -501,7 +501,7 @@ pub mod tests {
 
     #[test]
     #[should_panic(expected = "QueryOutOfBounds")]
-    fn validate_query_against_proof_with_claim_fields_mismatch_should_error() {
+    fn validate_query_against_proof_with_query_fields_mismatch_should_error() {
         let mut query = get_test_query();
         // Non-matching number and sizes of result segments
         query.layout_segments = vec![LayoutSegment {
@@ -512,7 +512,7 @@ pub mod tests {
             "../cairo/stone-verifier/proof_example_erc20.json",
         );
         // inject faulty state
-        cairo_verifier_output.claim_fields = felts_from_bytes(&NULL_ABI[..]);
+        cairo_verifier_output.query_fields = felts_from_bytes(&NULL_ABI[..]);
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
     }

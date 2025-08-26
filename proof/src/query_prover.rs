@@ -2,10 +2,10 @@ use crate::json_serializable::JsonSerializable;
 use attestation_chain::attestation_fragment::FragmentContinuityBlocksSerializable;
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
-use prover_primitives::claim::ClaimSerializable;
+use prover_primitives::query::QuerySerializable;
 use prover_primitives::query_out_of_bounds_witness::QueryOutOfBoundsWitness;
 use prover_primitives::types::{
-    CairoVerifierOutput, ClaimDigestRoot, ClaimProverError, MerkleProofSerializable, ScriptError,
+    CairoVerifierOutput, MerkleProofSerializable, QueryDigestRoot, QueryProverError, ScriptError,
     StoneProof, StoneProofJson,
 };
 use serde::Serialize;
@@ -16,12 +16,14 @@ use tracing::debug;
 use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 
 #[derive(Serialize)]
-pub struct ClaimProver {
+pub struct QueryProver {
     block_number: u64,
     merkle_proof: MerkleProofSerializable,
-    claim_digest_root: ClaimDigestRoot,
+    #[serde(rename = "claim_digest_root")]
+    query_digest_root: QueryDigestRoot,
     continuity_chain: FragmentContinuityBlocksSerializable,
-    claim: ClaimSerializable,
+    #[serde(rename = "claim")]
+    query: QuerySerializable,
     out_of_bounds_flag: u8,
 
     #[serde(skip)]
@@ -36,7 +38,7 @@ pub struct ClaimProver {
     cairo_output: Option<CairoVerifierOutput>,
 }
 
-impl ClaimProver {
+impl QueryProver {
     // WARNING: script must be in $PATH and/or $PATH must be configured accordingly
     pub fn verify_merkle_command() -> &'static str {
         "verify_merkle_proof.sh"
@@ -44,21 +46,21 @@ impl ClaimProver {
 
     // WARNING: script must be in $PATH and/or $PATH must be configured accordingly
     pub fn stone_prover_command() -> &'static str {
-        "stone_prove_claim.sh"
+        "stone_prove_query.sh"
     }
 
-    pub async fn cairo_verify(&mut self, cairo_proof_mode: bool) -> Result<(), ClaimProverError> {
+    pub async fn cairo_verify(&mut self, cairo_proof_mode: bool) -> Result<(), QueryProverError> {
         match &self.dir {
             Some(dir) => {
                 run_cairo_verify_script(Self::verify_merkle_command(), dir, cairo_proof_mode)
                     .await
-                    .map_err(ClaimProverError::Cairo)
+                    .map_err(QueryProverError::Cairo)
                     .and_then(|_| {
                         self.cairo_output = Some(self.read_output()?);
                         Ok(())
                     })
             }
-            None => Err(ClaimProverError::InputFileNameNotSet),
+            None => Err(QueryProverError::InputFileNameNotSet),
         }
     }
 
@@ -66,13 +68,13 @@ impl ClaimProver {
         self.cairo_output.as_ref()
     }
 
-    pub async fn stone_prove(&self, force_stone_proving: bool) -> Result<String, ClaimProverError> {
+    pub async fn stone_prove(&self, force_stone_proving: bool) -> Result<String, QueryProverError> {
         match &self.dir {
             Some(dir) => {
                 run_stone_prover_script(Self::stone_prover_command(), dir, force_stone_proving)
                     .await
             }
-            None => Err(ClaimProverError::InputFileNameNotSet),
+            None => Err(QueryProverError::InputFileNameNotSet),
         }
     }
 
@@ -97,21 +99,21 @@ impl ClaimProver {
     }
 }
 
-impl ClaimProver {
+impl QueryProver {
     fn new(
         block_number: u64,
         merkle_proof: StarknetPedersenMerkleProof,
         abi: Vec<u8>,
-        claim: ClaimSerializable,
-        claim_digest_root: ClaimDigestRoot,
+        query: QuerySerializable,
+        query_digest_root: QueryDigestRoot,
         attestation_chain: FragmentContinuityBlocksSerializable,
         out_of_bounds_flag: bool,
     ) -> Self {
         Self {
             block_number,
             merkle_proof: (merkle_proof, abi).into(),
-            claim,
-            claim_digest_root,
+            query,
+            query_digest_root,
             continuity_chain: attestation_chain,
             out_of_bounds_flag: out_of_bounds_flag.into(),
 
@@ -149,14 +151,14 @@ impl ClaimProver {
 
     // TODO: make it private, it's public only for dev
     pub fn default_dir(&self) -> String {
-        let chain_id = self.claim.chain_id;
-        let hex_block_number = format!("0x{:X}", self.claim.id().block_number());
-        let subject_index = self.claim.id().index() as usize;
-        let query_id = self.claim.query_id;
+        let chain_id = self.query.chain_id;
+        let hex_block_number = format!("0x{:X}", self.query.id().block_number());
+        let subject_index = self.query.id().index() as usize;
+        let query_id = self.query.query_id;
 
         let partial_dir =
             &format!("chain_{chain_id}/block_{hex_block_number}/{subject_index}/{query_id}",);
-        format!("/var/tmp/creditcoin3/claim-proofs/{partial_dir}")
+        format!("/var/tmp/creditcoin3/query-proofs/{partial_dir}")
     }
 
     fn default_cairo_input_file_name(dir: &str) -> String {
@@ -171,38 +173,38 @@ impl ClaimProver {
         format!("{dir}/proof.json")
     }
 
-    fn read_output(&self) -> Result<CairoVerifierOutput, ClaimProverError> {
+    fn read_output(&self) -> Result<CairoVerifierOutput, QueryProverError> {
         self.cairo_output_file
             .as_ref()
-            .ok_or(ClaimProverError::OutputFileNameNotSet)
+            .ok_or(QueryProverError::OutputFileNameNotSet)
             .and_then(|cairo_output_file| {
                 let output_str = std::fs::read_to_string(cairo_output_file)
-                    .map_err(|err| ClaimProverError::OutputParseFailure(format!("{err:?}")))?;
+                    .map_err(|err| QueryProverError::OutputParseFailure(format!("{err:?}")))?;
 
                 CairoVerifierOutput::try_from_prefixed_str(&output_str[..])
-                    .map_err(|err| ClaimProverError::OutputParseFailure(format!("{err:?}")))
+                    .map_err(|err| QueryProverError::OutputParseFailure(format!("{err:?}")))
             })
     }
 
-    pub fn get_claim_files(&self) -> Result<Vec<PathBuf>, ClaimProverError> {
+    pub fn get_query_files(&self) -> Result<Vec<PathBuf>, QueryProverError> {
         let dir = self.default_dir();
 
         let paths = std::fs::read_dir(dir)
-            .map_err(|err| ClaimProverError::Other(format!("Claim files not found, {:}", err)))?
+            .map_err(|err| QueryProverError::Other(format!("Query files not found, {:}", err)))?
             .map(|entry| entry.map(|e| e.path()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| ClaimProverError::Other(format!("Claim files not found, {:}", err)))?;
+            .map_err(|err| QueryProverError::Other(format!("Query files not found, {:}", err)))?;
 
         Ok(paths)
     }
 }
 
 pub async fn build_prover(
-    claim: ClaimSerializable,
+    query: QuerySerializable,
     fragment_blocks: FragmentContinuityBlocksSerializable,
     block: OrderedBlock,
-) -> Result<ClaimProver, ClaimProverError> {
-    let claim_block_number = claim.id().block_number();
+) -> Result<QueryProver, QueryProverError> {
+    let query_block_number = query.id().block_number();
 
     let mt = eth_common::starknet_pedersen_mmr(&block);
 
@@ -214,7 +216,7 @@ pub async fn build_prover(
 
     debug!("out_of_bound_witness_index: {out_of_bound_witness_index}");
 
-    let subject_index = core::cmp::min(claim.id().index() as usize, out_of_bound_witness_index);
+    let subject_index = core::cmp::min(query.id().index() as usize, out_of_bound_witness_index);
     let out_of_bounds_flag = subject_index == out_of_bound_witness_index;
     let out_of_bound_witness = QueryOutOfBoundsWitness::default();
 
@@ -228,19 +230,19 @@ pub async fn build_prover(
         mt.generate_proof(subject_index),
     );
 
-    let digest_root = ClaimDigestRoot::new(&mt.root().0);
+    let digest_root = QueryDigestRoot::new(&mt.root().0);
 
-    let instance = ClaimProver::new(
-        claim_block_number,
+    let instance = QueryProver::new(
+        query_block_number,
         merkle_path,
         subject_bytes,
-        claim,
+        query,
         digest_root,
         fragment_blocks,
         out_of_bounds_flag,
     )
     .with_default_files()
-    .map_err(|err| ClaimProverError::SerializationFailure(format!("{err:?}")))?;
+    .map_err(|err| QueryProverError::SerializationFailure(format!("{err:?}")))?;
 
     Ok(instance)
 }
@@ -271,7 +273,7 @@ async fn run_stone_prover_script(
     script_source: &str,
     input_dir: &str,
     force_stone_proving: bool,
-) -> Result<String, ClaimProverError> {
+) -> Result<String, QueryProverError> {
     let output = tokio::process::Command::new(script_source)
         .arg(input_dir)
         .arg(if force_stone_proving { "force" } else { "" })
@@ -288,6 +290,6 @@ async fn run_stone_prover_script(
         let _ = std::io::stdout().write_all(&output.stdout);
         let _ = std::io::stdout().write_all(&output.stderr);
 
-        Err(ClaimProverError::Cairo(output.status.code().into()))
+        Err(QueryProverError::Cairo(output.status.code().into()))
     }
 }

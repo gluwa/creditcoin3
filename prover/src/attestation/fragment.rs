@@ -57,9 +57,9 @@ struct IntervalEndpoint {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Cannot prove a claim for source chain that hasn't been attested to.")]
+    #[error("Cannot prove a query for source chain that hasn't been attested to.")]
     NoAttestationsSynced,
-    #[error("Cannot prove queries more recent than latest attestation: Last attestation: {0}, claim height: {1}")]
+    #[error("Cannot prove queries more recent than latest attestation: Last attestation: {0}, query height: {1}")]
     QueryTooRecent(u64, u64),
     #[error("Could not get last block of fragment.")]
     NoLastBlockFound,
@@ -67,13 +67,13 @@ pub enum Error {
     LastFragmentBlockMismatch(H256, String, bool),
     #[error("Error appending block to fragment: {0:?}")]
     ErrorAppendingBlock(#[from] AttestationFragmentError),
-    #[error("Could not get the highest checkpoint before claim. Claim height: {0}")]
+    #[error("Could not get the highest checkpoint before query. Query height: {0}")]
     FailedToGetHighestCheckpointBefore(u64),
-    #[error("Could not get the lowest checkpoint after claim. Claim height: {0}")]
+    #[error("Could not get the lowest checkpoint after query. Query height: {0}")]
     FailedToGetLowestCheckpointAfter(u64),
-    #[error("Could not get the highest attestation before claim. Claim height: {0}")]
+    #[error("Could not get the highest attestation before query. Query height: {0}")]
     FailedToGetHighestAttestationBefore(u64),
-    #[error("Could not get the lowest attestation after claim. Claim height: {0}")]
+    #[error("Could not get the lowest attestation after query. Query height: {0}")]
     FailedToGetLowestAttestationAfter(u64),
     #[error("Prover DB error: {0}")]
     ProverDBError(String),
@@ -89,11 +89,11 @@ pub enum Error {
     FragmentManagerError(#[from] FragmentManagerError),
 }
 
-// Get the attestation fragment for a claim
+// Get the attestation fragment for a query
 // This function will either get the fragment from the cache or create it and store it in the cache
 // The fragment is created by querying the chain for the attestation chain interval and then querying the chain for the attestation fragment
 
-pub async fn get_for_claim(
+pub async fn get_for_query(
     eth_client: &Client,
     query: &Query,
     attestation_cache: &AttestationCacheType,
@@ -114,7 +114,7 @@ pub async fn get_for_claim(
     }
 
     // 2) Resolve interval [lower, upper] (exclusive of lower, inclusive of upper for block list)
-    let (lower, upper) = get_endpoints_for_claim(query, attestation_cache)
+    let (lower, upper) = get_endpoints_for_query(query, attestation_cache)
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
@@ -257,7 +257,7 @@ fn blocks_to_fragment(
     Ok(frag)
 }
 
-async fn get_endpoints_for_claim(
+async fn get_endpoints_for_query(
     query: &Query,
     attestation_cache: &AttestationCacheType,
 ) -> Result<(IntervalEndpoint, IntervalEndpoint)> {

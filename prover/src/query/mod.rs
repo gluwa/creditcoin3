@@ -9,7 +9,9 @@ use tokio_retry::Retry;
 use tracing::{debug, error, info, warn};
 
 use pallet_prover_primitives::Query;
-use prover_primitives::claim::{ClaimIdentifier, ClaimSerializable};
+use prover_primitives::query::{
+    byte_segments_into_felt_ranges, compact_and_sort_ranges, QueryIdentifier, QuerySerializable,
+};
 
 use crate::postgres::queryfragmenttype::NewQueryFragmentType;
 use crate::{attestation::fragment, AttestationCacheType};
@@ -53,7 +55,7 @@ pub enum FragmentTypeError {
 // Process a query
 // Parameters:
 // - `cc3_client`: cc3 client
-// - `eth_client`: eth client that is initialized with the rpc url of the chain the claim is from
+// - `eth_client`: eth client that is initialized with the rpc url of the chain the query is from
 // - `query`: query to process
 // - `attestation_cache`: attestation cache
 // - `stone_proof`: whether to generate a stone proof
@@ -70,7 +72,7 @@ pub async fn process(
     let retry_strategy = FibonacciBackoff::from_millis(1000).map(jitter).take(5);
 
     let fragment_result = Retry::spawn(retry_strategy.clone(), || {
-        fragment::get_for_claim(&eth_client, query, attestation_cache)
+        fragment::get_for_query(&eth_client, query, attestation_cache)
     })
     .await;
 
@@ -103,9 +105,9 @@ pub async fn process(
         query_id
     );
 
-    let claim_serializable = get_serializable(query);
+    let query_serializable = get_serializable(query);
 
-    debug!("🟢 Claim serializable: {:?}", claim_serializable);
+    debug!("🟢 Query serializable: {:?}", query_serializable);
 
     let block = Retry::spawn(retry_strategy, || eth_client.get_block(query.height))
         .await
@@ -124,7 +126,7 @@ pub async fn process(
     debug!("🟢 Preparing query for proving with id: {:?}", query_id);
     // Generate proof
     let query_prover =
-        match proof::run_cairo_verifier(claim_serializable, &attestation_fragment, block).await {
+        match proof::run_cairo_verifier(query_serializable, &attestation_fragment, block).await {
             Ok(cairo_output) => {
                 info!("📝 Prepared query for proving with id: {:?}", query_id);
                 cairo_output
@@ -163,14 +165,14 @@ pub async fn process(
 
                 Ok(Either::Left(proof_json.as_bytes().to_vec()))
             }
-            either::Right(_claim_files) => {
+            either::Right(_query_files) => {
                 warn!("⚠️ We shouldn't really fall in this code path");
                 Err(Error::Proof)
             }
         }
     } else {
         let stone_prover_input_files = query_prover
-            .get_claim_files()
+            .get_query_files()
             .map_err(|_e| Error::QueryFiles)?;
 
         Ok(Either::Right(stone_prover_input_files))
@@ -236,15 +238,14 @@ async fn check_and_update_fragment_type(
     Ok(force_due_to_fragment_change)
 }
 
-fn get_serializable(query: &Query) -> ClaimSerializable {
+fn get_serializable(query: &Query) -> QuerySerializable {
     // Convert byte segments into felt ranges expected by Cairo program
-    let felt_ranges =
-        prover_primitives::claim::byte_segments_into_felt_ranges(&query.layout_segments);
+    let felt_ranges = byte_segments_into_felt_ranges(&query.layout_segments);
 
-    ClaimSerializable {
-        id: ClaimIdentifier::new(query.height, query.index),
+    QuerySerializable {
+        id: QueryIdentifier::new(query.height, query.index),
         // Ranges should already come to us compacted and sorted, but we enforce this here
-        felt_ranges: prover_primitives::claim::compact_and_sort_ranges(felt_ranges),
+        felt_ranges: compact_and_sort_ranges(felt_ranges),
         query_id: query.id(),
         chain_id: query.chain_id,
     }

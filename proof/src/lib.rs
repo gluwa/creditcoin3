@@ -9,16 +9,16 @@ use attestation_chain::attestation_checkpoints::AttestationCheckpoint;
 use attestation_chain::attestation_fragment::{
     AttestationFragment, FragmentContinuityBlocksSerializable,
 };
-use prover_primitives::claim::ClaimSerializable;
-use prover_primitives::types::{CairoVerifierOutput, ClaimProverError, StoneProof};
+use prover_primitives::query::QuerySerializable;
+use prover_primitives::types::{CairoVerifierOutput, QueryProverError, StoneProof};
 
-use crate::claim_prover::{build_prover, ClaimProver};
+use crate::query_prover::{build_prover, QueryProver};
 
-pub mod claim_prover;
 pub mod json_serializable;
+pub mod query_prover;
 
 pub async fn cairo_generate_proof(
-    cairo_verifier: ClaimProver,
+    cairo_verifier: QueryProver,
     stone_proof: bool,
     force_stone_proving: bool,
 ) -> Result<Either<(StoneProof, String), CairoVerifierOutput>> {
@@ -47,38 +47,38 @@ pub async fn cairo_generate_proof(
 }
 
 pub async fn run_cairo_verifier(
-    claim: ClaimSerializable,
-    claim_attestation_fragment: &AttestationFragment,
+    query: QuerySerializable,
+    query_attestation_fragment: &AttestationFragment,
     block: OrderedBlock,
-) -> Result<ClaimProver> {
+) -> Result<QueryProver> {
     debug!("\n");
-    info!("---------- cairo claim proving task is starting ----------");
-    debug!("claim: {:?}", claim);
+    info!("---------- cairo query proving task is starting ----------");
+    debug!("query: {:?}", query);
 
-    let claim_block_number = claim.id().block_number();
-    let fragment_subset = claim_attestation_fragment
-        .blocks_serializable(claim_block_number)
+    let query_block_number = query.id().block_number();
+    let fragment_subset = query_attestation_fragment
+        .blocks_serializable(query_block_number)
         .map_err(|e| anyhow!("{:?}", e))?;
     debug!("fetching block and building merkle trees...");
 
     let fragment_continuity_blocks = FragmentContinuityBlocksSerializable::from(fragment_subset);
 
-    let mut cairo_verifier = build_prover(claim.clone(), fragment_continuity_blocks, block)
+    let mut cairo_verifier = build_prover(query.clone(), fragment_continuity_blocks, block)
         .await
-        .inspect(|claim_cairo_verifier| {
+        .inspect(|query_cairo_verifier| {
             debug!("done");
-            debug!("\ncairo0 input file {}", format!("{:?}", claim_cairo_verifier.file_name()).bright_cyan());
-            debug!("running script {}", format!("{:?}", ClaimProver::verify_merkle_command()).bright_cyan());
+            debug!("\ncairo0 input file {}", format!("{:?}", query_cairo_verifier.file_name()).bright_cyan());
+            debug!("running script {}", format!("{:?}", QueryProver::verify_merkle_command()).bright_cyan());
         })
         .map_err(|err| {
             anyhow!("{}",
                 match &err {
-                    ClaimProverError::AttestationFragmentMismatch(b, tail, head) =>
+                    QueryProverError::AttestationFragmentMismatch(b, tail, head) =>
                         format!("can't create attestation checkpoint slice for {b} on this attestation chain ({tail:?}, {head:?})"),
-                    ClaimProverError::BlockFetchFailure(msg) =>
-                        format!("failure while fetching block corresponding claim: {msg}"),
-                    ClaimProverError::ClaimNotIdentified =>
-                        format!("claim {claim:?} was not identified in the block"),
+                    QueryProverError::BlockFetchFailure(msg) =>
+                        format!("failure while fetching block corresponding query: {msg}"),
+                    QueryProverError::QueryNotIdentified =>
+                        format!("query {query:?} was not identified in the block"),
                     err => format!("could not build verifier: {err:?}"),
                 }
             )
@@ -98,7 +98,7 @@ pub async fn run_cairo_verifier(
     debug!("cairo verification output:");
     debug!("{}", format!("{:?}", output).bold());
 
-    let input_checkpoint = claim_attestation_fragment
+    let input_checkpoint = query_attestation_fragment
         .checkpoint()
         .expect("attestation fragment expected to be full");
 
@@ -108,7 +108,7 @@ pub async fn run_cairo_verifier(
         // always use the gnensis block 0. Rework once outdated crates sharing
         // `try_from_block` are removed.
         AttestationChainParams::new(0, 10),
-        claim_block_number - 1 + output.continuity_proof_length - 1,
+        query_block_number - 1 + output.continuity_proof_length - 1,
         output.continuity_checkpoint_digest,
     )
     .ok_or(anyhow!(
@@ -119,14 +119,14 @@ pub async fn run_cairo_verifier(
         debug!(
             "{}",
             format!(
-                "\nclaim continuity validated at checkpoint: {:?}",
+                "\nquery continuity validated at checkpoint: {:?}",
                 output_checkpoint
             )
             .green()
         );
     } else {
         return Err(anyhow!(
-            "claim continuity not validated on attestation chain, here {:?}, there {:?}",
+            "query continuity not validated on attestation chain, here {:?}, there {:?}",
             input_checkpoint,
             output_checkpoint
         ));

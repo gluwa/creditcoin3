@@ -1,4 +1,4 @@
-use crate::claim_query::query_field::{ClaimQueryField, SampleBy};
+use crate::query_spec::query_field::{QueryField, SampleBy};
 use core::ops::Range;
 use hashbrown::HashSet;
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
@@ -11,7 +11,7 @@ use sp_std::vec::Vec;
 use thiserror::Error;
 
 mod query_field {
-    use super::ClaimQueryFieldError;
+    use super::QueryFieldError;
     use core::ops::Range;
     use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
     use rlp::{Decodable, Rlp};
@@ -19,22 +19,22 @@ mod query_field {
     use serde::Serialize;
     use utils::utils::U248_BYTE_COUNT;
 
-    pub trait ClaimQueryField:
+    pub trait QueryField:
         TryFrom<usize> + Serialize + Encode + Decode + TypeInfo + MaxEncodedLen + core::fmt::Debug
     {
         fn as_usize(&self) -> usize;
 
         fn sample_by(&self) -> SampleBy;
 
-        fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Range<usize>, ClaimQueryFieldError> {
+        fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Range<usize>, QueryFieldError> {
             self.as_byte_offsets(rlp).map(|r| {
                 (r.start / U248_BYTE_COUNT)
                     ..(r.end / U248_BYTE_COUNT + usize::from(r.end % U248_BYTE_COUNT != 0))
             })
         }
 
-        fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Range<usize>, ClaimQueryFieldError> {
-            use ClaimQueryFieldError::*;
+        fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Range<usize>, QueryFieldError> {
+            use QueryFieldError::*;
 
             let n: usize = self.as_usize();
             let rlp_at_n = rlp.at(n).map_err(RlpDecoder)?;
@@ -85,17 +85,6 @@ mod query_field {
                     ..(preceding_range.end + range_to_add.end))
             }
         }
-        // fn try_from_byte_offsets(r: &Range<u64>, rlp: &rlp::Rlp) -> Result<Self, ClaimQueryFieldError> {
-        //     for n in 0usize..=Self::last().as_usize() {
-        //         let field = Self::try_from(n)
-        //             .map_err(|_| ClaimQueryFieldError::InvalidFieldIndex(n))?;
-        //         let field_range = field.as_byte_offsets(rlp)?;
-        //         if r.start >= field_range.start && r.end <= field_range.end {
-        //             return Ok(field);
-        //         }
-        //     }
-        //     Err(ClaimQueryFieldError::InvalidPayloadOffset(r.clone()))
-        // }
 
         fn decode_payload<T: Decodable>(&self, rlp: &rlp::Rlp) -> Result<T, rlp::DecoderError> {
             rlp.val_at::<T>(self.as_usize())
@@ -112,12 +101,12 @@ mod query_field {
         Index(Option<u64>),
     }
 }
-pub trait ClaimQuery {
-    fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError>;
-    fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError>;
+pub trait QuerySpec {
+    fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, QueryFieldError>;
+    fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, QueryFieldError>;
 }
 #[derive(Debug, PartialEq, Clone, Error)]
-pub enum ClaimQueryFieldError {
+pub enum QueryFieldError {
     #[error("RLP decoding error: {0}")]
     RlpDecoder(#[from] rlp::DecoderError),
 
@@ -142,7 +131,7 @@ pub enum ClaimQueryFieldError {
     MaxEncodedLen,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum LegacyClaimQueryField {
+pub enum LegacyQueryField {
     Nonce,
     GasPrice,
     GasLimit,
@@ -158,9 +147,9 @@ pub enum LegacyClaimQueryField {
     SingleLog(Option<u64>),
 }
 
-impl ClaimQueryField for LegacyClaimQueryField {
+impl QueryField for LegacyQueryField {
     fn as_usize(&self) -> usize {
-        use LegacyClaimQueryField::*;
+        use LegacyQueryField::*;
         match self {
             Nonce => 0,
             GasPrice => 1,
@@ -179,7 +168,7 @@ impl ClaimQueryField for LegacyClaimQueryField {
     }
 
     fn sample_by(&self) -> SampleBy {
-        use LegacyClaimQueryField::*;
+        use LegacyQueryField::*;
 
         match self {
             SingleDataRelativeRange(range) => SampleBy::Range(range.clone()),
@@ -189,11 +178,11 @@ impl ClaimQueryField for LegacyClaimQueryField {
     }
 }
 
-impl TryFrom<usize> for LegacyClaimQueryField {
-    type Error = ClaimQueryFieldError;
+impl TryFrom<usize> for LegacyQueryField {
+    type Error = QueryFieldError;
 
     fn try_from(n: usize) -> Result<Self, Self::Error> {
-        use LegacyClaimQueryField::*;
+        use LegacyQueryField::*;
         match n {
             0 => Ok(Nonce),
             1 => Ok(GasPrice),
@@ -208,7 +197,7 @@ impl TryFrom<usize> for LegacyClaimQueryField {
             9 => Ok(UsedGas),
             10 => Ok(LogsBloom),
             11 => Ok(SingleLog(Default::default())),
-            n => Err(ClaimQueryFieldError::InvalidFieldIndex(n)),
+            n => Err(QueryFieldError::InvalidFieldIndex(n)),
         }
     }
 }
@@ -227,7 +216,7 @@ impl TryFrom<usize> for LegacyClaimQueryField {
     MaxEncodedLen,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum Eip2930ClaimQueryField {
+pub enum Eip2930QueryField {
     ChainId,
     Nonce,
     GasPrice,
@@ -245,9 +234,9 @@ pub enum Eip2930ClaimQueryField {
     SingleLog(Option<u64>),
 }
 
-impl ClaimQueryField for Eip2930ClaimQueryField {
+impl QueryField for Eip2930QueryField {
     fn as_usize(&self) -> usize {
-        use Eip2930ClaimQueryField::*;
+        use Eip2930QueryField::*;
         match self {
             ChainId => 0,
             Nonce => 1,
@@ -268,7 +257,7 @@ impl ClaimQueryField for Eip2930ClaimQueryField {
     }
 
     fn sample_by(&self) -> SampleBy {
-        use Eip2930ClaimQueryField::*;
+        use Eip2930QueryField::*;
 
         match self {
             SingleDataRelativeRange(range) => SampleBy::Range(range.clone()),
@@ -279,11 +268,11 @@ impl ClaimQueryField for Eip2930ClaimQueryField {
     }
 }
 
-impl TryFrom<usize> for Eip2930ClaimQueryField {
-    type Error = ClaimQueryFieldError;
+impl TryFrom<usize> for Eip2930QueryField {
+    type Error = QueryFieldError;
 
     fn try_from(n: usize) -> Result<Self, Self::Error> {
-        use Eip2930ClaimQueryField::*;
+        use Eip2930QueryField::*;
         match n {
             0 => Ok(ChainId),
             1 => Ok(Nonce),
@@ -300,7 +289,7 @@ impl TryFrom<usize> for Eip2930ClaimQueryField {
             11 => Ok(UsedGas),
             12 => Ok(LogsBloom),
             13 => Ok(SingleLog(Default::default())),
-            n => Err(ClaimQueryFieldError::InvalidFieldIndex(n)),
+            n => Err(QueryFieldError::InvalidFieldIndex(n)),
         }
     }
 }
@@ -319,7 +308,7 @@ impl TryFrom<usize> for Eip2930ClaimQueryField {
     MaxEncodedLen,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum Eip1559ClaimQueryField {
+pub enum Eip1559QueryField {
     ChainId,
     Nonce,
     MaxPriorityFeePerGas,
@@ -338,9 +327,9 @@ pub enum Eip1559ClaimQueryField {
     SingleLog(Option<u64>),
 }
 
-impl ClaimQueryField for Eip1559ClaimQueryField {
+impl QueryField for Eip1559QueryField {
     fn as_usize(&self) -> usize {
-        use Eip1559ClaimQueryField::*;
+        use Eip1559QueryField::*;
         match self {
             ChainId => 0,
             Nonce => 1,
@@ -362,7 +351,7 @@ impl ClaimQueryField for Eip1559ClaimQueryField {
     }
 
     fn sample_by(&self) -> SampleBy {
-        use Eip1559ClaimQueryField::*;
+        use Eip1559QueryField::*;
 
         match self {
             SingleDataRelativeRange(range) => SampleBy::Range(range.clone()),
@@ -373,11 +362,11 @@ impl ClaimQueryField for Eip1559ClaimQueryField {
     }
 }
 
-impl TryFrom<usize> for Eip1559ClaimQueryField {
-    type Error = ClaimQueryFieldError;
+impl TryFrom<usize> for Eip1559QueryField {
+    type Error = QueryFieldError;
 
     fn try_from(n: usize) -> Result<Self, Self::Error> {
-        use Eip1559ClaimQueryField::*;
+        use Eip1559QueryField::*;
         match n {
             0 => Ok(ChainId),
             1 => Ok(Nonce),
@@ -395,7 +384,7 @@ impl TryFrom<usize> for Eip1559ClaimQueryField {
             12 => Ok(UsedGas),
             13 => Ok(LogsBloom),
             14 => Ok(SingleLog(Default::default())),
-            n => Err(ClaimQueryFieldError::InvalidFieldIndex(n)),
+            n => Err(QueryFieldError::InvalidFieldIndex(n)),
         }
     }
 }
@@ -414,7 +403,7 @@ impl TryFrom<usize> for Eip1559ClaimQueryField {
     MaxEncodedLen,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum Eip4844ClaimQueryField {
+pub enum Eip4844QueryField {
     ChainId,
     Nonce,
     MaxPriorityFeePerGas,
@@ -435,9 +424,9 @@ pub enum Eip4844ClaimQueryField {
     SingleLog(Option<u64>),
 }
 
-impl ClaimQueryField for Eip4844ClaimQueryField {
+impl QueryField for Eip4844QueryField {
     fn as_usize(&self) -> usize {
-        use Eip4844ClaimQueryField::*;
+        use Eip4844QueryField::*;
         match self {
             ChainId => 0,
             Nonce => 1,
@@ -461,7 +450,7 @@ impl ClaimQueryField for Eip4844ClaimQueryField {
     }
 
     fn sample_by(&self) -> SampleBy {
-        use Eip4844ClaimQueryField::*;
+        use Eip4844QueryField::*;
 
         match self {
             SingleDataRelativeRange(range) => SampleBy::Range(range.clone()),
@@ -472,11 +461,11 @@ impl ClaimQueryField for Eip4844ClaimQueryField {
     }
 }
 
-impl TryFrom<usize> for Eip4844ClaimQueryField {
-    type Error = ClaimQueryFieldError;
+impl TryFrom<usize> for Eip4844QueryField {
+    type Error = QueryFieldError;
 
     fn try_from(n: usize) -> Result<Self, Self::Error> {
-        use Eip4844ClaimQueryField::*;
+        use Eip4844QueryField::*;
         match n {
             0 => Ok(ChainId),
             1 => Ok(Nonce),
@@ -496,7 +485,7 @@ impl TryFrom<usize> for Eip4844ClaimQueryField {
             14 => Ok(UsedGas),
             15 => Ok(LogsBloom),
             16 => Ok(SingleLog(Default::default())),
-            n => Err(ClaimQueryFieldError::InvalidFieldIndex(n)),
+            n => Err(QueryFieldError::InvalidFieldIndex(n)),
         }
     }
 }
@@ -504,15 +493,15 @@ impl TryFrom<usize> for Eip4844ClaimQueryField {
 #[derive(
     Serialize, Deserialize, PartialEq, Debug, Clone, Encode, Decode, TypeInfo, MaxEncodedLen,
 )]
-pub enum TxClaimQuery {
-    TargetLegacyType(TypedClaimQuery<LegacyClaimQueryField>),
-    TargetEip2930Type(TypedClaimQuery<Eip2930ClaimQueryField>),
-    TargetEip1559Type(TypedClaimQuery<Eip1559ClaimQueryField>),
-    TargetEip4844Type(TypedClaimQuery<Eip4844ClaimQueryField>),
+pub enum TxQuery {
+    TargetLegacyType(TypedQuery<LegacyQueryField>),
+    TargetEip2930Type(TypedQuery<Eip2930QueryField>),
+    TargetEip1559Type(TypedQuery<Eip1559QueryField>),
+    TargetEip4844Type(TypedQuery<Eip4844QueryField>),
 }
 
-impl ClaimQuery for TxClaimQuery {
-    fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError> {
+impl QuerySpec for TxQuery {
+    fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, QueryFieldError> {
         match self {
             Self::TargetLegacyType(query) => query.as_byte_offsets(rlp),
             Self::TargetEip2930Type(query) => query.as_byte_offsets(rlp),
@@ -520,7 +509,7 @@ impl ClaimQuery for TxClaimQuery {
             Self::TargetEip4844Type(query) => query.as_byte_offsets(rlp),
         }
     }
-    fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError> {
+    fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, QueryFieldError> {
         match self {
             Self::TargetLegacyType(query) => query.as_felt_offsets(rlp),
             Self::TargetEip2930Type(query) => query.as_felt_offsets(rlp),
@@ -530,43 +519,43 @@ impl ClaimQuery for TxClaimQuery {
     }
 }
 
-impl TryFrom<HashSet<LegacyClaimQueryField>> for TxClaimQuery {
+impl TryFrom<HashSet<LegacyQueryField>> for TxQuery {
     type Error = anyhow::Error;
 
-    fn try_from(fields: HashSet<LegacyClaimQueryField>) -> Result<Self, Self::Error> {
-        Ok(Self::TargetLegacyType(TypedClaimQuery::<
-            LegacyClaimQueryField,
-        >::try_from(fields)?))
+    fn try_from(fields: HashSet<LegacyQueryField>) -> Result<Self, Self::Error> {
+        Ok(Self::TargetLegacyType(
+            TypedQuery::<LegacyQueryField>::try_from(fields)?,
+        ))
     }
 }
 
-impl TryFrom<HashSet<Eip2930ClaimQueryField>> for TxClaimQuery {
+impl TryFrom<HashSet<Eip2930QueryField>> for TxQuery {
     type Error = anyhow::Error;
 
-    fn try_from(fields: HashSet<Eip2930ClaimQueryField>) -> Result<Self, Self::Error> {
-        Ok(Self::TargetEip2930Type(TypedClaimQuery::<
-            Eip2930ClaimQueryField,
-        >::try_from(fields)?))
+    fn try_from(fields: HashSet<Eip2930QueryField>) -> Result<Self, Self::Error> {
+        Ok(Self::TargetEip2930Type(
+            TypedQuery::<Eip2930QueryField>::try_from(fields)?,
+        ))
     }
 }
 
-impl TryFrom<HashSet<Eip1559ClaimQueryField>> for TxClaimQuery {
+impl TryFrom<HashSet<Eip1559QueryField>> for TxQuery {
     type Error = anyhow::Error;
 
-    fn try_from(fields: HashSet<Eip1559ClaimQueryField>) -> Result<Self, Self::Error> {
-        Ok(Self::TargetEip1559Type(TypedClaimQuery::<
-            Eip1559ClaimQueryField,
-        >::try_from(fields)?))
+    fn try_from(fields: HashSet<Eip1559QueryField>) -> Result<Self, Self::Error> {
+        Ok(Self::TargetEip1559Type(
+            TypedQuery::<Eip1559QueryField>::try_from(fields)?,
+        ))
     }
 }
 
-impl TryFrom<HashSet<Eip4844ClaimQueryField>> for TxClaimQuery {
+impl TryFrom<HashSet<Eip4844QueryField>> for TxQuery {
     type Error = anyhow::Error;
 
-    fn try_from(fields: HashSet<Eip4844ClaimQueryField>) -> Result<Self, Self::Error> {
-        Ok(Self::TargetEip4844Type(TypedClaimQuery::<
-            Eip4844ClaimQueryField,
-        >::try_from(fields)?))
+    fn try_from(fields: HashSet<Eip4844QueryField>) -> Result<Self, Self::Error> {
+        Ok(Self::TargetEip4844Type(
+            TypedQuery::<Eip4844QueryField>::try_from(fields)?,
+        ))
     }
 }
 
@@ -575,44 +564,36 @@ pub(crate) const MAX_QUERY_LEN: usize = 42;
 #[derive(
     Serialize, Deserialize, PartialEq, Debug, Clone, Encode, Decode, TypeInfo, MaxEncodedLen,
 )]
-pub struct TypedClaimQuery<T: ClaimQueryField>(BoundedVec<T, ConstU32<{ MAX_QUERY_LEN as u32 }>>);
+pub struct TypedQuery<T: QueryField>(BoundedVec<T, ConstU32<{ MAX_QUERY_LEN as u32 }>>);
 
-impl<T: ClaimQueryField> TypedClaimQuery<T> {
+impl<T: QueryField> TypedQuery<T> {
     pub fn query(&self) -> &Vec<T> {
         &self.0
     }
 
-    pub fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError> {
+    pub fn as_felt_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, QueryFieldError> {
         self.query()
             .iter()
             .map(|field| field.as_felt_offsets(rlp))
             .collect::<Result<_, _>>()
     }
 
-    pub fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, ClaimQueryFieldError> {
+    pub fn as_byte_offsets(&self, rlp: &Rlp) -> Result<Vec<Range<usize>>, QueryFieldError> {
         self.query()
             .iter()
             .map(|field| field.as_byte_offsets(rlp))
             .collect::<Result<_, _>>()
     }
 
-    // pub fn try_from_byte_offsets(ranges: &[Range<u64>], rlp: &Rlp) -> Result<Self, ClaimQueryFieldError> {
-    //     ranges
-    //         .into_iter()
-    //         .map(|r| T::try_from_byte_offsets(r, rlp))
-    //         .collect::<Result<_, _>>()
-    //         .map(Self)
-    // }
-
-    pub fn for_each_field<'a, F>(&self, rlp: &'a Rlp, f: F) -> Result<(), ClaimQueryFieldError>
+    pub fn for_each_field<'a, F>(&self, rlp: &'a Rlp, f: F) -> Result<(), QueryFieldError>
     where
-        F: Fn(&T, &'a Rlp) -> Result<(), ClaimQueryFieldError>,
+        F: Fn(&T, &'a Rlp) -> Result<(), QueryFieldError>,
     {
         self.query().iter().try_for_each(|field| f(field, rlp))
     }
 }
 
-impl<T: ClaimQueryField> TryFrom<HashSet<T>> for TypedClaimQuery<T> {
+impl<T: QueryField> TryFrom<HashSet<T>> for TypedQuery<T> {
     type Error = anyhow::Error;
 
     fn try_from(fields: HashSet<T>) -> Result<Self, Self::Error> {

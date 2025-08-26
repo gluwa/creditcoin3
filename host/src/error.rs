@@ -3,7 +3,7 @@ use tempfile::PersistError;
 use thiserror::Error;
 
 use prover_primitives::{
-    claim::ClaimValidationError::{self, *},
+    query::QueryValidationError::{self, *},
     stark_program_auth::StarkProgramAuthError,
 };
 
@@ -36,8 +36,8 @@ pub enum VerifierError {
     #[error("Verifier process failed with stderr: {0}")]
     VerifierProcessError(String),
 
-    #[error("Claim validation error: {0}")]
-    QueryValidationError(#[from] ClaimValidationError),
+    #[error("Query validation error: {0}")]
+    QueryValidationError(#[from] QueryValidationError),
 
     #[error("Failed to remove temp file")]
     TempFileRemoveError,
@@ -98,7 +98,7 @@ impl VerifierError {
                     11
                 }
                 QueryOutOfBounds(index) => {
-                    error!("claim out of bounds at index: {}", index);
+                    error!("query out of bounds at index: {}", index);
                     12
                 }
                 QueryOffsetsMismatch(expected, found) => {
