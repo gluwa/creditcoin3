@@ -225,3 +225,15 @@ Append `.only` after the respective `.describe` or `.it` function call. For exam
 ```
 
 For more detailed documentation see https://jestjs.io/docs/cli.
+
+## Potential issues and how to solve them
+
+In case you find issues during compilation and/or running the project, check below.
+
+### Compilation issues for rocksdb
+
+If you have trouble compiling rocksdb and your system's `clang` version is 20 or higher, try this before compiling:
+
+```sh
+export CXXFLAGS="$CXXFLAGS -include cstdint"
+```
