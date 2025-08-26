@@ -15,7 +15,7 @@
       }
     ]
   },
-  "editable": true,
+  "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": 10,
@@ -36,8 +36,10 @@
     },
     {
       "datasource": {
+        "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Current best block for the selected instance/job and chain labels (substrate_attestor_best_block).",
       "fieldConfig": {
         "defaults": {
           "mappings": [],
@@ -82,7 +84,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_best_block{instance=~\"$instance\", chain=~\"$chain_name\", chain_key=~\"$chain_key\", job=~\"$job\"}",
+          "expr": "substrate_attestor_best_block{instance=~\"$instance\", job=~\"$job\", chain=~\"$chain_name\", chain_key=~\"$chain_key\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -99,6 +101,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Total successfully handled votes observed (substrate_attestor_successful_handled_votes).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -146,7 +149,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_successful_handled_votes{instance=~\"$instance\", chain=~\"$chain_name\", chain_key=~\"$chain_key\", job=~\"$job\"}",
+          "expr": "substrate_attestor_successful_handled_votes{instance=~\"$instance\", job=~\"$job\", chain=~\"$chain_name\", chain_key=~\"$chain_key\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -155,7 +158,7 @@
           "useBackend": false
         }
       ],
-      "title": "Successfully Handled Votes ",
+      "title": "Successfully Handled Votes",
       "type": "stat"
     },
     {
@@ -163,6 +166,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Count of occasions when no authority was found in store for the selected labels (substrate_attestor_no_authority_found_in_store).",
       "fieldConfig": {
         "defaults": {
           "mappings": [],
@@ -211,7 +215,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_no_authority_found_in_store{instance=~\"$instance\", job=~\"$job\"}",
+          "expr": "substrate_attestor_no_authority_found_in_store{instance=~\"$instance\", job=~\"$job\", chain=~\"$chain_name\", chain_key=~\"$chain_key\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -220,7 +224,7 @@
           "useBackend": false
         }
       ],
-      "title": "No Authority found in store",
+      "title": "No Authority Found In Store",
       "type": "stat"
     },
     {
@@ -228,6 +232,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Invalid vote count received by the attestor (substrate_attestor_invalid_votes).",
       "fieldConfig": {
         "defaults": {
           "mappings": [],
@@ -284,7 +289,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_invalid_votes{instance=~\"$instance\", job=~\"$job\"}",
+          "expr": "substrate_attestor_invalid_votes{instance=~\"$instance\", job=~\"$job\", chain=~\"$chain_name\", chain_key=~\"$chain_key\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -301,6 +306,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Number of equivocation votes observed (substrate_attestor_equivocation_votes).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -318,7 +324,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -349,7 +356,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "substrate_attestor_equivocation_votes",
+          "expr": "substrate_attestor_equivocation_votes{instance=~\"$instance\", job=~\"$job\", chain=~\"$chain_name\", chain_key=~\"$chain_key\"}",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -379,6 +386,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Best block over time for the selected labels.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -429,7 +437,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -456,10 +465,6 @@
       "pluginVersion": "12.0.2",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "substrate_attestor_best_block{instance=~\"$instance\", job=~\"$job\", chain=~\"$chain_name\", chain_key=~\"$chain_key\"}",
@@ -479,6 +484,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Votes sent by the attestor over time (substrate_attestor_votes_sent).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -529,7 +535,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -575,6 +582,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Best voted block as reported by the attestor over time (substrate_attestor_best_voted).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -625,7 +633,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -671,6 +680,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Votes received from RPC over time (attestor_votes_from_rpc).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -721,7 +731,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -773,36 +784,46 @@
         "name": "datasource",
         "options": [],
         "query": "prometheus",
-        "refresh": 1,
+        "refresh": 2,
         "regex": "",
         "type": "datasource"
       },
       {
         "datasource": "$datasource",
-        "definition": "query_result(up{})",
+        "definition": "label_values(up, instance)",
         "description": "",
-        "label": "Select Node Instance",
+        "includeAll": true,
+        "allValue": ".+",
+        "label": "Instance",
         "multi": true,
         "name": "instance",
         "options": [],
         "query": {
-          "qryType": 3,
-          "query": "query_result(up{})",
+          "qryType": 1,
+          "query": "label_values(up, instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
-        "regex": ".*instance=\"(.*?)\".*",
+        "regex": "",
         "type": "query"
       },
       {
         "datasource": "$datasource",
-        "label": "Select Node Job",
+        "definition": "label_values(up, job)",
+        "description": "",
+        "includeAll": true,
+        "allValue": ".+",
+        "label": "Job",
         "multi": true,
         "name": "job",
         "options": [],
-        "query": "query_result(up{})",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
         "refresh": 2,
-        "regex": ".*job=\"(.*?)\".*",
+        "regex": "",
         "type": "query"
       },
       {
@@ -818,19 +839,51 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(chain_key)",
+        "definition": "label_values(up, chain_key)",
         "description": "",
         "includeAll": true,
+        "allValue": ".+",
+        "label": "Chain Key",
         "multi": true,
         "name": "chain_key",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(chain_key)",
+          "query": "label_values(up, chain_key)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
-        "refresh": 1,
-        "regex": "/^[0-9]+$/",
+        "refresh": 2,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(up, chain)",
+        "description": "",
+        "includeAll": true,
+        "allValue": ".+",
+        "label": "Chain",
+        "multi": true,
+        "name": "chain_name",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up, chain)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
         "type": "query"
       }
     ]
@@ -843,5 +896,5 @@
   "timezone": "browser",
   "title": "CCNext Node Metrics Dashboard",
   "uid": "cd874fa5-c778-44ce-851d-b5015cabcd04",
-  "version": 62
+  "version": 63
 }
