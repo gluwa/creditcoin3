@@ -3,6 +3,19 @@
 set -eu
 
 
+# To avoid endless loop in CI skip the BENCHMARKS job if the last commit
+# is the one which updates weights!
+# WARNING: not filtering by Author: gluwa-bot because automated version bumps
+# are also made from the same account and when opening a PR against `testnet`
+# via the "Create Devnet release" + "Propose Testnet PR" workflows this version
+# bump commit is often the last one!
+if [[ $(git show | grep -c "Auto-update pallet weights") -gt 0 ]]; then
+    echo "Last commit is from gluwa-bot! Skipping ..."
+    echo "needs_bench=0" >> "$GITHUB_OUTPUT"
+    exit 0
+fi
+
+
 GITHUB_BASE_REF="${1:-origin/testnet}"
 GITHUB_HEAD_REF="${2:-HEAD}"
 
