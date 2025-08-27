@@ -96,8 +96,6 @@ pub struct AttestorGossipParams<B: BlockT, BE, C, N, R, S, AccountId> {
     pub inherent_provider: inherent::AsyncProvider<AccountId, B, R, BE>,
     /// Is the node is an authority
     pub is_authority: bool,
-    /// Chain name prometheus metric label
-    pub chain_name: String,
 }
 
 /// Finality notification for consumption by BEEFY worker.
@@ -185,7 +183,6 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
         inherent_provider,
         is_authority,
         prometheus_registry,
-        chain_name,
         ..
     } = attestor_params;
 
@@ -233,7 +230,6 @@ pub async fn start_attestor_gossip_gadget<B, BE, C, N, R, S, AccountId>(
             is_authority,
             sync: sync.clone(),
             prometheus_registry: prometheus_registry.clone(),
-            chain_name: chain_name.clone(),
         };
         let worker: Worker<B, R, BE, C, AccountId, S, N> = Worker::new(worker_params);
 

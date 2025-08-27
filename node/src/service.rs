@@ -508,7 +508,6 @@ where
                         prometheus_registry: prometheus_registry.clone(),
                         inherent_provider: attestation_provider.clone(),
                         is_authority: config.role.is_authority(),
-                        chain_name: config.chain_spec.name().to_string(),
                     },
                 );
             task_manager

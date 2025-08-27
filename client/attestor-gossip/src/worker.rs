@@ -86,8 +86,6 @@ where
 
     /// Validator for attestations
     pub attestation_validator: AttestationValidator<B, AccountId, RuntimeApi>,
-
-    pub chain_name: String,
 }
 
 pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
@@ -131,9 +129,6 @@ where
     pub is_authority: bool,
 
     pub prometheus_registry: Option<Registry>,
-
-    /// Chain name for metrics labeling
-    pub chain_name: String,
 }
 
 impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
@@ -178,7 +173,6 @@ where
             is_authority: params.is_authority,
             sync: params.sync,
             attestation_validator: AttestationValidator::new(params.runtime.clone()),
-            chain_name: params.chain_name,
         }
     }
 
@@ -270,11 +264,7 @@ where
                         digest,
                         attestation.attestor_id().account_id()
                     );
-                    metric_inc_chain!(
-                        self.metrics,
-                        attestor_votes_from_rpc_per_chain,
-                        [self.chain_name, chain_key]
-                    );
+                    metric_inc_chain!(self.metrics, attestor_votes_from_rpc_per_chain, chain_key);
                 } else {
                     debug!(
                         target: LOG_TARGET,
@@ -283,11 +273,7 @@ where
                         digest,
                         attestation.attestor_id().account_id()
                     );
-                    metric_inc_chain!(
-                        self.metrics,
-                        attestor_imported_votes_per_chain,
-                        [self.chain_name, chain_key]
-                    );
+                    metric_inc_chain!(self.metrics, attestor_imported_votes_per_chain, chain_key);
                 }
 
                 match self.process_attestation_message(attestation, from_rpc) {
@@ -295,7 +281,7 @@ where
                         metric_inc_chain!(
                             self.metrics,
                             attestor_good_votes_processed_per_chain,
-                            [self.chain_name, chain_key]
+                            chain_key
                         );
                         debug!(target: LOG_TARGET, "📝 Attestation processed for round: {:?}, with digest {:?}", round, digest);
                     }
@@ -326,7 +312,7 @@ where
         metric_set_chain!(
             self.metrics,
             attestor_best_block_per_chain,
-            [self.chain_name, chain_key],
+            chain_key,
             attestation.header_number()
         );
 
@@ -344,7 +330,7 @@ where
                 metric_inc_chain!(
                     self.metrics,
                     attestor_equivocation_votes_per_chain,
-                    [self.chain_name, chain_key]
+                    chain_key
                 );
                 return Err(Error::DoubleVote);
             }
@@ -352,18 +338,14 @@ where
                 metric_set_chain!(
                     self.metrics,
                     attestor_best_voted_per_chain,
-                    [self.chain_name, chain_key],
+                    chain_key,
                     attestation.header_number()
                 );
                 info!(target: LOG_TARGET, "📝 Attestation added to round: {:?} for digest {:?}", round, attestation.digest());
             }
             VoteImportResult::Stale => {
                 info!(target: LOG_TARGET, "📝 Stale vote detected, round: {:?} for digest {:?}", round, attestation.digest());
-                metric_inc_chain!(
-                    self.metrics,
-                    attestor_stale_votes_per_chain,
-                    [self.chain_name, chain_key]
-                );
+                metric_inc_chain!(self.metrics, attestor_stale_votes_per_chain, chain_key);
                 return Err(Error::StaleVote);
             }
             VoteImportResult::RoundConcluded => {
@@ -372,11 +354,7 @@ where
         }
 
         // Gossip now
-        metric_inc_chain!(
-            self.metrics,
-            attestor_votes_sent_per_chain,
-            [self.chain_name, chain_key]
-        );
+        metric_inc_chain!(self.metrics, attestor_votes_sent_per_chain, chain_key);
         debug!(target: LOG_TARGET,
             "📝 Will gossip attestation with digest {:?}, for chain_key {:?}, from attestor {}",
             attestation.digest(),
