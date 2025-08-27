@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           lfs: true
-          token: ${{ secrets.ATODOROV_TOKEN }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
           fetch-depth: 0
 
       - name: Setup
@@ -59,7 +59,7 @@ jobs:
         id: open-pr
         uses: rematocorp/open-pull-request-action@v1
         with:
-          github-token: ${{ secrets.ATODOROV_TOKEN }}
+          github-token: ${{ secrets.GLUWA_BOT_TOKEN }}
           from-branch: ${{ env.BRANCH_NAME }}
           to-branch: ${{ inputs.target-branch }}
           repository-owner: gluwa
