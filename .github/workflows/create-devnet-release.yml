@@ -45,8 +45,8 @@ jobs:
         with:
           push: true
           add: "Cargo.toml Cargo.lock runtime/src/version.rs"
-          author_name: "Alex Todorov"
-          author_email: alex.todorov@gluwa.com
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
           message: "Bump version to ${{ steps.bump-version.outputs.new_version }}"
           tag: "${{ steps.bump-version.outputs.new_version }}-devnet"
           github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
