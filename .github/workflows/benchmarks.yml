@@ -135,7 +135,7 @@ jobs:
           fetch-depth: 10
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
           lfs: true
 
       - name: Set env
@@ -200,7 +200,7 @@ jobs:
         id: open_pr
         uses: rematocorp/open-pull-request-action@v1
         with:
-          github-token: ${{ secrets.CREDITCOIN_GITHUB_API_TOKEN }}
+          github-token: ${{ secrets.GLUWA_BOT_TOKEN }}
           from-branch: auto-update-weights-for-dev-${{ github.sha }}
           to-branch: poc_external_attestation_network
           repository-owner: ${{ github.repository_owner }}
