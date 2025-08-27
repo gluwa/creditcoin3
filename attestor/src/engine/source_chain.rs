@@ -32,7 +32,7 @@ pub async fn attest_to_heads(
     let mut subscription = if config.start_block
         >= last_block_height.saturating_sub(attestation_interval)
     {
-        info!("Opening subscription to new heads");
+        info!("🔗 Opening subscription to new heads");
         eth_client.open_subscription(None, attestation_interval)?
     } else {
         // If the end block of the configuration is larger than the actual block height we set it to the last block height

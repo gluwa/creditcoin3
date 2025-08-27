@@ -222,11 +222,7 @@ impl AsyncEngine {
         drop(engine);
 
         if let Some(attestation) = attestation {
-            return Some(
-                self.mature_block(attestation, maturity_delay)
-                    .await
-                    .expect("Failed to mature block"),
-            );
+            return self.mature_block(attestation, maturity_delay).await.ok();
         }
 
         None
@@ -322,18 +318,33 @@ impl AsyncEngine {
                 [self.chain_name, self.chain_key],
                 last_eth_block_number
             );
-            drop(inner);
+
+            if attestation.header_number % inner.attestation_interval() != 0 {
+                warn!(
+                    "🚧 Attestation interval might have changed while maturing a block, returning"
+                );
+                return Err(anyhow::anyhow!(
+                    "Attestation interval does not fit current matured block, returning"
+                ));
+            }
 
             // If the attestation is mature, return it
             if attestation.header_number <= last_eth_block_number - delay {
+                info!(
+                    "👨 Attestation with header number: {} matured",
+                    attestation.header_number
+                );
                 return Ok(attestation);
             }
 
             info!(
-                "👶 Attestation not mature, Current block: {}, required block: {}, waiting...",
+                "👶 Attestation({}) not mature, Current block: {}, required block: {}, waiting...",
+                attestation.header_number,
                 last_eth_block_number,
                 attestation.header_number + delay
             );
+
+            drop(inner);
 
             // Wait for check interval before checking again
             sleep(check_interval).await;
@@ -661,7 +672,7 @@ impl Engine {
     /// This is used to handle events from the creditcoin chain
     pub async fn note_cc_event(&mut self, event: cc3::Event) -> Result<(), Error> {
         match event.clone() {
-            cc3::Event::AttestationIntervalChanged((_chain_key, interval)) => {
+            cc3::Event::AttestationIntervalChanged((_ck, interval)) => {
                 self.note_interval_change(interval).await?;
             }
             cc3::Event::BlockAttested(attestation) => {
@@ -671,12 +682,7 @@ impl Engine {
             cc3::Event::RandomnessChanged((epoch, _randomness)) => {
                 self.note_epoch_change(epoch).await?;
             }
-            cc3::Event::CheckpointReached(ck, checkpoint) => {
-                if self.chain_key() != ck {
-                    debug!("Ignoring checkpoint for different chain key");
-                    return Ok(());
-                }
-
+            cc3::Event::CheckpointReached(_ck, checkpoint) => {
                 // Prune the continuity cache
                 self.continuity_cache
                     .prune_all_before(checkpoint.block_number);
