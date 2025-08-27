@@ -19,10 +19,8 @@ use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 pub struct QueryProver {
     block_number: u64,
     merkle_proof: MerkleProofSerializable,
-    #[serde(rename = "claim_digest_root")]
     query_digest_root: QueryDigestRoot,
     continuity_chain: FragmentContinuityBlocksSerializable,
-    #[serde(rename = "claim")]
     query: QuerySerializable,
     out_of_bounds_flag: u8,
 

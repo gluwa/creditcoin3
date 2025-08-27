@@ -115,7 +115,6 @@ pub struct MerkleProofSerializable {
     arity: usize,
     root: String,
     path: Vec<Vec<String>>,
-    #[serde(rename = "claim_subject")]
     subject: Vec<u8>,
     leaf_hash_prefix: u8,
     inner_node_hash_prefix: u8,
