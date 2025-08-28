@@ -16,6 +16,7 @@ use crate::cc3::{
 
 use crate::{Client, Randomness};
 
+#[derive(Debug, Clone)]
 pub enum CcEvent {
     BlockAttested(SignedAttestation<Digest, AccountId32>),
     RandomnessChanged((u64, Randomness)),
@@ -42,7 +43,7 @@ impl Subscription {
         Ok(())
     }
 
-    /// Get the next proof
+    /// Get the next creditcoin event from the subscription
     pub async fn next(&mut self) -> Option<CcEvent> {
         // Receive the next proof from the channel
         self.receiver.recv().await

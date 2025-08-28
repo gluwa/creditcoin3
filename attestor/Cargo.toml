@@ -26,6 +26,7 @@ release = false
 
 [dependencies]
 anyhow = "1.0"
+rand = "0.9"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 
@@ -46,6 +47,7 @@ vrf = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+futures-util = { workspace = true }
 hex = { workspace = true }
 prometheus = { workspace = true }
 serde = { workspace = true }

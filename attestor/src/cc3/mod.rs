@@ -17,23 +17,6 @@ use vrf::ProofOfInclusion;
 
 use crate::error::Error;
 
-pub mod ccsub;
-
-pub type Randomness = [u8; 32];
-pub type RandomnessChange = (u64, Randomness);
-pub type AttestationIntervalChange = (ChainKey, u64);
-
-/// Event that can be received from the client
-/// - `RandomnessChanged`: Randomness changed
-/// - `AttestationIntervalChanged`: Attestation interval changed
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event {
-    RandomnessChanged(RandomnessChange),
-    AttestationIntervalChanged(AttestationIntervalChange),
-    BlockAttested(SignedAttestation<H256, AccountId32>),
-    CheckpointReached(ChainKey, AttestationCheckpoint),
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct SourceChainConfig {
     pub chain_key: ChainKey,
@@ -344,5 +327,14 @@ impl<'a> Client {
             .inner
             .get_attestation_chain_genesis_block_number(self.get_chain_key())
             .await?)
+    }
+
+    pub async fn get_vote_acceptance_window(&self, chain_key: ChainKey) -> Result<u64, Error> {
+        self.inner
+            .get_attestation_vote_acceptance_window(chain_key)
+            .await?
+            .ok_or(Error::Cclient(cc_client::Error::NoVoteAcceptanceWindowSet(
+                self.get_chain_key(),
+            )))
     }
 }

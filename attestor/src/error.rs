@@ -4,13 +4,10 @@ use tokio::sync::mpsc::error::SendError;
 
 use crate::continuity::Error as ContinuityError;
 use attestor_primitives::Attestation;
+use cc_client::attestation::Error as AttestationError;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Double vote for block: {0}")]
-    DoubleVote(u64),
-    #[error("Engine is not running")]
-    NotRunning,
     #[error("cclient error: {0}")]
     Cclient(#[from] cc_client::Error),
     #[error("Attestor not selected for header {0}")]
@@ -37,6 +34,8 @@ pub enum Error {
     Continuity(#[from] ContinuityError),
     #[error("Block already attested to: {0}")]
     AlreadyAttestedTo(u64),
+    #[error("CcClient error: {0}")]
+    AttestationClient(#[from] AttestationError),
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
 }
@@ -53,16 +52,6 @@ impl Error {
     #[must_use]
     pub fn is_fragment_error(&self) -> bool {
         matches!(self, Error::Continuity(_))
-    }
-
-    #[must_use]
-    pub fn is_not_running_error(&self) -> bool {
-        matches!(self, Error::NotRunning)
-    }
-
-    #[must_use]
-    pub fn is_double_vote_error(&self) -> bool {
-        matches!(self, Error::DoubleVote(_))
     }
 
     #[must_use]

@@ -1,7 +1,7 @@
 use anyhow::Result;
-use engine::AsyncEngine;
-use tokio::{sync::mpsc, time::sleep};
-use tracing::{debug, error, info, warn};
+use engine::AttestorService;
+use tokio::time::sleep;
+use tracing::{debug, info, warn};
 
 mod cc3;
 mod continuity;
@@ -42,69 +42,41 @@ impl Server {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let (shutdown_send, mut shutdown_recv) = mpsc::unbounded_channel::<()>();
+        // Spin up the service actor
+        let handle = AttestorService::spawn(&self.config).await?;
+        debug!("Started attestation service");
 
-        let mut engine = AsyncEngine::new(&self.config, shutdown_send).await?;
-        engine.start().await?;
-        debug!("Started attestation engine");
-
-        // Create a task for ccsub and monitor it
-        let mut ccsub_engine = engine.clone();
-        let mut ccsub_handle =
-            tokio::spawn(async move { cc3::ccsub::run(&mut ccsub_engine).await });
+        // Example: consumer of published attestations (optional)
+        let mut rx = handle.subscribe_attestations();
 
         loop {
             tokio::select! {
-                _ = shutdown_recv.recv() => {
-                    engine.stop().await;
-                    panic!("Attestor server stopped by shutdown signal");
+                // Graceful shutdown on Ctrl-C
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Received Ctrl-C, shutting down attestation service…");
+                    // Ask the service to stop and break out
+                    let _ = handle.shutdown().await;
+                    break;
                 }
-                ccsub_result = &mut ccsub_handle => {
-                    match ccsub_result {
-                        Ok(Ok(())) => {
-                            panic!("CclientSub completed successfully, this should not happen in a long-running attestor");
-                        },
-                        Ok(Err(e)) => {
-                            return Err(e);
-                        },
-                        Err(join_err) => {
-                            tracing::error!("CclientSub panicked or was aborted: {}", join_err);
-                            return Err(join_err.into());
+                msg = rx.recv() => {
+                    match msg {
+                        Ok(_att) => {
+                            // You can log or forward attestations here if desired
+                            debug!("Received attestation");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            warn!("Attestation stream closed; exiting");
+                            break;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            continue;
                         }
                     }
                 }
-                maybe_attestation = engine.next() => {
-                    if let Some(attestation) = maybe_attestation {
-                        let round = attestation.round();
-                        debug!("Going to submit attestation for round: {:?}", round);
-                        match engine.submit_attestation(attestation).await {
-                            Ok(()) => {
-                                debug!("Submitted attestation for round: {:?}", round);
-                            }
-                            Err(e) => {
-                                if e.is_not_selected_error() {
-                                    warn!("Failed to attest, attestor not selected.");
-                                } else if e.is_not_running_error() {
-                                    info!("Engine not running, continuing ...");
-                                } else if e.is_double_vote_error() {
-                                    debug!("Double vote detected, continuing ...");
-                                } else if e.is_fragment_error() {
-                                    warn!("Fragment error detected, exiting ...");
-                                    return Err(e.into());
-                                } else if e.is_attested_to_error() {
-                                    debug!("Attestation already submitted for round {:?}, skipping", round);
-                                } else {
-                                    error!("Failed to submit attestation for round {:?}: {:?}", round, e);
-                                    return Err(e.into());
-                                }
-                            }
-                        }
-                    } else {
-                        debug!("No attestation to submit, sleeping for 6 seconds");
-                        sleep(std::time::Duration::from_secs(6)).await;
-                    }
-                }
+                // In a simple server, idle a bit
+                () = sleep(std::time::Duration::from_secs(6)) => {}
             }
         }
+        Ok(())
     }
 }

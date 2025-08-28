@@ -62,6 +62,8 @@ pub enum Error {
     FailedToGetComitteSetSize,
     #[error("No Checkpoint interval set for chain with key {0}")]
     NoCheckpointIntervalSet(ChainKey),
+    #[error("No Vote acceptance window set for chain with key {0}")]
+    NoVoteAcceptanceWindowSet(ChainKey),
     #[error("Subxt error: {0:?}")]
     SubxtError(#[from] subxt::Error),
     #[error("Rpc error: {0:?}")]
@@ -811,6 +813,26 @@ impl<'a> Client {
             .await?;
 
         Ok(result.unwrap_or_default())
+    }
+
+    pub async fn get_attestation_vote_acceptance_window(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<u64>, Error> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .vote_acceptance_window(chain_key);
+
+        let result = self
+            .api()
+            .await?
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result)
     }
 }
 

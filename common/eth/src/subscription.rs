@@ -99,11 +99,32 @@ struct BlockFetcher {
 }
 
 impl BlockFetcher {
-    pub fn new(client: Client, config: SubscriptionConfig, interval: u64) -> Self {
+    fn align_to_interval(start: u64, interval: u64) -> u64 {
+        debug_assert!(interval > 0, "interval must be > 0");
+        if interval == 0 {
+            return start; // defensive: don't crash in release builds
+        }
+        let rem = start % interval;
+        if rem == 0 {
+            start
+        } else {
+            start + (interval - rem)
+        }
+    }
+
+    pub fn new(client: Client, mut config: SubscriptionConfig, interval: u64) -> Self {
+        // Align the first block we will fetch to the attestation interval,
+        // so we only emit blocks where block_number % interval == 0.
+        if interval > 0 {
+            config.start_block = Self::align_to_interval(config.start_block, interval);
+        } else {
+            warn!("BlockFetcher created with interval=0; treating as 1");
+        }
+
         Self {
             client,
             config,
-            interval,
+            interval: if interval == 0 { 1 } else { interval },
         }
     }
 }
@@ -125,8 +146,13 @@ impl BlockSubscription for BlockFetcher {
         // Get the block at the current height
         let block = self.client.get_block(self.config.start_block).await?;
 
-        // Increment the height
-        self.config.start_block += self.interval;
+        // Step to the next aligned height.
+        // Use checked_add to be extra safe against overflow on u64.
+        self.config.start_block = self
+            .config
+            .start_block
+            .checked_add(self.interval)
+            .ok_or(Error::EndOfSubscription)?; // or define a dedicated overflow error
 
         Ok(Some(block))
     }
