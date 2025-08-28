@@ -47,7 +47,7 @@ anvil --block-time 6
 
 First configure to connect to local chain, see `creditcoin3-next/attestor_zombienet/config.yaml`
 
-set:
+Set the following attribute to true, create it if not present:
 
 ```toml
 single_node: true
@@ -88,7 +88,7 @@ Install and run cairo environment:
 
 First time on machine:
 ```sh
-python3.10 -m venv ~/cairo_venv
+python3 -m venv ~/cairo_venv
 ```
 Every prover run:
 ```sh
@@ -96,7 +96,7 @@ source ~/cairo_venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Now start the prover:
+Now start the prover, keep in mind the database ports defined in (prover/docker-compose.yaml):
 // secretlint-disable
 
 ```sh
@@ -129,10 +129,17 @@ This will transfer some amount from `Alice` to some other random account.
 
 ```sh
 cd attestor/scripts
-node transfer.js
+node Transfer.js
 ```
 
-Save the ouput to create a Query later.
+The output will look similar to this:
+
+```
+Transaction mined in block: 34
+Transaction hash: 0xaa69f45ea7d0b1eeb4a6ccfdd8b48c42f7ac8036a249eb411f2a28397007f3b4
+```
+
+Save the output to create a query later in the next step.
 
 ## 7. Query cli
 
@@ -146,7 +153,7 @@ to create a query, run the query cli:
 ```sh
 cd query-cli
 cargo run -- \
-  --cc3-rpc-url http://localhost:9944 \
+  --cc3-rpc-url ws://localhost:9944 \
   --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
   --prover-contract-address 0xc01ee7f10ea4af4673cfff62710e1d7792aba8f3 \
 ```
@@ -155,10 +162,11 @@ cargo run -- \
 
 Select:
 
-- Local chain
-- block number: 348
-- transaction hash: 0x584ee77611d71f6bd4c1459f08da01b80208ab04a4f3c67c26207b02765a1cd1
-- Native token transfer data
+- **Network**: Local
+- **Network URL**: Leave as is
+- **Block height**: 34 (Number from the previous step)
+- **Transaction hash**: 0xaa69f45ea7d0b1eeb4a6ccfdd8b48c42f7ac8036a249eb411f2a28397007f3b4 (Hash from the previous step)
+- **Data to represent**: Native token transfer data
 
 Now the prover should run the query and prove it. The result is submitted back to the cli and eventually it exits.
 
@@ -171,6 +179,8 @@ Whenever you start up a new chain as in step 2 there is an additional cleanup co
 There are many ways to clean your db, but one is to connect to your local db using a management GUI such as DBeaver.
 You can then run DELETE queries on the various tables.
 
+Another way is from the `prover` folder running `docker compose down -d`, this will destroy previously created containers, including the db.
+
 Failing to clean the DB can result in multiple attestations, blocks, or checkpoints being present at each block height.
 
 Some of those will have the wrong digests, as they were saved from past chains.
@@ -182,7 +192,7 @@ To create a query against the devnet, you first need to run a transfer.
 
 ```sh
 cd attestor/scripts
-node transfer.js --devnet
+node Transfer.js --devnet
 ```
 
 This will output a block number and transaction hash. Use these values to create a query.

@@ -75,4 +75,4 @@ data/db/*
 **/claim_attestation*.json
 ./config.json
 primitives/data/*
-prover/artifacts/
+prover/artifacts/*
