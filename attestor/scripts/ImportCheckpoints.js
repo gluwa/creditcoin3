@@ -3,15 +3,23 @@ const { ApiPromise, WsProvider, Keyring } = require('@polkadot/api');
 const { hexToU8a } = require('@polkadot/util');
 const fs = require('fs');
 
+// Flag handling
+const IS_DEV = process.argv.includes('--dev');
+
 const BATCH_SIZE = 100;
 const MAX_RETRIES = 10;
-const RETRY_DELAY_MS = 6000;
+// Decrease the retry delay when running with --dev
+const RETRY_DELAY_MS = IS_DEV ? 6000 : 15000;
 
 async function delay(ms) {
     return new Promise((res) => setTimeout(res, ms));
 }
 
 async function main() {
+    if (IS_DEV) {
+        console.log('Running in DEV mode: RETRY_DELAY_MS set to 6000ms');
+    }
+
     // Import configurations from .env file
     const mnemonic = process.env.MNEMONIC;
     if (!mnemonic) {
@@ -58,7 +66,7 @@ async function main() {
 
         let attempt = 0;
         while (attempt < MAX_RETRIES) {
-            console.log(`Submitting batch ${i / BATCH_SIZE + 1}, attempt ${attempt + 1}...`);
+            console.log(`Submitting batch ${Math.floor(i / BATCH_SIZE) + 1}, attempt ${attempt + 1}...`);
             try {
                 const unsub = await sudoCall.signAndSend(sudo, (result) => {
                     if (result.status.isInBlock) {
@@ -80,7 +88,7 @@ async function main() {
             }
         }
 
-        await new Promise((res) => setTimeout(res, 6000));
+        await delay(RETRY_DELAY_MS);
     }
 
     console.log('✅ All checkpoint batches submitted.');

@@ -15,6 +15,7 @@ node Transfer.js
 ```
 
 ## Transfering Checkpoints Between CCNext Instances
+
 The establishment of checkpoints attesting to a source chain can take quite a long time.
 EX: Sepolia ingestion (creation of checkpoints) took ~10 days.
 
@@ -23,7 +24,9 @@ checkpoints for a source chain instead of re-doing the ingestion work.
 EX: CCNext Devnet -> Sepolia checkpoints transfer -> CCNext Testnet
 
 Steps:
+
 ### 1. Create .env file
+
 Create file `attestor/scripts/.env` with contents:
 ```
 MNEMONIC=<your sudo mnemonic here>
@@ -45,6 +48,7 @@ CHAIN_KEY_ON_DESTINATION=2
 ```
 
 ### 2. Run ExportCheckpoints.js
+
 ```sh
 cd attestor/scripts
 node ExportCheckpoints.js
@@ -62,11 +66,24 @@ EX:
 ```
 
 ### 3. Run ImportCheckpoints.js
+
+Run it like:
+
 ```sh
 node ImportCheckpoints.js
 ```
 
+Running in Development Mode
+
+You can pass the --dev flag to reduce the retry delay from the default 15000ms (15s) to 6000ms (6s).
+This makes iteration faster when testing locally.
+
+```sh
+node ImportCheckpoints.js --dev
+```
+
 ### 4. (Optional) Check That On-chain Checkpoints Match Expected
+
 Modify and re-run ExportCheckpoints.js to extract the checkpoints we just inserted into checkpoints2.json.
 Then check that the contents of checkpoints.json exactly match those of checkpoints2.json
 
