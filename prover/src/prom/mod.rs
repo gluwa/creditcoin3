@@ -115,21 +115,6 @@ macro_rules! metric_set {
 }
 
 #[macro_export]
-macro_rules! metric_set_label_in_prover {
-    ($metrics:expr, $m:ident, $metric_label:expr, $v:expr) => {{
-        let val: u64 = format!("{}", $v).parse().unwrap();
-
-        if let Some(metrics) = $metrics.as_ref() {
-            #[allow(clippy::cast_precision_loss)]
-            metrics
-                .$m
-                .with_label_values(&[&$metric_label.to_string()])
-                .set(val as f64);
-        }
-    }};
-}
-
-#[macro_export]
 macro_rules! metric_set_labels {
     ($metrics:expr, $m:ident, $metric_label_1:expr, $metric_label_2:expr, $v:expr) => {{
         let val: u64 = format!("{}", $v).parse().unwrap();

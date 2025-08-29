@@ -267,9 +267,10 @@ impl Server {
                 },
                 Some(block_height) = new_attestation_receiver.recv() => {
                     debug!("📝 Received notification for new attestation at height {}", block_height);
-                    metric_set_label_in_prover!(
+                    metric_set_labels!(
                         self.metrics,
                         attestation_network_height,
+                        self.chain_name,
                         self.config.chain_key,
                         block_height
                     );
