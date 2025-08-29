@@ -88,7 +88,7 @@ Install and run cairo environment:
 
 First time on machine:
 ```sh
-python3 -m venv ~/cairo_venv
+python3.10 -m venv ~/cairo_venv
 ```
 Every prover run:
 ```sh
