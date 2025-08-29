@@ -20,6 +20,8 @@ use subxt_signer::{sr25519::Keypair, SecretUri};
 use cc_client::Client;
 use eth::Client as EthClient;
 
+const DEFAULT_CREDITCOIN3_NODE_URL: &str = "ws://localhost:9944";
+
 #[derive(Parser, Debug)]
 #[command(name = "attestor_zombienet")]
 pub struct AttestorZombienet {
@@ -32,7 +34,7 @@ pub struct AttestorZombienet {
 
     #[arg(
         long,
-        default_value = "ws://localhost:9944",
+        default_value = DEFAULT_CREDITCOIN3_NODE_URL,
         help = "A Creditcoin3 url to a node with rpc and websocket enabled"
     )]
     cc3_rpc_url: String,
@@ -146,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Will start funding {} attestor keys", keys.len());
 
-    let cc_client = Client::new(args.cc3_rpc_url, &args.cc3_key)
+    let cc_client = Client::new(args.cc3_rpc_url.clone(), &args.cc3_key)
         .await
         .expect("Failed to create client");
 
@@ -194,7 +196,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("All attestor keys funded!\n");
-    tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+    if args.cc3_rpc_url == DEFAULT_CREDITCOIN3_NODE_URL {
+        info!("Waiting 15 seconds for the local node to process all transfers...");
+        tokio::time::sleep(tokio::time::Duration::from_secs(TIMEOUT_SECONDS)).await;
+    } else {
+        tokio::time::sleep(tokio::time::Duration::from_secs(TIMEOUT_SECONDS * 4)).await;
+        info!("Waiting 60 seconds for the remote node to process all transfers...");
+    }
 
     let mut nonce = cc_client
         .get_account_nonce()
