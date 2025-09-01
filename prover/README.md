@@ -63,9 +63,9 @@ select * from signedattestation;
 
 See [query-cli](../query-cli/README.md) for more details.
 
-## Claims
+## Queries
 
-Claims that are proven are stored as JSON in `claims` folder.
+Queries that are proven are stored as JSON in `queries` folder.
 
 ## External prover example
 

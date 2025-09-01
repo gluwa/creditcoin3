@@ -43,7 +43,7 @@ struct VerifierResult {
 /// @title ProofVerifierContract interface
 /// @notice This interface defines the functions and events for interacting with the ProofVerifierContract.
 interface QueryVerifierContract {
-    /// @notice Submit proof for a claim.
+    /// @notice Submit proof for a query.
     /// @param proof The proof to be submitted.
     /// @param query The query to be verified.
     function verify(
