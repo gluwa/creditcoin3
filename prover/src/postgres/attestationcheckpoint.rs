@@ -16,8 +16,8 @@ use super::schema::attestationcheckpoint::{
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Attempted to insert a checkpoint with a different digest, but duplicate chain key and block number. Clean DB and run prover to resync.")]
-    DuplicateChainKeyAndBlockNumber,
+    #[error("Attempted to insert a checkpoint with a different digest, clean DB and run prover to resync.")]
+    DuplicateDigest,
     #[error("[0]")]
     Other(DieselError),
 }
@@ -88,8 +88,8 @@ pub async fn insert(
         .await
         .map_err(|e| {
             if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
-                // Only conflicts on (chain_key, block_number) are left unhandled
-                Error::DuplicateChainKeyAndBlockNumber
+                // Only conflicts on digest are left unhandled
+                Error::DuplicateDigest
             } else {
                 Error::Other(e)
             }
@@ -107,13 +107,14 @@ pub async fn insert_many(
     for chunk in checkpoints.chunks(CHECKPOINT_INSERT_CHUNK_SIZE) {
         diesel::insert_into(attestation_checkpoint_table)
             .values(chunk)
-            .on_conflict_do_nothing()
+            .on_conflict(SchemaDigest)
+            .do_nothing()
             .execute(connection)
             .await
             .map_err(|e| {
                 if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
-                    // Only conflicts on (chain_key, block_number) are left unhandled
-                    Error::DuplicateChainKeyAndBlockNumber
+                    // Only conflicts on digest are left unhandled
+                    Error::DuplicateDigest
                 } else {
                     Error::Other(e)
                 }

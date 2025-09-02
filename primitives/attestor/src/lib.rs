@@ -155,6 +155,10 @@ where
         self.attestation.digest()
     }
 
+    pub fn prev_digest(&self) -> Option<Digest> {
+        self.attestation.prev_digest()
+    }
+
     pub fn round(&self) -> Round {
         self.attestation.round()
     }

@@ -17,8 +17,8 @@ use super::schema::attestation::{
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Attempted to insert an attestation with a different digest, but duplicate chain key and block number. Clean DB and run prover to resync.")]
-    DuplicateChainKeyAndBlockNumber,
+    #[error("Attempted to insert an attestation with a different digest, clean DB and run prover to resync.")]
+    DuplicateDigestPrevDigest,
     #[error("[0]")]
     Other(DieselError),
 }
@@ -81,8 +81,29 @@ pub async fn insert(
         .await
         .map_err(|e| {
             if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
-                // Only conflicts on (chain_key, block_number) are left unhandled
-                Error::DuplicateChainKeyAndBlockNumber
+                // Only conflicts on (digest, prev_digest) are left unhandled
+                Error::DuplicateDigestPrevDigest
+            } else {
+                Error::Other(e)
+            }
+        })?;
+
+    Ok(())
+}
+
+pub async fn insert_many(
+    connection: &mut AsyncPgConnection,
+    attestations: Vec<Attestation>,
+) -> Result<(), Error> {
+    diesel::insert_into(attestation_table)
+        .values(attestations)
+        .on_conflict_do_nothing()
+        .execute(connection)
+        .await
+        .map_err(|e| {
+            if let DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) = e {
+                // Only conflicts on (digest, prev_digest) are left unhandled
+                Error::DuplicateDigestPrevDigest
             } else {
                 Error::Other(e)
             }

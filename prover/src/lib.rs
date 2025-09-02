@@ -16,12 +16,12 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use attestation::cache::AttestationCache;
+use cc_client::{attestation::CcEvent, Client as CcClient};
 use pallet_prover_primitives::Query;
 
 pub mod config;
 
 mod attestation;
-mod cc3;
 mod contract;
 pub mod postgres;
 mod prom;
@@ -33,10 +33,7 @@ use crate::{attestation::fragment::Error, prom::ProverMetrics};
 use config::Config;
 
 /// `AttestationCacheType` cache type
-pub type AttestationCacheType = Arc<AttestationCache<H256, AccountId32>>;
-
-/// `CcClientArc` type
-pub type CcClientArc = Arc<cc3::Client>;
+pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
 
 /// `ChainName` type
 pub type ChainName = String;
@@ -44,7 +41,8 @@ pub type ChainName = String;
 /// Prover server is configured using `Config`
 pub struct Server {
     config: Config,
-    cc3_client: EthClient,
+    cc3_eth_client: EthClient,
+    cc3_client: CcClient,
     // Attestation cache
     attestations_cache: AttestationCacheType,
     // Queries that are waiting for attestations
@@ -66,20 +64,18 @@ impl Server {
         postgres::db::run_migrations(config.postgres_uri.clone()).await?;
 
         // Create attestations cache
-        let attestations_cache: AttestationCacheType = Arc::new(AttestationCache::new(db_pool));
-        info!("✅ Created attestations cache");
+        let attestations_cache: AttestationCacheType = AttestationCache::new(db_pool);
 
         // Deploy the prover contract
         // This will deploy it on ccnext chain
         let cc3_eth_client =
             EthClient::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
 
-        let cc3_client = cc3::Client::new(&config.cc3_rpc_url, &config.cc3_key).await?;
+        let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
         let eth_client = Arc::new(EthClient::new(&config.eth_rpc_url, None).await?);
         let chain_id = eth_client.chain_id();
 
         let supported_chain = cc3_client
-            .cc_client()
             .get_supported_chain(config.chain_key)
             .await?
             .ok_or(Error::FailedToGetChainKey)?;
@@ -108,14 +104,14 @@ impl Server {
         };
 
         let chain_name = cc3_client
-            .cc_client()
             .get_chain_name()
             .await
             .unwrap_or_else(|_| "unknown-chain".to_string());
 
         Ok(Server {
             config,
-            cc3_client: cc3_eth_client,
+            cc3_eth_client,
+            cc3_client,
             attestations_cache,
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
@@ -127,51 +123,25 @@ impl Server {
 
     /// Runs the server in the background, will start following the configured source chain
     pub async fn run(&mut self) -> Result<()> {
-        debug!("Creating cc3 client");
-        let cc3_client = cc3::Client::new(&self.config.cc3_rpc_url, &self.config.cc3_key).await?;
-
-        let attestations_cache = self.attestations_cache.clone();
-        let cc3_client = Arc::new(cc3_client);
         debug!("Created cc3 client");
 
         let chain_key = self.config.chain_key;
 
-        let (sender, receiver) = mpsc::unbounded_channel();
-        let (attestation_notifier, new_attestation_receiver) = mpsc::unbounded_channel::<u64>();
-
-        let sync_attestations_cache = attestations_cache.clone();
-        let sync_cc3_client = cc3_client.clone();
-        let sync_cache_handle = tokio::spawn(async move {
-            attestation::cache::sync_cache(
-                chain_key,
-                &sync_attestations_cache,
-                &sync_cc3_client,
-                receiver,
-                attestation_notifier,
-            )
-            .await
-            .expect("Failed to sync cache");
-        });
-
         // Build historical cache
         info!(
-            "🛠️  Building historical cache for chain with id: {}",
+            "🛠️  Building historical cache for chain with id: {}, this can take a while...",
             chain_key
         );
-        attestation::cache::build_historical_cache_for_chain(
-            chain_key,
-            attestations_cache.clone(),
-            cc3_client.clone(),
-            sender,
-        )
-        .await?;
+        self.attestations_cache
+            .build_historical_cache_for_chain(chain_key, &self.cc3_client)
+            .await?;
+        info!("✅ Built historical cache");
 
         // Channel for new queries
         let (new_query_sender, new_query_receiver) = mpsc::unbounded_channel::<Query>();
 
-        let client_clone = self.cc3_client.clone();
-
         // Spawn a task to check for queries on contract storage and subscribe to new submissions
+        let client_clone = self.cc3_eth_client.clone();
         tokio::spawn(async move {
             contract::provide_unprocessed_queries(&client_clone, new_query_sender.clone()).await
         });
@@ -179,7 +149,7 @@ impl Server {
         let (proof_verified_event_sender, proof_verified_event_receiver) =
             mpsc::unbounded_channel::<H256>();
 
-        let proof_client_clone = self.cc3_client.clone();
+        let proof_client_clone = self.cc3_eth_client.clone();
 
         // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
         info!("🛰️  Subscribing to proof verification events on the contract");
@@ -192,8 +162,6 @@ impl Server {
         });
 
         self.handle_ongoing_queries_and_fatal_errors(
-            sync_cache_handle,
-            new_attestation_receiver,
             new_query_receiver,
             proof_verified_event_receiver,
         )
@@ -204,17 +172,86 @@ impl Server {
     #[allow(clippy::too_many_lines)]
     async fn handle_ongoing_queries_and_fatal_errors(
         &mut self,
-        mut sync_cache_handle: JoinHandle<()>,
-        mut new_attestation_receiver: mpsc::UnboundedReceiver<u64>,
         mut new_query_receiver: mpsc::UnboundedReceiver<Query>,
         mut proof_event_receiver: mpsc::UnboundedReceiver<H256>,
     ) -> Result<()> {
         let mut light_prover_queries = FuturesUnordered::new();
 
+        let mut subscription = self
+            .cc3_client
+            .subscribe_events(self.config.chain_key)
+            .await?;
+
         loop {
             tokio::select! {
-                _ = &mut sync_cache_handle => {
-                    panic!("Sync cache thread aborted.")
+                Some(event) = subscription.next() => {
+                    match event {
+                        CcEvent::BlockAttested(attestation) => {
+                            // Process the attestation
+                            info!(
+                                "📝 Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
+                                attestation.chain_key(),
+                                attestation.header_number(),
+                                attestation.digest()
+                            );
+                            let block_height = attestation.header_number();
+                            // Update the attestation cache
+                            self.attestations_cache.insert_attestation(attestation).await?;
+
+                            debug!("📝 Received notification for new attestation at height {}", block_height);
+                            metric_set_labels!(
+                                self.metrics,
+                                attestation_network_height,
+                                self.chain_name,
+                                self.config.chain_key,
+                                block_height
+                            );
+
+                            let mut processable_queries = Vec::new();
+
+                            let keys_to_process: Vec<u64> = self.waiting_queries
+                                .keys()
+                                .filter(|&&key| key <= block_height)
+                                .copied()
+                                .collect();
+
+                            for key in keys_to_process {
+                                if let Some(queries) = self.waiting_queries.remove(&key) {
+                                    processable_queries.extend(queries);
+                                }
+                            }
+
+                            if !processable_queries.is_empty() {
+                                debug!(
+                                    "🔍 Found {} waiting queries with height <= {}. Processing now.",
+                                    processable_queries.len(),
+                                    block_height
+                                );
+
+                                if self.config.prover_be_socket_addr.is_some() {
+                                    self.light_prove_unprocessed_queries(
+                                        processable_queries,
+                                        &mut light_prover_queries
+                                    ).await;
+                                } else {
+                                    self.stand_alone_prove_unprocessed_query(
+                                        processable_queries,
+                                    ).await?;
+                                }
+                            }
+                        }
+                        CcEvent::CheckpointReached(chain_key, checkpoint) => {
+                            info!(
+                                "📝 Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
+                                chain_key,
+                                checkpoint.block_number,
+                                checkpoint.digest,
+                            );
+                        }
+                        _ => {
+                            debug!("⚠️ Received event from Creditcoin client: {:?}", event);
+                        }
+                    }
                 },
                 Some(new_query) = new_query_receiver.recv() => {
                     let query_id = new_query.id();
@@ -265,49 +302,6 @@ impl Server {
                         }
                     }
                 },
-                Some(block_height) = new_attestation_receiver.recv() => {
-                    debug!("📝 Received notification for new attestation at height {}", block_height);
-                    metric_set_labels!(
-                        self.metrics,
-                        attestation_network_height,
-                        self.chain_name,
-                        self.config.chain_key,
-                        block_height
-                    );
-
-                    let mut processable_queries = Vec::new();
-
-                    let keys_to_process: Vec<u64> = self.waiting_queries
-                        .keys()
-                        .filter(|&&key| key <= block_height)
-                        .copied()
-                        .collect();
-
-                    for key in keys_to_process {
-                        if let Some(queries) = self.waiting_queries.remove(&key) {
-                            processable_queries.extend(queries);
-                        }
-                    }
-
-                    if !processable_queries.is_empty() {
-                        debug!(
-                            "🔍 Found {} waiting queries with height <= {}. Processing now.",
-                            processable_queries.len(),
-                            block_height
-                        );
-
-                        if self.config.prover_be_socket_addr.is_some() {
-                            self.light_prove_unprocessed_queries(
-                                processable_queries,
-                                &mut light_prover_queries
-                            ).await;
-                        } else {
-                            self.stand_alone_prove_unprocessed_query(
-                                processable_queries,
-                            ).await?;
-                        }
-                    }
-                },
                 Some(result) = light_prover_queries.next() => {
                     let query_id = match &result {
                         Ok((query, _)) => Some(query.id()),
@@ -344,7 +338,7 @@ impl Server {
 
         if let Either::Left(proof) = r {
             info!("📝 Submitting proof for query: {:?}", query_id);
-            match contract::submit_proof(&self.cc3_client, query, proof).await {
+            match contract::submit_proof(&self.cc3_eth_client, query, proof).await {
                 Ok(_) => {
                     info!("🏁 Proof verified successfully for query: {:?}", query_id);
                     metric_inc_with_labels!(
@@ -461,7 +455,7 @@ impl Server {
                 error!("❌ Query processing failed, Error: {e:?}");
                 // Try to mark a query as invalid, but dont fail if it errors
                 if let Err(mark_err) =
-                    mark_query_as_invalid(&self.cc3_client, query.id(), e.to_string()).await
+                    mark_query_as_invalid(&self.cc3_eth_client, query.id(), e.to_string()).await
                 {
                     error!(
                         "❌ Failed to mark query {:?} as invalid: {:?}",
@@ -495,13 +489,14 @@ impl Server {
                         // Prevent unnecessary clone
                         let query_id = query.id();
 
-                        if let Err(e) = contract::submit_proof(&self.cc3_client, query, proof).await
+                        if let Err(e) =
+                            contract::submit_proof(&self.cc3_eth_client, query, proof).await
                         {
                             error!(
                                 "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
                                 query_id, e
                             );
-                            mark_query_as_invalid(&self.cc3_client, query_id, e.to_string())
+                            mark_query_as_invalid(&self.cc3_eth_client, query_id, e.to_string())
                                 .await?;
                         }
                     }
@@ -512,7 +507,7 @@ impl Server {
                         } else {
                             // Prevent unnecessary clone
                             let query_id = query.id();
-                            mark_query_as_invalid(&self.cc3_client, query_id, e.to_string())
+                            mark_query_as_invalid(&self.cc3_eth_client, query_id, e.to_string())
                                 .await?;
                         }
                     }
