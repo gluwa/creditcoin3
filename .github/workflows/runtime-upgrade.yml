@@ -4,6 +4,11 @@ name: Runtime Upgrade
 "on":
   pull_request:
     branches: [main, testnet]
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**Cargo**'
+      - '.github/workflows/runtime-upgrade.yml'
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -33,20 +38,22 @@ jobs:
           sudo apt-get update
           sudo apt install -y jq
 
-      # TODO: these values need to be updated once we have deployed Testnet
       - name: Testnet ENV
         id: testnet-env
         if: github.base_ref == 'testnet'
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
-          echo "boot_node=/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" >> "$GITHUB_OUTPUT"
-          echo "rpc_url=wss://rpc.cc3-testnet.creditcoin.network:443/ws" >> "$GITHUB_OUTPUT"
-          echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network/rpc" >> "$GITHUB_OUTPUT"
+          echo "boot_node=/dns4/cc3-usc-testnet-bootnode-creditcoin-bootnode.westus3.cloudapp.azure.com/tcp/30333/p2p/12D3KooWBmAwcd4PJNJvfV89HwE48nwkRmAgo8Vy3uQEyNNHBox2" >> "$GITHUB_OUTPUT"
+          echo "rpc_url=wss://rpc.usc-testnet2.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "https_rpc_url=https://rpc.usc-testnet2.creditcoin.network" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "snapshot_container=cc3-testnet" >> "$GITHUB_OUTPUT"
+          echo "snapshot_container=usc-testnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # TODO: these values need to be updated once we have deployed Mainnet
       - name: Mainnet ENV
@@ -56,12 +63,15 @@ jobs:
           # shellcheck disable=SC2129
           echo "target_chain=main" >> "$GITHUB_OUTPUT"
           echo "boot_node=/dns4/TODO-fix-this" >> "$GITHUB_OUTPUT"
-          echo "rpc_url=wss://rpc.cc3-mainnet.creditcoin.network:443/ws" >> "$GITHUB_OUTPUT"
-          echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network/rpc" >> "$GITHUB_OUTPUT"
+          echo "rpc_url=wss://rpc.usc-mainnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "https_rpc_url=https://rpc.usc-mainnet.creditcoin.network" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "snapshot_container=cc3-mainnet" >> "$GITHUB_OUTPUT"
+          echo "snapshot_container=usc-mainnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Store last block info
         id: last-block-info
@@ -98,52 +108,38 @@ jobs:
           path: "last-block*"
           if-no-files-found: error
 
+  deploy-runner-build-sut:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      EPHEMERAL: false
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-4"
+      proxy_type: "native"
+    secrets: inherit
+
   build-sut:
-    runs-on: ubuntu-24.04
+    needs:
+      - setup
+      - setup-self-hosted
+      - deploy-runner-build-sut
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release"
+      version-string: PR
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-native']"
+    secrets: inherit
 
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set-Up
-        run: |
-          sudo apt-get update
-          sudo apt install -y curl
-
-      - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-          components: rust-src
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build SUT
-        uses: gluwa/cargo@dev
-        with:
-          command: build
-          args: --release
-
-      - name: Upload creditcoin3-node binary
-        uses: actions/upload-artifact@v6
-        with:
-          name: creditcoin3-node
-          path: target/release/creditcoin3-node
-
-      - name: Upload WASM runtime
-        uses: actions/upload-artifact@v6
-        with:
-          name: creditcoin3_runtime.compact.compressed.wasm
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
+  remove-runner-build-sut:
+    needs:
+      - build-sut
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "native"
+    secrets: inherit
 
   setup-self-hosted:
     needs:
@@ -172,10 +168,11 @@ jobs:
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
-          owner: gluwa
-          repo: creditcoin3
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
           tag: ${{ needs.setup.outputs.release_tag }}
           file: ${{ needs.setup.outputs.artifact_name }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Download creditcoin-fork
         uses: i3h/download-release-asset@v1
@@ -247,6 +244,7 @@ jobs:
 
   live-sync-creditcoin:
     # b/c of azure/login
+    environment: snapshot
     permissions:
       id-token: write
       contents: read
@@ -293,10 +291,11 @@ jobs:
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
-          owner: gluwa
-          repo: creditcoin3
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
           tag: ${{ needs.setup.outputs.release_tag }}
           file: ${{ needs.setup.outputs.artifact_name }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Sync with ${{ needs.setup.outputs.target_chain }} past block number ${{ needs.setup.outputs.last_block_number }}
         run: |
@@ -360,7 +359,7 @@ jobs:
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v7
         with:
-          name: creditcoin3-node
+          name: binary-for-PR
           path: target/release
 
       - name: Download creditcoin-fork.json
@@ -413,7 +412,7 @@ jobs:
         id: download-wasm
         uses: actions/download-artifact@v7
         with:
-          name: creditcoin3_runtime.compact.compressed.wasm
+          name: creditcoin_node_runtime.compact.compressed.wasm-PR
 
       - name: Upgrade WASM
         working-directory: cli

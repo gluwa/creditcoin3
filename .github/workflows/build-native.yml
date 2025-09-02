@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
 
       - name: Install subkey
         if: ${{ inputs.build-subkey }}
