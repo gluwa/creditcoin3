@@ -1,0 +1,45 @@
+---
+name: Check Devnet Snapshot
+
+on:
+  schedule:
+    # at 6am, 3rd of every month
+    - cron: "0 6 3 * *"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  deploy-runner:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "us-ord"
+      # Shared CPU, Linode 32 GB, 8 vCPU, disk: 640 GB, 0.288 $/hr
+      LINODE_VM_SIZE: "g6-standard-8"
+      proxy_type: "devnet"
+    secrets: inherit
+
+  check-snapshot:
+    needs:
+      - deploy-runner
+    # b/c of azure/login
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/check-snapshot.yml
+    with:
+      target-chain: "devnet"
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-devnet']"
+    secrets: inherit
+
+  remove-runner:
+    needs:
+      - deploy-runner
+      - check-snapshot
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "devnet"
+    secrets: inherit

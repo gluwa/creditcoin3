@@ -15,12 +15,15 @@ self-hosted-runner:
     - proxy-cc3-indexer
     - proxy-proof-gen-api-server-integration-tests
     - proxy-submit-proof
+    - type-devnet
     - type-docker
+    - type-mainnet
     - type-native
-    - type-wasm
+    - type-testnet
     - type-runtime-upgrade
+    - type-wasm
 paths:
-  .github/workflows/runtime-upgrade.yml:
+  .github/workflows/**/*.{yml,yaml}:
     ignore:
       # Ignore the specific error from shellcheck
       - "shellcheck reported issue in this script: SC2129:.+"
