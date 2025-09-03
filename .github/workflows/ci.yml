@@ -2011,6 +2011,29 @@ jobs:
           yarn install
           yarn test:attestation
 
+      - name: TERM binaries
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -TERM attestor_zombienet
+          killall -TERM attestor
+          killall -TERM creditcoin3-node
+          sleep 60
+
+      - name: KILL binaries
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -KILL attestor_zombienet
+          killall -KILL attestor
+          killall -KILL creditcoin3-node
+
       - name: Check logs for errors
         if: always()
         run: |
@@ -2037,17 +2060,6 @@ jobs:
           name: integration-test-attestor-network
           path: /var/tmp/integration-test-attestor-network/
           include-hidden-files: true
-
-      - name: Kill binaries
-        if: always()
-        continue-on-error: true
-        run: |
-          # if all went well kill the node. Otherwise GitHub Actions would exit on the
-          # previous step killing everything and we don't have to worry about
-          # dangling processes
-          killall -9 attestor_zombienet
-          killall -9 attestor
-          killall -9 creditcoin3-node
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
