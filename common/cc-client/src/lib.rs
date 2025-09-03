@@ -151,7 +151,7 @@ impl<'a> Client {
             .await
             .map_err(|_| Error::FailedToGetChainName)?;
 
-        Ok(chain_name.get().to_string())
+        serde_json::from_str(chain_name.get()).map_err(|_| Error::FailedToGetChainName)
     }
 
     pub async fn get_supported_chain(&self, chain_key: ChainKey) -> Result<Option<SupportedChain>> {

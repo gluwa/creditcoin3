@@ -97,7 +97,11 @@ impl Server {
 
         // Register metrics server if configured
         let metrics = if config.enable_prometheus_metrics {
-            debug!("Starting Prometheus metrics server");
+            let address_str = format!("{}:{}", config.prometheus_host, config.prometheus_port);
+            info!(
+                "📈 Starting Prometheus metrics server on http://{}/metrics",
+                address_str
+            );
             prom::start_prom_server(&config)
         } else {
             None

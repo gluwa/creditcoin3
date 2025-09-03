@@ -50,7 +50,10 @@ impl HttpServer {
 
         let addr: SocketAddr = address_str.parse().expect("Invalid address or port");
 
-        tracing::info!("🚀 Starting prometheus metrics server on http://{}", addr);
+        tracing::info!(
+            "🚀 Starting prometheus metrics server on http://{}/metrics",
+            addr
+        );
 
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 

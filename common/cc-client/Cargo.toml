@@ -36,6 +36,7 @@ vrf = { workspace = true }
 hex = { workspace = true }
 parity-scale-codec = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 tokio = { workspace = true }
