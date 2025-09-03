@@ -17,7 +17,7 @@ forge build
 ## 1. Spin up Bridge POC
 Universal smart contracts hosted on Creditcoin3-next are dependant on the CCNext decentralized bridge.
 
-To stand up an instance of the CCNext bridge, follow steps 1-5 in [document](../poc.md)
+To stand up an instance of the CCNext bridge, follow steps 1-3 in [document].
 
 ## 2. Deploy TestERC20 Smart Contract on Source Chain
 A source chain is any chain which CCNext provides a bridge to. In our example the source chain is the anvil chain we stood up as a part of step 1.
@@ -47,7 +47,7 @@ cast send --rpc-url 127.0.0.1:8545 0x5FbDB2315678afecb367f032d93F642f64180aa3 "t
 ```
 
 ## 4. Create a CCNext Proving Query
-Follow step #7 in [document](../poc.md)
+Follow step #6 in [document].
 
 Provide the following responses to the CLI prompts:
 Network: 3 (Local),
@@ -56,7 +56,7 @@ Transaction Hash: "Hash of your transaction from step 3",
 
 The prover that you ran in step 1 should begin proving your transaction. This usually takes about 15 minutes. See prover logs to check progress. 
 
-Note: If you are using an x86 machine, Linux or Mac, then you can run proof generation locally. Otherwise you will have to run the prover in light mode as detailed in step #10 of [document](../poc.md)
+Note: If you are using an x86 machine, Linux or Mac, then you can run proof generation locally. Otherwise you will have to run the prover in light mode as detailed in the advanced section of [document].
 
 ## 5. Deploy Universal Smart Contract
 TODO: Add Universal Smart Contract (USC) example in this repo. It should be an OpenZeppelin ERC20 with one additional function, `usc_bridge_complete_mint(prover_contract_addr, query_id)`.
@@ -75,3 +75,5 @@ usc_bridge_complete_mint(prover_contract_addr, query_id)
 ```
 
 We provide the contract call with a `prover_contract_addr` and with a `query_id`.
+
+[document]: ../.github/CONTRIBUTING.md

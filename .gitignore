@@ -40,6 +40,7 @@ attestor/scripts/checkpoints.json
 prover/claims/*.json
 prover/artifacts/*.json
 prover/.env
+artifacts/*.json
 
 # Added by cargo
 /target
