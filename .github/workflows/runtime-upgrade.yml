@@ -379,7 +379,7 @@ jobs:
           .github/wait-for-creditcoin.sh
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - working-directory: cli
@@ -507,7 +507,7 @@ jobs:
           .github/wait-for-sync.sh ${{ needs.setup.outputs.last_block_number }}
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - working-directory: cli
