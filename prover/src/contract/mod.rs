@@ -1,6 +1,6 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use crate::query::QueryId;
 use artifacts::ChainDeploymentArtifact;
@@ -85,23 +85,10 @@ pub async fn provide_unprocessed_queries(
     query_channel: mpsc::UnboundedSender<Query>,
 ) -> Result<()> {
     info!("🔄 Polling for all existing unprocessed queries...");
-    match get_initial_unprocessed_queries(eth_client).await {
-        Ok(queries) => {
-            info!("🔍 Found {} existing queries to process.", queries.len());
-            for query in queries {
-                if query_channel.send(query).is_err() {
-                    return Err(anyhow::anyhow!(
-                        "🔴 Query channel closed during initial poll."
-                    ));
-                }
-            }
-        }
-        Err(e) => {
-            return Err(anyhow::anyhow!(
-                "🔴 Failed to poll for initial queries: {:?}",
-                e
-            ));
-        }
+    let queries = get_initial_unprocessed_queries(eth_client).await?;
+    info!("🔍 Found {} existing queries to process.", queries.len());
+    for query in queries {
+        query_channel.send(query)?;
     }
 
     info!("🔄 Initial poll complete. Subscribing for new queries...");
@@ -123,22 +110,14 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
     let tx_hash = artifact
         .contract
         .submit_query_proof(eth_client, query.id().0.into(), proof)
-        .await;
+        .await?;
 
-    match tx_hash {
-        Ok(tx_hash) => {
-            info!(
-                "✅ Proof submitted successfully for query: {:?}, tx_hash: {}",
-                query.id(),
-                tx_hash
-            );
-            Ok(tx_hash.to_string())
-        }
-        Err(e) => {
-            error!("❌ Failed to submit proof: {:?}", e);
-            Err(e)
-        }
-    }
+    info!(
+        "✅ Proof submitted successfully for query: {:?}, tx_hash: {}",
+        query.id(),
+        tx_hash
+    );
+    Ok(tx_hash.to_string())
 }
 
 pub async fn subscribe_proof_verification_events(

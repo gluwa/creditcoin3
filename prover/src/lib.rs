@@ -27,7 +27,6 @@ pub mod postgres;
 mod prom;
 mod query;
 
-use crate::postgres::from_storage_type;
 use crate::{attestation::fragment::Error, prom::ProverMetrics};
 use config::Config;
 
@@ -271,10 +270,8 @@ impl Server {
                         self.chain_name,
                         self.config.chain_key
                     );
-                    let last_attestation_height = from_storage_type(self.attestations_cache.last_synced_attestation(new_query.chain_id).await
-                        .map_err(|e| Error::ProverDBError(e.to_string()))?
-                        .ok_or(Error::NoAttestationsSynced)?
-                        .header_number);
+                    let last_attestation_height = self.attestations_cache.last_synced_attestation_block_number(new_query.chain_id).await?
+                        .ok_or(Error::NoAttestationsSynced)?;
 
                     // Check if the query is ready to be processed
                     if last_attestation_height < new_query.height {

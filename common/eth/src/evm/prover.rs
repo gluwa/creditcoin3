@@ -211,25 +211,10 @@ impl GluwaPublicProverContract {
             .max_fee_per_gas(5_000_000_000u128)
             .max_priority_fee_per_gas(3_000_000_000u128);
 
-        let pending_tx = provider.send_transaction(tx_request).await?;
+        let builder = provider.send_transaction(tx_request).await?;
+        let result = builder.get_receipt().await?.transaction_hash;
 
-        match pending_tx.get_receipt().await {
-            Ok(receipt) => {
-                if receipt.status() {
-                    info!(
-                        "Query proof submitted successfully: {:?}",
-                        receipt.transaction_hash
-                    );
-                    Ok(receipt.transaction_hash.to_string())
-                } else {
-                    Err(anyhow::anyhow!(
-                        "Transaction failed: {:?}",
-                        receipt.transaction_hash
-                    ))
-                }
-            }
-            Err(e) => Err(anyhow::anyhow!("Failed to get transaction receipt: {}", e)),
-        }
+        Ok(result.to_string())
     }
 
     pub async fn subscribe_query_submissions(

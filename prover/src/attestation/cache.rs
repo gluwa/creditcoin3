@@ -175,6 +175,18 @@ where
         attestation::last_synced(&mut connection, chain_key).await
     }
 
+    pub async fn last_synced_attestation_block_number(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<u64>> {
+        let mut connection = self.pool.get().await?;
+        attestation::last_synced(&mut connection, chain_key)
+            .await
+            .map(|opt_attestation| {
+                opt_attestation.map(|attestation| attestation.header_number as u64)
+            })
+    }
+
     pub async fn earliest_attestation(
         &self,
         chain_key: ChainKey,
