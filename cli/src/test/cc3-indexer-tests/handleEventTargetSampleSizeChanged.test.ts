@@ -1,8 +1,9 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { forElapsedBlocks } from '../utils';
+import { forElapsedBlocks, randomIntBetween } from '../utils';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
+import { waitEras } from '../integration-tests/helpers';
 
 describe('handleEventTargetSampleSizeChanged()', () => {
     let api: ApiPromise;
@@ -10,7 +11,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
     let startingBlock: bigint;
     let targetSampleSize_Anvil1 = 0;
     let targetSampleSize_Anvil2 = 0;
-    const newTargetSampleSize = 14;
+    const newTargetSampleSize = randomIntBetween(250, 512);
     // unique integer to serve as chain id during testing
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
@@ -88,10 +89,12 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             await api.tx.sudo
                 .sudo(api.tx.attestation.setTargetSampleSize(newChainKey, newTargetSampleSize))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+            // wait for the pending change to take effect
+            await waitEras(1, api);
 
             // wait for txn to make it on chain & indexer to ingest the block
             await forElapsedBlocks(api, { minBlocks: 3 });
-        }, 30_000);
+        }, 300_000);
 
         it('graphQL returns known TargetSampleSizeChanged', async () => {
             const response = await graphQLQuery(
@@ -99,26 +102,29 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                     orderBy: BLOCK_NUMBER_ASC,
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
-                ) { nodes { id, blockNumber, whoId, chainKey, eventNewTargetSampleSize }}}`,
+                ) { nodes { id, blockNumber, date, chainKey, eventNewTargetSampleSize }}}`,
             );
             expect(response.data.targetSampleSizeChangeds.nodes).toBeTruthy();
             expect(response.data.targetSampleSizeChangeds.nodes.length).toEqual(1);
 
             for (const node of response.data.targetSampleSizeChangeds.nodes) {
+                expect(node.id).toBeTruthy();
+
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(startingBlock);
-                expect(node.whoId).toEqual(root.address);
-                expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);
+                expect(Date.parse(node.date)).toBeGreaterThan(0);
+                expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
+                expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(
-                    `query { targetSampleSizeChanged(id: "${node.id}") { id, whoId, chainKey, blockNumber, eventNewTargetSampleSize }}`,
+                    `query { targetSampleSizeChanged(id: "${node.id}") { id, chainKey, blockNumber, date, eventNewTargetSampleSize }}`,
                 );
                 expect(response2.data.targetSampleSizeChanged).toBeTruthy();
                 expect(response2.data.targetSampleSizeChanged.id).toEqual(node.id);
                 expect(response2.data.targetSampleSizeChanged.chainKey).toEqual(node.chainKey);
-                expect(response2.data.targetSampleSizeChanged.whoId).toEqual(node.whoId);
                 expect(response2.data.targetSampleSizeChanged.blockNumber).toEqual(node.blockNumber);
+                expect(response2.data.targetSampleSizeChanged.date).toEqual(node.date);
                 expect(response2.data.targetSampleSizeChanged.eventNewTargetSampleSize).toEqual(
                     node.eventNewTargetSampleSize,
                 );

@@ -1118,6 +1118,8 @@ declare module '@polkadot/types/lookup' {
         readonly asBlockAttested: ITuple<[u64, AttestorPrimitivesSignedAttestation, H256]>;
         readonly isCheckpointReached: boolean;
         readonly asCheckpointReached: ITuple<[u64, AttestorPrimitivesAttestationCheckpoint]>;
+        readonly isPendingTargetSampleSizeSet: boolean;
+        readonly asPendingTargetSampleSizeSet: ITuple<[u64, u32]>;
         readonly isTargetSampleSizeChanged: boolean;
         readonly asTargetSampleSizeChanged: ITuple<[u64, u32]>;
         readonly isBonded: boolean;
@@ -1183,6 +1185,7 @@ declare module '@polkadot/types/lookup' {
             | 'InvulnerableUnregistered'
             | 'BlockAttested'
             | 'CheckpointReached'
+            | 'PendingTargetSampleSizeSet'
             | 'TargetSampleSizeChanged'
             | 'Bonded'
             | 'Unbonded'

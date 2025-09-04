@@ -633,9 +633,34 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        // Clear PendingAttestationInterval
+        PendingTargetSampleSize::<T>::iter().for_each(|(chain_key, new_target_sample_size)| {
+            TargetSampleSize::<T>::set(chain_key, new_target_sample_size);
+
+            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
+                chain_key,
+                new_target_sample_size,
+            ));
+        });
+
+        // Clear PendingAttestationInterval & PendingTargetSampleSize
         let num_supported_chains = T::SupportedChains::supported_chains().len();
         let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
+        let _ = PendingTargetSampleSize::<T>::clear(num_supported_chains as u32, None);
+    }
+
+    fn apply_target_sample_size_updates() {
+        PendingTargetSampleSize::<T>::iter().for_each(|(chain_key, new_target_sample_size)| {
+            TargetSampleSize::<T>::set(chain_key, new_target_sample_size);
+
+            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
+                chain_key,
+                new_target_sample_size,
+            ));
+        });
+
+        // Clear PendingTargetSampleSize
+        let num_supported_chains = T::SupportedChains::supported_chains().len();
+        let _ = PendingTargetSampleSize::<T>::clear(num_supported_chains as u32, None);
     }
 
     fn chill_all_attestors_for_chain(chain_key: ChainKey) {
@@ -987,7 +1012,6 @@ impl<T: Config> Pallet<T> {
 }
 
 /// TRAIT IMPLS ///
-
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
     fn on_new_epoch_randomness(epoch: u64, randomness: Randomness) {
         // Start new election
@@ -1006,6 +1030,7 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
+        Self::apply_target_sample_size_updates();
     }
 }
 
@@ -1034,6 +1059,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         CheckpointingQueues::<T>::remove(chain_key);
         LastCheckpoint::<T>::remove(chain_key);
         LastDigest::<T>::remove(chain_key);
+        PendingTargetSampleSize::<T>::remove(chain_key);
         TargetSampleSize::<T>::remove(chain_key);
         ChainAttestationInterval::<T>::remove(chain_key);
         PendingAttestationInterval::<T>::remove(chain_key);

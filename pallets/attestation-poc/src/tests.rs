@@ -1251,11 +1251,12 @@ fn set_target_sample_size_should_update_storage_and_emit_an_event() {
             new_committee_size
         ));
 
-        let committee_size = Attestation::target_sample_size(SUPPORTED_CHAIN_KEY);
-        assert_eq!(committee_size, new_committee_size);
+        let committee_size = Attestation::pending_target_sample_size(SUPPORTED_CHAIN_KEY);
+        assert_eq!(committee_size, Some(512));
 
         System::assert_last_event(
-            crate::Event::TargetSampleSizeChanged(SUPPORTED_CHAIN_KEY, new_committee_size).into(),
+            crate::Event::PendingTargetSampleSizeSet(SUPPORTED_CHAIN_KEY, new_committee_size)
+                .into(),
         );
     })
 }
@@ -1479,6 +1480,58 @@ fn on_new_epoch_randomness_updates_attestation_interval_with_pending_value_and_e
     });
 }
 
+// Test target sample size udpates properly on epoch change
+#[test]
+fn on_new_epoch_randomness_updates_target_sample_size_with_pending_value_and_emits_event() {
+    ExtBuilder.build_and_execute(|| {
+        // Set up pending target sample size change
+        assert_eq!(<Test as pallet_babe::Config>::EpochDuration::get(), 3);
+
+        // this sets the genesis slot to 6;
+        go_to_block(1, 6);
+
+        assert_eq!(*Babe::genesis_slot(), 6);
+        assert_eq!(*Babe::current_slot(), 6);
+        assert_eq!(Babe::epoch_index(), 0);
+
+        let target_sample_size = 512;
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            target_sample_size
+        ));
+
+        let pending_target_sample_size =
+            Attestation::pending_target_sample_size(SUPPORTED_CHAIN_KEY);
+        assert_eq!(pending_target_sample_size, Some(512));
+
+        // Update target sample size in on_initialize hook
+        progress_to_block(4);
+
+        let applied_target_sample_size = Attestation::target_sample_size(SUPPORTED_CHAIN_KEY);
+        assert_eq!(applied_target_sample_size, 512);
+
+        let pending_interval = Attestation::pending_attestation_interval(SUPPORTED_CHAIN_KEY);
+        assert_eq!(pending_interval, None);
+
+        // Get events in reverse order
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let interval_update_event = all_events
+            .iter()
+            .filter_map(|event| {
+                if let RuntimeEvent::Attestation(event) = &event.event {
+                    Some(event)
+                } else {
+                    None
+                }
+            })
+            .next();
+        assert_eq!(
+            interval_update_event,
+            Some(&Event::<Test>::TargetSampleSizeChanged(1, 512))
+        );
+    });
+}
 #[test]
 fn set_attestations_per_checkpoint_should_update_storage() {
     ExtBuilder.build_and_execute(|| {
@@ -3209,6 +3262,7 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
             }
         }
 
+        PendingTargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
         TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val);
         ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u64);
         PendingAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, dummy_val as u64);
@@ -3263,6 +3317,10 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
             Vec::<Digest>::new()
         );
         assert_eq!(LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY), None);
+        assert_eq!(
+            PendingTargetSampleSize::<Test>::get(SUPPORTED_CHAIN_KEY),
+            None
+        );
         assert_eq!(
             TargetSampleSize::<Test>::get(SUPPORTED_CHAIN_KEY),
             <Test as Config>::DefaultTargetSampleSize::get()

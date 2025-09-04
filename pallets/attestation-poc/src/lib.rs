@@ -233,6 +233,11 @@ pub mod pallet {
     pub type LastDigest<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, Digest, OptionQuery>;
 
     #[pallet::storage]
+    #[pallet::getter(fn pending_target_sample_size)]
+    pub type PendingTargetSampleSize<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
+
+    #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
     pub type TargetSampleSize<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, TargetSampleSizeDefault<T>>;
@@ -470,6 +475,7 @@ pub mod pallet {
         InvulnerableUnregistered(ChainKey, T::AccountId),
         BlockAttested(ChainKey, SignedAttestation<T::Hash, T::AccountId>, Digest),
         CheckpointReached(ChainKey, AttestationCheckpoint),
+        PendingTargetSampleSizeSet(ChainKey, u32),
         TargetSampleSizeChanged(ChainKey, u32),
         Bonded {
             stash: T::AccountId,
@@ -658,9 +664,9 @@ pub mod pallet {
                 Error::<T>::InvalidTargetSampleSize
             };
 
-            TargetSampleSize::<T>::insert(chain_key, new_target_sample_size);
+            PendingTargetSampleSize::<T>::set(chain_key, Some(new_target_sample_size));
 
-            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
+            Self::deposit_event(Event::<T>::PendingTargetSampleSizeSet(
                 chain_key,
                 new_target_sample_size,
             ));

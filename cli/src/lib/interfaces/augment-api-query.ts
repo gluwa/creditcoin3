@@ -255,6 +255,12 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            pendingTargetSampleSize: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u32>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**

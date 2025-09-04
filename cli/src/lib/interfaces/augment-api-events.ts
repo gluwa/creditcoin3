@@ -96,6 +96,7 @@ declare module '@polkadot/api-base/types/events' {
             MaxAttestorsChanged: AugmentedEvent<ApiType, [u64, u32]>;
             MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
             PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
+            PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
             RewardClaimed: AugmentedEvent<
                 ApiType,
                 [stash: AccountId32, amount: u128],

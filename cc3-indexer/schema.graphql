@@ -223,9 +223,9 @@ type TargetSampleSizeChanged @entity {
     """
     id: ID!
 
-    who: Account!
-
     blockNumber: BigInt!
+
+    date: Date
 
     chainKey: BigInt!
 
@@ -511,6 +511,23 @@ type PendingAttestationIntervalSet @entity {
     chainKey: BigInt!
 
     interval: BigInt!
+}
+
+type PendingTargetSampleSizeSet @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    who: Account!
+
+    chainKey: BigInt!
+
+    targetSampleSize: BigInt!
 }
 
 type Prover @entity {

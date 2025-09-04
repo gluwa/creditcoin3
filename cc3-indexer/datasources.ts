@@ -1,5 +1,5 @@
 import { SubstrateDatasourceKind, SubstrateHandlerKind, SubstrateRuntimeDatasource } from '@subql/types';
-import { FrontierEvmDatasource } from "@subql/frontier-evm-processor";
+import { FrontierEvmDatasource } from '@subql/frontier-evm-processor';
 
 export const genesisDatasource: SubstrateRuntimeDatasource = {
     kind: SubstrateDatasourceKind.Runtime,
@@ -7,15 +7,16 @@ export const genesisDatasource: SubstrateRuntimeDatasource = {
     endBlock: 1,
     mapping: {
         file: './dist/index.js',
-        handlers: [{
-            kind: SubstrateHandlerKind.Block,
-            handler: "initiateStoreAndDatabase"
-        }]
-    }
-}
+        handlers: [
+            {
+                kind: SubstrateHandlerKind.Block,
+                handler: 'initiateStoreAndDatabase',
+            },
+        ],
+    },
+};
 
-export const attestationDatasources: SubstrateRuntimeDatasource =
-{
+export const attestationDatasources: SubstrateRuntimeDatasource = {
     kind: SubstrateDatasourceKind.Runtime,
     startBlock: 1,
     mapping: {
@@ -75,6 +76,14 @@ export const attestationDatasources: SubstrateRuntimeDatasource =
                 filter: {
                     module: 'attestation',
                     method: 'TargetSampleSizeChanged',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleEventPendingTargetSampleSizeSet',
+                filter: {
+                    module: 'attestation',
+                    method: 'PendingTargetSampleSizeSet',
                 },
             },
             {
@@ -231,94 +240,80 @@ export const attestationDatasources: SubstrateRuntimeDatasource =
             },
         ],
     },
-}
+};
 
 export const proverDatasource: FrontierEvmDatasource = {
     // Frontier EVM Processor
-    kind: "substrate/FrontierEvm",
+    kind: 'substrate/FrontierEvm',
     startBlock: 1,
     processor: {
-        file: "./node_modules/@subql/frontier-evm-processor/dist/bundle.js",
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
         options: {
-            abi: "prover",
+            abi: 'prover',
         },
     },
-    assets: new Map([["prover", { file: "./abis/prover.abi.json" }]]),
+    assets: new Map([['prover', { file: './abis/prover.abi.json' }]]),
     mapping: {
-        file: "./dist/index.js",
+        file: './dist/index.js',
         handlers: [
             {
-                handler: "handleProverDeployed",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleProverDeployed',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
                     topics: [
-                        "ProverDeployed(address indexed contractAddress,address indexed owner,address proceedsAccount,uint256 costPerByte,uint256 baseFee,uint64 chainKey,string displayName,uint64 timeout)",
+                        'ProverDeployed(address indexed contractAddress,address indexed owner,address proceedsAccount,uint256 costPerByte,uint256 baseFee,uint64 chainKey,string displayName,uint64 timeout)',
                     ],
                 },
             },
             {
-                handler: "handleQuerySubmitted",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleQuerySubmitted',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "QuerySubmitted(bytes32,uint256,uint256,(uint64,uint64,uint64,(uint64,uint64)[]))",
-                    ],
-                }
+                    topics: ['QuerySubmitted(bytes32,uint256,uint256,(uint64,uint64,uint64,(uint64,uint64)[]))'],
+                },
             },
             {
-                handler: "handleQueryProofVerified",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleQueryProofVerified',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "QueryProofVerified(bytes32,(uint256,bytes32)[],uint8)",
-                    ],
-                }
+                    topics: ['QueryProofVerified(bytes32,(uint256,bytes32)[],uint8)'],
+                },
             },
             {
-                handler: "handleQueryProofVerificationFailed",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleQueryProofVerificationFailed',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "QueryProofVerificationFailed(bytes32,string)",
-                    ],
-                }
+                    topics: ['QueryProofVerificationFailed(bytes32,string)'],
+                },
             },
             {
-                handler: "handleEscrowedPaymentReclaimed",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleEscrowedPaymentReclaimed',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "EscrowedPaymentReclaimed(bytes32,uint256)",
-                    ],
-                }
+                    topics: ['EscrowedPaymentReclaimed(bytes32,uint256)'],
+                },
             },
             {
-                handler: "handleProceedsWithdrawn",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleProceedsWithdrawn',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "ProceedsWithdrawn(address indexed proceedsAccount,uint256 amount)",
-                    ],
-                }
+                    topics: ['ProceedsWithdrawn(address indexed proceedsAccount,uint256 amount)'],
+                },
             },
             {
-                handler: "handleUpdateCostPerByte",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleUpdateCostPerByte',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "CostPerByteUpdated(uint256 newCostPerByte)",
-                    ],
-                }
+                    topics: ['CostPerByteUpdated(uint256 newCostPerByte)'],
+                },
             },
             {
-                handler: "handleUpdateBaseFee",
-                kind: "substrate/FrontierEvmEvent",
+                handler: 'handleUpdateBaseFee',
+                kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: [
-                        "BaseFeeUpdated(uint256 newBaseFee)",
-                    ],
-                }
+                    topics: ['BaseFeeUpdated(uint256 newBaseFee)'],
+                },
             },
-        ]
+        ],
     },
-}
+};

@@ -7,6 +7,7 @@ import {
     InvulnerableRegistered,
     InvulnerableUnregistered,
     TargetSampleSizeChanged,
+    PendingTargetSampleSizeSet,
     Bonded,
     Unbonded,
     Withdrawn,
@@ -369,9 +370,6 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
         },
     } = event;
 
-    const from = event.extrinsic?.extrinsic.signer;
-    assert(from, 'Signer is missing');
-
     const blockNumber = event.block.block.header.number.toBigInt();
 
     const chainKeyStr = chainKey.toString();
@@ -381,8 +379,8 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
     /* eslint-disable @typescript-eslint/naming-convention */
     const targetSampleSizeChanged = TargetSampleSizeChanged.create({
         id: `${blockNumber}-${event.idx}`,
-        whoId: from.toString(),
         blockNumber,
+        date: event.block.timestamp,
         chainKey: chainKeyNumber,
         eventNewTargetSampleSize: newTargetSampleSizeNumber,
     });
@@ -395,6 +393,35 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
     }
 
     await targetSampleSizeChanged.save();
+}
+
+export async function handleEventPendingTargetSampleSizeSet(event: SubstrateEvent): Promise<void> {
+    logger.info(`New PendingTargetSampleSizeSet event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, newTargetSampleSize],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyNumber = BigInt(chainKey.toString());
+
+    const from = event.extrinsic?.extrinsic.signer;
+
+    assert(from, 'Signer is missing');
+
+    const pendingTargetSampleSizeSet = PendingTargetSampleSizeSet.create({
+        id: `${blockNumber}-${event.idx}`,
+        blockNumber,
+        date: event.block.timestamp,
+        chainKey: chainKeyNumber,
+        targetSampleSize: BigInt(newTargetSampleSize.toString()),
+        whoId: from.toString(),
+    });
+
+    await pendingTargetSampleSizeSet.save();
 }
 
 function isEmpty(value: any): boolean {

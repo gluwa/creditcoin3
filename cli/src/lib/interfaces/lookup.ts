@@ -896,6 +896,7 @@ export default {
             InvulnerableUnregistered: '(u64,AccountId32)',
             BlockAttested: '(u64,AttestorPrimitivesSignedAttestation,H256)',
             CheckpointReached: '(u64,AttestorPrimitivesAttestationCheckpoint)',
+            PendingTargetSampleSizeSet: '(u64,u32)',
             TargetSampleSizeChanged: '(u64,u32)',
             Bonded: {
                 stash: 'AccountId32',
