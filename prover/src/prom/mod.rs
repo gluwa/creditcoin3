@@ -31,8 +31,8 @@ pub fn start_prom_server(config: &Config) -> Option<ProverMetrics> {
 pub struct ProverMetrics {
     pub prover_chain_key: Gauge,
     pub queries_received: GaugeVec,
-    pub queries_proofs_failed: GaugeVec,
-    pub queries_proofs_submitted: GaugeVec,
+    pub query_proofs_failed: GaugeVec,
+    pub query_proofs_success: GaugeVec,
     pub attestation_network_height: GaugeVec,
 }
 
@@ -51,23 +51,23 @@ impl PrometheusRegister for ProverMetrics {
         )?;
         registry.register(Box::new(queries_received.clone()))?;
 
-        let queries_proofs_failed = GaugeVec::new(
+        let query_proofs_failed = GaugeVec::new(
             Opts::new(
                 "number_of_query_proofs_failed",
                 "The number of query proofs that have failed",
             ),
             &["chain", "chain_key"],
         )?;
-        registry.register(Box::new(queries_proofs_failed.clone()))?;
+        registry.register(Box::new(query_proofs_failed.clone()))?;
 
-        let queries_proofs_submitted = GaugeVec::new(
+        let query_proofs_success = GaugeVec::new(
             Opts::new(
-                "number_of_query_proofs_submitted",
-                "The number of query proofs submitted to the prover",
+                "number_of_query_proofs_successful",
+                "The number of query proofs that have been successfully been verified",
             ),
             &["chain", "chain_key"],
         )?;
-        registry.register(Box::new(queries_proofs_submitted.clone()))?;
+        registry.register(Box::new(query_proofs_success.clone()))?;
 
         let attestation_network_height = GaugeVec::new(
             Opts::new(
@@ -81,8 +81,8 @@ impl PrometheusRegister for ProverMetrics {
         Ok(Self {
             prover_chain_key,
             queries_received,
-            queries_proofs_failed,
-            queries_proofs_submitted,
+            query_proofs_failed,
+            query_proofs_success,
             attestation_network_height,
         })
     }

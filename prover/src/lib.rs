@@ -27,7 +27,6 @@ pub mod postgres;
 mod prom;
 mod query;
 
-use crate::contract::mark_query_as_invalid;
 use crate::postgres::from_storage_type;
 use crate::{attestation::fragment::Error, prom::ProverMetrics};
 use config::Config;
@@ -320,6 +319,12 @@ impl Server {
                     }
                 },
                 Some(query_id) = proof_event_receiver.recv() => {
+                    metric_inc_with_labels!(
+                        self.metrics,
+                        query_proofs_success,
+                        self.chain_name,
+                        self.config.chain_key
+                    );
                     // Log the proof verification event for now. Could also return result segments to the prover if needed
                     info!("🛰️  Proof verification event received for query: {:?}", query_id);
                 },
@@ -342,31 +347,8 @@ impl Server {
 
         if let Either::Left(proof) = r {
             info!("📝 Submitting proof for query: {:?}", query_id);
-            match contract::submit_proof(&self.cc3_eth_client, query, proof).await {
-                Ok(_) => {
-                    info!("🏁 Proof verified successfully for query: {:?}", query_id);
-                    metric_inc_with_labels!(
-                        self.metrics,
-                        queries_proofs_submitted,
-                        self.chain_name,
-                        self.config.chain_key
-                    );
-                    Ok(())
-                }
-                Err(e) => {
-                    error!(
-                        "❌ Failed to submit proof for query: {:?}, Error: {:?}",
-                        query_id, e
-                    );
-                    metric_inc_with_labels!(
-                        self.metrics,
-                        queries_proofs_failed,
-                        self.chain_name,
-                        self.config.chain_key
-                    );
-                    Err(e)
-                }
-            }
+            contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
+            Ok(())
         } else {
             Err(anyhow!(
                 "Received external proof for query: {:?}, but this is not handled in stone proving mode.",
@@ -458,15 +440,7 @@ impl Server {
             if let Err(e) = self.stone_proof_query(query.clone()).await {
                 error!("❌ Query processing failed, Error: {e:?}");
                 // Try to mark a query as invalid, but dont fail if it errors
-                if let Err(mark_err) =
-                    mark_query_as_invalid(&self.cc3_eth_client, query.id(), e.to_string()).await
-                {
-                    error!(
-                        "❌ Failed to mark query {:?} as invalid: {:?}",
-                        query.id(),
-                        mark_err
-                    );
-                }
+                let _ = self.mark_query_as_invalid(query.id(), e.to_string()).await;
             }
             // Cleanup the query from the received queries
             self.received_query_ids.remove(&query.id());
@@ -500,8 +474,7 @@ impl Server {
                                 "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
                                 query_id, e
                             );
-                            mark_query_as_invalid(&self.cc3_eth_client, query_id, e.to_string())
-                                .await?;
+                            self.mark_query_as_invalid(query_id, e.to_string()).await?;
                         }
                     }
                     Err(e) => {
@@ -509,9 +482,7 @@ impl Server {
                         if let LightProvingError::ProofGenerationFailed = e {
                             panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
                         } else {
-                            // Prevent unnecessary clone
-                            let query_id = query.id();
-                            mark_query_as_invalid(&self.cc3_eth_client, query_id, e.to_string())
+                            self.mark_query_as_invalid(query.id(), e.to_string())
                                 .await?;
                         }
                     }
@@ -520,6 +491,28 @@ impl Server {
             }
             Err(join_err) => {
                 panic!("Fatal error, couldn't join query worker task, error: {join_err:?}");
+            }
+        }
+    }
+
+    // Mark a query as invalid on chain with a reason
+    // This also increments the failed proofs metric
+    async fn mark_query_as_invalid(&self, query_id: H256, reason: String) -> Result<()> {
+        metric_inc_with_labels!(
+            self.metrics,
+            query_proofs_failed,
+            self.chain_name,
+            self.config.chain_key
+        );
+
+        match contract::mark_query_as_invalid(&self.cc3_eth_client, query_id, reason).await {
+            Ok(_) => {
+                info!("✅ Marked query {:?} as invalid", query_id);
+                Ok(())
+            }
+            Err(e) => {
+                error!("❌ Failed to mark query {:?} as invalid: {:?}", query_id, e);
+                Err(e)
             }
         }
     }
