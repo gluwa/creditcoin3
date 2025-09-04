@@ -84,7 +84,10 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Does not allow calls from non-owner', async function () {
-            await expect(prover.connect(user).updateCostPerByte(100n)).to.be.revertedWith('Caller is not the owner');
+            await expect(prover.connect(user).updateCostPerByte(100n)).to.be.revertedWithCustomError(
+                prover,
+                'OwnableUnauthorizedAccount',
+            );
         });
     });
 
@@ -107,7 +110,10 @@ describe('CreditcoinPublicProver', function () {
         });
 
         it('Does not allow calls from non-owner', async function () {
-            await expect(prover.connect(user).updateBaseFee(100n)).to.be.revertedWith('Caller is not the owner');
+            await expect(prover.connect(user).updateBaseFee(100n)).to.be.revertedWithCustomError(
+                prover,
+                'OwnableUnauthorizedAccount',
+            );
         });
     });
 
@@ -452,8 +458,9 @@ describe('CreditcoinPublicProver', function () {
 
             const proof = u8aToHex(new TextEncoder().encode(''));
 
-            await expect(prover.connect(user).submitQueryProof(queryId, proof)).to.be.revertedWith(
-                'Caller is not the owner',
+            await expect(prover.connect(user).submitQueryProof(queryId, proof)).to.be.revertedWithCustomError(
+                prover,
+                'OwnableUnauthorizedAccount',
             );
         });
 
@@ -498,7 +505,10 @@ describe('CreditcoinPublicProver', function () {
 
     describe('Proceeds Withdrawal', function () {
         it('Should only allow owner to withdraw proceeds', async function () {
-            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
+            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWithCustomError(
+                prover,
+                'OwnableUnauthorizedAccount',
+            );
         });
     });
 
@@ -649,8 +659,9 @@ describe('CreditcoinPublicProver', function () {
             // @ts-ignore
             const queryId = receipt?.logs[0]?.args?.[0];
 
-            await expect(prover.connect(user).markAsInvalid(queryId, 'Invalid query')).to.be.revertedWith(
-                'Caller is not the owner',
+            await expect(prover.connect(user).markAsInvalid(queryId, 'Invalid query')).to.be.revertedWithCustomError(
+                prover,
+                'OwnableUnauthorizedAccount',
             );
         });
 
@@ -797,7 +808,10 @@ describe('CreditcoinPublicProver', function () {
 
     describe('withdrawProceeds()', function () {
         it('Does not allow calls from non-owner', async function () {
-            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWith('Caller is not the owner');
+            await expect(prover.connect(user).withdrawProceeds()).to.be.revertedWithCustomError(
+                prover,
+                'OwnableUnauthorizedAccount',
+            );
         });
 
         it('Does not update balance when contract balance is zero', async function () {

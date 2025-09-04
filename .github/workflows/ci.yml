@@ -37,8 +37,7 @@ jobs:
   docker-test:
     needs:
       - deploy-runner-docker-test
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-docker-test"]
     steps:
       - name: Download locally built docker image
         uses: actions/download-artifact@v5
@@ -248,6 +247,11 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -293,7 +297,6 @@ jobs:
 
           echo "Most Recent Common Ancestor"
           git merge-base "${{ env.BRANCH_NAME }}" origin/testnet --all
-
 
   sanity-tests:
     runs-on: ubuntu-24.04
@@ -430,6 +433,11 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -452,7 +460,7 @@ jobs:
           creditcoin attestor --help
 
       - name: Build @gluwa/creditcoin-public-prover package
-        working-directory: common/eth/
+        working-directory: common/eth/contracts/
         run: |
           npm install
           npm pack
@@ -461,7 +469,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binary-for-npm-creditcoin-public-prover
-          path: "common/eth/gluwa-creditcoin-public-prover-*.tgz"
+          path: "common/eth/contracts/gluwa-creditcoin-public-prover-*.tgz"
           if-no-files-found: error
 
   sanity-test-solidity:
@@ -522,6 +530,11 @@ jobs:
 
           export TARGET_CHAIN="${{ steps.devnet-env.outputs.target_chain || steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}"
           .github/check-solidity-source-vs-metadata.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
 
       - name: Rebuild ABI for Prover.sol
         working-directory: ./common/eth/contracts/
@@ -1002,6 +1015,11 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -1092,6 +1110,11 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
 
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -1964,6 +1987,11 @@ jobs:
         run: |
           sudo .github/install-solidity-compiler.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -2204,6 +2232,11 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -2430,6 +2463,11 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -2514,6 +2552,11 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
 
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -2624,6 +2667,11 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
 
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -3100,6 +3148,11 @@ jobs:
           solc --version
           ./abi-creator.sh
 
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
@@ -3466,6 +3519,11 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
 
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat

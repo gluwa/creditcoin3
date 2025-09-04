@@ -1,21 +1,31 @@
 #!/bin/bash
-
 set -euo pipefail
 
-# Define the input and output file names
 input_file="artifact.json"
 output_file="prover.json"
 
-solc --pretty-json --combined-json abi,bin --no-cbor-metadata sol/Prover.sol > $input_file
+base_path="."
+# Add all plausible node_modules locations relative to contracts/
+include_paths=(
+  "./node_modules"          # common/eth/node_modules
+)
 
-# Extract the JSON struct under "Prover.sol:QueryVerifierContract" and save it to contract.json
+# Compose flags
+include_flags=()
+for p in "${include_paths[@]}"; do
+  include_flags+=( --include-path "$p" )
+done
+
+allow_paths=$(IFS=, ; echo "${include_paths[*]}")
+
+solc --pretty-json --combined-json abi,bin \
+  --no-cbor-metadata \
+  --base-path "$base_path" \
+  "${include_flags[@]}" \
+  --allow-paths "$allow_paths" \
+  sol/Prover.sol > "$input_file"
+
 jq '.contracts["sol/Prover.sol:CreditcoinPublicProver"]' "$input_file" > "$output_file"
-
-# Print a message indicating the extraction was successful
 echo "JSON struct extracted and saved to $output_file."
-
-# Remove artifact.json
-rm $input_file
-
-# Print a message indicating the removal was successful
+rm "$input_file"
 echo "artifact.json removed."

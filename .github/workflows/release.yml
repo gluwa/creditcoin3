@@ -54,7 +54,6 @@ jobs:
         run: |
           ./.github/check-version-vs-git-tag.sh
 
-
       - name: Install Solidity compiler
         run: |
           sudo .github/install-solidity-compiler.sh
@@ -64,6 +63,11 @@ jobs:
         run: |
           solc --version
           ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
 
       - name: Compile Hardhat contract(s)
         working-directory: ./docs/smart-contract-development/with-hardhat
@@ -155,12 +159,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
           always-auth: true
-          scope: '@gluwa'
+          scope: "@gluwa"
 
       - name: Build @gluwa/creditcoin-public-prover package
-        working-directory: common/eth/
+        working-directory: common/eth/contracts/
         run: |
           # WARNING: always use the same tag name as the release
           sed -i "s/\"version\": \".*\"/\"version\": \"${{ needs.sanity-check.outputs.TAG_NAME }}\"/" package*.json
@@ -173,12 +177,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binary-for-npm-creditcoin-public-prover
-          path: "common/eth/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz"
+          path: "common/eth/contracts/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz"
           compression-level: 0
           if-no-files-found: error
 
       - name: Publish @gluwa/creditcoin-public-prover package
-        working-directory: common/eth/
+        working-directory: common/eth/contracts/
         run: |
           npm publish --access public
         env:

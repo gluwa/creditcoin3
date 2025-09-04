@@ -2,8 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "./Types.sol";
-import "./Ownable.sol";
-
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 address constant PROOF_VERIFIER_ADDRESS = 0x0000000000000000000000000000000000000Be9;
 
 interface ICreditcoinPublicProver {
@@ -29,7 +28,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         uint64 _chainKey,
         string memory _displayName,
         uint64 _timeout
-    ) Ownable() {
+    ) Ownable(msg.sender) {
         verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
         totalEscrowBalance = Balance.wrap(0);

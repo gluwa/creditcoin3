@@ -1,10 +1,9 @@
 {
   "name": "@gluwa/creditcoin-public-prover",
-  "//": "WARNING: This will be overriden with release version in release.yml, L130",
-  "version": "0.1.0",
-  "description": "Provid Prover and Type contract for USC",
-  "main": "index.js",
+  "version": "0.1.5",
+  "description": "Provide Prover and Type contract for USC",
   "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0"
   },
   "devDependencies": {
     "mocha": "^10.8.2"

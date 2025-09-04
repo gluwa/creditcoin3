@@ -99,6 +99,7 @@ updates:
       - "/bridge-usage-example"
       - "/cc3-indexer"
       - "/cli"
+      - "/common/eth/contracts"
       - "/common/eth/contracts/get-contract-state"
       - "/docs/smart-contract-development/with-hardhat"
       - "/docs/smart-contract-development/with-ethers.js"
