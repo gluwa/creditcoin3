@@ -75,6 +75,52 @@ pub async fn deploy(
     })
 }
 
+pub async fn check_fees_against_existing(
+    eth_client: &Client,
+    desired_cost_per_byte: u64,
+    desired_base_fee: u64,
+    contract_address: Address,
+) -> Result<()> {
+    let provider = eth_client.get_wallet_ws_provider().await?;
+    let prover = CreditcoinPublicProver::new(contract_address, provider.clone());
+    let onchain_base_fee = prover.baseFee().call().await?._0;
+    let onchain_cost_per_byte_fee = prover.costPerByte().call().await?._0;
+
+    let desired_base_fee = U256::from(desired_base_fee);
+    let desired_cost_per_byte = U256::from(desired_cost_per_byte);
+
+    if onchain_base_fee != desired_base_fee {
+        info!(
+            "🛠️ baseFee mismatch: on-chain={} vs desired={}, updating…",
+            onchain_base_fee, desired_base_fee
+        );
+        let pending = prover.updateBaseFee(desired_base_fee).send().await?;
+
+        let _ = pending.get_receipt().await?;
+        let new_base_fee = prover.baseFee().call().await?._0;
+        info!("✅ baseFee updated: {}", new_base_fee);
+    } else {
+        info!("✅ Existing contract base fee matches desired base fee");
+    }
+
+    if onchain_cost_per_byte_fee != desired_cost_per_byte {
+        info!("⚠️ Warning: Existing contract cost per byte fee {} does not match desired cost per byte fee {}, updating now", onchain_cost_per_byte_fee, desired_cost_per_byte);
+
+        let pending = prover
+            .updateCostPerByte(desired_cost_per_byte)
+            .send()
+            .await?;
+
+        let _ = pending.get_receipt().await?;
+        let new_cost_per_byte = prover.costPerByte().call().await?._0;
+        info!("✅ costPerByte updated: {}", new_cost_per_byte);
+    } else {
+        info!("✅ Existing contract cost per byte fee matches desired cost per byte fee");
+    }
+
+    Ok(())
+}
+
 pub fn new(address: String) -> Result<GluwaPublicProverContract> {
     Ok(GluwaPublicProverContract {
         address: address.parse()?,

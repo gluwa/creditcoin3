@@ -27,7 +27,17 @@ pub async fn deploy(
 
     let artifact = if artifacts::has_artifact(chain_id).await? {
         info!("🔍 Found existing deployment artifact, fetching...");
-        artifacts::get_deployment_artifact(chain_id).await?
+        let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+
+        eth::evm::prover::check_fees_against_existing(
+            eth_client,
+            cost_per_byte,
+            base_fee,
+            artifact.contract.address,
+        )
+        .await?;
+
+        artifact
     } else {
         info!("🚀 Deploying Gluwa Public Prover contract");
         let contract = eth::evm::prover::deploy(
