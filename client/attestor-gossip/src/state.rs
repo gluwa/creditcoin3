@@ -223,20 +223,6 @@ where
         Ok(VoteImportResult::Ok)
     }
 
-    pub fn remove_vote(&mut self, attestation: &Attestation<H, AccountId>) -> Result<(), Error> {
-        let chain_key = attestation.chain_key();
-        let header_number = attestation.header_number();
-        let attestor_id = attestation.attestor.clone();
-
-        if let Some(vote_round) = self.chain_head_votes.get_mut(&chain_key) {
-            if let Some(votes) = vote_round.header_votes.get_mut(&header_number) {
-                votes.remove(&attestor_id);
-                return Ok(());
-            }
-        }
-        Err(Error::AttestationHeaderNumberInvalid)
-    }
-
     /// Check if the round can be concluded
     /// This is done by checking if the threshold is reached based on the round config
     fn check_round_state(&self, round: Round, round_config: &RoundConfig) -> Result<bool, Error> {

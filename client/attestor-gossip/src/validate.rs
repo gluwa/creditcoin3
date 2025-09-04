@@ -1,13 +1,14 @@
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::fmt::{Debug, Display};
 
+use sc_client_api::{Backend, BlockBackend};
+use sc_network::NetworkPeers;
 use sp_api::ProvideRuntimeApi;
+use sp_consensus::SyncOracle;
+use sp_consensus_babe::BabeApi;
 use sp_core::H256;
-use sp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use parity_scale_codec::Codec;
 
 use attestation_chain::block::Block;
@@ -20,58 +21,47 @@ use supported_chains_primitives::api::SupportedChainsApi;
 
 use crate::{
     communication::{Attestation, Error},
-    HashFor, LOG_TARGET,
+    Client, HashFor, Worker, LOG_TARGET,
 };
 
-pub struct AttestationValidator<B, AccountId, RA: ProvideRuntimeApi<B>>
+impl<B: BlockT, RA: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
+    Worker<B, RA, BE, C, AccountId, S, N>
 where
     B: BlockT,
     RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
-{
-    /// runtime api access
-    pub runtime: Arc<RA>,
-
-    phantom: std::marker::PhantomData<(B, AccountId)>,
-}
-
-impl<B, AccountId, RA: ProvideRuntimeApi<B>> AttestationValidator<B, AccountId, RA>
-where
-    B: BlockT,
-    H256: From<<B as BlockT>::Hash>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
-    RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
+    RA::Api: BabeApi<B>,
     RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
     RA::Api: SupportedChainsApi<B>,
     RA::Api: RandomnessPalletApi<B>,
-{
-    pub fn new(runtime: Arc<RA>) -> Self {
-        Self {
-            runtime,
-            phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<B, AccountId, RA: ProvideRuntimeApi<B>> AttestationValidator<B, AccountId, RA>
-where
-    B: BlockT,
+    BE: Backend<B>,
+    C: Client<B, BE> + BlockBackend<B>,
     H256: From<<B as BlockT>::Hash>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
-    RA: ProvideRuntimeApi<B> + Send + Sync + 'static,
-    RA::Api: AttestorApi<B, HashFor<B>, AccountId>,
-    RA::Api: SupportedChainsApi<B>,
-    RA::Api: RandomnessPalletApi<B>,
-    AccountId: Clone + Display + Codec + Send + 'static + Sync + Debug + Into<[u8; 32]>,
+    <B as BlockT>::Hash: From<H256>,
+    <<B as BlockT>::Header as HeaderT>::Number: Into<u64>,
+    S: SyncOracle,
+    AccountId: Clone
+        + Display
+        + Codec
+        + Send
+        + 'static
+        + Sync
+        + Debug
+        + Into<[u8; 32]>
+        + PartialEq
+        + Eq
+        + std::hash::Hash,
+    N: NetworkPeers,
 {
     pub fn validate_attestation(
-        &self,
+        &mut self,
         block_hash: B::Hash,
         attestation: &Attestation<HashFor<B>, AccountId>,
     ) -> Result<(), Error> {
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number();
+
+        self.verify_vrf(block_hash, attestation)?;
+        debug!(target: LOG_TARGET, "📝 VRF output verified successfully");
 
         // Check if the attestation bls signature is valid
         if !self.verify_bls_signature(block_hash, attestation)? {
@@ -191,5 +181,47 @@ where
             <Bls as CryptoScheme>::verify(&bls_pubkey, &attestation.signature_bls, &msg);
 
         Ok(bls_valid)
+    }
+
+    /// Verify the VRF output for an attestation.
+    /// This checks if the attestor that submitted this attestations vrf output is correct
+    /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
+    fn verify_vrf(
+        &mut self,
+        at: B::Hash,
+        attestation: &Attestation<HashFor<B>, AccountId>,
+    ) -> Result<(), Error> {
+        debug!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
+        let chain_key = attestation.chain_key();
+        let header_number = attestation.header_number();
+
+        let attestor_id = attestation.attestor_id();
+
+        // Get randomness from the attestation
+        let attestation_epoch = attestation.proof_of_inclusion.epoch;
+        let runtime = self.runtime.runtime_api();
+        let randomness = runtime.randomness_by_epoch_id(at, attestation_epoch)?;
+
+        // Here we verify the proof of inclusion
+        // based on the round config
+        // Get round config at the attestation epoch
+        let round_config = self.get_or_create_round_config(at, chain_key)?;
+
+        let is_included = vrf::verify_proof_of_inclusion(
+            round_config.committee_set_size.into(),
+            round_config.target_sample_size.into(),
+            &randomness,
+            &attestation.proof_of_inclusion,
+            &attestor_id,
+            header_number,
+        )?;
+
+        if !is_included {
+            warn!(target: LOG_TARGET, "📝 Attestor {:?} not eligible", attestor_id);
+            return Err(Error::AttestorNotEligible(attestor_id));
+        }
+
+        debug!(target: LOG_TARGET, "📝 Attestor {:?} selected ✅", attestor_id);
+        Ok(())
     }
 }

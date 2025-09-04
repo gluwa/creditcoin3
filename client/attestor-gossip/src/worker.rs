@@ -29,7 +29,6 @@ use supported_chains_primitives::api::SupportedChainsApi;
 use super::{inherent, AttestorComms, Client, HashFor, Message, LOG_TARGET};
 use crate::communication::{validator::GossipFilterCfg, Attestation, Error};
 use crate::state::{State, VoteImportResult};
-use crate::validate::AttestationValidator;
 use crate::{round, UnpinnedFinalityNotification};
 
 /// Gossip engine votes messages topic
@@ -83,9 +82,6 @@ where
     is_authority: bool,
 
     sync: Arc<S>,
-
-    /// Validator for attestations
-    pub attestation_validator: AttestationValidator<B, AccountId, RuntimeApi>,
 }
 
 pub(crate) struct WorkerParams<B: BlockT, RuntimeApi: ProvideRuntimeApi<B>, BE, C, AccountId, S, N>
@@ -172,7 +168,6 @@ where
             metrics,
             is_authority: params.is_authority,
             sync: params.sync,
-            attestation_validator: AttestationValidator::new(params.runtime.clone()),
         }
     }
 
@@ -317,7 +312,8 @@ where
         );
 
         // First we Validate the vote
-        self.validate_vote(&attestation)?;
+        let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
+        self.validate_attestation(finalized_block_hash, &attestation)?;
 
         // Then we import the vote.
         let import_result = self.state.note_vote(attestation.clone(), from_rpc)?;
@@ -422,80 +418,6 @@ where
         Ok(())
     }
 
-    // Validate the vote
-    // This function is responsible for validating the vote
-    // It will check if the vote is valid, and if it is, it will verify the VRF output
-    // If the vote is not valid, it will remove the vote from the state
-    fn validate_vote(
-        &mut self,
-        attestation: &Attestation<HashFor<B>, AccountId>,
-    ) -> Result<(), Error> {
-        let finalized_block_hash = self.backend.blockchain().info().finalized_hash;
-
-        // Validate attestation
-        if let Err(e) = self
-            .attestation_validator
-            .validate_attestation(finalized_block_hash, attestation)
-        {
-            error!(target: LOG_TARGET, "📝 Error validating attestation: {:?}", e);
-            self.state.remove_vote(attestation)?;
-            return Err(e);
-        }
-        debug!(target: LOG_TARGET, "📝 Attestation validated successfully");
-
-        // Verify VRF output
-        if let Err(e) = self.verify_vrf(finalized_block_hash, attestation) {
-            error!(target: LOG_TARGET, "📝 Error verifying VRF output: {:?}", e);
-            self.state.remove_vote(attestation)?;
-            return Err(e);
-        }
-        debug!(target: LOG_TARGET, "📝 VRF output verified successfully");
-
-        Ok(())
-    }
-
-    /// Verify the VRF output for an attestation.
-    /// This checks if the attestor that submitted this attestations vrf output is correct
-    /// Correct being, that it signed the babe's VRF output from Two epochs ago & that the attestor is eligible to submit an attestation
-    fn verify_vrf(
-        &mut self,
-        at: B::Hash,
-        attestation: &Attestation<HashFor<B>, AccountId>,
-    ) -> Result<(), Error> {
-        debug!(target: LOG_TARGET, "📝 Verifying VRF output for attestation");
-        let chain_key = attestation.chain_key();
-        let header_number = attestation.header_number();
-
-        let attestor_id = attestation.attestor_id();
-
-        // Get randomness from the attestation
-        let attestation_epoch = attestation.proof_of_inclusion.epoch;
-        let runtime = self.runtime.runtime_api();
-        let randomness = runtime.randomness_by_epoch_id(at, attestation_epoch)?;
-
-        // Here we verify the proof of inclusion
-        // based on the round config
-        // Get round config at the attestation epoch
-        let round_config = self.get_or_create_round_config(at, chain_key)?;
-
-        let is_included = vrf::verify_proof_of_inclusion(
-            round_config.committee_set_size.into(),
-            round_config.target_sample_size.into(),
-            &randomness,
-            &attestation.proof_of_inclusion,
-            &attestor_id,
-            header_number,
-        )?;
-
-        if !is_included {
-            warn!(target: LOG_TARGET, "📝 Attestor {:?} not eligible", attestor_id);
-            return Err(Error::AttestorNotEligible(attestor_id));
-        }
-
-        debug!(target: LOG_TARGET, "📝 Attestor {:?} selected ✅", attestor_id);
-        Ok(())
-    }
-
     /// In practice, this method would:
     /// 1. Gather all attesations for a round, create a BLS signature
     /// 2. Submit the inherent transaction containing the attestation
@@ -574,7 +496,7 @@ where
     // Get or create round config
     // This function retrieves or creates a round configuration based on the provided chain key.
     // Safeguards creation if not exists when the worker is restarted.
-    fn get_or_create_round_config(
+    pub fn get_or_create_round_config(
         &mut self,
         at: B::Hash,
         chain_key: ChainKey,
