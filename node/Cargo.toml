@@ -43,6 +43,7 @@ sc-network-sync = { workspace = true }
 sc-offchain = { workspace = true }
 sc-rpc = { workspace = true }
 sc-service = { workspace = true }
+sc-sync-state-rpc = { workspace = true, default-features = true }
 sc-telemetry = { workspace = true }
 sc-transaction-pool = { workspace = true }
 sc-transaction-pool-api = { workspace = true }
@@ -64,7 +65,6 @@ sp-state-machine = { workspace = true, features = ["default"] }
 sp-timestamp = { workspace = true, features = ["default"] }
 sp-transaction-pool = { workspace = true, features = ["default"] }
 substrate-prometheus-endpoint = { workspace = true }
-sc-sync-state-rpc = { workspace = true, default-features = true }
 
 # These dependencies are used for RPC
 frame-system-rpc-runtime-api = { workspace = true }

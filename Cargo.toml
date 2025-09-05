@@ -147,6 +147,7 @@ sc-offchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "st
 sc-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 sc-rpc-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 sc-service = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
+sc-sync-state-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 sc-telemetry = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 sc-transaction-pool = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 sc-transaction-pool-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
@@ -180,7 +181,6 @@ substrate-frame-rpc-system = { git = "https://github.com/paritytech/polkadot-sdk
 substrate-prometheus-endpoint = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 substrate-wasm-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 xcm = { package = "staging-xcm", git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
-sc-sync-state-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 
 # Frontier Client
 fc-api = { git = "https://github.com/paritytech/frontier", branch = "stable2409" }
