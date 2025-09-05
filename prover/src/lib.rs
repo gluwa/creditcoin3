@@ -209,7 +209,7 @@ impl Server {
                             let block_height = attestation.header_number();
 
                             // Update the attestation cache
-                            self.attestations_cache.insert_attestation(attestation.clone()).await?;
+                            self.attestations_cache.insert_attestation(attestation).await?;
 
                             debug!("📝 Received notification for new attestation at height {}", block_height);
                             metric_set_labels!(
