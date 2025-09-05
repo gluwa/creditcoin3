@@ -112,8 +112,8 @@ pub fn mainnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
 }
 
-pub fn mixhash_config() -> Result<ChainSpec, String> {
-    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mixhashSpecRaw.json")[..])
+pub fn layer2_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/layer2SpecRaw.json")[..])
 }
 
 pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {

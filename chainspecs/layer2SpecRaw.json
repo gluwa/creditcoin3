@@ -1,6 +1,6 @@
 {
-  "name": "Mixhash Testnet",
-  "id": "mixhash_testnet",
+  "name": "Layer2 Drynet",
+  "id": "layer2_drynet",
   "chainType": "Development",
   "bootNodes": [],
   "telemetryEndpoints": null,
