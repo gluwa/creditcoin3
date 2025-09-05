@@ -184,35 +184,32 @@ impl Server {
             .subscribe_events(self.config.chain_key)
             .await?;
 
-        let mut last_synced = self
-            .attestations_cache
-            .last_synced_attestation(self.config.chain_key)
-            .await?
-            .ok_or(Error::NoAttestationsSynced)?;
-
         loop {
             tokio::select! {
                 Some(event) = subscription.next() => {
                     match event {
                         CcEvent::BlockAttested(attestation) => {
-                            let block_height = attestation.header_number();
-
-                            if last_synced.header_number >= attestation.header_number() as i64 {
-                                debug!("⚠️ Attestation for block {} has already been processed, skipping.", block_height);
+                            // check if the attestation exists in cache
+                            if self.attestations_cache
+                                .attestation_digest_exists(attestation.digest())
+                                .await?
+                            {
+                                warn!("⚠️ Attestation {:?} already exists in cache, skipping", attestation.digest());
                                 continue;
                             }
 
-                            // Process the attestation
                             info!(
                                 "📝 Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
                                 attestation.chain_key(),
                                 attestation.header_number(),
                                 attestation.digest()
                             );
+
+                            // Process the attestation
+                            let block_height = attestation.header_number();
+
                             // Update the attestation cache
                             self.attestations_cache.insert_attestation(attestation.clone()).await?;
-
-                            last_synced = attestation.into();
 
                             debug!("📝 Received notification for new attestation at height {}", block_height);
                             metric_set_labels!(
@@ -257,12 +254,24 @@ impl Server {
                             }
                         }
                         CcEvent::CheckpointReached(chain_key, checkpoint) => {
+                            // check if exists in cache
+                            if self.attestations_cache
+                                .checkpoint_digest_exists(checkpoint.digest)
+                                .await?
+                            {
+                                warn!("⚠️ Checkpoint {:?} already exists in cache, skipping", checkpoint.digest);
+                                continue;
+                            }
+
                             info!(
                                 "📝 Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
                                 chain_key,
                                 checkpoint.block_number,
                                 checkpoint.digest,
                             );
+
+                            self.attestations_cache.insert_checkpoint(checkpoint.clone(), chain_key).await?;
+                            self.attestations_cache.mark_cached_up_to(chain_key, checkpoint.digest).await?;
                         }
                         _ => {
                             debug!("⚠️ Received event from Creditcoin client: {:?}", event);
