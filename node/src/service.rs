@@ -609,6 +609,7 @@ where
         let justification_stream = grandpa_link.justification_stream();
         let shared_voter_state = shared_voter_state.clone();
 
+        let chain_spec = config.chain_spec.cloned_box();
         Box::new(
             move |subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
                 let eth_deps = rpc::EthDeps {
@@ -657,6 +658,7 @@ where
                         subscription_executor: subscription_task_executor.clone(),
                     }),
                     message_sink: attestor_gossip_msg_sink.clone(),
+                    chain_spec: chain_spec.cloned_box(),
                 };
                 rpc::create_full(
                     deps,

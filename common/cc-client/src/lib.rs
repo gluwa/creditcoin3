@@ -1,10 +1,12 @@
+use std::{str::FromStr, time::Duration};
+
 use anyhow::Result;
+use sc_service::GenericChainSpec;
 use serde::Serialize;
 use sp_core::{
     sr25519::{self},
     Pair, U256,
 };
-use std::{str::FromStr, time::Duration};
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
     backend::rpc::{
@@ -13,6 +15,7 @@ use subxt::{
     },
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
+    utils::fetch_chainspec_from_rpc_node,
     OnlineClient, SubstrateConfig,
 };
 use subxt_signer::{
@@ -85,6 +88,7 @@ pub struct Client {
     pair: sr25519::Pair,
     signing_keypair: Keypair,
     rpc: ReconnectionRpcClient,
+    url: String,
 }
 
 impl<'a> Client {
@@ -108,13 +112,14 @@ impl<'a> Client {
                     .take(3),
             )
             // There are other configurations as well that can be found at [`reconnecting_rpc_client::ClientBuilder`].
-            .build(url.into())
+            .build(url.clone().into().clone())
             .await?;
 
         Ok(Self {
             pair,
             signing_keypair,
             rpc,
+            url: url.into(),
         })
     }
 
@@ -145,13 +150,18 @@ impl<'a> Client {
     }
 
     pub async fn get_chain_name(&self) -> Result<String, Error> {
-        let chain_name = self
-            .rpc
-            .request("system_chain".to_string(), None)
+        let chain_spec = fetch_chainspec_from_rpc_node(self.url.as_str())
             .await
+            .map_err(|e| {
+                error!("Error fetching chain spec from node: {:?}", e);
+                Error::FailedToGetChainName
+            })?;
+        let json_bytes: Vec<u8> = chain_spec.get().as_bytes().to_vec();
+
+        let spec: GenericChainSpec = GenericChainSpec::from_json_bytes(json_bytes)
             .map_err(|_| Error::FailedToGetChainName)?;
 
-        serde_json::from_str(chain_name.get()).map_err(|_| Error::FailedToGetChainName)
+        Ok(spec.id().to_string())
     }
 
     pub async fn get_supported_chain(&self, chain_key: ChainKey) -> Result<Option<SupportedChain>> {

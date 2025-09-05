@@ -109,6 +109,10 @@ impl Server {
             .get_chain_name()
             .await
             .unwrap_or_else(|_| "unknown-chain".to_string());
+        info!(
+            "✅ Connected to Creditcoin chain: {} with id: {}",
+            chain_name, config.chain_key
+        );
 
         Ok(Server {
             config,

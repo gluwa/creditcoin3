@@ -64,6 +64,7 @@ sp-state-machine = { workspace = true, features = ["default"] }
 sp-timestamp = { workspace = true, features = ["default"] }
 sp-transaction-pool = { workspace = true, features = ["default"] }
 substrate-prometheus-endpoint = { workspace = true }
+sc-sync-state-rpc = { workspace = true, default-features = true }
 
 # These dependencies are used for RPC
 frame-system-rpc-runtime-api = { workspace = true }

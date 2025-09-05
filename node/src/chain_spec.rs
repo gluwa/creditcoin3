@@ -8,7 +8,7 @@ use std::{
 
 // Substrate
 use attestor_primitives::{AttestationChainConfiguration, AttestationCheckpoint, ChainId};
-use sc_chain_spec::{ChainType, Properties};
+use sc_chain_spec::{ChainSpecExtension, ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
@@ -29,8 +29,18 @@ use creditcoin3_runtime::{
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
+/// Node `ChainSpec` extensions.
+///
+/// Additional parameters for some Substrate core modules,
+/// customizable from the chain spec.
+#[derive(Default, Clone, Serialize, Deserialize, ChainSpecExtension)]
+#[serde(rename_all = "camelCase")]
+pub struct Extensions {
+    /// The light sync state extension used by the sync-state rpc.
+    pub light_sync_state: sc_sync_state_rpc::LightSyncStateExtension,
+}
 
-pub type ChainSpec = sc_service::GenericChainSpec;
+pub type ChainSpec = sc_service::GenericChainSpec<Extensions>;
 
 /// Extension for the dev genesis config to support a custom changes to the genesis state.
 #[derive(Serialize, Deserialize)]
@@ -208,7 +218,7 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
 
     let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 
-    ChainSpec::builder(wasm_binary, None)
+    ChainSpec::builder(wasm_binary, Default::default())
         .with_name("Development")
         .with_id("dev")
         .with_chain_type(ChainType::Development)
@@ -307,7 +317,7 @@ pub fn local_testnet_config() -> ChainSpec {
 
     let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 
-    ChainSpec::builder(wasm_binary, None)
+    ChainSpec::builder(wasm_binary, Default::default())
         .with_name("Local Testnet")
         .with_id("local_testnet")
         .with_chain_type(ChainType::Local)
