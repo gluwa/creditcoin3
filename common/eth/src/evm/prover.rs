@@ -96,24 +96,35 @@ pub async fn check_fees_against_existing(
         );
         let pending = prover.updateBaseFee(desired_base_fee).send().await?;
 
-        let _ = pending.get_receipt().await?;
+        let receipt = pending.get_receipt().await?;
         let new_base_fee = prover.baseFee().call().await?._0;
-        info!("✅ baseFee updated: {}", new_base_fee);
+        info!(
+            "✅ baseFee updated: {}, tx hash: {}",
+            new_base_fee,
+            receipt.transaction_hash.to_string()
+        );
     } else {
         info!("✅ Existing contract base fee matches desired base fee");
     }
 
     if onchain_cost_per_byte_fee != desired_cost_per_byte {
-        info!("⚠️ Warning: Existing contract cost per byte fee {} does not match desired cost per byte fee {}, updating now", onchain_cost_per_byte_fee, desired_cost_per_byte);
+        info!(
+            "🛠️ costPerByte mismatch: on-chain={} vs desired={}, updating…",
+            onchain_cost_per_byte_fee, desired_cost_per_byte
+        );
 
         let pending = prover
             .updateCostPerByte(desired_cost_per_byte)
             .send()
             .await?;
 
-        let _ = pending.get_receipt().await?;
+        let receipt = pending.get_receipt().await?;
         let new_cost_per_byte = prover.costPerByte().call().await?._0;
-        info!("✅ costPerByte updated: {}", new_cost_per_byte);
+        info!(
+            "✅ costPerByte updated: {}, tx hash: {}",
+            new_cost_per_byte,
+            receipt.transaction_hash.to_string()
+        );
     } else {
         info!("✅ Existing contract cost per byte fee matches desired cost per byte fee");
     }
