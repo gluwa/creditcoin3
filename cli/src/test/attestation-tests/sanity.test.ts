@@ -1,14 +1,22 @@
 import { U64 } from '@polkadot/types-codec';
+import { WebSocketProvider } from 'ethers';
 import { AttestorPrimitivesSignedAttestation } from '@polkadot/types/lookup';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import {
+    chain_Anvil1_Key,
+    chain_Anvil1_Url,
+    chain_Anvil2_Key,
+} from '../blockchain-tests/pallets/supported-chains/consts';
 import { calculateThreshold, randomIntBetween } from '../utils';
 
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingEpoch = 0;
+    let chain_Anvil1_AttestationInterval = 0;
+    let startBlock_Anvil1 = 0;
+    let provider_Anvil1: WebSocketProvider;
     const maxBlocks = 220; // ~ 18:20 mins
 
     beforeAll(async () => {
@@ -22,6 +30,14 @@ describe('BlockAttested events', (): void => {
 
         const attestorsForAnvil2 = (await api.query.attestation.activeAttestors(chain_Anvil2_Key)).encodedLength;
         expect(attestorsForAnvil2).toBeGreaterThanOrEqual(3);
+
+        // NOTE: this stays constant during test execution
+        chain_Anvil1_AttestationInterval = (
+            await api.query.attestation.chainAttestationInterval(chain_Anvil1_Key)
+        ).toNumber();
+
+        provider_Anvil1 = new WebSocketProvider(chain_Anvil1_Url);
+        startBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
     });
 
     afterAll(async () => {
@@ -139,8 +155,14 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
 
-            // Max 10 blocks are attested for in each CC block, so it can be a lot of attested events
-            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(30);
+            const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
+            const expectedBlockAttestedEvents_Anvil1 = Math.floor(
+                (endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval,
+            );
+
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedBlockAttestedEvents_Anvil1 - 1);
+            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 1);
+            // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(30);
 
             // match the frequency b/c we don't want this to pass if only a few events are recorded
