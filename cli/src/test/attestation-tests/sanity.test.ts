@@ -8,10 +8,12 @@ import { calculateThreshold, randomIntBetween } from '../utils';
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
+    let startingEpoch = 0;
     const maxBlocks = 220; // ~ 18:20 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
+        startingEpoch = (await api.query.babe.epochIndex()).toNumber();
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         // check that we have enough attestors
@@ -124,8 +126,15 @@ describe('BlockAttested events', (): void => {
             });
             expect(checkpointsForGenesis).toBe(1);
 
-            expect(electionEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(10);
-            expect(electionEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(10);
+            // note: this test is started *after* we have min 3 attestors already elected on each chain
+            const currentEpoch = (await api.query.babe.epochIndex()).toNumber();
+            const expectedElectionEvents = currentEpoch - startingEpoch;
+
+            expect(electionEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedElectionEvents - 1);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedElectionEvents + 1);
+
+            expect(electionEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(expectedElectionEvents - 1);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(expectedElectionEvents + 1);
 
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
