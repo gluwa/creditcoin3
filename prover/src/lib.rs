@@ -184,11 +184,24 @@ impl Server {
             .subscribe_events(self.config.chain_key)
             .await?;
 
+        let mut last_synced = self
+            .attestations_cache
+            .last_synced_attestation(self.config.chain_key)
+            .await?
+            .ok_or(Error::NoAttestationsSynced)?;
+
         loop {
             tokio::select! {
                 Some(event) = subscription.next() => {
                     match event {
                         CcEvent::BlockAttested(attestation) => {
+                            let block_height = attestation.header_number();
+
+                            if last_synced.header_number >= attestation.header_number() as i64 {
+                                debug!("⚠️ Attestation for block {} has already been processed, skipping.", block_height);
+                                continue;
+                            }
+
                             // Process the attestation
                             info!(
                                 "📝 Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
@@ -196,9 +209,10 @@ impl Server {
                                 attestation.header_number(),
                                 attestation.digest()
                             );
-                            let block_height = attestation.header_number();
                             // Update the attestation cache
-                            self.attestations_cache.insert_attestation(attestation).await?;
+                            self.attestations_cache.insert_attestation(attestation.clone()).await?;
+
+                            last_synced = attestation.into();
 
                             debug!("📝 Received notification for new attestation at height {}", block_height);
                             metric_set_labels!(
