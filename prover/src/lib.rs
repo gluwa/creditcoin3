@@ -270,8 +270,23 @@ impl Server {
                         self.chain_name,
                         self.config.chain_key
                     );
-                    let last_attestation_height = self.attestations_cache.last_synced_attestation_block_number(new_query.chain_id).await?
-                        .ok_or(Error::NoAttestationsSynced)?;
+                    let maybe_height = self
+                        .attestations_cache
+                        .last_synced_attestation_block_number(new_query.chain_id)
+                        .await?;
+
+                    let Some(last_attestation_height) = maybe_height else {
+                        error!(
+                        "❌ Failed to get last attestation height from cache. Marking query {:?} as invalid.",
+                            query_id
+                        );
+                        self.mark_query_as_invalid(
+                            query_id,
+                            "No attestations are synced for this query".to_string(),
+                        )
+                        .await?;
+                        continue;
+                    };
 
                     // Check if the query is ready to be processed
                     if last_attestation_height < new_query.height {
