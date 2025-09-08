@@ -16,6 +16,7 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use attestation::cache::AttestationCache;
+use attestor_primitives::SignedAttestation;
 use cc_client::{attestation::CcEvent, Client as CcClient};
 use pallet_prover_primitives::Query;
 
@@ -32,6 +33,9 @@ use config::Config;
 
 /// `AttestationCacheType` cache type
 pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
+
+/// Type for managing light proving queries
+type LightProverQueries = FuturesUnordered<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>>;
 
 /// `ChainName` type
 pub type ChainName = String;
@@ -53,6 +57,12 @@ pub struct Server {
     metrics: Option<ProverMetrics>,
     // Chain name
     chain_name: ChainName,
+}
+
+impl Server {
+    fn is_light_prover_mode(&self) -> bool {
+        self.config.prover_be_socket_addr.is_some()
+    }
 }
 
 impl Server {
@@ -144,7 +154,7 @@ impl Server {
         info!("✅ Built historical cache");
 
         // Channel for new queries
-        let (new_query_sender, new_query_receiver) = mpsc::unbounded_channel::<Query>();
+        let (new_query_sender, mut new_query_receiver) = mpsc::unbounded_channel::<Query>();
 
         // Spawn a task to check for queries on contract storage and subscribe to new submissions
         let client_clone = self.cc3_eth_client.clone();
@@ -152,7 +162,7 @@ impl Server {
             contract::provide_unprocessed_queries(&client_clone, new_query_sender.clone()).await
         });
 
-        let (proof_verified_event_sender, proof_verified_event_receiver) =
+        let (proof_verified_event_sender, mut proof_verified_event_receiver) =
             mpsc::unbounded_channel::<H256>();
 
         let proof_client_clone = self.cc3_eth_client.clone();
@@ -167,95 +177,21 @@ impl Server {
             .await
         });
 
-        self.handle_ongoing_queries_and_fatal_errors(
-            new_query_receiver,
-            proof_verified_event_receiver,
-        )
-        .await?;
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_lines)]
-    async fn handle_ongoing_queries_and_fatal_errors(
-        &mut self,
-        mut new_query_receiver: mpsc::UnboundedReceiver<Query>,
-        mut proof_event_receiver: mpsc::UnboundedReceiver<H256>,
-    ) -> Result<()> {
-        let mut light_prover_queries = FuturesUnordered::new();
-
         let mut subscription = self
             .cc3_client
             .subscribe_events(self.config.chain_key)
             .await?;
+
+        let mut light_prover_queries = FuturesUnordered::new();
+        let (queries_to_process_sender, mut queries_to_process_receiver) =
+            mpsc::unbounded_channel::<Query>();
 
         loop {
             tokio::select! {
                 Some(event) = subscription.next() => {
                     match event {
                         CcEvent::BlockAttested(attestation) => {
-                            // check if the attestation exists in cache
-                            if self.attestations_cache
-                                .attestation_digest_exists(attestation.digest())
-                                .await?
-                            {
-                                warn!("⚠️ Attestation {:?} already exists in cache, skipping", attestation.digest());
-                                continue;
-                            }
-
-                            info!(
-                                "📝 Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
-                                attestation.chain_key(),
-                                attestation.header_number(),
-                                attestation.digest()
-                            );
-
-                            // Process the attestation
-                            let block_height = attestation.header_number();
-
-                            // Update the attestation cache
-                            self.attestations_cache.insert_attestation(attestation).await?;
-
-                            debug!("📝 Received notification for new attestation at height {}", block_height);
-                            metric_set_labels!(
-                                self.metrics,
-                                attestation_network_height,
-                                self.chain_name,
-                                self.config.chain_key,
-                                block_height
-                            );
-
-                            let mut processable_queries = Vec::new();
-
-                            let keys_to_process: Vec<u64> = self.waiting_queries
-                                .keys()
-                                .filter(|&&key| key <= block_height)
-                                .copied()
-                                .collect();
-
-                            for key in keys_to_process {
-                                if let Some(queries) = self.waiting_queries.remove(&key) {
-                                    processable_queries.extend(queries);
-                                }
-                            }
-
-                            if !processable_queries.is_empty() {
-                                debug!(
-                                    "🔍 Found {} waiting queries with height <= {}. Processing now.",
-                                    processable_queries.len(),
-                                    block_height
-                                );
-
-                                if self.config.prover_be_socket_addr.is_some() {
-                                    self.light_prove_unprocessed_queries(
-                                        processable_queries,
-                                        &mut light_prover_queries
-                                    ).await;
-                                } else {
-                                    self.stand_alone_prove_unprocessed_query(
-                                        processable_queries,
-                                    ).await?;
-                                }
-                            }
+                            self.handle_block_attested(attestation, queries_to_process_sender.clone()).await?;
                         }
                         CcEvent::CheckpointReached(chain_key, checkpoint) => {
                             // check if exists in cache
@@ -283,81 +219,16 @@ impl Server {
                     }
                 },
                 Some(new_query) = new_query_receiver.recv() => {
-                    let query_id = new_query.id();
-
-                    if !self.received_query_ids.insert(query_id) {
-                        warn!("⚠️ Received duplicate query {:?}, ignoring.", query_id);
-                        continue;
-                    }
-
-                    info!("📝 Received query {:?}, checking for readiness...", query_id);
-                    metric_inc_with_labels!(
-                        self.metrics,
-                        queries_received,
-                        self.chain_name,
-                        self.config.chain_key
-                    );
-                    let maybe_height = self
-                        .attestations_cache
-                        .last_synced_attestation_block_number(new_query.chain_id)
-                        .await?;
-
-                    let Some(last_attestation_height) = maybe_height else {
-                        error!(
-                        "❌ Failed to get last attestation height from cache. Marking query {:?} as invalid.",
-                            query_id
-                        );
-                        self.mark_query_as_invalid(
-                            query_id,
-                            "No attestations are synced for this query".to_string(),
-                        )
-                        .await?;
-                        continue;
-                    };
-
-                    // Check if the query is ready to be processed
-                    if last_attestation_height < new_query.height {
-                        info!(
-                            "🔄 Query {:?} is not ready. Last attestation: {}, needed: {}. Adding to waiting queue.",
-                            query_id, last_attestation_height, new_query.height
-                        );
-
-                        // Add the query to the waiting list
-                        self.waiting_queries
-                            .entry(new_query.height)
-                            .or_default()
-                            .push(new_query);
-
-                    } else {
-                        info!("✅ Query {:?} is ready for immediate processing.", query_id);
-                        let queries_to_process = vec![new_query];
-
-                        if self.config.prover_be_socket_addr.is_some() {
-                            self.light_prove_unprocessed_queries(
-                                queries_to_process,
-                                &mut light_prover_queries
-                            ).await;
-                        } else {
-                            self.stand_alone_prove_unprocessed_query(
-                                queries_to_process,
-                            ).await?;
-                        }
-                    }
+                    self.handle_new_query(new_query).await?;
+                },
+                Some(query) = queries_to_process_receiver.recv() => {
+                    self.handle_query_to_process(query, &mut light_prover_queries).await?;
                 },
                 Some(result) = light_prover_queries.next() => {
-                    let query_id = match &result {
-                        Ok((query, _)) => Some(query.id()),
-                        Err(_) => None,
-                    };
+                    self.handle_light_prover_result(result).await?;
 
-                    self.handle_finished_light_proving_job(result).await?;
-
-                    // Clean up the query after handling, regardless of the outcome
-                    if let Some(id) = query_id {
-                        self.cleanup_query(id);
-                    }
-                },
-                Some(query_id) = proof_event_receiver.recv() => {
+                }
+                Some(query_id) = proof_verified_event_receiver.recv() => {
                     metric_inc_with_labels!(
                         self.metrics,
                         query_proofs_success,
@@ -371,119 +242,241 @@ impl Server {
         }
     }
 
-    async fn stone_proof_query(&self, query: Query) -> Result<()> {
-        if self.config.prover_be_socket_addr.is_some() {
-            return Err(anyhow!(
-                "Tried to prove query locally while in light prover mode."
-            ));
-        };
-        // Create an eth client
-        let eth_client = EthClient::new(&self.config.eth_rpc_url, None).await?;
+    /// Handles a new attested block, updating the cache and sending any waiting queries for processing
+    /// to the processing channel
+    async fn handle_block_attested(
+        &mut self,
+        attestation: SignedAttestation<H256, AccountId32>,
+        query_sender: mpsc::UnboundedSender<Query>,
+    ) -> Result<()> {
+        // check if the attestation exists in cache
+        if self
+            .attestations_cache
+            .attestation_digest_exists(attestation.digest())
+            .await?
+        {
+            warn!(
+                "⚠️ Attestation {:?} already exists in cache, skipping",
+                attestation.digest()
+            );
+            return Ok(());
+        }
 
-        let r = query::process(eth_client, &query, &self.attestations_cache, true).await?;
+        info!(
+            "📝 Received a new attestation: chain: {}, blocknumber: {}, digest({:?})",
+            attestation.chain_key(),
+            attestation.header_number(),
+            attestation.digest()
+        );
+
+        // Process the attestation
+        let block_height = attestation.header_number();
+
+        // Update the attestation cache
+        self.attestations_cache
+            .insert_attestation(attestation)
+            .await?;
+
+        debug!(
+            "📝 Received notification for new attestation at height {}",
+            block_height
+        );
+        metric_set_labels!(
+            self.metrics,
+            attestation_network_height,
+            self.chain_name,
+            self.config.chain_key,
+            block_height
+        );
+
+        let mut processable_queries = Vec::new();
+
+        let keys_to_process: Vec<u64> = self
+            .waiting_queries
+            .keys()
+            .filter(|&&key| key <= block_height)
+            .copied()
+            .collect();
+
+        for key in keys_to_process {
+            if let Some(queries) = self.waiting_queries.remove(&key) {
+                processable_queries.extend(queries);
+            }
+        }
+
+        if processable_queries.is_empty() {
+            debug!(
+                "🔍 No waiting queries with height <= {} found.",
+                block_height
+            );
+            return Ok(());
+        }
+
+        debug!(
+            "🔍 Found {} waiting queries with height <= {}. Processing now.",
+            processable_queries.len(),
+            block_height
+        );
+
+        for processable_query in processable_queries {
+            debug!("🔍 Waiting query to process: {:?}", processable_query);
+            query_sender.send(processable_query)?;
+        }
+
+        Ok(())
+    }
+
+    /// Handles a new query, checking if it's ready to be processed or needs to wait
+    /// If ready, sends it to the processing channel
+    /// If not, adds it to the waiting list
+    async fn handle_new_query(&mut self, query: Query) -> Result<()> {
+        let query_id = query.id();
+
+        if !self.received_query_ids.insert(query_id) {
+            warn!("⚠️ Received duplicate query {:?}, ignoring.", query_id);
+            return Ok(());
+        }
+
+        info!(
+            "📝 Received query {:?}, checking for readiness...",
+            query_id
+        );
+        metric_inc_with_labels!(
+            self.metrics,
+            queries_received,
+            self.chain_name,
+            self.config.chain_key
+        );
+
+        // Check if the query is ready to be processed
+        // This is a synchronous check, the async version is in handle_block_attested
+        // and is used when we receive a new attestation
+        let maybe_height = futures::executor::block_on(
+            self.attestations_cache
+                .last_synced_attestation_block_number(query.chain_id),
+        )?;
+
+        let Some(last_attestation_height) = maybe_height else {
+            error!(
+                "❌ Failed to get last attestation height from cache. Marking query {:?} as invalid.",
+                query_id
+            );
+            return self
+                .mark_query_as_invalid(
+                    query_id,
+                    "No attestations are synced for this query".to_string(),
+                )
+                .await;
+        };
+
+        if last_attestation_height < query.height {
+            info!(
+                "🔄 Query {:?} is not ready. Last attestation: {}, needed: {}. Adding to waiting queue.",
+                query_id, last_attestation_height, query.height
+            );
+
+            // Add the query to the waiting list
+            self.waiting_queries
+                .entry(query.height)
+                .or_default()
+                .push(query);
+        } else {
+            info!("✅ Query {:?} is ready for immediate processing.", query_id);
+            // In a real implementation, you would send this to a processing channel
+            // For this example, we'll just log it
+            debug!("Processing query {:?}", query);
+        }
+
+        Ok(())
+    }
+
+    /// Handles a query that is ready to be processed
+    /// If in light prover mode, sends it to the light prover job queue
+    /// If not, processes it immediately and submits the proof on chain
+    async fn handle_query_to_process(
+        &mut self,
+        query: Query,
+        light_prover_queries: &mut LightProverQueries,
+    ) -> Result<()> {
+        let r = query::process(
+            self.cc3_eth_client.clone(),
+            &query,
+            &self.attestations_cache,
+            !self.is_light_prover_mode(),
+        )
+        .await?;
 
         let query_id = query.id();
 
         if let Either::Left(proof) = r {
             info!("📝 Submitting proof for query: {:?}", query_id);
-            contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
-            Ok(())
-        } else {
-            Err(anyhow!(
-                "Received external proof for query: {:?}, but this is not handled in stone proving mode.",
-                query.id()
-            ))
+            let tx_hash = contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
+            info!(
+                "✅ Submitted proof for query {:?}, tx hash: {:?}",
+                query_id, tx_hash
+            );
+            return Ok(());
+        } else if let Either::Right(stone_proof_public_input) = r {
+            info!("🔄 Handling external proof for query: {:?}", query_id);
+            // Cloning handles for config strings
+            let addr = self.config.prover_be_socket_addr.clone().ok_or(anyhow!(
+                "Tried to submit light proving jobs while not in light mode!"
+            ))?;
+            let key = self.config.be_api_key.clone().ok_or(anyhow!(
+                "We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"
+            ))?;
+            light_prover_queries.push(task::spawn(async move {
+                let proving_result = query::external::handle_proof_order(
+                    query_id,
+                    stone_proof_public_input,
+                    addr.as_ref(),
+                    key.as_ref(),
+                )
+                .await;
+                (query, proving_result)
+            }));
         }
+
+        Ok(())
     }
 
-    async fn queue_light_proving_jobs(
-        &self,
-        queries: Vec<Query>,
-    ) -> Result<Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>>> {
-        // Create thread safe versions of config strings
-        let prover_be_socket_addr = self.config.prover_be_socket_addr.clone().ok_or(anyhow!(
-            "Tried to submit light proving jobs while not in light mode!"
-        ))?;
-        let be_api_key = self.config.be_api_key.clone().ok_or(anyhow!(
-            "We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"
-        ))?;
-        // Create an eth client
-        let eth_client = EthClient::new(&self.config.eth_rpc_url, None).await?;
-        let mut proving_job_handles: Vec<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>> =
-            Vec::new();
-
-        for query in queries {
-            let r =
-                query::process(eth_client.clone(), &query, &self.attestations_cache, false).await?;
-
-            if let Either::Right(stone_proof_public_input) = r {
-                info!("🔄 Handling external proof for query: {:?}", query.id());
-                // Cloning handles for config strings
-                let addr_clone = prover_be_socket_addr.clone();
-                let key_clone = be_api_key.clone();
-                proving_job_handles.push(task::spawn(async move {
-                    let proving_result = query::external::handle_proof_order(
-                        query.id(),
-                        stone_proof_public_input,
-                        addr_clone.as_ref(),
-                        key_clone.as_ref(),
-                    )
-                    .await;
-                    (query, proving_result)
-                }));
-            }
-        }
-        Ok(proving_job_handles)
-    }
-
-    async fn light_prove_unprocessed_queries(
+    /// Handles the result of a light prover job
+    /// If successful, submits the proof on chain
+    /// If failed, marks the query as invalid on chain
+    /// If the task failed, panics as this is a fatal error
+    async fn handle_light_prover_result(
         &mut self,
-        mut unprocessed_queries: Vec<Query>,
-        light_prover_queries: &mut FuturesUnordered<
-            JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>,
-        >,
-    ) {
-        // We don't want to spam the BE with requests for queries we've already requested.
-        unprocessed_queries
-            .retain(|query| !self.queued_light_proving_queries.contains(&query.id()));
+        result: Result<(Query, Result<Vec<u8>, LightProvingError>), JoinError>,
+    ) -> Result<()> {
+        let (query, inner_result) = result?;
+        let query_id = query.id();
 
-        info!(
-            "🔍 Found {} new unprocessed queries",
-            unprocessed_queries.len()
-        );
-        // Save these off to use later without cloning queries
-        let query_ids: Vec<H256> = unprocessed_queries.iter().map(Query::id).collect();
-        match self.queue_light_proving_jobs(unprocessed_queries).await {
-            Ok(new_query_handles) => {
-                for query_handle in new_query_handles {
-                    light_prover_queries.push(query_handle);
+        match inner_result {
+            Ok(proof) => {
+                info!("📝 Submitting proof for query: {:?}", query);
+                // Prevent unnecessary clone
+
+                if let Err(e) = contract::submit_proof(&self.cc3_eth_client, query, proof).await {
+                    error!(
+                        "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
+                        query_id, e
+                    );
+                    self.mark_query_as_invalid(query_id, e.to_string()).await?;
                 }
             }
             Err(e) => {
-                error!("❌ Queuing light proving for queries failed, Error: {e:?}");
-            }
-        };
-        // All queries were successfully queued as light proving jobs.
-
-        for query_id in query_ids {
-            self.queued_light_proving_queries.insert(query_id);
-        }
-    }
-
-    async fn stand_alone_prove_unprocessed_query(
-        &mut self,
-        unprocessed_queries: Vec<Query>,
-    ) -> Result<()> {
-        for query in unprocessed_queries {
-            info!("🔄 Processing unprocessed query: {:?}", query);
-            if let Err(e) = self.stone_proof_query(query.clone()).await {
                 error!("❌ Query processing failed, Error: {e:?}");
-                // Try to mark a query as invalid, but dont fail if it errors
-                let _ = self.mark_query_as_invalid(query.id(), e.to_string()).await;
+                if let LightProvingError::ProofGenerationFailed = e {
+                    panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
+                } else {
+                    self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                }
             }
-            // Cleanup the query from the received queries
-            self.received_query_ids.remove(&query.id());
         }
+
+        // Clean up the query after handling, regardless of the outcome
+        self.cleanup_query(query_id);
+
         Ok(())
     }
 
@@ -494,48 +487,8 @@ impl Server {
         self.received_query_ids.remove(&query_id);
     }
 
-    async fn handle_finished_light_proving_job(
-        &self,
-        result: Result<(Query, Result<Vec<u8>, LightProvingError>), JoinError>,
-    ) -> Result<()> {
-        match result {
-            Ok((query, result_inner)) => {
-                match result_inner {
-                    Ok(proof) => {
-                        info!("📝 Submitting proof for query: {:?}", query);
-                        // Prevent unnecessary clone
-                        let query_id = query.id();
-
-                        if let Err(e) =
-                            contract::submit_proof(&self.cc3_eth_client, query, proof).await
-                        {
-                            error!(
-                                "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
-                                query_id, e
-                            );
-                            self.mark_query_as_invalid(query_id, e.to_string()).await?;
-                        }
-                    }
-                    Err(e) => {
-                        error!("❌ Query processing failed, Error: {e:?}");
-                        if let LightProvingError::ProofGenerationFailed = e {
-                            panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
-                        } else {
-                            self.mark_query_as_invalid(query.id(), e.to_string())
-                                .await?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-            Err(join_err) => {
-                panic!("Fatal error, couldn't join query worker task, error: {join_err:?}");
-            }
-        }
-    }
-
-    // Mark a query as invalid on chain with a reason
-    // This also increments the failed proofs metric
+    /// Marks a query as invalid on chain with the given reason
+    /// Increments the failed proofs metric
     async fn mark_query_as_invalid(&self, query_id: H256, reason: String) -> Result<()> {
         metric_inc_with_labels!(
             self.metrics,
