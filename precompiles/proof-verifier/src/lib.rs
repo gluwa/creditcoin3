@@ -22,9 +22,6 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-/// Solidity selector of the ProofSubmitted log, which is the Keccak of the Log signature.
-pub const SELECTOR_LOG_PROOF_SUBMITTED: [u8; 32] = keccak256!("ProofSubmitted(address, bytes32)");
-
 /// Precompile exposing a pallet_balance as an ERC20.
 /// The precompile uses an additional storage to store approvals.
 pub struct ProofVerifierPrecompile<Runtime>(PhantomData<Runtime>);
@@ -103,18 +100,12 @@ where
                 &query,
             )?;
 
-            info!("Proof verification completed for query: {:?}", query.id());
-            info!("Proof verification status: {}", status);
-            info!("Result segments: {:?}", result_segments);
-
-            log3(
-                handle.context().address,
-                SELECTOR_LOG_PROOF_SUBMITTED,
-                handle.context().caller,
+            info!(
+                "Proof verification completed for query: {:?}, status: {}",
                 query.id(),
-                solidity::encode_event_data(result_segments.clone()),
-            )
-            .record(handle)?;
+                status
+            );
+            log::debug!("Result segments: {:?}", result_segments);
 
             Ok(VerifyResult {
                 status,
