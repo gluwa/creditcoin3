@@ -758,7 +758,7 @@ jobs:
           VERIFIER_PATH=$(readlink -f ./cairo/stone-verifier)
           export PATH="$PATH:$PROVER_PATH:$SCRIPTS_PATH:$VERIFIER_PATH"
 
-          cargo test
+          cargo test --release
 
           # cargo llvm-cov \
           #     --workspace --html --show-missing-lines --hide-instantiations \
