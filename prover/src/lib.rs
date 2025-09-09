@@ -378,10 +378,10 @@ impl Server {
         // Check if the query is ready to be processed
         // This is a synchronous check, the async version is in handle_block_attested
         // and is used when we receive a new attestation
-        let maybe_height = futures::executor::block_on(
-            self.attestations_cache
-                .last_synced_attestation_block_number(query.chain_id),
-        )?;
+        let maybe_height = self
+            .attestations_cache
+            .last_synced_attestation_block_number(query.chain_id)
+            .await?;
 
         let Some(last_attestation_height) = maybe_height else {
             error!(
@@ -475,9 +475,7 @@ impl Server {
 
         match inner_result {
             Ok(proof) => {
-                info!("📝 Submitting proof for query: {:?}", query);
-                // Prevent unnecessary clone
-
+                info!("📝 Submitting proof for query: {:?}", query_id);
                 if let Err(e) = contract::submit_proof(&self.cc3_eth_client, query, proof).await {
                     error!(
                         "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
