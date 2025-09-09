@@ -245,6 +245,10 @@ impl AttestationFragmentSerializable {
     pub fn head(&self) -> Option<&BlockSerializable> {
         self.blocks.last()
     }
+
+    pub fn tail(&self) -> Option<&BlockSerializable> {
+        self.blocks.first()
+    }
 }
 
 impl JsonSerializable for AttestationFragmentSerializable {}

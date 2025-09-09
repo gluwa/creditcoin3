@@ -131,6 +131,26 @@ where
             }
         }
 
+        // Check if the tail's prev_digest of the fragement matches the last finalized attestation
+        // Otherwise check if we actually have the digest in storage, it could be that the last finalized attestation from attestation view is not the last finalized attestation in storage
+        // This could happen if the attestation view is lagging behind
+        if let Some(tail) = attestation.continuity_proof.tail() {
+            let block: Block = Block::try_from(tail.clone())
+                .map_err(|_| Error::InvalidAttestationContinuityProof)?;
+            let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
+            if block_prev_digest != last_block_digest {
+                // Check if we have the last_block_digest in storage
+                let exists = runtime.contains_digest(block_hash, chain_key, last_block_digest)?;
+                if !exists {
+                    error!(target: LOG_TARGET, "❌ Continuity proof tail prev digest mismatch, expected {:?}, got {:?}, and we don't have it in storage", last_block_digest, block_prev_digest);
+                    return Err(Error::InvalidAttestationContinuityProof);
+                } else {
+                    last_block_digest = block_prev_digest;
+                    debug!(target: LOG_TARGET, "📝 Continuity proof tail prev digest mismatch, expected {:?}, got {:?}, but we have it in storage, continuing", last_block_digest, block_prev_digest);
+                }
+            }
+        }
+
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
             let block: Block = Block::try_from(serializable.clone())
                 .map_err(|_| Error::InvalidAttestationContinuityProof)?;
