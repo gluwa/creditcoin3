@@ -5,10 +5,7 @@ use eth::Client as EthClient;
 use futures::stream::{FuturesUnordered, StreamExt};
 use query::external::Error as LightProvingError;
 use sp_core::H256;
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, HashSet};
 use tokio::{
     sync::mpsc,
     task::{self, JoinError, JoinHandle},
@@ -16,7 +13,7 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use attestation::cache::AttestationCache;
-use attestor_primitives::SignedAttestation;
+use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
 use cc_client::{attestation::CcEvent, Client as CcClient};
 use pallet_prover_primitives::Query;
 
@@ -43,8 +40,12 @@ pub type ChainName = String;
 /// Prover server is configured using `Config`
 pub struct Server {
     config: Config,
+    // Ethereum client for the cc3 chain where the prover contract is deployed
     cc3_eth_client: EthClient,
+    // Creditcoin client for the cc3 chain where the prover contract is deployed
     cc3_client: CcClient,
+    // Ethereum client for the source chain
+    source_chain_eth_client: EthClient,
     // Attestation cache
     attestations_cache: AttestationCacheType,
     // Queries that are waiting for attestations
@@ -80,14 +81,16 @@ impl Server {
             EthClient::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
 
         let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
-        let eth_client = Arc::new(EthClient::new(&config.eth_rpc_url, None).await?);
-        let chain_id = eth_client.chain_id();
 
         let supported_chain = cc3_client
             .get_supported_chain(config.chain_key)
             .await?
             .ok_or(Error::FailedToGetChainKey)?;
 
+        // Check that the source chain id matches the configured chain id
+        // This is to prevent misconfiguration
+        let source_chain_eth_client = EthClient::new(&config.eth_rpc_url, None).await?;
+        let chain_id = source_chain_eth_client.chain_id();
         if supported_chain.chain_id != chain_id {
             return Err(Error::WrongChain(chain_id, supported_chain.chain_id).into());
         }
@@ -128,6 +131,7 @@ impl Server {
             config,
             cc3_eth_client,
             cc3_client,
+            source_chain_eth_client,
             attestations_cache,
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
@@ -194,39 +198,25 @@ impl Server {
                             self.handle_block_attested(attestation, queries_to_process_sender.clone()).await?;
                         }
                         CcEvent::CheckpointReached(chain_key, checkpoint) => {
-                            // check if exists in cache
-                            if self.attestations_cache
-                                .checkpoint_digest_exists(checkpoint.digest)
-                                .await?
-                            {
-                                warn!("⚠️ Checkpoint {:?} already exists in cache, skipping", checkpoint.digest);
-                                continue;
-                            }
-
-                            info!(
-                                "📝 Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
-                                chain_key,
-                                checkpoint.block_number,
-                                checkpoint.digest,
-                            );
-
-                            self.attestations_cache.insert_checkpoint(checkpoint.clone(), chain_key).await?;
-                            self.attestations_cache.mark_cached_up_to(chain_key, checkpoint.digest).await?;
+                            self.handle_checkpoint_reached(chain_key, checkpoint).await?;
                         }
                         _ => {
-                            debug!("⚠️ Received event from Creditcoin client: {:?}", event);
+                            debug!("❕Received event from Creditcoin client: {:?}", event);
                         }
                     }
                 },
                 Some(new_query) = new_query_receiver.recv() => {
-                    self.handle_new_query(new_query).await?;
+                    self.handle_new_query(new_query, queries_to_process_sender.clone()).await?;
                 },
                 Some(query) = queries_to_process_receiver.recv() => {
-                    self.handle_query_to_process(query, &mut light_prover_queries).await?;
+                    let query_id = query.id();
+                    if let Err(e) = self.handle_query_to_process(query, &mut light_prover_queries).await {
+                        error!("❌ Failed to process query: {:?}, Error: {:?}", query_id, e);
+                        self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                    }
                 },
                 Some(result) = light_prover_queries.next() => {
                     self.handle_light_prover_result(result).await?;
-
                 }
                 Some(query_id) = proof_verified_event_receiver.recv() => {
                     metric_inc_with_labels!(
@@ -236,7 +226,7 @@ impl Server {
                         self.config.chain_key
                     );
                     // Log the proof verification event for now. Could also return result segments to the prover if needed
-                    info!("🛰️  Proof verification event received for query: {:?}", query_id);
+                    info!("🛰️ Proof verification event received for query: {:?}", query_id);
                 },
             }
         }
@@ -326,10 +316,47 @@ impl Server {
         Ok(())
     }
 
+    async fn handle_checkpoint_reached(
+        &mut self,
+        chain_key: u64,
+        checkpoint: AttestationCheckpoint,
+    ) -> Result<()> {
+        // check if exists in cache
+        if self
+            .attestations_cache
+            .checkpoint_digest_exists(checkpoint.digest)
+            .await?
+        {
+            warn!(
+                "⚠️ Checkpoint {:?} already exists in cache, skipping",
+                checkpoint.digest
+            );
+            return Ok(());
+        }
+
+        info!(
+            "📝 Received a new attestation checkpoint: chain: {}, blocknumber: {}, digest({:?})",
+            chain_key, checkpoint.block_number, checkpoint.digest,
+        );
+
+        self.attestations_cache
+            .insert_checkpoint(checkpoint.clone(), chain_key)
+            .await?;
+        self.attestations_cache
+            .mark_cached_up_to(chain_key, checkpoint.digest)
+            .await?;
+
+        Ok(())
+    }
+
     /// Handles a new query, checking if it's ready to be processed or needs to wait
     /// If ready, sends it to the processing channel
     /// If not, adds it to the waiting list
-    async fn handle_new_query(&mut self, query: Query) -> Result<()> {
+    async fn handle_new_query(
+        &mut self,
+        query: Query,
+        query_sender: mpsc::UnboundedSender<Query>,
+    ) -> Result<()> {
         let query_id = query.id();
 
         if !self.received_query_ids.insert(query_id) {
@@ -381,10 +408,8 @@ impl Server {
                 .or_default()
                 .push(query);
         } else {
-            info!("✅ Query {:?} is ready for immediate processing.", query_id);
-            // In a real implementation, you would send this to a processing channel
-            // For this example, we'll just log it
-            debug!("Processing query {:?}", query);
+            info!("🕛 Query {:?} is ready for immediate processing.", query_id);
+            query_sender.send(query)?;
         }
 
         Ok(())
@@ -398,8 +423,9 @@ impl Server {
         query: Query,
         light_prover_queries: &mut LightProverQueries,
     ) -> Result<()> {
+        info!("🏗️ Processing query: {:?}", query.id());
         let r = query::process(
-            self.cc3_eth_client.clone(),
+            &self.source_chain_eth_client,
             &query,
             &self.attestations_cache,
             !self.is_light_prover_mode(),
@@ -410,11 +436,7 @@ impl Server {
 
         if let Either::Left(proof) = r {
             info!("📝 Submitting proof for query: {:?}", query_id);
-            let tx_hash = contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
-            info!(
-                "✅ Submitted proof for query {:?}, tx hash: {:?}",
-                query_id, tx_hash
-            );
+            let _ = contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
             return Ok(());
         } else if let Either::Right(stone_proof_public_input) = r {
             info!("🔄 Handling external proof for query: {:?}", query_id);

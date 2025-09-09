@@ -60,7 +60,7 @@ pub enum FragmentTypeError {
 // - `attestation_cache`: attestation cache
 // - `stone_proof`: whether to generate a stone proof
 pub async fn process(
-    eth_client: Client,
+    eth_client: &Client,
     query: &Query,
     attestation_cache: &AttestationCacheType,
     stone_proof: bool,
@@ -72,7 +72,7 @@ pub async fn process(
     let retry_strategy = FibonacciBackoff::from_millis(1000).map(jitter).take(5);
 
     let fragment_result = Retry::spawn(retry_strategy.clone(), || {
-        fragment::get_for_query(&eth_client, query, attestation_cache)
+        fragment::get_for_query(eth_client, query, attestation_cache)
     })
     .await;
 
