@@ -12,6 +12,8 @@ linode-cli --version
 if [ -z "$LC_RUNNER_VM_NAME" ]; then
     THRESHOLD=$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "5 hours ago")
 
+    # dump JSON for debugging purposes
+    linode-cli linodes list --json | jq -r
     for VM_ID in $(linode-cli linodes list --json | jq ".[] | select(.created <= \"$THRESHOLD\")" | jq -r '.id'); do
         echo "INFO: going to remove expired VM $VM_ID"
         linode-cli linodes delete "$VM_ID"
