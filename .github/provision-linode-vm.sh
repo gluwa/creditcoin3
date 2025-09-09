@@ -30,6 +30,12 @@ while [ -z "$IP_ADDRESS" ]; do
     # use up to 60 sec random delay to avoid everything being scheduled at once!
     sleep $((RANDOM % 60))
 
+    VM_KIND=${VM_KIND:-github-runner}
+    echo "INFO: VM_KIND=$VM_KIND"
+
+    KEEP_UNTIL=${KEEP_UNTIL:-$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+5 hours")}
+    echo "INFO: KEEP_UNTIL=$KEEP_UNTIL UTC"
+
     # WARNING: we do not specify --authorized_keys for root b/c
     # linode-cli expects each key as a separate argument and iteratively constructing
     # the argument list hits issues with quoting the jey values b/c of white-space.
@@ -39,6 +45,7 @@ while [ -z "$IP_ADDRESS" ]; do
         --image 'linode/ubuntu24.04' --region "$LINODE_REGION" \
         --type "$LINODE_VM_SIZE" --label "$LC_RUNNER_VM_NAME" \
         --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
+        --tags "$VM_KIND" --tags "keep_until_$KEEP_UNTIL" \
         --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > "retry_$COUNTER.json"
 
     IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < "retry_$COUNTER.json")
