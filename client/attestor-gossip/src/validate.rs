@@ -131,7 +131,7 @@ where
             }
         }
 
-        // Check if the tail's prev_digest of the fragement matches the last finalized attestation
+        // Check if the tail's prev_digest of the fragment matches the last finalized attestation
         // Otherwise check if we actually have the digest in storage, it could be that the last finalized attestation from attestation view is not the last finalized attestation in storage
         // This could happen if the attestation view is lagging behind
         if let Some(tail) = attestation.continuity_proof.tail() {
