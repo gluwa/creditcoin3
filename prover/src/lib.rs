@@ -219,14 +219,20 @@ impl Server {
                     self.handle_light_prover_result(result).await?;
                 }
                 Some(query_id) = proof_verified_event_receiver.recv() => {
-                    metric_inc_with_labels!(
-                        self.metrics,
-                        query_proofs_success,
-                        self.chain_name,
-                        self.config.chain_key
-                    );
+                    // Only increment success metric if we have seen this query before
+                    // This event can fire multiple times for the same query
+                    if self.received_query_ids.contains(&query_id) {
+                        metric_inc_with_labels!(
+                            self.metrics,
+                            query_proofs_success,
+                            self.chain_name,
+                            self.config.chain_key
+                        );
+                    }
+
                     // Log the proof verification event for now. Could also return result segments to the prover if needed
                     info!("🛰️ Proof verification event received for query: {:?}", query_id);
+                    self.cleanup_query(query_id);
                 },
             }
         }
@@ -494,28 +500,28 @@ impl Server {
             }
         }
 
-        // Clean up the query after handling, regardless of the outcome
-        self.cleanup_query(query_id);
-
         Ok(())
     }
 
     /// Cleans up the query from the internal memory after processing
     fn cleanup_query(&mut self, query_id: H256) {
         self.queued_light_proving_queries.remove(&query_id);
-
         self.received_query_ids.remove(&query_id);
     }
 
     /// Marks a query as invalid on chain with the given reason
     /// Increments the failed proofs metric
-    async fn mark_query_as_invalid(&self, query_id: H256, reason: String) -> Result<()> {
+    /// Cleans up the query from internal memory
+    async fn mark_query_as_invalid(&mut self, query_id: H256, reason: String) -> Result<()> {
         metric_inc_with_labels!(
             self.metrics,
             query_proofs_failed,
             self.chain_name,
             self.config.chain_key
         );
+
+        // Clean up the query from internal memory
+        self.cleanup_query(query_id);
 
         match contract::mark_query_as_invalid(&self.cc3_eth_client, query_id, reason).await {
             Ok(_) => {

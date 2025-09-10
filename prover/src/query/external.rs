@@ -199,7 +199,7 @@ async fn poll_for_result(
         }
 
         info!(
-            "🚧 Result not yet available... QueryId: 0x{:?}, Elapsed: {:?}, Timeout: {:?}",
+            "🚧 Result not yet available... QueryId: 0x{}, Elapsed: {:?}, Timeout: {:?}",
             query_id,
             start.elapsed().as_secs(),
             timeout.as_secs()
