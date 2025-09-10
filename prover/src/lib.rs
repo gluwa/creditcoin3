@@ -54,6 +54,8 @@ pub struct Server {
     queued_light_proving_queries: HashSet<H256>,
     // Queries that have been received
     received_query_ids: HashSet<H256>,
+    // Query proofs received
+    received_query_proofs: HashSet<H256>,
     // Prometheus metrics
     metrics: Option<ProverMetrics>,
     // Chain name
@@ -136,6 +138,7 @@ impl Server {
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
             received_query_ids: HashSet::new(),
+            received_query_proofs: HashSet::new(),
             metrics,
             chain_name,
         })
@@ -219,9 +222,9 @@ impl Server {
                     self.handle_light_prover_result(result).await?;
                 }
                 Some(query_id) = proof_verified_event_receiver.recv() => {
-                    // Only increment success metric if we have seen this query before
+                    // Only increment success metric if we have not seen this query proof before
                     // This event can fire multiple times for the same query
-                    if self.received_query_ids.contains(&query_id) {
+                    if self.received_query_proofs.insert(query_id) {
                         metric_inc_with_labels!(
                             self.metrics,
                             query_proofs_success,
