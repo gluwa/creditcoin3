@@ -84,7 +84,6 @@ pub async fn handle_proof_order(
     prover_be_socket_addr: &str,
     be_api_key: &str,
 ) -> Result<Proof, Error> {
-    info!("🔄 Handling external proof order");
     let client = Client::new();
 
     let response = build_and_post_order_with_retries(
