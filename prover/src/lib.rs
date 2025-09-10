@@ -365,7 +365,7 @@ impl Server {
         }
 
         info!(
-            "📝 Received query {:?}, checking for readiness...",
+            "📝 Received a new query {:?}, checking if we can process it now.",
             query_id
         );
         metric_inc_with_labels!(

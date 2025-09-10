@@ -128,7 +128,7 @@ pub async fn process(
     let query_prover =
         match proof::run_cairo_verifier(query_serializable, &attestation_fragment, block).await {
             Ok(cairo_output) => {
-                info!("📝 Prepared query for proving with id: {:?}", query_id);
+                info!("✉️ Prepared query for proving with id: {:?}", query_id);
                 cairo_output
             }
             Err(e) => {
@@ -141,6 +141,7 @@ pub async fn process(
         };
 
     if stone_proof {
+        info!("🪨 Running stone prover for query with id: {:?}", query_id);
         let result =
             proof::cairo_generate_proof(query_prover, stone_proof, maybe_force_stone_proving)
                 .await
