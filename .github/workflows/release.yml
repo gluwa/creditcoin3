@@ -264,12 +264,15 @@ jobs:
         run: |
           mv artifact/prover.json artifact/Prover-ABI.json
 
-      - name: Compress creditcoin-node binary
+      - name: Compress native binaries
         shell: bash
         working-directory: artifact/
         run: |
           # -m removes the uncompressed file b/c we don't want to be uploading it
           zip -m "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" creditcoin3-node
+
+          # -m removes the uncompressed files b/c we don't want to be uploading them
+          zip -m "attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" attestor*
 
           ls -lR
 
@@ -277,6 +280,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
             artifact/gluwa-creditcoin-public-prover-${{ needs.sanity-check.outputs.TAG_NAME }}.tgz
             artifact/sol/*.sol
