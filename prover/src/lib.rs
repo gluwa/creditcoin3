@@ -391,7 +391,8 @@ impl Server {
 
         let Some(last_attestation_height) = maybe_height else {
             error!(
-                "❌ Failed to get last attestation height from cache. Marking query {:?} as invalid.",
+                "❌ 0 Attestations synced for query chain id: {:?}. This shouldn't happen except with a brand new chain. Marking query {:?} as invalid.",
+                query.chain_id,
                 query_id
             );
             return self
