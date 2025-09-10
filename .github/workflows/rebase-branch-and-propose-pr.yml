@@ -1,7 +1,7 @@
 ---
 name: Reusable workflow to rebase a branch and propose a PR
 
-on:
+"on":
   workflow_call:
     inputs:
       source-branch:
