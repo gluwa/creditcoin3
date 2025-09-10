@@ -1,6 +1,7 @@
 ---
 self-hosted-runner:
   labels:
+    - proxy-attestor-chaos
     - proxy-attestator-network
     - proxy-benchmark
     - proxy-blockchain
