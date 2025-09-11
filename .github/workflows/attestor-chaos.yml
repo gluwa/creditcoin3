@@ -90,6 +90,8 @@ jobs:
           RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Testnet ENV
         id: testnet-env
@@ -102,6 +104,8 @@ jobs:
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: change to Testnet once we have a new release vvv
       - name: Download attestor binaries for release ${{ steps.devnet-env.outputs.release_tag }}
