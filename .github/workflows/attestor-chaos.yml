@@ -111,6 +111,7 @@ jobs:
       - name: Download attestor binaries for release ${{ steps.devnet-env.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           path: target/release/
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
