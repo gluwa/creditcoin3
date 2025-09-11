@@ -231,11 +231,10 @@ impl Server {
                             self.chain_name,
                             self.config.chain_key
                         );
+                        // Log the proof verification event for now. Could also return result segments to the prover if needed
+                        info!("🛰️ Proof verification event received for query: {:?}", query_id);
+                        self.cleanup_query(query_id);
                     }
-
-                    // Log the proof verification event for now. Could also return result segments to the prover if needed
-                    info!("🛰️ Proof verification event received for query: {:?}", query_id);
-                    self.cleanup_query(query_id);
                 },
             }
         }
