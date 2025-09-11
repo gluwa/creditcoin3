@@ -85,8 +85,8 @@ jobs:
           # shellcheck disable=SC2129
           echo "stash_secret=${{ secrets.DEVNET_ATTESTOR_CHAOS_SECRET }}" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.ccnext-devnet.creditcoin.network" >> "$GITHUB_OUTPUT"
-          echo "eth_rpc_url=${{ secrets.ETHEREUM_RPC_URL_DEVNET }}" >> "$GITHHUB_OUTPUT"
-          echo "sepolia_chain_key=3" >> "$GITHHUB_OUTPUT"
+          echo "eth_rpc_url=${{ secrets.ETHEREUM_RPC_URL_DEVNET }}" >> "$GITHUB_OUTPUT"
+          echo "sepolia_chain_key=3" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
@@ -97,8 +97,8 @@ jobs:
           # shellcheck disable=SC2129
           echo "stash_secret=${{ secrets.TESTNET_ATTESTOR_CHAOS_SECRET }}" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.usc-testnet.creditcoin.network" >> "$GITHUB_OUTPUT"
-          echo "eth_rpc_url=${{ secrets.ETHEREUM_RPC_URL_TESTNET }}" >> "$GITHHUB_OUTPUT"
-          echo "sepolia_chain_key=1" >> "$GITHHUB_OUTPUT"
+          echo "eth_rpc_url=${{ secrets.ETHEREUM_RPC_URL_TESTNET }}" >> "$GITHUB_OUTPUT"
+          echo "sepolia_chain_key=1" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
