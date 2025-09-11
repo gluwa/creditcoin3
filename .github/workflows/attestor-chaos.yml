@@ -135,6 +135,7 @@ jobs:
           # TODO: vvv change to Testnet once we have a new release
           ./target/release/attestor_zombienet \
                 --verbose \
+                --cc3-rpc-url ${{ steps.devnet-env.outputs.rpc_url }} \
                 --cc3-key "${{ steps.devnet-env.outputs.stash_secret }}" \
                 --eth-rpc-url ${{ steps.devnet-env.outputs.eth_rpc_url }} \
                 --chain-key ${{ steps.devnet-env.outputs.sepolia_chain_key }} \
