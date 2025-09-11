@@ -271,9 +271,6 @@ proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
 
 # Common
-attestation-blocks-online-builder = { path = "attestation-blocks-online-builder" }
-attestation-db = { path = "attestation-db" }
-attestor-online-sim = { path = "attestor-online-sim" }
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [
     "pairing",
 ] }
@@ -281,7 +278,6 @@ cc-client = { path = "common/cc-client" }
 eth = { path = "common/eth" }
 mmr = { path = "common/mmr", features = ["par_mmr"], default-features = false }
 prometheus = { path = "common/prometheus" }
-prover-attestation-db-online-builder = { path = "prover-attestation-db-online-builder" }
 utils = { path = "common/utils", default-features = false }
 vrf = { path = "common/vrf", default-features = false }
 
