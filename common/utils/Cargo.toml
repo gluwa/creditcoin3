@@ -12,7 +12,7 @@ acid_io = { version = "0.1.0", git = "https://github.com/dataphract/acid_io", de
 anyhow = { version = "1.0.68", default-features = false }
 chrono = { version = "0.4.38", default-features = false }
 colored = { version = "2.1.0", default-features = false }
-ethereum = { version = "0.15.0", default-features = false }
+ethereum = { version = "0.18.2", default-features = false }
 ethereum-types = { version = "0.14.1", default-features = false, features = [
     "serialize",
 ] }

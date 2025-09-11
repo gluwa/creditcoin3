@@ -1990,7 +1990,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234113d19d0d7d613b40e86fb654acf958910802bcceab913a4f9e7cda03b1a4"
 dependencies = [
  "memchr",
- "regex-automata 0.4.9",
+ "regex-automata",
  "serde",
 ]
 
@@ -2850,7 +2850,7 @@ name = "creditcoin3-runtime"
 version = "3.59.0"
 dependencies = [
  "attestor-primitives",
- "ethereum",
+ "ethereum 0.18.2",
  "evm-tracing-events",
  "fp-account",
  "fp-evm",
@@ -3840,7 +3840,7 @@ version = "18.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7413c5f74cc903ea37386a8965a936cbeb334bd270862fdece542c1b2dcbc898"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "hex",
  "sha3",
 ]
@@ -3854,8 +3854,22 @@ dependencies = [
  "crunchy",
  "fixed-hash",
  "impl-codec 0.6.0",
- "impl-rlp",
+ "impl-rlp 0.3.0",
  "impl-serde 0.4.0",
+ "scale-info",
+ "tiny-keccak",
+]
+
+[[package]]
+name = "ethbloom"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c321610643004cf908ec0f5f2aa0d8f1f8e14b540562a2887a1111ff1ecbf7b"
+dependencies = [
+ "crunchy",
+ "fixed-hash",
+ "impl-codec 0.7.1",
+ "impl-rlp 0.4.0",
  "scale-info",
  "tiny-keccak",
 ]
@@ -3867,11 +3881,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e04d24d20b8ff2235cffbf242d5092de3aa45f77c5270ddbfadd2778ca13fea"
 dependencies = [
  "bytes",
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "hash-db",
  "hash256-std-hasher",
  "parity-scale-codec",
- "rlp",
+ "rlp 0.5.2",
+ "scale-info",
+ "serde",
+ "sha3",
+ "trie-root",
+]
+
+[[package]]
+name = "ethereum"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ee371ebb7479ed3258617557ab0b3247e741075cb6b02b820d188f68da44441"
+dependencies = [
+ "bytes",
+ "ethereum-types 0.15.1",
+ "hash-db",
+ "hash256-std-hasher",
+ "k256",
+ "parity-scale-codec",
+ "rlp 0.6.1",
  "scale-info",
  "serde",
  "sha3",
@@ -3884,14 +3917,29 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02d215cbf040552efcbe99a38372fe80ab9d00268e20012b79fcd0f073edd8ee"
 dependencies = [
- "ethbloom",
+ "ethbloom 0.13.0",
  "fixed-hash",
  "impl-codec 0.6.0",
- "impl-rlp",
+ "impl-rlp 0.3.0",
  "impl-serde 0.4.0",
  "primitive-types 0.12.2",
  "scale-info",
  "uint 0.9.5",
+]
+
+[[package]]
+name = "ethereum-types"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ab15ed80916029f878e0267c3a9f92b67df55e79af370bf66199059ae2b4ee3"
+dependencies = [
+ "ethbloom 0.14.1",
+ "fixed-hash",
+ "impl-codec 0.7.1",
+ "impl-rlp 0.4.0",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "uint 0.10.0",
 ]
 
 [[package]]
@@ -3929,14 +3977,14 @@ checksum = "8d4b86ab0845a40c27ce2a54e01f4c1aa356bd2658028ae87c570e469a2286d6"
 dependencies = [
  "auto_impl",
  "environmental",
- "ethereum",
+ "ethereum 0.15.0",
  "evm-core",
  "evm-gasometer",
  "evm-runtime",
  "log",
  "parity-scale-codec",
  "primitive-types 0.12.2",
- "rlp",
+ "rlp 0.5.2",
  "scale-info",
  "serde",
  "sha3",
@@ -3985,8 +4033,8 @@ version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
  "environmental",
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "evm",
  "evm-gasometer",
  "evm-runtime",
@@ -4087,7 +4135,7 @@ version = "1.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
  "clap",
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "fc-db",
  "fp-rpc",
  "fp-storage",
@@ -4121,7 +4169,7 @@ version = "2.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
  "async-trait",
- "ethereum",
+ "ethereum 0.15.0",
  "fc-api",
  "fc-storage",
  "fp-consensus",
@@ -4173,8 +4221,8 @@ name = "fc-rpc"
 version = "2.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "evm",
  "fc-api",
  "fc-mapping-sync",
@@ -4192,7 +4240,7 @@ dependencies = [
  "parity-scale-codec",
  "prometheus 0.13.4",
  "rand 0.8.5",
- "rlp",
+ "rlp 0.5.2",
  "sc-client-api",
  "sc-consensus-aura",
  "sc-network",
@@ -4227,10 +4275,10 @@ name = "fc-rpc-core"
 version = "1.1.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "jsonrpsee",
- "rlp",
+ "rlp 0.5.2",
  "rustc-hex",
  "serde",
  "serde_json",
@@ -4242,8 +4290,8 @@ name = "fc-storage"
 version = "1.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "fp-rpc",
  "fp-storage",
  "parity-scale-codec",
@@ -4455,7 +4503,7 @@ name = "fp-consensus"
 version = "2.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
+ "ethereum 0.15.0",
  "parity-scale-codec",
  "sp-core",
  "sp-runtime",
@@ -4476,8 +4524,8 @@ name = "fp-ethereum"
 version = "1.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "fp-evm",
  "frame-support",
  "parity-scale-codec",
@@ -4504,8 +4552,8 @@ name = "fp-rpc"
 version = "3.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "fp-evm",
  "parity-scale-codec",
  "scale-info",
@@ -5924,7 +5972,16 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f28220f89297a075ddc7245cd538076ee98b01f2a9c23a53a4f1105d5a322808"
 dependencies = [
- "rlp",
+ "rlp 0.5.2",
+]
+
+[[package]]
+name = "impl-rlp"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54ed8ad1f3877f7e775b8cbf30ed1bd3209a95401817f19a0eb4402d13f8cf90"
+dependencies = [
+ "rlp 0.6.1",
 ]
 
 [[package]]
@@ -7268,11 +7325,11 @@ dependencies = [
 
 [[package]]
 name = "matchers"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8263075bb86c5a1b1427b5ae862e8889656f126e9f77c484496e8b47cf5c5558"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
- "regex-automata 0.1.10",
+ "regex-automata",
 ]
 
 [[package]]
@@ -7539,7 +7596,7 @@ name = "moonbeam-client-evm-tracing"
 version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "evm-tracing-events",
  "hex",
  "moonbeam-rpc-primitives-debug",
@@ -7555,7 +7612,7 @@ name = "moonbeam-evm-tracer"
 version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "evm",
  "evm-gasometer",
  "evm-runtime",
@@ -7575,7 +7632,7 @@ name = "moonbeam-primitives-ext"
 version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "evm-tracing-events",
  "parity-scale-codec",
  "sp-externalities",
@@ -7588,8 +7645,8 @@ name = "moonbeam-rpc-core-debug"
 version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "fc-rpc-core",
  "futures 0.3.31",
  "jsonrpsee",
@@ -7605,7 +7662,7 @@ name = "moonbeam-rpc-core-trace"
 version = "0.6.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "futures 0.3.31",
  "jsonrpsee",
  "moonbeam-client-evm-tracing",
@@ -7619,7 +7676,7 @@ name = "moonbeam-rpc-core-types"
 version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "serde",
  "serde_json",
 ]
@@ -7629,8 +7686,8 @@ name = "moonbeam-rpc-debug"
 version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "fc-api",
  "fc-consensus",
  "fc-db",
@@ -7663,8 +7720,8 @@ version = "0.1.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
  "environmental",
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "hex",
  "parity-scale-codec",
  "serde",
@@ -7680,8 +7737,8 @@ name = "moonbeam-rpc-trace"
 version = "0.6.0"
 source = "git+https://github.com/gluwa/moonbeam?branch=gluwa_stable_2409#9b99fdfc5e4712e399fb00f1eaa7250ccaa83aac"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "fc-consensus",
  "fc-rpc",
  "fc-rpc-core",
@@ -8026,12 +8083,11 @@ checksum = "61807f77802ff30975e01f4f071c8ba10c022052f98b3294119f3e615d13e5be"
 
 [[package]]
 name = "nu-ansi-term"
-version = "0.46.0"
+version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77a8165726e8236064dbb45459242600304b42a5ea24ee2948e18e023bf7ba84"
+checksum = "d4a28e057d01f97e61255210fcff094d74ed0466038633e95017f5beb68e4399"
 dependencies = [
- "overload",
- "winapi",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8306,12 +8362,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "overload"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
-
-[[package]]
 name = "pairing"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8464,8 +8514,8 @@ name = "pallet-ethereum"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/frontier?branch=stable2409#a012990acd6f9ecd90c15e63abbb3f12704c4bd8"
 dependencies = [
- "ethereum",
- "ethereum-types",
+ "ethereum 0.15.0",
+ "ethereum-types 0.14.1",
  "evm",
  "fp-consensus",
  "fp-ethereum",
@@ -9009,8 +9059,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e69bf016dc406eff7d53a7d3f7cf1c2e72c82b9088aac1118591e36dd2cd3e9"
 dependencies = [
  "bitcoin_hashes 0.13.0",
- "rand 0.7.3",
- "rand_core 0.5.1",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
  "serde",
  "unicode-normalization",
 ]
@@ -9640,7 +9690,7 @@ checksum = "0b34d9fd68ae0b74a41b21c03c2f62847aa0ffea044eee893b4c140b37e244e2"
 dependencies = [
  "fixed-hash",
  "impl-codec 0.6.0",
- "impl-rlp",
+ "impl-rlp 0.3.0",
  "impl-serde 0.4.0",
  "scale-info",
  "uint 0.9.5",
@@ -9654,6 +9704,7 @@ checksum = "d15600a7d856470b7d278b3fe0e311fe28c2526348549f8ef2ff7db3299c87f5"
 dependencies = [
  "fixed-hash",
  "impl-codec 0.7.1",
+ "impl-rlp 0.4.0",
  "impl-serde 0.5.0",
  "scale-info",
  "uint 0.10.0",
@@ -9829,14 +9880,14 @@ dependencies = [
  "colored",
  "either",
  "eth",
- "ethereum",
- "ethereum-types",
+ "ethereum 0.18.2",
+ "ethereum-types 0.14.1",
  "fs2",
  "futures 0.3.31",
  "mmr",
  "pallet-attestation-poc",
  "prover-primitives",
- "rlp",
+ "rlp 0.5.2",
  "serde",
  "serde_json",
  "sp-core",
@@ -9883,7 +9934,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_xorshift",
- "regex-syntax 0.8.5",
+ "regex-syntax",
  "rusty-fork",
  "tempfile",
  "unarray",
@@ -10064,7 +10115,7 @@ version = "3.59.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
- "ethereum-types",
+ "ethereum-types 0.14.1",
  "frame-support",
  "hashbrown 0.14.5",
  "hex",
@@ -10072,7 +10123,7 @@ dependencies = [
  "pallet-prover-primitives",
  "parity-scale-codec",
  "precompile-utils",
- "rlp",
+ "rlp 0.5.2",
  "scale-info",
  "serde",
  "serde_json",
@@ -10549,17 +10600,8 @@ checksum = "b544ef1b4eac5dc2db33ea63606ae9ffcfac26c1416a2806ae0bf5f56b201191"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-automata 0.4.9",
- "regex-syntax 0.8.5",
-]
-
-[[package]]
-name = "regex-automata"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c230d73fb8d8c1b9c0b3135c5142a8acee3a0558fb8db5cf1cb65f8d7862132"
-dependencies = [
- "regex-syntax 0.6.29",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -10570,14 +10612,8 @@ checksum = "809e8dc61f6de73b46c85f4c96486310fe304c434cfa43669d7b40f711150908"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax 0.8.5",
+ "regex-syntax",
 ]
-
-[[package]]
-name = "regex-syntax"
-version = "0.6.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regex-syntax"
@@ -10700,7 +10736,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb919243f34364b6bd2fc10ef797edbfa75f33c252e7998527479c6d6b47e1ec"
 dependencies = [
  "bytes",
- "rlp-derive",
+ "rlp-derive 0.1.0",
+ "rustc-hex",
+]
+
+[[package]]
+name = "rlp"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa24e92bb2a83198bb76d661a71df9f7076b8c420b8696e4d3d97d50d94479e3"
+dependencies = [
+ "bytes",
+ "rlp-derive 0.2.0",
  "rustc-hex",
 ]
 
@@ -10713,6 +10760,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "rlp-derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "652db34deaaa57929e10ca18e5454a32cb0efc351ae80d320334bbf907b908b3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -10790,7 +10848,7 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "rand 0.9.0",
- "rlp",
+ "rlp 0.5.2",
  "ruint-macro",
  "serde",
  "valuable",
@@ -15261,15 +15319,15 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.19"
+version = "0.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8189decb5ac0fa7bc8b96b7cb9b2701d60d48805aca84a238004d665fcc4008"
+checksum = "2054a14f5307d601f88daf0553e1cbf472acc4f2c51afab632431cdcd72124d5"
 dependencies = [
  "matchers",
  "nu-ansi-term",
  "once_cell",
  "parking_lot 0.12.3",
- "regex",
+ "regex-automata",
  "sharded-slab",
  "smallvec",
  "thread_local",
@@ -15431,7 +15489,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.7.3",
+ "rand 0.8.5",
  "static_assertions",
 ]
 
@@ -15639,13 +15697,13 @@ dependencies = [
  "anyhow",
  "chrono",
  "colored",
- "ethereum",
- "ethereum-types",
+ "ethereum 0.18.2",
+ "ethereum-types 0.14.1",
  "fs2",
  "hex",
  "mmr",
  "parity-scale-codec",
- "rlp",
+ "rlp 0.5.2",
  "scale-info",
  "serde",
  "serde_json",
