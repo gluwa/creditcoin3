@@ -119,11 +119,14 @@ jobs:
           file: ${{ steps.devnet-env.outputs.artifact_name }}
           # TODO: ^^^ change to Testnet once we have a new release
 
+      - name: Extract binaries from archive
+        working-directory: target/release/
+        run: |
+          unzip ./attestor-binaries-*-unknown-linux-gnu.zip
+          chmod a+x ./attestor*
+
       - name: Start Attestation Zombienet
         run: |
-          unzip ./target/release/attestor-binaries-*-unknown-linux-gnu.zip
-          chmod a+x ./target/release/attestor*
-
           # adjust path to binary b/c running from the root dir of the repository
           sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
 
