@@ -21,3 +21,4 @@ https://sepolia.etherscan.io/tx/0xa519add3d602460c2b30c7ff4b1215fd705f049bb87260
 http://subquery-node:3000
 postgres://(.*)
 https://github.com/gluwa/creditcoin3/pull(.*)
+https://sepolia.infura.io/v3/(.*)
