@@ -54,9 +54,10 @@ impl AttestorHandle {
     }
 }
 
-// Commands sent into the service actor.
+// Commands sent into or from the service actor.
 enum Command {
     Shutdown,
+    Restart,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +96,7 @@ pub struct AttestorService {
     attestation_tx: broadcast::Sender<Attestation<H256, AttestorId>>,
     // Incoming commands
     cmd_rx: mpsc::Receiver<Command>,
-
+    cmd_tx: mpsc::Sender<Command>,
     // Keeps track of all the blocks voted for (dedupe)
     voted_for: BTreeSet<(u64, Digest)>,
     // Keeps track of the current epoch
@@ -188,6 +189,7 @@ impl AttestorService {
             cc3_client,
             attestation_tx,
             cmd_rx,
+            cmd_tx: cmd_tx.clone(),
             voted_for: BTreeSet::new(),
             sync_state: SyncState::new(last_finalized_header, target),
             current_epoch,
@@ -272,11 +274,15 @@ impl AttestorService {
                     self.backoff_tick_once_and_reschedule().await?;
                 }
 
-                // -------- External commands --------
+                // -------- External/Internal commands --------
                 cmd = self.cmd_rx.recv() => {
                     match cmd {
                         Some(Command::Shutdown) | None => {
                             self.stop_internal().await;
+                            break;
+                        },
+                        Some(Command::Restart) => {
+                            self.restart().await?;
                             break;
                         }
                     }
@@ -382,6 +388,7 @@ impl AttestorService {
         let (tx, rx) = mpsc::channel(ATTESTATION_BUFFER_SIZE);
         let eth = self.eth_client.clone();
         let chain_key = self.chain_key;
+        let cmd_tx = self.cmd_tx.clone();
         self.source_chain_task = Some(tokio::spawn(async move {
             if let Err(e) = source_chain::attest_to_heads(
                 eth,
@@ -394,6 +401,9 @@ impl AttestorService {
             .await
             {
                 error!("source chain subscription ended: {:?}", e);
+                info!("🔄 Requesting attestation service restart");
+                // Request restart
+                cmd_tx.send(Command::Restart).await.ok();
             }
         }));
         self.heads_rx = Some(rx);
