@@ -403,8 +403,9 @@ impl AttestorService {
                 error!("source chain subscription ended: {:?}", e);
                 info!("🔄 Requesting attestation service restart");
                 // Request restart
-                cmd_tx.send(Command::Restart).await.ok();
-            }
+                if let Err(send_err) = cmd_tx.send(Command::Restart).await {
+                    error!("Failed to send restart command: {:?}", send_err);
+                }
         }));
         self.heads_rx = Some(rx);
         info!("🟢 Attestation service subscribed at block: {}", start);
