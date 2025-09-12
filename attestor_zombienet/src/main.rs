@@ -35,9 +35,10 @@ pub struct AttestorZombienet {
     #[arg(
         long,
         default_value = DEFAULT_CREDITCOIN3_NODE_URL,
-        help = "A Creditcoin3 url to a node with rpc and websocket enabled"
+        help = "(List of) Creditcoin3 WebSocket RPC URL(s). Will randomnly assign one to each attestor process to balance the load.",
+        value_delimiter = ','
     )]
-    cc3_rpc_url: String,
+    cc3_rpc_url: Vec<String>,
 
     #[arg(
         long,
@@ -62,15 +63,6 @@ pub struct AttestorZombienet {
         help = "Supported chain key for the attestors, e.g. 2 for local Anvil"
     )]
     chain_key: u64,
-
-    #[arg(
-        long,
-        short,
-        help = "Cc3 node ports to connect to, will randomonly assign one of the ports to each attestor process to balance the load.",
-        default_value = "9944,9945,9946,9947",
-        value_delimiter = ','
-    )]
-    port_ranges: Vec<u64>,
 
     #[arg(short, long, help = "Turn on verbose logging")]
     verbose: bool,
@@ -155,7 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Will start funding {} attestor keys", keys.len());
 
-    let cc_client = Client::new(args.cc3_rpc_url.clone(), &args.cc3_key)
+    let cc_client = Client::new(args.cc3_rpc_url.first().unwrap(), &args.cc3_key)
         .await
         .expect("Failed to create client");
 
@@ -204,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("All attestor keys funded!\n");
-    if args.cc3_rpc_url == DEFAULT_CREDITCOIN3_NODE_URL {
+    if args.cc3_rpc_url.first().unwrap() == DEFAULT_CREDITCOIN3_NODE_URL {
         info!("Waiting 15 seconds for the local node to process all transfers...");
         tokio::time::sleep(tokio::time::Duration::from_secs(TIMEOUT_SECONDS)).await;
     } else {
@@ -299,14 +291,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start_prometheus_port += 1;
             }
 
-            // get random number out of args.port_ranges
-            // if single_node is true, use 9944
-            let port = match config.single_node {
-                true => 9944,
-                false => *args.port_ranges.choose(&mut rng).unwrap(),
+            // get random URL to connect to. If single_node is true, use the first one
+            let cc3_rpc_url = match config.single_node {
+                true => args.cc3_rpc_url.first().unwrap(),
+                false => args.cc3_rpc_url.choose(&mut rng).unwrap(),
             };
 
-            attestor_args.push(format!("--cc3-rpc-url=ws://localhost:{}", port));
+            attestor_args.push(format!("--cc3-rpc-url={}", cc3_rpc_url));
             if args.verbose {
                 attestor_args.push("--verbose".to_string());
             }
