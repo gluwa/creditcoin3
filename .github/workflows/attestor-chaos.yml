@@ -83,7 +83,7 @@ jobs:
         id: devnet-env
         run: |
           # shellcheck disable=SC2129
-          echo "stash_secret=${{ secrets.DEVNET_ATTESTOR_CHAOS_SECRET }}" >> "$GITHUB_OUTPUT"
+          echo "stash_secret=${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.ccnext-devnet.creditcoin.network" >> "$GITHUB_OUTPUT"
           echo "eth_rpc_url=wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }}" >> "$GITHUB_OUTPUT"
           echo "sepolia_chain_key=3" >> "$GITHUB_OUTPUT"
@@ -97,7 +97,7 @@ jobs:
         id: testnet-env
         run: |
           # shellcheck disable=SC2129
-          echo "stash_secret=${{ secrets.TESTNET_ATTESTOR_CHAOS_SECRET }}" >> "$GITHUB_OUTPUT"
+          echo "stash_secret=${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" >> "$GITHUB_OUTPUT"
           echo "rpc_url=wss://rpc.usc-testnet.creditcoin.network" >> "$GITHUB_OUTPUT"
           echo "eth_rpc_url=wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }}" >> "$GITHUB_OUTPUT"
           echo "sepolia_chain_key=1" >> "$GITHUB_OUTPUT"
