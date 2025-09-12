@@ -15,7 +15,7 @@ if [ -z "$LC_RUNNER_VM_NAME" ]; then
     # dump JSON for debugging purposes
     linode-cli linodes list --json | jq -r
     for VM_ID in $(linode-cli linodes list --json | jq ".[] | select(.created <= \"$THRESHOLD\")" | jq -r '.id'); do
-        TAGS=$(linode-cli linodes list --id "$VM_ID" --json | jq -r .tags[])
+        TAGS=$(linode-cli linodes list --id "$VM_ID" --json | jq -r '.[0].tags[]')
 
         if [ -z "$TAGS" ]; then
             echo "INFO: No tags specified. Going to remove expired VM $VM_ID"
