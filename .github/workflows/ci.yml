@@ -1945,6 +1945,7 @@ jobs:
 
           ./target/release/attestor_zombienet \
                 --verbose \
+                --log-private-keys \
                 --cc3-key "//Alice" --chain-key 2 \
                 --eth-rpc-url ws://localhost:8141 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/integration-test-attestor-network/attestors-alice/ &
@@ -1952,6 +1953,7 @@ jobs:
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
           ./target/release/attestor_zombienet \
                 --verbose \
+                --log-private-keys \
                 --cc3-rpc-url ws://localhost:9955 \
                 --cc3-key "//Bob" --chain-key 4 \
                 --eth-rpc-url ws://localhost:8242 --config-file attestor_zombienet/config.yaml \

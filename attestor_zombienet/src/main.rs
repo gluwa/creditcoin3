@@ -88,6 +88,13 @@ pub struct AttestorZombienet {
         help = "If true, the attestor will expose prometheus metrics"
     )]
     enable_attestor_prometheus_metrics: bool,
+
+    #[arg(
+        long,
+        default_value = "false",
+        help = "WARNING: if true, the program will log private keys."
+    )]
+    log_private_keys: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,10 +176,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cc_client = cc_client.clone();
             let attestor = AccountId32(key.keypair.public_key().0);
 
-            info!(
-                "Transferring 10 dev CTC to {}, key: {}",
-                attestor, key.secret
-            );
+            let mut secret = "***".to_string();
+            if args.log_private_keys {
+                secret = key.secret;
+            }
+            info!("Transferring 10 dev CTC to {}, key: {}", attestor, secret);
             let handle = tokio::spawn(async move {
                 cc_client
                     .transfer(
@@ -331,7 +339,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Attestor keys and addresses:");
         for attestor_key in keys {
             let attestor = AccountId32(attestor_key.keypair.public_key().0);
-            println!("Attestor: {}\nKey: {}\n", attestor, attestor_key.secret);
+            let mut secret = "***".to_string();
+            if args.log_private_keys {
+                secret = attestor_key.secret;
+            }
+            println!("Attestor: {}\nKey: {}\n", attestor, secret);
         }
 
         Ok(())
