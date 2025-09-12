@@ -140,7 +140,7 @@ jobs:
                 --eth-rpc-url ${{ steps.devnet-env.outputs.eth_rpc_url }} \
                 --chain-key ${{ steps.devnet-env.outputs.sepolia_chain_key }} \
                 --config-file attestor_zombienet/config.yaml \
-                --logs-dir /var/tmp/attestor-chaos/ &
+                --logs-dir /var/tmp/attestor-chaos/ 2>&1 | tee -a /var/tmp/attestor-chaos/zombienet.log &
 
       - name: Check logs for errors
         if: always()
