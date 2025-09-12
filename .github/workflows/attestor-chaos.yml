@@ -145,8 +145,8 @@ jobs:
       - name: Check logs for errors
         if: always()
         run: |
-          # wait 2 mins before checking for any errors on start
-          sleep 120
+          # wait 5 mins before checking for any errors on start
+          sleep 300
           .github/check-logs-for-error.sh /var/tmp/attestor-chaos/
 
       - name: Upload logs
