@@ -141,6 +141,41 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
 
+  generate-changelog:
+    runs-on: ubuntu-24.04
+    needs: setup
+    steps:
+      - name: Install
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install ruby-dev
+          # note: also update faraday b/c of
+          # https://github.com/github-changelog-generator/github-changelog-generator/issues/1056
+          sudo gem install faraday github_changelog_generator
+
+      - name: Generate changelog
+        id: generate-changelog
+        run: |
+          # shellcheck disable=SC2129
+          github_changelog_generator \
+            -u ${{ github.repository_owner }} \
+            -p ${{ github.event.repository.name }} \
+            --since-tag ${{ needs.setup.outputs.previous_release }} \
+            -t ${{ secrets.GITHUB_TOKEN }} \
+            --output /var/tmp/changelog.md
+
+          echo "===== DEBUG ====="
+          cat /var/tmp/changelog.md
+          echo "===== END ====="
+
+      - name: Upload changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: /var/tmp/changelog.md
+          if-no-files-found: error
+
   deploy-github-runner:
     timeout-minutes: 15
     needs:
@@ -280,6 +315,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - sanity-check
+      - generate-changelog
       - build-native-runtime
       - build-wasm-runtime
       - build-npm-package
@@ -293,6 +329,12 @@ jobs:
           path: artifact
           pattern: binary-for-*
           merge-multiple: true
+
+      - name: Download changelog
+        uses: actions/download-artifact@v5
+        with:
+          path: /var/tmp/changelog.md
+          pattern: changelog
 
       - name: Download smart contract(s)
         uses: actions/download-artifact@v5
@@ -329,6 +371,7 @@ jobs:
             artifact/Prover-ABI.json
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
+          body_path: /var/tmp/changelog.md
 
       - name: Report result to Slack
         if: always()
