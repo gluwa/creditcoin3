@@ -87,7 +87,16 @@ jobs:
     needs: sanity-check
     outputs:
       build_options: ${{ steps.set-build-options.outputs.build_options}}
+      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
+
     steps:
+      - uses: actions/checkout@v5
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y jq
+
       - name: Set build options
         id: set-build-options
         shell: bash
@@ -97,7 +106,40 @@ jobs:
       - name: View the build options
         shell: bash
         run: |
-          echo "build_options = ${{ steps.set-build-options.outputs.build_options}}"
+          echo "build_options = ${{ steps.set-build-options.outputs.build_options }}"
+
+      - name: Devnet ENV
+        id: devnet-env
+        if: contains( needs.sanity-check.outputs.TAG_NAME, 'devnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Testnet ENV
+        id: testnet-env
+        if: contains( needs.sanity-check.outputs.TAG_NAME, 'testnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "testnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Mainnet ENV
+        id: mainnet-env
+        if: contains( needs.sanity-check.outputs.TAG_NAME, 'mainnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "mainnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
   deploy-github-runner:
     timeout-minutes: 15
