@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures_util::{stream_select, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
+use sha3::Digest;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
@@ -46,11 +47,15 @@ pub async fn deploy(
     chain_key: ChainKey,
     display_name: String,
     timeout: u64,
-) -> Result<GluwaPublicProverContract> {
+) -> Result<(GluwaPublicProverContract, H256)> {
     let provider = client.get_wallet_ws_provider().await?;
 
     // If the proceeds address is not provided, use the cc client keypair derived evm address
     let proceeds_address = proceeds_address.unwrap_or(client.get_signer()?.address());
+
+    // We compute the bytecode hash here to store it in the artifact
+    // This allows us to verify latter if the contracts bytecode has changed
+    let bytecode_hash = compute_current_prover_bytecode_hash();
 
     info!("Deploying Gluwa Public Prover contract");
     let contract = CreditcoinPublicProver::deploy(
@@ -69,10 +74,24 @@ pub async fn deploy(
         contract.address()
     );
 
-    Ok(GluwaPublicProverContract {
-        address: *contract.address(),
-        gas_limit: GAS_LIMIT,
-    })
+    Ok((
+        GluwaPublicProverContract {
+            address: *contract.address(),
+            gas_limit: GAS_LIMIT,
+        },
+        bytecode_hash,
+    ))
+}
+
+pub fn compute_current_prover_bytecode_hash() -> H256 {
+    let mut hasher = sha3::Sha3_256::new();
+    hasher.update(&CreditcoinPublicProver::BYTECODE);
+    let result = hasher.finalize();
+
+    // Make sure the hash is exactly 32 bytes
+    debug_assert!(result.len() == 32);
+
+    H256::from_slice(result.as_slice())
 }
 
 pub async fn check_fees_against_existing(

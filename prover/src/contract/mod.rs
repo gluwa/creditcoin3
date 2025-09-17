@@ -1,9 +1,8 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 use crate::query::QueryId;
-use artifacts::ChainDeploymentArtifact;
 use attestor_primitives::ChainKey;
 use eth::Client;
 use pallet_prover_primitives::Query;
@@ -27,7 +26,26 @@ pub async fn deploy(
 
     let artifact = if artifacts::has_artifact(chain_id).await? {
         info!("🔍 Found existing deployment artifact, fetching...");
-        let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+        let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+
+        if let Some(artifact_hash) = artifact.bytecode_hash {
+            info!("🔑 Artifact bytecode hash: {:?}", artifact_hash);
+
+            let current_hash = eth::evm::prover::compute_current_prover_bytecode_hash();
+            info!("🔑 Compiled bytecode hash: {:?}", current_hash);
+
+            if artifact_hash != current_hash {
+                error!(
+                    "❌ The artifact's bytecode does not match the compiled contract's bytecode!"
+                );
+
+                anyhow::bail!("Contract bytecode mismatch, cannot continue.");
+            }
+
+            info!("✅ Bytecode verification passed.");
+        } else {
+            warn!("⚠️  Existing artifact does not have a bytecode hash stored. Skipping bytecode verification...");
+        }
 
         eth::evm::prover::check_fees_against_existing(
             eth_client,
@@ -40,7 +58,7 @@ pub async fn deploy(
         artifact
     } else {
         info!("🚀 Deploying Gluwa Public Prover contract");
-        let contract = eth::evm::prover::deploy(
+        let (contract, bytecode_hash) = eth::evm::prover::deploy(
             eth_client,
             None,
             cost_per_byte,
@@ -50,9 +68,8 @@ pub async fn deploy(
             timeout,
         )
         .await?;
-        artifacts::create_deployment_artifact(chain_id, contract.clone()).await?;
 
-        ChainDeploymentArtifact { chain_id, contract }
+        artifacts::create_deployment_artifact(chain_id, contract, bytecode_hash).await?
     };
 
     info!(
@@ -68,7 +85,7 @@ pub async fn deploy(
 pub async fn get_initial_unprocessed_queries(eth_client: &Client) -> Result<Vec<Query>> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
 
     let queries = artifact
         .contract
@@ -104,7 +121,7 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
     );
 
     // Get the deployment artifact
-    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
 
     // Submit the proof
     let tx_hash = artifact
@@ -126,7 +143,7 @@ pub async fn subscribe_proof_verification_events(
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
 
     artifact
         .contract
@@ -146,7 +163,7 @@ pub async fn subscribe_query_submissions(
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
 
     artifact
         .contract
@@ -164,7 +181,7 @@ pub async fn mark_query_as_invalid(
 ) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_deployment_artifact(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
 
     let tx_hash = artifact
         .contract

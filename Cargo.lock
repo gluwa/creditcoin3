@@ -3827,6 +3827,7 @@ dependencies = [
  "mmr",
  "pallet-prover-primitives",
  "serde",
+ "sha3",
  "sp-core",
  "thiserror 1.0.69",
  "tokio",
