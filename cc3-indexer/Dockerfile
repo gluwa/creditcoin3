@@ -21,6 +21,7 @@ WORKDIR /app
 
 # Copy the application files (as node user)
 COPY --chown=node:node ./cc3-indexer .
+RUN rm -f ./abis/prover.abi.json
 COPY --chown=node:node ./common/eth/contracts/prover.json ./abis/prover.abi.json
 
 # Build the project (as node user)
