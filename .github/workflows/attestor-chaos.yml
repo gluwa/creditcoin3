@@ -132,6 +132,10 @@ jobs:
 
           mkdir -p /var/tmp/attestor-chaos
 
+          # IMPORTANT: prevent the runner from killing "orphaned" processes
+          # when the CI job completes! This will be killed later when the VM is recycled!
+          unset RUNNER_TRACKING_ID
+
           # TODO: vvv change to Testnet once we have a new release
           ./target/release/attestor_zombienet \
                 --verbose \
