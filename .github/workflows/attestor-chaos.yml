@@ -3,8 +3,8 @@ name: Attestor Chaos
 
 "on":
   schedule:
-    # At minute 30 past every 13th hour
-    - cron: "30 */13 * * *"
+    # At minute 30 past every 20th hour
+    - cron: "30 */20 * * *"
   workflow_dispatch:
 
 concurrency:
