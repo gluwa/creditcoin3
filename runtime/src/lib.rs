@@ -973,7 +973,7 @@ pub type Executive = frame_executive::Executive<
     frame_system::ChainContext<Runtime>,
     Runtime,
     AllPalletsWithSystem,
-    (pallet_identity::migration::versioned::V0ToV1<Runtime, u64::MAX>,),
+    (pallet_identity::migration::versioned::V0ToV1<Runtime, { u64::MAX }>,),
 >;
 
 impl fp_self_contained::SelfContainedCall for RuntimeCall {
