@@ -20,6 +20,54 @@ env:
   LINODE_VM_SIZE: "g6-standard-4"
 
 jobs:
+  find-previous:
+    outputs:
+      prev-runId: ${{ steps.prev-runId.outputs.result }}
+
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Find previous runId
+        id: prev-runId
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.info(`Current execution=${context.runId}. Getting latest executions ...`);
+
+            try {
+              const workflow = await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+              });
+
+            const executions = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflow.data.workflow_id,
+            });
+
+            const curr = executions.data.workflow_runs[0];
+            // check ordering otherwise the rest will be messed up
+            if (curr.id !== context.runId) {
+                throw new Error(`Current runId not the first in API response`);
+            }
+
+            // the second item in this list must be the previous
+            // workflow execution
+            const prev = executions.data.workflow_runs[1];
+
+            core.info(`CURR=${curr}, ${curr.id}, ${curr.created_at}`);
+            core.info(`PREV=${prev}, ${prev.id}, ${prev.created_at}`);
+
+              return prev.id;
+            } catch (err) {
+              core.setFailed(`Request failed with error ${err}`);
+            }
+
+      - name: DEBUG
+        run: |
+          echo ${{ steps.prev-runId.outputs.result }}
+
   deploy-attestor:
     timeout-minutes: 15
     strategy:
