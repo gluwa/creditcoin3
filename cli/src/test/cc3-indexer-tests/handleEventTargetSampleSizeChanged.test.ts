@@ -102,7 +102,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                     orderBy: BLOCK_NUMBER_ASC,
                     filter: { chainKey: { equalTo: "${newChainKey}" }},
                     last: 1,
-                ) { nodes { id, blockNumber, date, chainKey, eventNewTargetSampleSize }}}`,
+                ) { nodes { id, blockNumber, whoId, chainKey, eventNewTargetSampleSize }}}`,
             );
             expect(response.data.targetSampleSizeChangeds.nodes).toBeTruthy();
             expect(response.data.targetSampleSizeChangeds.nodes.length).toEqual(1);
@@ -111,20 +111,19 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                 expect(node.id).toBeTruthy();
 
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(startingBlock);
-                expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(node.whoId).toHaveLength(0);
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(
-                    `query { targetSampleSizeChanged(id: "${node.id}") { id, chainKey, blockNumber, date, eventNewTargetSampleSize }}`,
+                    `query { targetSampleSizeChanged(id: "${node.id}") { id, chainKey, blockNumber, whoId, eventNewTargetSampleSize }}`,
                 );
                 expect(response2.data.targetSampleSizeChanged).toBeTruthy();
                 expect(response2.data.targetSampleSizeChanged.id).toEqual(node.id);
                 expect(response2.data.targetSampleSizeChanged.chainKey).toEqual(node.chainKey);
+                expect(response2.data.targetSampleSizeChanged.whoId).toEqual(node.whoId);
                 expect(response2.data.targetSampleSizeChanged.blockNumber).toEqual(node.blockNumber);
-                expect(response2.data.targetSampleSizeChanged.date).toEqual(node.date);
                 expect(response2.data.targetSampleSizeChanged.eventNewTargetSampleSize).toEqual(
                     node.eventNewTargetSampleSize,
                 );

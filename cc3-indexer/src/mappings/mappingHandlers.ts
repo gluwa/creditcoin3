@@ -379,8 +379,8 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
     /* eslint-disable @typescript-eslint/naming-convention */
     const targetSampleSizeChanged = TargetSampleSizeChanged.create({
         id: `${blockNumber}-${event.idx}`,
+        whoId: '', // empty string - will remove field when migrations are enabled
         blockNumber,
-        date: event.block.timestamp,
         chainKey: chainKeyNumber,
         eventNewTargetSampleSize: newTargetSampleSizeNumber,
     });
@@ -409,7 +409,6 @@ export async function handleEventPendingTargetSampleSizeSet(event: SubstrateEven
     const chainKeyNumber = BigInt(chainKey.toString());
 
     const from = event.extrinsic?.extrinsic.signer;
-
     assert(from, 'Signer is missing');
 
     const pendingTargetSampleSizeSet = PendingTargetSampleSizeSet.create({

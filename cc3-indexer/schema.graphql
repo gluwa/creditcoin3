@@ -223,9 +223,9 @@ type TargetSampleSizeChanged @entity {
     """
     id: ID!
 
-    blockNumber: BigInt!
+    who: Account!
 
-    date: Date
+    blockNumber: BigInt!
 
     chainKey: BigInt!
 
