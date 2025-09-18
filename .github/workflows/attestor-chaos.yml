@@ -202,6 +202,9 @@ jobs:
           sleep 300
           .github/check-logs-for-error.sh /var/tmp/attestor-chaos/
 
+          # collect attestor addresses so we can chill them on the next iteration
+          grep "Registering attestor with address" zombienet.log  | cut -d "(" -f2 | cut -d")" -f1 > /var/tmp/attestor-addresses.txt
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -209,3 +212,10 @@ jobs:
           name: attestor-logs
           path: /var/tmp/attestor-chaos/
           include-hidden-files: true
+
+      - name: Upload registered addresses
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attestor-addresses
+          path: /var/tmp/attestor-addresses.txt
