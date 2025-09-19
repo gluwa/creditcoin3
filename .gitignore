@@ -31,6 +31,7 @@ attestor_zombienet/config.yaml
 # Cairo
 cairo/scripts/verify_merkle_proof_compiled.json
 cairo/lang/cpu_air_params.json
+__pycache__/
 
 # Attestor
 attestor/scripts/.env

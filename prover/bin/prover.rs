@@ -95,10 +95,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {
+        // Propagate debug mode to child processes (e.g., Python scripts)
+        // Use conventional names for robustness
+        std::env::set_var("DEBUG_MODE", "true");
+        // Backward-compat with older scripts that may look for this name
         std::env::set_var("$DEBUG_MODE", "true");
+
         debug!("debug mode enabled!");
         "debug"
     } else {
+        // Ensure child processes know debug is off
+        std::env::set_var("DEBUG_MODE", "false");
         std::env::set_var("$DEBUG_MODE", "false");
         "prover=info"
     };
