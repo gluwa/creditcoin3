@@ -20,12 +20,42 @@ env:
   LINODE_VM_SIZE: "g6-standard-4"
 
 jobs:
-  find-previous:
+  setup:
     outputs:
       prev-runId: ${{ steps.prev-runId.outputs.result }}
-
+      # TODO: change to Testnet once we have a new release vvv
+      rpc_url: ${{ steps.devnet-env.outputs.rpc_url }}
+      sepolia_chain_key: ${{ steps.devnet-env.outputs.sepolia_chain_key }}
+      release_tag: ${{ steps.devnet-env.outputs.release_tag }}
+      artifact_name: ${{ steps.devnet-env.outputs.artifact_name }}
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v5
+
+      - name: Devnet ENV
+        id: devnet-env
+        run: |
+          # shellcheck disable=SC2129
+          echo "rpc_url=wss://rpc.ccnext-devnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "sepolia_chain_key=3" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Testnet ENV
+        id: testnet-env
+        run: |
+          # shellcheck disable=SC2129
+          echo "rpc_url=wss://rpc.usc-testnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "sepolia_chain_key=1" >> "$GITHUB_OUTPUT"
+          RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Find previous runId
         id: prev-runId
         uses: actions/github-script@v7
@@ -67,6 +97,76 @@ jobs:
       - name: DEBUG
         run: |
           echo ${{ steps.prev-runId.outputs.result }}
+
+  chill-previous:
+    runs-on: ubuntu-24.04
+    needs:
+      - setup
+      - start-attestor
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Build and install creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Chill all previous attestors
+        run: |
+          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
+          which creditcoin
+
+          # chill & unregister all previous attestors associated with this stash account
+          for ADDR in $(creditcoin attestor show-attestors-for \
+            --url "${{ needs.setup.outputs.rpc_url }}" \
+            --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+            --substrate-address 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6 | \
+            grep Address | cut -f2 -d' ' | \
+            grep -v "${{ needs.start-attestor.outputs.attestor_address }}"
+          ); do
+            echo "INFO: Chilling $ADDR ...";
+            creditcoin attestor chill \
+                --url "${{ needs.setup.outputs.rpc_url }}" \
+                --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+                --attestor "$ADDR" || echo;
+
+            echo "Unregistering $ADDR ...";
+            creditcoin attestor unregister \
+                --url "${{ needs.setup.outputs.rpc_url }}" \
+                --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+                --attestor "$ADDR" || echo;
+          done
+        env:
+          CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
 
   deploy-attestor:
     timeout-minutes: 15
@@ -121,51 +221,24 @@ jobs:
           path: retry*.json
 
   start-attestor:
+    outputs:
+      attestor_address: ${{ steps.check-logs.outputs.attestor_address }}
     needs:
+      - setup
       - deploy-attestor
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-attestor-chaos"]
     steps:
       - uses: actions/checkout@v5
 
-      - name: Devnet ENV
-        id: devnet-env
-        run: |
-          # shellcheck disable=SC2129
-          echo "stash_secret=${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" >> "$GITHUB_OUTPUT"
-          echo "rpc_url=wss://rpc.ccnext-devnet.creditcoin.network" >> "$GITHUB_OUTPUT"
-          echo "eth_rpc_url=wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }}" >> "$GITHUB_OUTPUT"
-          echo "sepolia_chain_key=3" >> "$GITHUB_OUTPUT"
-          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Testnet ENV
-        id: testnet-env
-        run: |
-          # shellcheck disable=SC2129
-          echo "stash_secret=${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" >> "$GITHUB_OUTPUT"
-          echo "rpc_url=wss://rpc.usc-testnet.creditcoin.network" >> "$GITHUB_OUTPUT"
-          echo "eth_rpc_url=wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }}" >> "$GITHUB_OUTPUT"
-          echo "sepolia_chain_key=1" >> "$GITHUB_OUTPUT"
-          RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=attestor-binaries-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # TODO: change to Testnet once we have a new release vvv
-      - name: Download attestor binaries for release ${{ steps.devnet-env.outputs.release_tag }}
+      - name: Download attestor binaries for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: target/release/
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
-          tag: ${{ steps.devnet-env.outputs.release_tag }}
-          file: ${{ steps.devnet-env.outputs.artifact_name }}
-          # TODO: ^^^ change to Testnet once we have a new release
+          tag: ${{ needs.setup.outputs.release_tag }}
+          file: ${{ needs.setup.outputs.artifact_name }}
 
       - name: Extract binaries from archive
         working-directory: target/release/
@@ -185,25 +258,34 @@ jobs:
           # when the CI job completes! This will be killed later when the VM is recycled!
           unset RUNNER_TRACKING_ID
 
-          # TODO: vvv change to Testnet once we have a new release
+          # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
+          # therefore we need to use the secrets directly in-place!
           ./target/release/attestor_zombienet \
                 --verbose \
-                --cc3-rpc-url ${{ steps.devnet-env.outputs.rpc_url }} \
-                --cc3-key "${{ steps.devnet-env.outputs.stash_secret }}" \
-                --eth-rpc-url ${{ steps.devnet-env.outputs.eth_rpc_url }} \
-                --chain-key ${{ steps.devnet-env.outputs.sepolia_chain_key }} \
+                --cc3-rpc-url ${{ needs.setup.outputs.rpc_url }} \
+                --cc3-key "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" \
+                --eth-rpc-url wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }} \
+                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} \
                 --config-file attestor_zombienet/config.yaml \
                 --logs-dir /var/tmp/attestor-chaos/ 2>&1 | tee -a /var/tmp/attestor-chaos/zombienet.log &
 
       - name: Check logs for errors
+        id: check-logs
         if: always()
         run: |
           # wait 5 mins before checking for any errors on start
           sleep 300
           .github/check-logs-for-error.sh /var/tmp/attestor-chaos/
 
-          # collect attestor addresses so we can chill them on the next iteration
-          grep "Registering attestor with address" zombienet.log  | cut -d "(" -f2 | cut -d")" -f1 > /var/tmp/attestor-addresses.txt
+          # collect attestor address(es) so we can avoid chilling them on this execution
+          grep "Registering attestor with address" /var/tmp/attestor-chaos/zombienet.log  | cut -d "(" -f2 | cut -d")" -f1 > /var/tmp/attestor-addresses.txt
+          echo "INFO: Attestor addresses registered in this execution"
+          cat /var/tmp/attestor-addresses.txt
+          echo "----- END -----"
+
+          # WARNING: figure out how to filter out multiple addresses in case we start
+          # more than 1 in the future
+          echo "attestor_address=$(cat /var/tmp/attestor-addresses.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Upload logs
         if: always()
