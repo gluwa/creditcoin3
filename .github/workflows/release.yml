@@ -333,7 +333,6 @@ jobs:
       - name: Download changelog
         uses: actions/download-artifact@v5
         with:
-          path: /var/tmp/changelog.md
           pattern: changelog
 
       - name: Download smart contract(s)
@@ -371,7 +370,7 @@ jobs:
             artifact/Prover-ABI.json
           fail_on_unmatched_files: true
           name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
-          body_path: /var/tmp/changelog.md
+          body_path: changelog.md
 
       - name: Report result to Slack
         if: always()
