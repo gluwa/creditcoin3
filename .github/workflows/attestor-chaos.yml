@@ -145,6 +145,13 @@ jobs:
           # this makes sure we have a `creditcoin` entrypoint in the standard PATH
           which creditcoin
 
+          echo "INFO: Attestors for the ATTESTOR CHAOS STASH account"
+          creditcoin attestor show-attestors-for \
+            --url "${{ needs.setup.outputs.rpc_url }}" \
+            --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+            --substrate-address 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
+          echo "----- END -----"
+
           # chill & unregister all previous attestors associated with this stash account
           for ADDR in $(creditcoin attestor show-attestors-for \
             --url "${{ needs.setup.outputs.rpc_url }}" \
