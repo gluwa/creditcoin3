@@ -1,5 +1,5 @@
 import subprocess
-from logging_setup import setup_logging, is_debug_mode
+from logging_setup import setup_logging, is_debug_mode, is_cairo_logs_enabled
 
 logger = setup_logging("cairo.run_executable")
 
@@ -30,11 +30,18 @@ def run_executable(executable_path, args=None, outputFile=None):
 
         if is_debug_mode():
             logger.debug("stdout from %s:\n%s", executable_path, result.stdout)
+
+        if is_cairo_logs_enabled():
+            logger.info("stdout from %s:\n%s", executable_path, result.stdout)
         return 0
 
     except subprocess.CalledProcessError as e:
         logger.error("Error running %s (code %s)", executable_path, e.returncode)
         if is_debug_mode():
+            logger.error("stdout:\n%s", e.stdout)
+            logger.error("stderr:\n%s", e.stderr)
+
+        if is_cairo_logs_enabled():
             logger.error("stdout:\n%s", e.stdout)
             logger.error("stderr:\n%s", e.stderr)
         return e.returncode

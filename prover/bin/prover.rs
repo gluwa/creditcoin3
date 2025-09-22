@@ -30,6 +30,9 @@ pub struct Prover {
     #[arg(short, long)]
     verbose: bool,
 
+    #[arg(long, help = "Show Cairo logs without enabling verbose mode")]
+    enable_cairo_logs: bool,
+
     #[arg(long, required = false, default_value_t = 10)]
     cost_per_byte: u64,
 
@@ -93,20 +96,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Parse args
     let args = Prover::parse();
 
+    // Propagate Cairo logs preference to child processes (Python scripts)
+    // This allows enabling Cairo logs without enabling full verbose mode.
+    if args.enable_cairo_logs {
+        std::env::set_var("CAIRO_LOGS", "true");
+    } else {
+        std::env::set_var("CAIRO_LOGS", "false");
+    }
+
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {
-        // Propagate debug mode to child processes (e.g., Python scripts)
-        // Use conventional names for robustness
-        std::env::set_var("DEBUG_MODE", "true");
-        // Backward-compat with older scripts that may look for this name
-        std::env::set_var("$DEBUG_MODE", "true");
-
         debug!("debug mode enabled!");
         "debug"
     } else {
-        // Ensure child processes know debug is off
-        std::env::set_var("DEBUG_MODE", "false");
-        std::env::set_var("$DEBUG_MODE", "false");
         "prover=info"
     };
 
