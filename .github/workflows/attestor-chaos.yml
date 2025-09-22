@@ -230,29 +230,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download attestor binaries for release ${{ needs.setup.outputs.release_tag }}
-        uses: i3h/download-release-asset@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/release/
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          tag: ${{ needs.setup.outputs.release_tag }}
-          file: ${{ needs.setup.outputs.artifact_name }}
-
-      - name: Extract binaries from archive
-        working-directory: target/release/
+      - name: docker pull for release ${{ needs.setup.outputs.release_tag }}
         run: |
-          unzip ./attestor-binaries-*-unknown-linux-gnu.zip
-          chmod a+x ./attestor*
+          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
+
+          docker pull ${{ github.repository }}:${{ needs.setup.outputs.release_tag }}
+          docker images
+
+          docker logout
 
       - name: Start Attestation Zombienet
         run: |
-          # adjust path to binary b/c running from the root dir of the repository
-          sed -i 's|default_command: ".*"|default_command: "./target/release/attestor"|' attestor_zombienet/config.yaml
+          # adjust path to binary b/c running inside a container
+          sed -i 's|default_command: ".*"|default_command: "/bin/attestor"|' attestor_zombienet/config.yaml
           sed -i 's|num_attestors: .*|num_attestors: 1|' attestor_zombienet/config.yaml
 
           mkdir -p /var/tmp/attestor-chaos
+          chmod a+rwx /var/tmp/attestor-chaos
 
           # IMPORTANT: prevent the runner from killing "orphaned" processes
           # when the CI job completes! This will be killed later when the VM is recycled!
@@ -260,13 +254,17 @@ jobs:
 
           # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
           # therefore we need to use the secrets directly in-place!
-          ./target/release/attestor_zombienet \
+          docker run -i \
+            --volume ./attestor_zombienet/config.yaml:/var/tmp/zombienet.yaml \
+            --volume /var/tmp/attestor-chaos/:/var/tmp/attestor-chaos/ \
+            --entrypoint /bin/attestor_zombienet \
+            ${{ github.repository }}:${{ needs.setup.outputs.release_tag }} \
                 --verbose \
                 --cc3-rpc-url ${{ needs.setup.outputs.rpc_url }} \
                 --cc3-key "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" \
                 --eth-rpc-url wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }} \
                 --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} \
-                --config-file attestor_zombienet/config.yaml \
+                --config-file /var/tmp/zombienet.yaml \
                 --logs-dir /var/tmp/attestor-chaos/ 2>&1 | tee -a /var/tmp/attestor-chaos/zombienet.log &
 
       - name: Check logs for errors
