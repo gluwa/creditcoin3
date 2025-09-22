@@ -212,8 +212,11 @@ jobs:
           # doesn't evaluate the $GITHUB_RUN_ID reference
           echo "runner_vm_name=${{ env.RUNNER_VM_NAME }}-$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
-          # note: keep this VM for 24hrs so it has the ability to become an active attestor
-          KEEP_UNTIL=$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+24 hours")
+          # note: keep this VM for 20hrs so it has the ability to become an active attestor
+          # note2: this CI jobs runs every 23 hrs and will chill previous attestors when it executes
+          # leaving a gap of 3hrs where linode-cleaner.yml will shutdown an active attestor without
+          # calling chill first (and once this workflow kicks-in again we just clean-up the orphaned accounts)
+          KEEP_UNTIL=$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+20 hours")
           echo "KEEP_UNTIL=$KEEP_UNTIL" >> "$GITHUB_ENV"
 
       - name: Provision VM
