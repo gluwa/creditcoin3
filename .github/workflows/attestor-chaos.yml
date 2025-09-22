@@ -254,7 +254,7 @@ jobs:
 
           # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
           # therefore we need to use the secrets directly in-place!
-          docker run -i \
+          docker run --name attestor_container -i \
             --volume ./attestor_zombienet/config.yaml:/var/tmp/zombienet.yaml \
             --volume /var/tmp/attestor-chaos/:/var/tmp/attestor-chaos/ \
             --entrypoint /bin/attestor_zombienet \
@@ -284,6 +284,14 @@ jobs:
           # WARNING: figure out how to filter out multiple addresses in case we start
           # more than 1 in the future
           echo "attestor_address=$(cat /var/tmp/attestor-addresses.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Schedule random attestor restart/disconnect
+        run: |
+          # IMPORTANT: prevent the runner from killing "orphaned" processes
+          # when the CI job completes! This will be killed later when the VM is recycled!
+          unset RUNNER_TRACKING_ID
+
+          .github/random-container-pause.sh attestor_container &
 
       - name: Upload logs
         if: always()
