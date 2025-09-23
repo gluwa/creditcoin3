@@ -149,7 +149,7 @@ jobs:
           creditcoin attestor show-attestors-for \
             --url "${{ needs.setup.outputs.rpc_url }}" \
             --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
-            --substrate-address 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
+            --substrate-address "$STASH_ADDRESS"
           echo "----- END -----"
 
           echo "Withdraw unbonded for STASH ...";
@@ -160,7 +160,7 @@ jobs:
           for ADDR in $(creditcoin attestor show-attestors-for \
             --url "${{ needs.setup.outputs.rpc_url }}" \
             --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
-            --substrate-address 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6 | \
+            --substrate-address "$STASH_ADDRESS" | \
             grep Address | cut -f2 -d' ' | \
             grep -v "${{ needs.start-attestor.outputs.attestor_address }}"
           ); do
@@ -182,6 +182,7 @@ jobs:
               --url "${{ needs.setup.outputs.rpc_url }}" || echo;
         env:
           CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
+          STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
 
   deploy-attestor:
     timeout-minutes: 15
