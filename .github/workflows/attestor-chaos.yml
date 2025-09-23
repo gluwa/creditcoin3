@@ -277,13 +277,19 @@ jobs:
           # more than 1 in the future
           echo "attestor_address=$(cat /var/tmp/attestor-addresses.txt)" >> "$GITHUB_OUTPUT"
 
-      - name: Schedule random attestor restart/disconnect
+      - name: Schedule random attestor chill/restart/disconnect
         run: |
           # IMPORTANT: prevent the runner from killing "orphaned" processes
           # when the CI job completes! This will be killed later when the VM is recycled!
           unset RUNNER_TRACKING_ID
 
-          .github/random-container-pause.sh attestor_container &
+          .github/random-attestor-events.sh attestor_container &
+        env:
+          CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
+          STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
+          ATTESTOR_ADDRESS: 5Gv6sfeUjDUj2tgyxAwmxexhZhZaxBpRQE7492BgHJdCRkP8
+          CREDITCOIN_RPC_URL: ${{ needs.setup.outputs.rpc_url }}
+          SEPOLIA_CHAIN_KEY: ${{ needs.setup.outputs.sepolia_chain_key }}
 
       - name: Upload logs
         if: always()
