@@ -98,92 +98,6 @@ jobs:
         run: |
           echo ${{ steps.prev-runId.outputs.result }}
 
-  chill-previous:
-    runs-on: ubuntu-24.04
-    needs:
-      - setup
-      - start-attestor
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-      - run: npm install -g yarn
-
-      - name: Install Solidity compiler
-        run: |
-          sudo .github/install-solidity-compiler.sh
-
-      - name: Generate ABI from source code
-        working-directory: ./precompiles/metadata
-        run: |
-          solc --version
-          ./abi-creator.sh
-
-      - name: Install openzeppelin dependencies
-        working-directory: ./common/eth/contracts/
-        run: |
-          npm install
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
-      - name: Build and install creditcoin-cli
-        working-directory: ./cli
-        run: |
-          yarn install
-          yarn build
-          npm install -g .
-
-      - name: Chill all previous attestors
-        run: |
-          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
-          which creditcoin
-
-          echo "INFO: Attestors for the ATTESTOR CHAOS STASH account"
-          creditcoin attestor show-attestors-for \
-            --url "${{ needs.setup.outputs.rpc_url }}" \
-            --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
-            --substrate-address "$STASH_ADDRESS"
-          echo "----- END -----"
-
-          echo "Withdraw unbonded for STASH ...";
-          creditcoin attestor withdraw-unbonded \
-              --url "${{ needs.setup.outputs.rpc_url }}" || echo;
-
-          # chill & unregister all previous attestors associated with this stash account
-          for ADDR in $(creditcoin attestor show-attestors-for \
-            --url "${{ needs.setup.outputs.rpc_url }}" \
-            --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
-            --substrate-address "$STASH_ADDRESS" | \
-            grep Address | cut -f2 -d' ' | \
-            grep -v "${{ needs.start-attestor.outputs.attestor_address }}"
-          ); do
-            echo "INFO: Chilling $ADDR ...";
-            creditcoin attestor chill \
-                --url "${{ needs.setup.outputs.rpc_url }}" \
-                --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
-                --attestor "$ADDR" || echo;
-
-            echo "Unregistering $ADDR ...";
-            creditcoin attestor unregister \
-                --url "${{ needs.setup.outputs.rpc_url }}" \
-                --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
-                --attestor "$ADDR" || echo;
-          done
-
-          echo "Withdraw unbonded for STASH ...";
-          creditcoin attestor withdraw-unbonded \
-              --url "${{ needs.setup.outputs.rpc_url }}" || echo;
-        env:
-          CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
-          STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
-
   deploy-attestor:
     timeout-minutes: 15
     strategy:
@@ -248,6 +162,76 @@ jobs:
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-attestor-chaos"]
     steps:
       - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Build and install creditcoin-cli
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          npm install -g .
+
+      - name: Chill all previous attestor(s)
+        run: |
+          # this makes sure we have a `creditcoin` entrypoint in the standard PATH
+          which creditcoin
+
+          echo "INFO: Attestors for the ATTESTOR CHAOS STASH account"
+          creditcoin attestor show-attestors-for \
+            --url "${{ needs.setup.outputs.rpc_url }}" \
+            --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+            --substrate-address "$STASH_ADDRESS"
+          echo "----- END -----"
+
+          echo "Withdraw unbonded for STASH ...";
+          creditcoin attestor withdraw-unbonded \
+              --url "${{ needs.setup.outputs.rpc_url }}" || echo;
+
+          # chill all previous attestor(s) associated with this stash account
+          for ADDR in $(creditcoin attestor show-attestors-for \
+            --url "${{ needs.setup.outputs.rpc_url }}" \
+            --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+            --substrate-address "$STASH_ADDRESS" | \
+            grep Address | cut -f2 -d' '); do
+            echo "INFO: Chilling $ADDR ...";
+            creditcoin attestor chill \
+                --url "${{ needs.setup.outputs.rpc_url }}" \
+                --chain "${{ needs.setup.outputs.sepolia_chain_key }}" \
+                --attestor "$ADDR" || echo;
+          done
+
+          echo "Withdraw unbonded for STASH ...";
+          creditcoin attestor withdraw-unbonded \
+              --url "${{ needs.setup.outputs.rpc_url }}" || echo;
+        env:
+          CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
+          STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
 
       - name: docker pull for release ${{ needs.setup.outputs.release_tag }}
         run: |
