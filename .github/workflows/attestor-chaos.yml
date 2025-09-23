@@ -258,12 +258,8 @@ jobs:
 
           docker logout
 
-      - name: Start Attestation Zombienet
+      - name: Start Attestor
         run: |
-          # adjust path to binary b/c running inside a container
-          sed -i 's|default_command: ".*"|default_command: "/bin/attestor"|' attestor_zombienet/config.yaml
-          sed -i 's|num_attestors: .*|num_attestors: 1|' attestor_zombienet/config.yaml
-
           mkdir -p /var/tmp/attestor-chaos
           chmod a+rwx /var/tmp/attestor-chaos
 
@@ -274,17 +270,16 @@ jobs:
           # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
           # therefore we need to use the secrets directly in-place!
           docker run --name attestor_container -i \
-            --volume ./attestor_zombienet/config.yaml:/var/tmp/zombienet.yaml \
             --volume /var/tmp/attestor-chaos/:/var/tmp/attestor-chaos/ \
-            --entrypoint /bin/attestor_zombienet \
+            --entrypoint /bin/attestor \
             ${{ github.repository }}:${{ needs.setup.outputs.release_tag }} \
                 --verbose \
                 --cc3-rpc-url ${{ needs.setup.outputs.rpc_url }} \
-                --cc3-key "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}" \
+                --cc3-key "$ATTESTOR_MNEMONIC" \
                 --eth-rpc-url wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }} \
-                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} \
-                --config-file /var/tmp/zombienet.yaml \
-                --logs-dir /var/tmp/attestor-chaos/ 2>&1 | tee -a /var/tmp/attestor-chaos/zombienet.log &
+                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} 2>&1 | tee -a /var/tmp/attestor-chaos/attestor.log &
+        env:
+          ATTESTOR_MNEMONIC: "${{ secrets.ATTESTOR_CHAOS_MNEMONIC }}"
 
       - name: Check logs for errors
         id: check-logs
@@ -293,12 +288,6 @@ jobs:
           # wait 5 mins before checking for any errors on start
           sleep 300
           .github/check-logs-for-error.sh /var/tmp/attestor-chaos/
-
-          # collect attestor address(es) so we can avoid chilling them on this execution
-          grep "Registering attestor with address" /var/tmp/attestor-chaos/zombienet.log  | cut -d "(" -f2 | cut -d")" -f1 > /var/tmp/attestor-addresses.txt
-          echo "INFO: Attestor addresses registered in this execution"
-          cat /var/tmp/attestor-addresses.txt
-          echo "----- END -----"
 
           # WARNING: figure out how to filter out multiple addresses in case we start
           # more than 1 in the future
@@ -319,10 +308,3 @@ jobs:
           name: attestor-logs
           path: /var/tmp/attestor-chaos/
           include-hidden-files: true
-
-      - name: Upload registered addresses
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: attestor-addresses
-          path: /var/tmp/attestor-addresses.txt
