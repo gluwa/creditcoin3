@@ -7,6 +7,7 @@ use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
 #[command(name = "prover")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Prover {
     #[arg(long, default_value = "ws://localhost:9944")]
     cc3_rpc_url: String,
