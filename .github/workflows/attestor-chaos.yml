@@ -16,8 +16,8 @@ permissions: read-all
 env:
   RUNNER_VM_NAME: "attestor-chaos-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
   LINODE_REGION: "nl-ams"
-  # Shared CPU, Linode 8 GB, 4 vCPU, 96 $/mo
-  LINODE_VM_SIZE: "g6-standard-4"
+  # Shared CPU, Linode 2 GB, 1 vCPU, 12 $/mo
+  LINODE_VM_SIZE: "g6-standard-1"
 
 jobs:
   setup:
