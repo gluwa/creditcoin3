@@ -83,6 +83,16 @@ pub enum Error {
 
 type Proof = Vec<u8>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingRequestEntry {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "currentRequestId")]
+    pub current_request_id: String,
+    #[serde(rename = "currentRequestStatus")]
+    pub current_request_status: String,
+}
+
 /// Handle proof order
 pub async fn handle_proof_order(
     query_id: QueryId,
@@ -214,6 +224,42 @@ async fn poll_for_result(
     }
 
     Err(Error::LightProverQueryTimeout(query_id.to_string()))
+}
+
+/// Public wrapper to poll for an existing result by query id
+pub async fn poll_result_for_query_id(
+    query_id_hex: &str,
+    prover_be_socket_addr: &str,
+) -> std::result::Result<Vec<u8>, Error> {
+    let client = Client::new();
+    poll_for_result(&client, query_id_hex, prover_be_socket_addr).await
+}
+
+/// Fetch list of pending requests from the Prover BE
+pub async fn get_pending_request_query_ids(
+    prover_be_socket_addr: &str,
+) -> std::result::Result<Vec<PendingRequestEntry>, Error> {
+    let client = Client::new();
+    let url = format!("{prover_be_socket_addr}/AzureAppService/GetPendingRequestQueryIds");
+
+    let response = client
+        .get(&url)
+        .header(ACCEPT, "*/*")
+        .send()
+        .await
+        .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
+
+    match response.status() {
+        reqwest::StatusCode::OK => {
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|e| Error::BadProofResultResponse(e.to_string()))?;
+            Ok(serde_json::from_slice::<Vec<PendingRequestEntry>>(&bytes)
+                .map_err(|e| Error::BadProofResultResponse(e.to_string()))?)
+        }
+        other_status => Err(Error::BadProofResultRequest(other_status.to_string())),
+    }
 }
 
 async fn get_work_order_result(

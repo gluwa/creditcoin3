@@ -6,6 +6,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use query::external::Error as LightProvingError;
 use sp_core::H256;
 use std::collections::{BTreeMap, HashSet};
+use std::str::FromStr;
 use tokio::{
     sync::mpsc,
     task::{self, JoinError, JoinHandle},
@@ -193,6 +194,16 @@ impl Server {
         let (queries_to_process_sender, mut queries_to_process_receiver) =
             mpsc::unbounded_channel::<Query>();
 
+        // Channel to receive results for resumed light prover jobs
+        let (resumed_results_sender, mut resumed_results_receiver) =
+            mpsc::unbounded_channel::<(H256, Result<Vec<u8>, LightProvingError>)>();
+
+        // If running in light prover mode, resume any pending jobs from the BE
+        if self.is_light_prover_mode() {
+            self.resume_pending_light_prover_jobs(resumed_results_sender.clone())
+                .await?;
+        }
+
         loop {
             tokio::select! {
                 Some(event) = subscription.next() => {
@@ -220,6 +231,25 @@ impl Server {
                 },
                 Some(result) = light_prover_queries.next() => {
                     self.handle_light_prover_poll_result(result).await?;
+                }
+                Some((resumed_query_id, resumed_result)) = resumed_results_receiver.recv() => {
+                    match resumed_result {
+                        Ok(proof) => {
+                            info!("📝 Submitting proof for resumed query: {:?}", resumed_query_id);
+                            if let Err(e) = contract::submit_proof_by_id(&self.cc3_eth_client, resumed_query_id, proof).await {
+                                error!("❌ Failed to submit proof for resumed query: {:?}, Error: {:?}", resumed_query_id, e);
+                                self.mark_query_as_invalid(resumed_query_id, e.to_string()).await?;
+                            }
+                        }
+                        Err(e) => {
+                            error!("❌ Resumed query processing failed, Error: {e:?}");
+                            if let LightProvingError::ProofGenerationFailed = e {
+                                panic!("Resumed query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
+                            } else {
+                                self.mark_query_as_invalid(resumed_query_id, e.to_string()).await?;
+                            }
+                        }
+                    }
                 }
                 Some(query_id) = proof_verified_event_receiver.recv() => {
                     // Only increment success metric if we have not seen this query proof before
@@ -581,5 +611,62 @@ impl Server {
                 Err(e)
             }
         }
+    }
+
+    /// On startup, resume listening for any light prover jobs that are still pending on the BE
+    async fn resume_pending_light_prover_jobs(
+        &mut self,
+        results_sender: mpsc::UnboundedSender<(H256, Result<Vec<u8>, LightProvingError>)>,
+    ) -> Result<()> {
+        let Some(addr) = self.config.prover_be_socket_addr.clone() else {
+            return Ok(());
+        };
+
+        info!("🔄 Checking Prover BE for pending light prover requests to resume...");
+        let pending = query::external::get_pending_request_query_ids(addr.as_ref())
+            .await
+            .unwrap_or_else(|e| {
+                warn!(
+                    "⚠️ Failed to fetch pending requests from Prover BE: {:?}",
+                    e
+                );
+                Vec::new()
+            });
+
+        if pending.is_empty() {
+            info!("✅ No pending BE proving requests to resume.");
+            return Ok(());
+        }
+
+        info!(
+            "🔍 Found {} pending BE proving requests. Resuming...",
+            pending.len()
+        );
+
+        for entry in pending {
+            let parse_res = H256::from_str(&entry.id);
+            let Ok(query_id) = parse_res else {
+                warn!("⚠️ Failed to parse pending query id: {:?}", entry.id);
+                continue;
+            };
+
+            // Mark as received because the local storage was wiped after the restart
+            self.received_query_ids.insert(query_id);
+            self.queued_light_proving_queries.insert(query_id);
+
+            let sender = results_sender.clone();
+            let addr_clone = addr.clone();
+            let id_hex = entry.id.clone();
+
+            tokio::spawn(async move {
+                let result =
+                    query::external::poll_result_for_query_id(id_hex.as_str(), addr_clone.as_ref())
+                        .await;
+                // Ignore send errors if receiver dropped
+                let _ = sender.send((query_id, result));
+            });
+        }
+
+        Ok(())
     }
 }

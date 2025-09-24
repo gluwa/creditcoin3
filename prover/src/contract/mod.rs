@@ -137,6 +137,31 @@ pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> 
     Ok(tx_hash.to_string())
 }
 
+/// Submit proof by `QueryId` directly, used when resuming pending light proving jobs
+pub async fn submit_proof_by_id(
+    eth_client: &Client,
+    query_id: QueryId,
+    proof: Vec<u8>,
+) -> Result<String> {
+    let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
+    debug!(
+        "📝 Submitting proof for resumed query {:?}, chain id {}",
+        query_id, chain_id
+    );
+
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+    let tx_hash = artifact
+        .contract
+        .submit_query_proof(eth_client, query_id.0.into(), proof)
+        .await?;
+
+    info!(
+        "✅ Proof submitted successfully for resumed query: {:?}, tx_hash: {}",
+        query_id, tx_hash
+    );
+    Ok(tx_hash.to_string())
+}
+
 pub async fn subscribe_proof_verification_events(
     eth_client: &Client,
     proof_channel: mpsc::UnboundedSender<QueryId>,
