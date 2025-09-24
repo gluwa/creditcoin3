@@ -240,7 +240,7 @@ jobs:
 
           docker logout
 
-      - name: Start Attestor
+      - name: Start Attestor ${{ env.NUMBER }}
         run: |
           mkdir -p /var/tmp/attestor-chaos
           chmod a+rwx /var/tmp/attestor-chaos
@@ -251,17 +251,63 @@ jobs:
 
           # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
           # therefore we need to use the secrets directly in-place!
-          docker run --name attestor_container -i \
-            --volume /var/tmp/attestor-chaos/:/var/tmp/attestor-chaos/ \
+          docker run --name "attestor_container_$NUMBER" -i \
             --entrypoint /bin/attestor \
             ${{ github.repository }}:${{ needs.setup.outputs.release_tag }} \
                 --verbose \
                 --cc3-rpc-url ${{ needs.setup.outputs.rpc_url }} \
                 --cc3-key "$ATTESTOR_MNEMONIC" \
                 --eth-rpc-url wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }} \
-                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} 2>&1 | tee -a /var/tmp/attestor-chaos/attestor.log &
+                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} 2>&1 | tee -a "/var/tmp/attestor-chaos/attestor_$NUMBER.log" &
         env:
           ATTESTOR_MNEMONIC: "${{ secrets.ATTESTOR_CHAOS_MNEMONIC }}"
+          NUMBER: 1
+
+      - name: Start Attestor ${{ env.NUMBER }}
+        run: |
+          mkdir -p /var/tmp/attestor-chaos
+          chmod a+rwx /var/tmp/attestor-chaos
+
+          # IMPORTANT: prevent the runner from killing "orphaned" processes
+          # when the CI job completes! This will be killed later when the VM is recycled!
+          unset RUNNER_TRACKING_ID
+
+          # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
+          # therefore we need to use the secrets directly in-place!
+          docker run --name "attestor_container_$NUMBER" -i \
+            --entrypoint /bin/attestor \
+            ${{ github.repository }}:${{ needs.setup.outputs.release_tag }} \
+                --verbose \
+                --cc3-rpc-url ${{ needs.setup.outputs.rpc_url }} \
+                --cc3-key "$ATTESTOR_MNEMONIC" \
+                --eth-rpc-url wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }} \
+                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} 2>&1 | tee -a "/var/tmp/attestor-chaos/attestor_$NUMBER.log" &
+        env:
+          ATTESTOR_MNEMONIC: "${{ secrets.ATTESTOR_CHAOS_MNEMONIC_2 }}"
+          NUMBER: 2
+
+      - name: Start Attestor ${{ env.NUMBER }}
+        run: |
+          mkdir -p /var/tmp/attestor-chaos
+          chmod a+rwx /var/tmp/attestor-chaos
+
+          # IMPORTANT: prevent the runner from killing "orphaned" processes
+          # when the CI job completes! This will be killed later when the VM is recycled!
+          unset RUNNER_TRACKING_ID
+
+          # WARNING: outputs containing secrets are redacted and not sent to downstream jobs
+          # therefore we need to use the secrets directly in-place!
+          docker run --name "attestor_container_$NUMBER" -i \
+            --entrypoint /bin/attestor \
+            ${{ github.repository }}:${{ needs.setup.outputs.release_tag }} \
+                --verbose \
+                --cc3-rpc-url ${{ needs.setup.outputs.rpc_url }} \
+                --cc3-key "$ATTESTOR_MNEMONIC" \
+                --eth-rpc-url wss://sepolia.infura.io/ws/v3/${{ secrets.ATTESTOR_CHAOS_INFURA_API_KEY }} \
+                --chain-key ${{ needs.setup.outputs.sepolia_chain_key }} 2>&1 | tee -a "/var/tmp/attestor-chaos/attestor_$NUMBER.log" &
+        env:
+          ATTESTOR_MNEMONIC: "${{ secrets.ATTESTOR_CHAOS_MNEMONIC_3 }}"
+          NUMBER: 3
 
       - name: Check logs for errors
         id: check-logs
@@ -271,17 +317,45 @@ jobs:
           sleep 300
           .github/check-logs-for-error.sh /var/tmp/attestor-chaos/
 
-      - name: Schedule random attestor chill/restart/disconnect
+      - name: Schedule random attestor chill/restart/disconnect for container 1
         run: |
           # IMPORTANT: prevent the runner from killing "orphaned" processes
           # when the CI job completes! This will be killed later when the VM is recycled!
           unset RUNNER_TRACKING_ID
 
-          .github/random-attestor-events.sh attestor_container &
+          .github/random-attestor-events.sh attestor_container_1 &
         env:
           CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
           STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
           ATTESTOR_ADDRESS: 5Gv6sfeUjDUj2tgyxAwmxexhZhZaxBpRQE7492BgHJdCRkP8
+          CREDITCOIN_RPC_URL: ${{ needs.setup.outputs.rpc_url }}
+          SEPOLIA_CHAIN_KEY: ${{ needs.setup.outputs.sepolia_chain_key }}
+
+      - name: Schedule random attestor chill/restart/disconnect for container 2
+        run: |
+          # IMPORTANT: prevent the runner from killing "orphaned" processes
+          # when the CI job completes! This will be killed later when the VM is recycled!
+          unset RUNNER_TRACKING_ID
+
+          .github/random-attestor-events.sh attestor_container_2 &
+        env:
+          CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
+          STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
+          ATTESTOR_ADDRESS: 5Fh95EePp2WnTfZ1iRvVBB77SEqg9pt2aDDTkuz7az3aKbwy
+          CREDITCOIN_RPC_URL: ${{ needs.setup.outputs.rpc_url }}
+          SEPOLIA_CHAIN_KEY: ${{ needs.setup.outputs.sepolia_chain_key }}
+
+      - name: Schedule random attestor chill/restart/disconnect for container 3
+        run: |
+          # IMPORTANT: prevent the runner from killing "orphaned" processes
+          # when the CI job completes! This will be killed later when the VM is recycled!
+          unset RUNNER_TRACKING_ID
+
+          .github/random-attestor-events.sh attestor_container_3 &
+        env:
+          CC_SECRET: "${{ secrets.ATTESTOR_CHAOS_STASH_MNEMONIC }}"
+          STASH_ADDRESS: 5H8rQGjvt4PSXBqAifNamQMxpzNo9pK8DXD41CWPQXfa5Gh6
+          ATTESTOR_ADDRESS: 5GLPAMpWhwGkcJQjrDcSB4vCBXTo5kX3CnpRCJXRnEEAnmFP
           CREDITCOIN_RPC_URL: ${{ needs.setup.outputs.rpc_url }}
           SEPOLIA_CHAIN_KEY: ${{ needs.setup.outputs.sepolia_chain_key }}
 
