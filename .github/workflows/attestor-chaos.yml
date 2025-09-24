@@ -154,8 +154,6 @@ jobs:
           path: retry*.json
 
   start-attestor:
-    outputs:
-      attestor_address: ${{ steps.check-logs.outputs.attestor_address }}
     needs:
       - setup
       - deploy-attestor
@@ -272,10 +270,6 @@ jobs:
           # wait 5 mins before checking for any errors on start
           sleep 300
           .github/check-logs-for-error.sh /var/tmp/attestor-chaos/
-
-          # WARNING: figure out how to filter out multiple addresses in case we start
-          # more than 1 in the future
-          echo "attestor_address=$(cat /var/tmp/attestor-addresses.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Schedule random attestor chill/restart/disconnect
         run: |
