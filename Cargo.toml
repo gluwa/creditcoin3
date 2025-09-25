@@ -270,6 +270,7 @@ pallet-prover-primitives = { path = "primitives/pallet-prover", default-features
 proof = { path = "proof", default-features = false }
 proof-verifier = { path = "host", default-features = false }
 prover-primitives = { path = "primitives/prover", default-features = false }
+verifier-core = { path = "common/verifier-core", default-features = false }
 
 # Common
 bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-features = false, features = [
