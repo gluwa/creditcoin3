@@ -484,13 +484,59 @@ impl Server {
 
         match inner_result {
             Ok(proof) => {
-                info!("📝 Submitting proof for query: {:?}", query_id);
-                if let Err(e) = contract::submit_proof(&self.cc3_eth_client, query, proof).await {
-                    error!(
-                        "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely verifier failed to verify and reverted",
-                        query_id, e
-                    );
-                    self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                debug!("📝 Verifying external BE proof for query: {:?}", query_id);
+
+                // Fetch STARK program metadata from chain storage
+                let metadata = match self.cc3_client.fetch_stark_program_metadata().await {
+                    Ok(m) if m.is_empty() => {
+                        error!("❌ No STARK program metadata found on-chain. Marking query as invalid.");
+                        self.mark_query_as_invalid(
+                            query_id,
+                            "No STARK program metadata on-chain".to_string(),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("❌ Failed to fetch STARK program metadata: {e:?}");
+                        self.mark_query_as_invalid(
+                            query_id,
+                            format!("Failed to fetch STARK program metadata: {e:?}"),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                };
+
+                // Run verification for external proof
+                match verifier_core::run_verifier(proof.clone(), query.clone(), metadata) {
+                    Ok(_verified) => {
+                        info!(
+                            "✅ External BE proof verification passed. Submitting proof for query: {:?}",
+                            query_id
+                        );
+                        if let Err(e) =
+                            contract::submit_proof(&self.cc3_eth_client, query, proof).await
+                        {
+                            error!(
+                                "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely on-chain verifier failed and reverted",
+                                query_id, e
+                            );
+                            self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "❌ Failed to verify external BE proof for query: {:?}, Error: {:?}. Marking as invalid.",
+                            query_id, e
+                        );
+                        self.mark_query_as_invalid(
+                            query_id,
+                            format!("Failed to verify external BE proof: {e:?}"),
+                        )
+                        .await?;
+                    }
                 }
             }
             Err(e) => {
