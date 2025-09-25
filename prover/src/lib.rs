@@ -233,23 +233,8 @@ impl Server {
                     self.handle_light_prover_poll_result(result).await?;
                 }
                 Some((resumed_query_id, resumed_result)) = resumed_results_receiver.recv() => {
-                    match resumed_result {
-                        Ok(proof) => {
-                            info!("📝 Submitting proof for resumed query: {:?}", resumed_query_id);
-                            if let Err(e) = contract::submit_proof_by_id(&self.cc3_eth_client, resumed_query_id, proof).await {
-                                error!("❌ Failed to submit proof for resumed query: {:?}, Error: {:?}", resumed_query_id, e);
-                                self.mark_query_as_invalid(resumed_query_id, e.to_string()).await?;
-                            }
-                        }
-                        Err(e) => {
-                            error!("❌ Resumed query processing failed, Error: {e:?}");
-                            if let LightProvingError::ProofGenerationFailed = e {
-                                panic!("Resumed query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
-                            } else {
-                                self.mark_query_as_invalid(resumed_query_id, e.to_string()).await?;
-                            }
-                        }
-                    }
+                    self.handle_resumed_light_prover_result(resumed_query_id, resumed_result)
+                        .await?;
                 }
                 Some(query_id) = proof_verified_event_receiver.recv() => {
                     // Only increment success metric if we have not seen this query proof before
@@ -579,6 +564,47 @@ impl Server {
                 Err(anyhow!(e))
             }
         }
+    }
+
+    /// Handles result for resumed light prover job
+    /// If successful, submits the proof on chain
+    /// If failed, marks the query as invalid on chain
+    /// If the task failed, panics as this is a fatal error
+    async fn handle_resumed_light_prover_result(
+        &mut self,
+        resumed_query_id: H256,
+        resumed_result: Result<Vec<u8>, LightProvingError>,
+    ) -> Result<()> {
+        match resumed_result {
+            Ok(proof) => {
+                info!(
+                    "📝 Submitting proof for resumed query: {:?}",
+                    resumed_query_id
+                );
+                if let Err(e) =
+                    contract::submit_proof_by_id(&self.cc3_eth_client, resumed_query_id, proof)
+                        .await
+                {
+                    error!(
+                        "❌ Failed to submit proof for resumed query: {:?}, Error: {:?}",
+                        resumed_query_id, e
+                    );
+                    self.mark_query_as_invalid(resumed_query_id, e.to_string())
+                        .await?;
+                }
+            }
+            Err(e) => {
+                error!("❌ Resumed query processing failed, Error: {e:?}");
+                if let LightProvingError::ProofGenerationFailed = e {
+                    panic!("Resumed query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
+                } else {
+                    self.mark_query_as_invalid(resumed_query_id, e.to_string())
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Cleans up the query from the internal memory after processing
