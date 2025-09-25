@@ -288,7 +288,7 @@ pub mod tests {
 
     #[test]
     fn verifying_authenticated_proof_should_return_ok() {
-        let proof_path = "../cairo/stone-verifier/proof_example_erc20.json";
+        let proof_path = "../../cairo/stone-verifier/proof_example_erc20.json";
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
@@ -303,7 +303,7 @@ pub mod tests {
 
     #[test]
     fn verifying_authenticated_proof_should_return_correct_result_segments() {
-        let proof_path = "../cairo/stone-verifier/proof_example_erc20.json";
+        let proof_path = "../../cairo/stone-verifier/proof_example_erc20.json";
 
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
@@ -324,7 +324,7 @@ pub mod tests {
         // a STARK proof produced by an unauthorized/unauthenticated Cairo program
         // see StoneProof::program_bytes() and PublicInput::program_bytes() +
         // StarkProgramAuth::authenticate() for how the program hash is calculated!
-        let proof_path = "../cairo/stone-verifier/bogus_public_memory_example.json";
+        let proof_path = "../../cairo/stone-verifier/bogus_public_memory_example.json";
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
         let query = get_test_query();
@@ -361,7 +361,7 @@ pub mod tests {
     //  on the chain key
     #[test]
     fn verifying_correct_stark_proof_when_program_metadata_config_is_different_should_error() {
-        let proof_path = "../cairo/stone-verifier/proof_example_erc20.json";
+        let proof_path = "../../cairo/stone-verifier/proof_example_erc20.json";
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
 
         let query = get_test_query();
@@ -390,7 +390,7 @@ pub mod tests {
 
     #[test]
     fn verifying_stark_proof_with_incorrect_layout_segments_should_error() {
-        let proof_path = "../cairo/stone-verifier/proof_example_erc20.json";
+        let proof_path = "../../cairo/stone-verifier/proof_example_erc20.json";
         let proof_example = std::fs::read(proof_path).expect("Proof example to be there");
         let proof: StoneProofJson =
             serde_json::from_slice(&proof_example).expect("Unable to deserialize proof");
@@ -452,7 +452,7 @@ pub mod tests {
     fn validate_query_against_proof_with_valid_proof_should_return_ok() {
         let query = get_test_query();
         let cairo_verifier_output = cairo_verifier_output_from_proof_json(
-            "../cairo/stone-verifier/proof_example_erc20.json",
+            "../../cairo/stone-verifier/proof_example_erc20.json",
         );
 
         let result = validate_query_against_proof(query, &cairo_verifier_output);
@@ -467,7 +467,7 @@ pub mod tests {
         query.index = 1;
 
         let cairo_verifier_output = cairo_verifier_output_from_proof_json(
-            "../cairo/stone-verifier/proof_example_erc20.json",
+            "../../cairo/stone-verifier/proof_example_erc20.json",
         );
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
@@ -487,7 +487,7 @@ pub mod tests {
             }],
         };
         let cairo_verifier_output = cairo_verifier_output_from_proof_json(
-            "../cairo/stone-verifier/proof_example_2nd_txn.json",
+            "../../cairo/stone-verifier/proof_example_2nd_txn.json",
         );
 
         validate_query_against_proof(query, &cairo_verifier_output).unwrap();
