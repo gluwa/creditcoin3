@@ -20,6 +20,7 @@ sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 sp-runtime-interface = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
+verifier-core = { workspace = true, default-features = false }
 
 # Optional
 prover-primitives = { workspace = true, optional = true }
@@ -41,4 +42,5 @@ std = [
     "utils/std",
     "thiserror",
     "tempfile",
+    "verifier-core/std",
 ]

@@ -210,7 +210,7 @@ fn validate_layout_segments(layout_segments: &[LayoutSegment]) -> Result<(), Ver
 
 #[cfg(test)]
 pub mod arch_independent_tests {
-    use crate::verfier::VerifierError;
+    use crate::verifier::VerifierError;
     use pallet_prover_primitives::LayoutSegment;
 
     #[test]
@@ -503,7 +503,7 @@ pub mod tests {
             size: 1000,
         }];
         let mut cairo_verifier_output = cairo_verifier_output_from_proof_json(
-            "../cairo/stone-verifier/proof_example_erc20.json",
+            "../../cairo/stone-verifier/proof_example_erc20.json",
         );
         // inject faulty state
         cairo_verifier_output.query_fields = felts_from_bytes(&NULL_ABI[..]);

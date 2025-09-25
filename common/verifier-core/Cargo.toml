@@ -1,0 +1,35 @@
+[package]
+name = "verifier-core"
+version = "0.1.0"
+edition = "2021"
+license = "Unlicense"
+publish = false
+
+[dependencies]
+anyhow = { version = "1.0" }
+hex = { workspace = true, default-features = false }
+log = { workspace = true, default-features = false }
+pallet-prover-primitives = { workspace = true, default-features = false }
+prover-primitives = { workspace = true, optional = true }
+
+tempfile = { version = "3.10", optional = true, default-features = false }
+thiserror = { version = "1.0.64", default-features = false, optional = true }
+utils = { workspace = true, optional = true }
+serde_json = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
+
+
+[features]
+default = ["std"]
+std = [
+    "sp-io/std",
+    "log/std",
+    "sp-core/std",
+    "prover-primitives/std",
+    "serde_json/std",
+    "pallet-prover-primitives/std",
+    "utils/std",
+    "thiserror",
+    "tempfile",
+]

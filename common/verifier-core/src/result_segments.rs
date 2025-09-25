@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use sp_core::H256;
-use sp_std::vec::Vec;
+
 use std::ops::Range;
+use std::vec::Vec;
 
 use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use utils::pedersen_hash::pedersen_array;
