@@ -31,8 +31,8 @@ def runCairoProgram(source, inputPath, proofMode, layout):
 
     privateInput = inputPath + "/private_input.json"
     publicInput = inputPath + "/public_input.json"
-    traceFile = inputPath + "/trace.bin"
-    memoryFile = inputPath + "/memory.bin"
+    traceFile = inputPath + "/trace.json"
+    memoryFile = inputPath + "/memory.json"
     outputFile = inputPath + "/output.txt"
 
     logger.info("program: %s", compiledFname)

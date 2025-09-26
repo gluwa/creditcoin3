@@ -24,8 +24,8 @@ def beforeStoneProving(inputPath, cairoLangDir, stoneProverDir):
         sys.exit(23)
 
     publicInput = inputPath + "/public_input.json"
-    traceFile = inputPath + "/trace.bin"
-    memoryFile = inputPath + "/memory.bin"
+    traceFile = inputPath + "/trace.json"
+    memoryFile = inputPath + "/memory.json"
 
     f = open(airParams)
     air_params = json.load(f)
