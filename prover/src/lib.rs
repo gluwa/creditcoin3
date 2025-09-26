@@ -497,7 +497,8 @@ impl Server {
         let query_id = query.id();
         debug!("📝 Verifying external BE proof for query: {:?}", query_id);
 
-        let Some(metadata) = self.fetch_stark_metadata(query_id).await else {
+        let maybe_metadata = self.fetch_stark_metadata(query_id).await?;
+        let Some(metadata) = maybe_metadata else {
             return Ok(());
         };
 
@@ -507,30 +508,32 @@ impl Server {
         }
     }
 
-    /// Fetches STARK program metadata, handling errors by marking query as invalid
-    /// Returns None if metadata fetch failed (query already marked invalid)
-    async fn fetch_stark_metadata(&mut self, query_id: H256) -> Option<Vec<(u8, H256)>> {
+    /// Fetches STARK program metadata.
+    /// - `Ok(Some(metadata))` when metadata is present.
+    /// - `Ok(None)` when metadata is missing or fetch failed, but the query was successfully marked invalid.
+    /// - `Err(e)` when marking the query as invalid failed.
+    async fn fetch_stark_metadata(&mut self, query_id: H256) -> Result<Option<Vec<(u8, H256)>>> {
         match self.cc3_client.fetch_stark_program_metadata().await {
             Ok(m) if m.is_empty() => {
                 error!("❌ No STARK program metadata found on-chain. Marking query as invalid.");
-                let _ = self
-                    .mark_query_as_invalid(
-                        query_id,
-                        "No STARK program metadata on-chain".to_string(),
-                    )
-                    .await;
-                None
+                // Propagate errors from mark_query_as_invalid
+                self.mark_query_as_invalid(
+                    query_id,
+                    "No STARK program metadata on-chain".to_string(),
+                )
+                .await?;
+                Ok(None)
             }
-            Ok(m) => Some(m),
+            Ok(m) => Ok(Some(m)),
             Err(e) => {
                 error!("❌ Failed to fetch STARK program metadata: {e:?}");
-                let _ = self
-                    .mark_query_as_invalid(
-                        query_id,
-                        format!("Failed to fetch STARK program metadata: {e:?}"),
-                    )
-                    .await;
-                None
+                // Propagate errors from mark_query_as_invalid
+                self.mark_query_as_invalid(
+                    query_id,
+                    format!("Failed to fetch STARK program metadata: {e:?}"),
+                )
+                .await?;
+                Ok(None)
             }
         }
     }

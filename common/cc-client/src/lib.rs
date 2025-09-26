@@ -845,7 +845,7 @@ impl Client {
     }
 
     pub async fn fetch_stark_program_metadata(&self) -> Result<Vec<(u8, sp_core::H256)>, Error> {
-        let mut metadata: Vec<(u8, sp_core::H256)> = Vec::new();
+        let mut metadata = Vec::new();
 
         let storage_query = cc3::storage().prover().stark_program_metadata_iter();
 
