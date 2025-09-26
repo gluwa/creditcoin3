@@ -483,73 +483,111 @@ impl Server {
         let query_id = query.id();
 
         match inner_result {
-            Ok(proof) => {
-                debug!("📝 Verifying external BE proof for query: {:?}", query_id);
+            Ok(proof) => self.handle_light_prover_received_proof(query, proof).await,
+            Err(e) => self.handle_light_prover_error(query_id, e).await,
+        }
+    }
 
-                // Fetch STARK program metadata from chain storage
-                let metadata = match self.cc3_client.fetch_stark_program_metadata().await {
-                    Ok(m) if m.is_empty() => {
-                        error!("❌ No STARK program metadata found on-chain. Marking query as invalid.");
-                        self.mark_query_as_invalid(
-                            query_id,
-                            "No STARK program metadata on-chain".to_string(),
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                    Ok(m) => m,
-                    Err(e) => {
-                        error!("❌ Failed to fetch STARK program metadata: {e:?}");
-                        self.mark_query_as_invalid(
-                            query_id,
-                            format!("Failed to fetch STARK program metadata: {e:?}"),
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                };
+    /// Handles a successful proof by verifying and then submitting it on chain
+    async fn handle_light_prover_received_proof(
+        &mut self,
+        query: Query,
+        proof: Vec<u8>,
+    ) -> Result<()> {
+        let query_id = query.id();
+        debug!("📝 Verifying external BE proof for query: {:?}", query_id);
 
-                // Run verification for external proof
-                match verifier_core::run_verifier(proof.clone(), query.clone(), metadata) {
-                    Ok(_verified) => {
-                        info!(
-                            "✅ External BE proof verification passed. Submitting proof for query: {:?}",
-                            query_id
-                        );
-                        if let Err(e) =
-                            contract::submit_proof(&self.cc3_eth_client, query, proof).await
-                        {
-                            error!(
-                                "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely on-chain verifier failed and reverted",
-                                query_id, e
-                            );
-                            self.mark_query_as_invalid(query_id, e.to_string()).await?;
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            "❌ Failed to verify external BE proof for query: {:?}, Error: {:?}. Marking as invalid.",
-                            query_id, e
-                        );
-                        self.mark_query_as_invalid(
-                            query_id,
-                            format!("Failed to verify external BE proof: {e:?}"),
-                        )
-                        .await?;
-                    }
-                }
+        let Some(metadata) = self.fetch_stark_metadata(query_id).await else {
+            return Ok(());
+        };
+
+        match verifier_core::run_verifier(proof.clone(), query.clone(), metadata) {
+            Ok(_verified) => self.handle_verification_success(query, proof).await,
+            Err(e) => self.handle_verification_failure(query_id, e).await,
+        }
+    }
+
+    /// Fetches STARK program metadata, handling errors by marking query as invalid
+    /// Returns None if metadata fetch failed (query already marked invalid)
+    async fn fetch_stark_metadata(&mut self, query_id: H256) -> Option<Vec<(u8, H256)>> {
+        match self.cc3_client.fetch_stark_program_metadata().await {
+            Ok(m) if m.is_empty() => {
+                error!("❌ No STARK program metadata found on-chain. Marking query as invalid.");
+                let _ = self
+                    .mark_query_as_invalid(
+                        query_id,
+                        "No STARK program metadata on-chain".to_string(),
+                    )
+                    .await;
+                None
             }
+            Ok(m) => Some(m),
             Err(e) => {
-                error!("❌ Query processing failed, Error: {e:?}");
-                if let LightProvingError::ProofGenerationFailed = e {
-                    panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
-                } else {
-                    self.mark_query_as_invalid(query_id, e.to_string()).await?;
-                }
+                error!("❌ Failed to fetch STARK program metadata: {e:?}");
+                let _ = self
+                    .mark_query_as_invalid(
+                        query_id,
+                        format!("Failed to fetch STARK program metadata: {e:?}"),
+                    )
+                    .await;
+                None
             }
+        }
+    }
+
+    /// Handles successful proof verification by submitting the proof on chain
+    async fn handle_verification_success(&mut self, query: Query, proof: Vec<u8>) -> Result<()> {
+        let query_id = query.id();
+        info!(
+            "✅ External BE proof verification passed. Submitting proof for query: {:?}",
+            query_id
+        );
+
+        if let Err(e) = contract::submit_proof(&self.cc3_eth_client, query, proof).await {
+            error!(
+                "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely on-chain verifier failed and reverted",
+                query_id, e
+            );
+            self.mark_query_as_invalid(query_id, e.to_string()).await?;
         }
 
         Ok(())
+    }
+
+    /// Handles proof verification failure by marking the query as invalid
+    async fn handle_verification_failure(
+        &mut self,
+        query_id: H256,
+        error: verifier_core::VerifierError,
+    ) -> Result<()> {
+        error!(
+            "❌ Failed to verify external BE proof for query: {:?}, Error: {:?}. Marking as invalid.",
+            query_id, error
+        );
+        self.mark_query_as_invalid(
+            query_id,
+            format!("Failed to verify external BE proof: {error:?}"),
+        )
+        .await
+    }
+
+    /// Handles light prover errors, either panicking for fatal errors or marking query as invalid
+    async fn handle_light_prover_error(
+        &mut self,
+        query_id: H256,
+        error: LightProvingError,
+    ) -> Result<()> {
+        error!("❌ Query processing failed, Error: {error:?}");
+
+        match error {
+            LightProvingError::ProofGenerationFailed => {
+                panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
+            }
+            _ => {
+                self.mark_query_as_invalid(query_id, error.to_string())
+                    .await
+            }
+        }
     }
 
     /// Cleans up the query from the internal memory after processing
