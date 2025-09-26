@@ -17,11 +17,19 @@ function camelCase(str: string) {
 /**
  * @param wsUrl The URL of the node. Should be a websocket URL, like `ws://127.0.0.1:9944`
  */
-async function doCollectPalletVersions(wsUrl: string): Promise<void> {
+async function doCollectPalletVersions(wsUrl: string, blockHash: string): Promise<void> {
     // init the api client
     const { api } = await creditcoinApi(wsUrl);
+    if (!blockHash.startsWith('0x')) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { hash, parentHash } = await api.rpc.chain.getHeader();
+
+        blockHash = hash.toString();
+    }
+    const apiAt = await api.at(blockHash);
+
     try {
-        const metaData = JSON.parse((await api.rpc.state.getMetadata()).toString());
+        const metaData = JSON.parse((await api.rpc.state.getMetadata(blockHash)).toString());
         // eslint-disable-next-line guard-for-in
         for (const version in metaData.metadata) {
             // eslint-disable-next-line guard-for-in
@@ -34,7 +42,7 @@ async function doCollectPalletVersions(wsUrl: string): Promise<void> {
                     continue;
                 }
 
-                const storageVersion = (await api.query[palletName].palletVersion()).toString();
+                const storageVersion = (await apiAt.query[palletName].palletVersion()).toString();
                 console.log(`${palletName} -> ${storageVersion}`);
             }
         }
@@ -49,8 +57,9 @@ if (process.argv.length < 3) {
 }
 
 const inputWsUrl = process.argv[2];
+const inputHash = process.argv[3] || '';
 
-doCollectPalletVersions(inputWsUrl).catch((reason) => {
+doCollectPalletVersions(inputWsUrl, inputHash).catch((reason) => {
     console.error(reason);
     process.exit(1);
 });
