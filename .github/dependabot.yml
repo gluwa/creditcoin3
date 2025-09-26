@@ -58,6 +58,7 @@ updates:
       - "/common/eth"
       - "/common/mmr"
       - "/common/utils"
+      - "/common/verifier-core"
       - "/common/vrf"
       - "/common/prometheus"
       - "/host"
