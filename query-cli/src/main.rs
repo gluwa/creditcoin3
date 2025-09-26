@@ -223,8 +223,8 @@ enum Network {
 impl Network {
     pub fn url(&self) -> String {
         match self {
-            Network::Sepolia(api_key) => format!("https://sepolia.infura.io/v3/{api_key}"),
-            Network::Ethereum(api_key) => format!("https://mainnet.infura.io/v3/{api_key}"),
+            Network::Sepolia(api_key) => format!("wss://sepolia.infura.io/ws/v3/{api_key}"),
+            Network::Ethereum(api_key) => format!("wss://mainnet.infura.io/ws/v3/{api_key}"),
             Network::Local(url) => url.clone(),
             Network::Custom(_, url) => url.clone(),
         }
@@ -232,7 +232,7 @@ impl Network {
 
     pub fn id(&self) -> u64 {
         match self {
-            Network::Sepolia(_) => 6,
+            Network::Sepolia(_) => 3,
             Network::Ethereum(_) => 1,
             Network::Local(_) => 2,
             Network::Custom(id, _) => *id,
