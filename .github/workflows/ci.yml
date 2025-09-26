@@ -2493,6 +2493,37 @@ jobs:
         run: |
           yarn install
 
+      - name: Collect pallet storage versions from Local chain
+        working-directory: ./cli
+        run: |
+          sudo apt-get install colordiff
+
+          node dist/scripts/queryPalletVersions.js ws://127.0.0.1:9944 2>/dev/null | sort > /var/tmp/pallet_storage.local
+
+      - name: Compare to pallet storage versions from Devnet
+        working-directory: ./cli
+        run: |
+          node dist/scripts/queryPalletVersions.js wss://rpc.ccnext-devnet.creditcoin.network/ws 2>/dev/null | sort > /var/tmp/pallet_storage.devnet
+          DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.devnet /var/tmp/pallet_storage.local)
+
+          if [ -n "$DIFF_OUTPUT" ]; then
+              echo "FAIL: difference in pallet storage versions detected"
+              echo "$DIFF_OUTPUT" | colordiff
+              exit 1
+          fi
+
+      - name: Compare to pallet storage versions from Testnet
+        working-directory: ./cli
+        run: |
+          node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet.creditcoin.network/ws 2>/dev/null | sort > /var/tmp/pallet_storage.testnet
+          DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.testnet /var/tmp/pallet_storage.local)
+
+          if [ -n "$DIFF_OUTPUT" ]; then
+              echo "FAIL: difference in pallet storage versions detected"
+              echo "$DIFF_OUTPUT" | colordiff
+              exit 1
+          fi
+
       - name: Run blockchain tests
         working-directory: ./cli
         run: |
@@ -2507,7 +2538,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-blockchain
-          path: /var/tmp/integration-test-blockchain/
+          path: |
+            /var/tmp/pallet_storage.*
+            /var/tmp/integration-test-blockchain/
           include-hidden-files: true
 
       - name: Kill nodes
