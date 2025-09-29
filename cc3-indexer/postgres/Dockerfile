@@ -1,4 +1,4 @@
-FROM postgres:17-alpine
+FROM postgres:18-alpine
 
 # Create a non-root user and group
 RUN addgroup -S postgresgroup && adduser -S postgresuser -G postgresgroup
