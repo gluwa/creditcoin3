@@ -94,17 +94,11 @@ pub fn make_proof_of_inclusion(
     // Check if the random number is less than the target_sample_size
     let threshold = calculate_threshold(target_sample_size as u128, working_set_size as u128);
     if random > threshold {
-        debug!(
-            "attestor was not selected, random: {}, threshold: {}",
-            random, threshold
-        );
+        debug!("attestor was not selected, random: {random}, threshold: {threshold}",);
         return Err(Error::NotSelected);
     }
 
-    debug!(
-        "attestor {:?} was selected, random: {}, threshold: {}",
-        attestor_id, random, threshold
-    );
+    debug!("attestor {attestor_id:?} was selected, random: {random}, threshold: {threshold}",);
 
     // Create the signing data
     let sign_data = VrfSignData::new(transcript);
@@ -174,17 +168,11 @@ pub fn verify_proof_of_inclusion(
 
     let threshold = calculate_threshold(target_sample_size as u128, working_set_size as u128);
     if random_pub > threshold {
-        debug!(
-            "attestor was not selected, random: {}, threshold: {}",
-            random_pub, threshold
-        );
+        debug!("attestor was not selected, random: {random_pub}, threshold: {threshold}",);
         return Ok(false);
     }
 
-    debug!(
-        "attestor {:?} was selected, random: {}, threshold: {}",
-        attestor_id, random_pub, threshold
-    );
+    debug!("attestor {attestor_id:?} was selected, random: {random_pub}, threshold: {threshold}",);
 
     Ok(true)
 }

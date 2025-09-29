@@ -69,7 +69,6 @@ impl Server {
                             break;
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            continue;
                         }
                     }
                 }

@@ -126,9 +126,9 @@ pub async fn get_for_query(
         .await
         .map_err(|e| Error::ProverDBError(e.to_string()))?;
 
-    let fetched_end_from_chain = cached.last().map_or(true, |b| {
-        from_storage_type(b.header_number) != upper.block_number
-    });
+    let fetched_end_from_chain = cached
+        .last()
+        .is_none_or(|b| from_storage_type(b.header_number) != upper.block_number);
 
     let blocks: Vec<BlockWithDigest> = if cached.len() as u64 == expected_len {
         debug!(

@@ -189,8 +189,15 @@ fn mmr_from_big_input() {
         .map(|i| (0..=(i % 42) + 1).map(|i| i as u8).collect::<Vec<_>>())
         .collect::<Vec<_>>();
     let mmr = Mmr::<StdHash>::from(&input[..]);
-    let proof = mmr.generate_proof(input.iter().enumerate().last().map(|(i, _)| i).unwrap());
-    assert!(proof.validate(input.iter().last().unwrap()));
+    let proof = mmr.generate_proof(
+        input
+            .iter()
+            .enumerate()
+            .next_back()
+            .map(|(i, _)| i)
+            .unwrap(),
+    );
+    assert!(proof.validate(input.iter().next_back().unwrap()));
 }
 
 #[test]
@@ -199,8 +206,15 @@ fn mmr_from_long_input() {
         .map(|_| (0..100_000).map(|i| i as u8).collect::<Vec<_>>())
         .collect::<Vec<_>>();
     let mmr = Mmr::<StdHash>::from(&input[..]);
-    let proof = mmr.generate_proof(input.iter().enumerate().last().map(|(i, _)| i).unwrap());
-    assert!(proof.validate(input.iter().last().unwrap()));
+    let proof = mmr.generate_proof(
+        input
+            .iter()
+            .enumerate()
+            .next_back()
+            .map(|(i, _)| i)
+            .unwrap(),
+    );
+    assert!(proof.validate(input.iter().next_back().unwrap()));
 }
 
 #[test]

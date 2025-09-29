@@ -50,11 +50,11 @@ impl VerifierError {
     pub fn status_code(&self) -> u8 {
         match self {
             VerifierError::IoError(e) => {
-                error!("error writing to temp file: {:?}", e);
+                error!("error writing to temp file: {e:?}");
                 1
             }
             VerifierError::TempFilePersistError(e) => {
-                error!("error persisting temp file: {:?}", e);
+                error!("error persisting temp file: {e:?}");
                 2
             }
             VerifierError::TempFileKeepError => {
@@ -70,18 +70,15 @@ impl VerifierError {
                 5
             }
             VerifierError::ProofParseError(e) => {
-                error!("error parsing the proof: {:?}", e);
+                error!("error parsing the proof: {e:?}");
                 6
             }
             VerifierError::CairoVerifierOutputConversionError(e) => {
-                error!(
-                    "error converting StoneProof to CairoVerifierOutput: {:?}",
-                    e
-                );
+                error!("error converting StoneProof to CairoVerifierOutput: {e:?}");
                 7
             }
             VerifierError::StarkProgramAuthError(e) => {
-                error!("stark program authentication error: {:?}", e);
+                error!("stark program authentication error: {e:?}");
                 8
             }
             VerifierError::VerifierExecutionError => {
@@ -89,31 +86,30 @@ impl VerifierError {
                 9
             }
             VerifierError::VerifierProcessError(e) => {
-                error!("verifier was not able to verify the proof: {:?}", e);
+                error!("verifier was not able to verify the proof: {e:?}");
                 10
             }
             VerifierError::QueryValidationError(e) => match e {
                 FailedToHashLayoutsegments(msg) => {
-                    error!("failed to hash layout segments: {}", msg);
+                    error!("failed to hash layout segments: {msg}");
                     11
                 }
                 QueryOutOfBounds(index) => {
-                    error!("query out of bounds at index: {}", index);
+                    error!("query out of bounds at index: {index}");
                     12
                 }
                 QueryOffsetsMismatch(expected, found) => {
-                    error!("query offsets mismatch, {:?}, {:?}", expected, found);
+                    error!("query offsets mismatch, {expected:?}, {found:?}");
                     13
                 }
                 FieldNotValidated(range, found, expected) => {
                     error!(
-                        "field at range {:?} not validated, expected {:?}, found {:?}",
-                        range, expected, found
+                        "field at range {range:?} not validated, expected {expected:?}, found {found:?}"
                     );
                     14
                 }
                 FieldInner(e) => {
-                    error!("field inner error: {:?}", e);
+                    error!("field inner error: {e:?}");
                     15
                 }
                 ProofOutputTruncated => {
@@ -121,19 +117,16 @@ impl VerifierError {
                     16
                 }
                 QueryLayoutSegmentsError(msg) => {
-                    error!("query layout segments error: {}", msg);
+                    error!("query layout segments error: {msg}");
                     17
                 }
                 QueryTransactionIdMismatch(found, expected) => {
-                    error!(
-                        "query transaction id mismatch, found: {}, expected: {}",
-                        found, expected
-                    );
+                    error!("query transaction id mismatch, found: {found}, expected: {expected}");
                     18
                 }
             },
             VerifierError::Other(e) => {
-                error!("other error: {:?}", e);
+                error!("other error: {e:?}");
                 19
             }
         }

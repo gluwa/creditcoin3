@@ -256,7 +256,7 @@ impl<T: Config> Pallet<T> {
                 // to keep the new attestation rather than removing it from storage
                 // via extrinsic rollback in the case of checkpointing failure.
                 if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
-                    log::error!("Error: {:?}", e);
+                    log::error!("Error: {e:?}");
                 }
                 CheckpointingQueues::<T>::insert(chain_key, queue);
             }
@@ -315,7 +315,7 @@ impl<T: Config> Pallet<T> {
         // to keep the new attestation rather than removing it from storage
         // via extrinsic rollback in the case of checkpointing failure.
         if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key) {
-            log::error!("Error: {:?}", e);
+            log::error!("Error: {e:?}");
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
@@ -496,7 +496,7 @@ impl<T: Config> Pallet<T> {
 
             // We still need an event if the number of attestors went from non-zero to zero
             if attestors.is_empty() && prefix_len == 0 {
-                debug!("No active attestors for chain {}", chain_key);
+                debug!("No active attestors for chain {chain_key}");
                 continue;
             }
 
@@ -853,7 +853,7 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn check_duplicate(attestation: &SignedAttestation<T::Hash, T::AccountId>) -> bool {
         let digest = attestation.digest();
         if Attestations::<T>::get(attestation.attestation.chain_key, digest).is_some() {
-            log::error!("Attestation with digest: {:?} is duplicate", digest);
+            log::error!("Attestation with digest: {digest:?} is duplicate");
             return true;
         }
 
@@ -886,16 +886,16 @@ impl<T: Config> Pallet<T> {
             .iter()
             .map(|attestor| {
                 let attestor = Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
-                    log::error!("Attestor {:?} not found", attestor);
+                    log::error!("Attestor {attestor:?} not found");
                     InherentError::InvalidAttestorFound
                 })?;
                 match attestor.bls_public_key {
                     Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
-                        log::error!("Invalid BLS key for attestor {:?}", attestor);
+                        log::error!("Invalid BLS key for attestor {attestor:?}");
                         InherentError::AttestorWithInvalidPublicKey
                     }),
                     None => {
-                        log::error!("No BLS key for attestor {:?}", attestor);
+                        log::error!("No BLS key for attestor {attestor:?}");
                         Err(InherentError::AttestorWithInvalidPublicKey)
                     }
                 }
@@ -937,15 +937,12 @@ impl<T: Config> Pallet<T> {
 impl<T: Config> OnRandomnessUpdate for Pallet<T> {
     fn on_new_epoch_randomness(epoch: u64, randomness: Randomness) {
         // Start new election
-        debug!(
-            "on_new_epoch_randomness: epoch: {}, randomness: {:?}",
-            epoch, randomness
-        );
+        debug!("on_new_epoch_randomness: epoch: {epoch}, randomness: {randomness:?}",);
 
         match Self::do_start_election(epoch, randomness) {
             Ok(_) => (),
             Err(e) => {
-                log::error!("Error starting election: {:?}", e);
+                log::error!("Error starting election: {e:?}");
             }
         }
 

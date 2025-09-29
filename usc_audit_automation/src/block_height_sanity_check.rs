@@ -72,7 +72,7 @@ pub async fn get_attestor_best_block_height(
     let last_digest = usc_client
         .fetch_last_digest(chain_key)
         .await?
-        .with_context(|| format!("No last digest found for chain key {}", chain_key))?;
+        .with_context(|| format!("No last digest found for chain key {chain_key}"))?;
 
     // Get the signed attestation corresponding to the digest
     let signed_attestation = usc_client

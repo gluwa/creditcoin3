@@ -159,8 +159,7 @@ where
             .chain_head_votes
             .get(&chain)
             .ok_or(Error::Other(format!(
-                "Error fetching attestations for chain, Chain key: {}",
-                chain
+                "Error fetching attestations for chain, Chain key: {chain}"
             )))?;
 
         let votes = vote_round
@@ -209,7 +208,7 @@ where
             }
         } else {
             // Insert new attestation if it doesn't exist
-            debug!(target: LOG_TARGET, "📝 First time a vote comes in for new chain: {}, round: {:?}", chain_key, round);
+            debug!(target: LOG_TARGET, "📝 First time a vote comes in for new chain: {chain_key}, round: {round:?}");
             self.new_chain(attestation, round_config.current_epoch);
         }
 

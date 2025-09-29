@@ -211,7 +211,7 @@ mod tests {
                 assert_eq!(res.map(|cp| cp.n()), Some(genesis + interval as u64));
             }
         }
-        println!("{}", dcps);
+        println!("{dcps}");
     }
     #[test]
     fn basic_dense_append_test6() {
@@ -264,7 +264,7 @@ mod tests {
             Some(genesis + 12)
         );
         assert!(!dcps.any(&cp, &ETH_ATTESTATION_CHAIN_PARAMS_DEV));
-        println!("{}", dcps);
+        println!("{dcps}");
     }
 
     // #[test]

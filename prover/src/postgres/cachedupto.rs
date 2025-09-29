@@ -47,15 +47,12 @@ pub async fn currently_cached_up_to(
     connection: &mut AsyncPgConnection,
     chain_key: u64,
 ) -> Option<CachedUpTo> {
-    match cache_state_table
+    (cache_state_table
         .select(CachedUpTo::as_select())
         .filter(db_chain_key.eq(super::to_storage_type(chain_key)))
         .first(connection)
-        .await
-    {
-        Ok(entry) => Some(entry),
-        Err(_e) => None,
-    }
+        .await)
+        .ok()
 }
 
 // Mapper from chain key and on-chain digest (i64, H256) to DB type

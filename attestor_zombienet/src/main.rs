@@ -287,7 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if args.enable_attestor_prometheus_metrics {
                 attestor_args.push("--enable-prometheus-metrics".to_string());
 
-                attestor_args.push(format!("--prometheus-port={}", start_prometheus_port));
+                attestor_args.push(format!("--prometheus-port={start_prometheus_port}"));
                 start_prometheus_port += 1;
             }
 
@@ -297,7 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 false => args.cc3_rpc_url.choose(&mut rng).unwrap(),
             };
 
-            attestor_args.push(format!("--cc3-rpc-url={}", cc3_rpc_url));
+            attestor_args.push(format!("--cc3-rpc-url={cc3_rpc_url}"));
             if args.verbose {
                 attestor_args.push("--verbose".to_string());
             }
@@ -334,7 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if args.log_private_keys {
                 secret = attestor_key.secret;
             }
-            println!("Attestor: {}\nKey: {}\n", attestor, secret);
+            println!("Attestor: {attestor}\nKey: {secret}\n");
         }
 
         Ok(())
@@ -348,7 +348,7 @@ async fn spawn_child(
     attestor: AccountId32,
 ) -> Result<Child> {
     // Create a temporary file for the process output
-    let file_path = tempdir.path().join(format!("child-{}.txt", attestor));
+    let file_path = tempdir.path().join(format!("child-{attestor}.txt"));
     let tmp_file = File::create(file_path.clone()).await?;
 
     // Redirect the stdout and stderr of the child process to the temporary file

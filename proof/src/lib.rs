@@ -96,7 +96,7 @@ pub async fn run_cairo_verifier(
 
     info!("----- cairo verification successful -----");
     debug!("cairo verification output:");
-    debug!("{}", format!("{:?}", output).bold());
+    debug!("{}", format!("{output:?}").bold());
 
     let input_checkpoint = query_attestation_fragment
         .checkpoint()
@@ -118,11 +118,7 @@ pub async fn run_cairo_verifier(
     if input_checkpoint == output_checkpoint {
         debug!(
             "{}",
-            format!(
-                "\nquery continuity validated at checkpoint: {:?}",
-                output_checkpoint
-            )
-            .green()
+            format!("\nquery continuity validated at checkpoint: {output_checkpoint:?}").green()
         );
     } else {
         return Err(anyhow!(

@@ -226,8 +226,7 @@ fn deserialize_and_compact_ranges<'de, D: serde::Deserializer<'de>>(
         .contains(&len)
         .then(|| compact_and_sort_ranges(felt_offsets))
         .ok_or(D::Error::custom(format!(
-            "query length is {}, expected to be in range [1..{})",
-            len, MAX_QUERY_LEN
+            "query length is {len}, expected to be in range [1..{MAX_QUERY_LEN})"
         )))
 }
 

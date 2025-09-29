@@ -126,7 +126,7 @@ impl AttestationFragment {
                 })
             }
             _ => {
-                Err(AttestationFragmentError::Other(format!("Could not get block subset from fragment. Fragment start: {:?}, Fragment end: {:?}, Claim block: {:?}", tail, head, claim_block_number)))
+                Err(AttestationFragmentError::Other(format!("Could not get block subset from fragment. Fragment start: {tail:?}, Fragment end: {head:?}, Claim block: {claim_block_number:?}")))
             }
         }
     }

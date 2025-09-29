@@ -139,7 +139,7 @@ where
         while let Some(notification) = finality_notifications.next().await {
             debug!(target: LOG_TARGET, "📝 Transforming grandpa notification. #{}({:?})", notification.header.number(), notification.hash);
             if let Err(err) = tx.unbounded_send(UnpinnedFinalityNotification::from(notification)) {
-                error!(target: LOG_TARGET, "📝 Unable to send transformed notification. Shutting down. err = {}", err);
+                error!(target: LOG_TARGET, "📝 Unable to send transformed notification. Shutting down. err = {err}");
                 return;
             };
         }

@@ -126,8 +126,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let query_id = query.id();
-    println!("Query ID: {:?}", query_id);
-    println!("Going to submit following Query: {:?}\n", query);
+    println!("Query ID: {query_id:?}");
+    println!("Going to submit following Query: {query:?}\n");
 
     // Initialize the Ethereum client for ccnext and the contract
     let eth_client = Client::new(&args.cc3_rpc_url, Some(&args.cc3_evm_private_key)).await?;
@@ -138,7 +138,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .get_query_result(&eth_client, query.clone())
         .await?
     {
-        println!("\nResult segments already available: {:?}", result_segments);
+        println!("\nResult segments already available: {result_segments:?}");
         return Ok(());
     }
 
@@ -148,20 +148,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let computed_cost = contract
         .compute_query_cost(&eth_client, query.clone())
         .await?;
-    println!("Computed cost: {}\n", computed_cost);
+    println!("Computed cost: {computed_cost}\n");
 
     println!("Submitting query...");
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
-    println!("Query submitted! Tx hash: {}\n", tx_hash);
+    println!("Query submitted! Tx hash: {tx_hash}\n");
 
     println!("Waiting for result segments...");
     let result_segments = contract
         .subscribe_proof_verification(&eth_client, query_id.0.into())
         .await?;
 
-    println!("\nResult segments received: {:?}", result_segments);
+    println!("\nResult segments received: {result_segments:?}");
 
     Ok(())
 }
@@ -179,10 +179,7 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
 
     let query_id = query.id();
 
-    println!(
-        "Going to submit following Query: {:?}, id({:?})\n",
-        query, query_id
-    );
+    println!("Going to submit following Query: {query:?}, id({query_id:?})\n");
 
     let eth_rpc_url = "ws://localhost:8545".to_string(); // Local Ethereum node URL
 
@@ -194,13 +191,13 @@ pub async fn submit_default_query(args: QueryCli) -> Result<()> {
     let computed_cost = contract
         .compute_query_cost(&eth_client, query.clone())
         .await?;
-    println!("Computed cost: {}\n", computed_cost);
+    println!("Computed cost: {computed_cost}\n");
 
     println!("Submitting query...");
     let tx_hash = contract
         .submit_query(&eth_client, query, computed_cost)
         .await?;
-    println!("Query submitted! Tx hash: {}'n", tx_hash);
+    println!("Query submitted! Tx hash: {tx_hash}'n");
 
     println!("Waiting for proof...");
     let proof = contract

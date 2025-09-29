@@ -53,7 +53,7 @@ where
 
         // Build call with origin.
         {
-            log::debug!("bytes: {:?}", destination);
+            log::debug!("bytes: {destination:?}");
             let origin = Runtime::AddressMapping::into_account_id(handle.context().caller);
 
             let to = Runtime::AccountId::from(destination.0);

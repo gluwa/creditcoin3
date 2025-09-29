@@ -188,10 +188,10 @@ impl QueryProver {
         let dir = self.default_dir();
 
         let paths = std::fs::read_dir(dir)
-            .map_err(|err| QueryProverError::Other(format!("Query files not found, {:}", err)))?
+            .map_err(|err| QueryProverError::Other(format!("Query files not found, {err:}")))?
             .map(|entry| entry.map(|e| e.path()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| QueryProverError::Other(format!("Query files not found, {:}", err)))?;
+            .map_err(|err| QueryProverError::Other(format!("Query files not found, {err:}")))?;
 
         Ok(paths)
     }

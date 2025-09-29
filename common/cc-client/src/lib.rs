@@ -661,7 +661,6 @@ impl Client {
                     "Failed to get last 32 bytes of storage key for chainkey {}, checkpoint: {:?}",
                     chain_key, kv
                 );
-                continue;
             }
         }
 

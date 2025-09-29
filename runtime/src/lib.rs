@@ -1748,18 +1748,18 @@ impl_runtime_apis! {
                 // in AllPalletsWithSystem.
                 Executive::initialize_block(header);
 
-                log::info!("Tracing transaction {:?}", traced_transaction);
+                log::info!("Tracing transaction {traced_transaction:?}");
                 // Apply the a subset of extrinsics: all the substrate-specific or ethereum
                 // transactions that preceded the requested transaction.
                 for ext in extrinsics.into_iter() {
                     let _ = match &ext.0.function {
                         RuntimeCall::Ethereum(transact { transaction }) => {
                             if transaction == traced_transaction {
-                                log::info!("Tracing transaction found {:?}", transaction);
+                                log::info!("Tracing transaction found {transaction:?}");
                                 EvmTracer::new().trace(|| Executive::apply_extrinsic(ext));
                                 return Ok(());
                             } else {
-                                log::info!("Skipping transaction {:?}", transaction);
+                                log::info!("Skipping transaction {transaction:?}");
                                 Executive::apply_extrinsic(ext)
                             }
                         }

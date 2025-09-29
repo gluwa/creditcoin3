@@ -278,10 +278,10 @@ where
                             attestor_good_votes_processed_per_chain,
                             chain_key
                         );
-                        debug!(target: LOG_TARGET, "📝 Attestation processed for round: {:?}, with digest {:?}", round, digest);
+                        debug!(target: LOG_TARGET, "📝 Attestation processed for round: {round:?}, with digest {digest:?}");
                     }
                     Err(e) => {
-                        debug!(target: LOG_TARGET, "📝 Error for attestation for round: {:?}, with digest {:?}, err: {:?}", round, digest, e);
+                        debug!(target: LOG_TARGET, "📝 Error for attestation for round: {round:?}, with digest {digest:?}, err: {e:?}");
                     }
                 }
 
@@ -388,10 +388,10 @@ where
         if self.is_authority {
             match self.try_submit_attestation(attestation) {
                 Ok(()) => {
-                    debug!(target: LOG_TARGET, "📝 Attestation for round: {:?} submitted", round);
+                    debug!(target: LOG_TARGET, "📝 Attestation for round: {round:?} submitted");
                 }
                 Err(e) => {
-                    error!(target: LOG_TARGET, "📝 Error submitting attestation: {:?}", e);
+                    error!(target: LOG_TARGET, "📝 Error submitting attestation: {e:?}");
                 }
             }
         }
@@ -480,12 +480,12 @@ where
                     Ok(())
                 }
                 Err(e) => {
-                    error!(target: LOG_TARGET, "📝 Error creating inherent: {:?}", e);
+                    error!(target: LOG_TARGET, "📝 Error creating inherent: {e:?}");
                     Err(Error::ErrorCreatingInherent)
                 }
             },
             Err(e) => {
-                error!("error acquiring lock, {:?}", e);
+                error!("error acquiring lock, {e:?}");
                 Ok(())
             }
         }?;
@@ -590,7 +590,7 @@ where
                 // Common fallback path (checkpoint → genesis)
                 let fallback = || -> Result<_, _> {
                     if let Some(checkpoint) = runtime_api.last_checkpoint(notif.hash, chain_key)? {
-                        debug!(target: LOG_TARGET, "📝 Using last checkpoint for chain key: {:?}", chain_key);
+                        debug!(target: LOG_TARGET, "📝 Using last checkpoint for chain key: {chain_key:?}");
                         Ok(checkpoint.block_number)
                     } else {
                         debug!(target: LOG_TARGET, "📝 Allowing bootstrap of chain: {chain_key}");
@@ -602,7 +602,7 @@ where
                 if let Some(digest) = last_attested_digest {
                     match runtime_api.get(notif.hash, chain_key, digest)? {
                         Some(last_attested_header) => {
-                            debug!(target: LOG_TARGET, "📝 Using last attested header for chain key: {:?}", chain_key);
+                            debug!(target: LOG_TARGET, "📝 Using last attested header for chain key: {chain_key:?}");
                             Ok(last_attested_header.header_number())
                         }
                         None => fallback(),
@@ -643,7 +643,7 @@ where
         let active_attestors = runtime_api.active_attestor_set(block_hash, chain_key)?;
 
         if active_attestors.is_empty() {
-            debug!(target: LOG_TARGET, "📝 Not setting filter for chain: {:?} because there are no attestors", chain_key);
+            debug!(target: LOG_TARGET, "📝 Not setting filter for chain: {chain_key:?} because there are no attestors");
             return Ok(());
         }
 

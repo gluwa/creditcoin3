@@ -30,13 +30,13 @@ pub(crate) fn prompt(args: QueryCli) -> Result<PromptOutput> {
 
     // Display the collected information
     println!("\nCollected Information:");
-    println!("Network: {:?}", network);
-    println!("Block Height: {}", tx_height);
+    println!("Network: {network:?}");
+    println!("Block Height: {tx_height}");
     println!("Transaction Hash: {}", tx_hash.trim());
     match selected_data {
         SelectedData::All => println!("Data: All data\n"),
         SelectedData::RangeOfData => {
-            println!("Data: Range (offset & end: {:?})\n", offsets_and_sizes)
+            println!("Data: Range (offset & end: {offsets_and_sizes:?})\n")
         }
         SelectedData::Erc20TransferData => println!("Data: ERC 20 Transfer Data)\n"),
         SelectedData::NativeTokenTransferData => println!("Data: Native Token Transfer Data)\n"),

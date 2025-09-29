@@ -99,7 +99,7 @@ pub mod pallet {
                 );
                 //check that no dublicate chain name is added
                 if ChainIdAndNameToUniqKey::<T>::contains_key(*chain_id, chain_name.clone()) {
-                    panic!("Duplicate chain name found in genesis config. Chain ID: {:?}, Chain Name: {:?}", chain_id, chain_name);
+                    panic!("Duplicate chain name found in genesis config. Chain ID: {chain_id:?}, Chain Name: {chain_name:?}");
                 }
                 ChainIdAndNameToUniqKey::<T>::insert(*chain_id, chain_name.clone(), chain_key);
                 chain_key = chain_key

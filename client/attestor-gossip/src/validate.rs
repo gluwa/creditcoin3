@@ -96,7 +96,7 @@ where
             Some(digest) => digest,
             None => {
                 // If no last digest is found, assume genesis block
-                info!(target: LOG_TARGET, "📝 No last digest or checkpoint found for block hash: {:?}, assuming genesis block", block_hash);
+                info!(target: LOG_TARGET, "📝 No last digest or checkpoint found for block hash: {block_hash:?}, assuming genesis block");
                 H256::zero()
             }
         };
@@ -142,11 +142,11 @@ where
                 // Check if we have the last_block_digest in storage
                 let exists = runtime.contains_digest(block_hash, chain_key, last_block_digest)?;
                 if !exists {
-                    error!(target: LOG_TARGET, "❌ Continuity proof tail prev digest mismatch, expected {:?}, got {:?}, and we don't have it in storage", last_block_digest, block_prev_digest);
+                    error!(target: LOG_TARGET, "❌ Continuity proof tail prev digest mismatch, expected {last_block_digest:?}, got {block_prev_digest:?}, and we don't have it in storage");
                     return Err(Error::InvalidAttestationContinuityProof);
                 } else {
                     last_block_digest = block_prev_digest;
-                    debug!(target: LOG_TARGET, "📝 Continuity proof tail prev digest mismatch, expected {:?}, got {:?}, but we have it in storage, continuing", last_block_digest, block_prev_digest);
+                    debug!(target: LOG_TARGET, "📝 Continuity proof tail prev digest mismatch, expected {last_block_digest:?}, got {block_prev_digest:?}, but we have it in storage, continuing");
                 }
             }
         }
@@ -161,9 +161,9 @@ where
             // Check if the last block digest matches the previous digest of the current block
             // This to ensure that the continuity proof is valid
             if last_block_digest == block_prev_digest {
-                debug!(target: LOG_TARGET, "📝 Continuity proof continues with block {:?}", block);
+                debug!(target: LOG_TARGET, "📝 Continuity proof continues with block {block:?}");
             } else {
-                error!(target: LOG_TARGET, "❌ Continuity proof invalid, expected {:?}, got {:?}, block: {:?}", last_block_digest, block_prev_digest, block);
+                error!(target: LOG_TARGET, "❌ Continuity proof invalid, expected {last_block_digest:?}, got {block_prev_digest:?}, block: {block:?}");
                 return Err(Error::InvalidAttestationContinuityProof);
             }
             // Update the last block digest to the current block's digest
@@ -192,7 +192,7 @@ where
             .ok_or(Error::NotAnAttestor(attestation.attestor_id()))?;
 
         let bls_pubkey = PublicKey::from_bytes(&bls_pubkey[..]).map_err(|e| {
-            error!(target: LOG_TARGET, "📝 invalid bls signature: {:?}", e);
+            error!(target: LOG_TARGET, "📝 invalid bls signature: {e:?}");
             Error::InvalidBlsSignature
         })?;
 
@@ -237,11 +237,11 @@ where
         )?;
 
         if !is_included {
-            warn!(target: LOG_TARGET, "📝 Attestor {:?} not eligible", attestor_id);
+            warn!(target: LOG_TARGET, "📝 Attestor {attestor_id:?} not eligible");
             return Err(Error::AttestorNotEligible(attestor_id));
         }
 
-        debug!(target: LOG_TARGET, "📝 Attestor {:?} selected ✅", attestor_id);
+        debug!(target: LOG_TARGET, "📝 Attestor {attestor_id:?} selected ✅");
         Ok(())
     }
 }

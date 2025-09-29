@@ -34,7 +34,7 @@ pub fn run_verifier(
     // Write proof to a temporary JSON file
     let temp_file_path = write_proof_to_temp_file(&proof)?;
 
-    debug!("Created temp file with proof at: {}", temp_file_path);
+    debug!("Created temp file with proof at: {temp_file_path}");
 
     let proof: StoneProofJson = serde_json::from_slice(&proof)?;
 
@@ -69,10 +69,7 @@ pub fn run_verifier(
 
     let cairo_verifier_output =
         CairoVerifierOutput::try_from(stone_proof.proof()).map_err(|e| {
-            error!(
-                "Failed to convert StoneProof to CairoVerifierOutput: {:?}",
-                e
-            );
+            error!("Failed to convert StoneProof to CairoVerifierOutput: {e:?}",);
             VerifierError::CairoVerifierOutputConversionError(e)
         })?;
 
@@ -88,12 +85,12 @@ pub fn run_verifier(
         Err(e) => return Err(VerifierError::QueryValidationError(e)),
     }
 
-    debug!("stark program authenticated with metadata: {:?}", metadata);
+    debug!("stark program authenticated with metadata: {metadata:?}");
 
     // Execute the verifier command
     // WARNING: binary must be in $PATH and/or $PATH must be configured accordingly
     let output = Command::new("cpu_air_verifier")
-        .arg(format!("--in_file={}", temp_file_path))
+        .arg(format!("--in_file={temp_file_path}"))
         .stdout(Stdio::piped())
         .output()?;
 
@@ -166,7 +163,7 @@ pub fn validate_query_against_proof(
                 let local_offset_hash = match result_segments::hash_layout_segments(&query) {
                     Ok(hash) => hash,
                     Err(e) => {
-                        error!("Failed to hash layout segments: {:?}", e);
+                        error!("Failed to hash layout segments: {e:?}");
                         return Err(FailedToHashLayoutsegments(e.to_string()));
                     }
                 };
@@ -442,10 +439,7 @@ pub mod tests {
 
         CairoVerifierOutput::try_from(stone_proof.proof())
             .map_err(|e| {
-                error!(
-                    "Failed to convert StoneProof to CairoVerifierOutput: {:?}",
-                    e
-                );
+                error!("Failed to convert StoneProof to CairoVerifierOutput: {e:?}",);
                 VerifierError::CairoVerifierOutputConversionError(e)
             })
             .unwrap()

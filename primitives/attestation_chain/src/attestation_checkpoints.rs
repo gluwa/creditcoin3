@@ -498,7 +498,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        println!("{}", checkpoints);
+        println!("{checkpoints}");
     }
 
     #[test]
@@ -524,7 +524,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        println!("{}", checkpoints);
+        println!("{checkpoints}");
     }
 
     #[test]
@@ -541,7 +541,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        println!("{}", checkpoints);
+        println!("{checkpoints}");
     }
 
     #[test]
@@ -559,7 +559,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        println!("{}", checkpoints);
+        println!("{checkpoints}");
     }
 
     #[test]
@@ -595,7 +595,7 @@ mod tests {
             checkpoints_after.stabilized_head()
         );
         assert_eq!(checkpoints_before.head(), checkpoints_after.head());
-        println!("{}", checkpoints_after);
+        println!("{checkpoints_after}");
         println!("head: {:?}", checkpoints_after.head());
     }
 
@@ -627,6 +627,6 @@ mod tests {
                 .unwrap();
         let stabilized_after = from_file.stabilized.clone();
         assert_eq!(stabilized_before, stabilized_after);
-        println!("{}", checkpoints);
+        println!("{checkpoints}");
     }
 }

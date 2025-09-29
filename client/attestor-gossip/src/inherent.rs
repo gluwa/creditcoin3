@@ -131,7 +131,7 @@ where
 
         // Retrieve the latest attestation if available
         let mut provider = self.0.lock().map_err(|e| {
-            error!("error acquiring attestation inherent provider lock {:?}", e);
+            error!("error acquiring attestation inherent provider lock {e:?}");
             sp_inherents::Error::FatalErrorReported
         })?;
 
@@ -154,7 +154,7 @@ where
         let error = InherentError::decode(&mut error).ok()?;
 
         if let InherentError::Duplicate(digest) = error {
-            info!(target: LOG_TARGET, "📝 Attestation inherent with digest {:?} already included on chain, skipping (in try handle error)", digest);
+            info!(target: LOG_TARGET, "📝 Attestation inherent with digest {digest:?} already included on chain, skipping (in try handle error)");
             // prune attestation with digest from provider data so it doesnt get resubmitted
             let mut provider = self.0.lock().unwrap();
             provider.remove_by_digest(digest);
@@ -162,6 +162,6 @@ where
 
         error!(target: LOG_TARGET, "📝 Get inherent error: {:?}", error);
 
-        Some(Err(Error::Application(Box::from(format!("{:?}", error)))))
+        Some(Err(Error::Application(Box::from(format!("{error:?}")))))
     }
 }

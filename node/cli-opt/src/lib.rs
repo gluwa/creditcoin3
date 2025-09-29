@@ -32,8 +32,7 @@ impl FromStr for EthApi {
             "trace" => Self::Trace,
             _ => {
                 return Err(format!(
-                    "`{}` is not recognized as a supported Ethereum Api",
-                    s
+                    "`{s}` is not recognized as a supported Ethereum Api"
                 ))
             }
         })

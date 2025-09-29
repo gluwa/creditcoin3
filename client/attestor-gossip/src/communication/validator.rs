@@ -205,7 +205,7 @@ where
                 self.verify_signature(&att)
             }
             Err(err) => {
-                error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {:?}", err);
+                error!(target: LOG_TARGET, "📝 Error decoding block hash in message: {err:?}");
                 let bytes = raw.len().min(i32::MAX as usize) as i32;
                 let cost = ReputationChange::new(
                     bytes.saturating_mul(cost::PER_UNDECODABLE_BYTE),
@@ -218,7 +218,7 @@ where
         match action {
             Action::Keep(topic, cb) => {
                 self.report(*sender, cb);
-                debug!(target: LOG_TARGET, "📝 Broadcasting message for topic {:?}", topic);
+                debug!(target: LOG_TARGET, "📝 Broadcasting message for topic {topic:?}");
                 context.broadcast_message(topic, data.to_vec(), false);
                 ValidationResult::ProcessAndKeep(topic)
             }
@@ -240,7 +240,7 @@ where
 
                     let expired = filter.consider_vote(round, msg.epoch) != Consider::Accept;
 
-                    debug!(target: LOG_TARGET, "📝 Vote for round #{:?} expired: {}", round, expired);
+                    debug!(target: LOG_TARGET, "📝 Vote for round #{round:?} expired: {expired}");
                     expired
                 }
                 Err(_) => true,
@@ -284,7 +284,7 @@ where
                     let round = msg.round();
 
                     let allowed = filter.consider_vote(round, msg.epoch) == Consider::Accept;
-                    debug!(target: LOG_TARGET, "📝 Vote for round #{:?} allowed: {}", round, allowed);
+                    debug!(target: LOG_TARGET, "📝 Vote for round #{round:?} allowed: {allowed}");
                     allowed
                 }
                 Err(_) => false,

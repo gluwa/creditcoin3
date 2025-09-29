@@ -19,8 +19,8 @@ async fn test_blockscout_sepolia_abi_retrieval() {
     };
     let result = abi_provider.get_abi(address).await;
     match result {
-        Ok(abi) => println!("ABI: {:?}", abi),
-        Err(error) => panic!("Error: {:?}", error),
+        Ok(abi) => println!("ABI: {abi:?}"),
+        Err(error) => panic!("Error: {error:?}"),
     }
 }
 
@@ -36,8 +36,8 @@ async fn test_blockscout_eth_abi_retrieval() {
     };
     let result = abi_provider.get_abi(address).await;
     match result {
-        Ok(abi) => println!("ABI: {:?}", abi),
-        Err(error) => panic!("Error: {:?}", error),
+        Ok(abi) => println!("ABI: {abi:?}"),
+        Err(error) => panic!("Error: {error:?}"),
     }
 }
 

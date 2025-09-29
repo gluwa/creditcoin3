@@ -108,8 +108,7 @@ async fn get_attestor_best_block_height_returns_an_error_when_no_best_block_foun
     assert!(
         err.to_string()
             .contains("No last digest found for chain key 2"),
-        "Unexpected error: {}",
-        err
+        "Unexpected error: {err}"
     );
 
     Ok(())
@@ -212,7 +211,7 @@ fn create_message_returns_a_chain_status_and_group_notification_when_slack_group
         slack_alert_group,
     );
 
-    println!("{:?}", result);
+    println!("{result:?}");
 
     assert_eq!(expected_result, result);
 }
@@ -247,7 +246,7 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
         slack_alert_group,
     );
 
-    println!("{:?}", result);
+    println!("{result:?}");
 
     assert_eq!(expected_result, result);
 }
@@ -282,7 +281,7 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
         slack_alert_group,
     );
 
-    println!("{:?}", result);
+    println!("{result:?}");
 
     assert_eq!(expected_result, result);
 }
@@ -317,7 +316,7 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
         slack_alert_group,
     );
 
-    println!("{:?}", result);
+    println!("{result:?}");
 
     assert_eq!(expected_result, result);
 }
