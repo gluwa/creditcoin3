@@ -58,7 +58,7 @@ jobs:
 
       - name: Find previous runId
         id: prev-runId
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             core.info(`Current execution=${context.runId}. Getting latest executions ...`);
