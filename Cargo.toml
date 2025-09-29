@@ -17,6 +17,7 @@ members = [
     "common/*",
     "attestor_zombienet",
     "query-cli",
+    "usc_audit_automation",
 ]
 resolver = "2"
 
@@ -38,7 +39,7 @@ anyhow = { version = "1.0.68", default-features = false }
 async-trait = { version = "0.1.42" }
 axum = "0.8"
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
-clap = { version = "4.5.3", features = ["derive"] }
+clap = { version = "4.5.3", features = ["derive", "env"] }
 derive_more = "0.99.17"
 env_logger = "0.11"
 environmental = { version = "1.1.4", default-features = false }
@@ -61,7 +62,7 @@ parity-scale-codec = { version = "3.6", default-features = false, features = [
 parking_lot = "0.12.1"
 paste = "1.0.14"
 primitive-types = "0.12.1"
-reqwest = { version = "0.12", features = ["multipart"] }
+reqwest = { version = "0.12", features = ["multipart", "json"] }
 scale-info = { version = "2.11", default-features = false, features = [
     "derive",
 ] }

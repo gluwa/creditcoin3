@@ -1,0 +1,9 @@
+# Global Sanities settings
+slack_webhook_url = "SLACK_URL"
+slack_alert_group = "GROUP_TO_ALERT_ID"
+log_verbose = false
+
+[[targets]]
+usc_network_name = ""
+usc_metrics_url = ""
+ethereum_rpc_url = ""

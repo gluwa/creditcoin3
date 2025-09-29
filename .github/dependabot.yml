@@ -82,6 +82,7 @@ updates:
       - "/query-cli"
       - "/runtime"
       - "/runtime/generate-bags"
+      - "/usc_audit_automation"
     groups:
       prod-dependencies:
         dependency-type: "production"

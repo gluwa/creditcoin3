@@ -1,0 +1,76 @@
+name: Creditcoin USC Audit Automation Check
+
+"on":
+  schedule:
+    - cron: "*/5 * * * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  usc-audit-automation-build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      # use cache from previous build jobs
+      # WARNING: always before actions/download-artifact
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build USC Audit Automation release binary
+        run: cargo build --release --package  usc_audit_automation
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: usc_audit_automation
+          path: target/release/usc_audit_automation
+          if-no-files-found: error
+
+  usc-audit:
+    runs-on: ubuntu-24.04
+    needs: usc-audit-automation-build
+
+    strategy:
+      matrix:
+        network: [Devnet, Testnet]
+
+    steps:
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: usc_audit_automation
+          path: target/release
+
+      - name: Restore executable permissions
+        run: |
+          chmod a+x ./target/release/usc_audit_automation
+
+      - name: Create Config File
+        env:
+          AUDIT_CONFIG_TOML: >-
+            ${{
+              (matrix.network == 'Devnet' && secrets.USC_DEVNET_AUDIT_AUTOMATION_CONFIG_TOML) ||
+              (matrix.network == 'Testnet' && secrets.USC_TESTNET_AUDIT_AUTOMATION_CONFIG_TOML)
+            }}
+        run: |
+          echo "$AUDIT_CONFIG_TOML" > config.toml
+
+      - name: Run USC Audit Automation
+        run: |
+          ./target/release/usc_audit_automation --config-file config.toml
