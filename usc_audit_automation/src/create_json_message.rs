@@ -60,7 +60,8 @@ pub fn create_json_message(
     // Optional secondary alert (only when exceeded and a group is provided)
     let secondary = match slack_alert_group {
         Some(group) if exceeded => {
-            let alert_text = format!("<@{group}> Current block difference exceeds threshold!");
+            let alert_text =
+                format!("<!subteam^{group}> Current block difference exceeds threshold!");
             Some(slack_payload(alert_text, ICON_ALERT))
         }
         _ => None,

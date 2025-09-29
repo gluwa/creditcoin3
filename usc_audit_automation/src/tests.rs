@@ -201,7 +201,7 @@ fn create_message_returns_a_chain_status_and_group_notification_when_slack_group
         Some(json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":rotating_light:",
-            "text": format!("{} Current block difference exceeds threshold!", "<@TEST_GROUP>".to_string())
+            "text": format!("{} Current block difference exceeds threshold!", "<!subteam^TEST_GROUP>".to_string())
         })),
     );
 

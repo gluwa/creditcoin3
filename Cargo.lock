@@ -7015,7 +7015,7 @@ dependencies = [
  "lalrpop-util",
  "petgraph",
  "regex",
- "regex-syntax",
+ "regex-syntax 0.8.5",
  "string_cache",
  "term",
  "tiny-keccak",
@@ -7029,7 +7029,7 @@ version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "507460a910eb7b32ee961886ff48539633b788a36b65692b95f225b844c82553"
 dependencies = [
- "regex-automata",
+ "regex-automata 0.4.9",
 ]
 
 [[package]]
@@ -16550,7 +16550,6 @@ dependencies = [
  "futures 0.3.31",
  "mockall 0.11.4",
  "num-format",
- "regex",
  "reqwest 0.12.15",
  "serde",
  "serde_json",
