@@ -17,7 +17,7 @@ services:
             retries: 5
 
     subquery-node:
-        image: subquerynetwork/subql-node-substrate:v6.3.3
+        image: subquerynetwork/subql-node-substrate:v6.3.5
         depends_on:
             'postgres':
                 condition: service_healthy
@@ -49,7 +49,7 @@ services:
             retries: 10
 
     graphql-engine:
-        image: subquerynetwork/subql-query:v2.23.5
+        image: subquerynetwork/subql-query:v2.23.6
         ports:
             - 3000:3000
         depends_on:
