@@ -112,32 +112,7 @@ pub async fn provide_unprocessed_queries(
     subscribe_query_submissions(eth_client, query_channel).await
 }
 
-pub async fn submit_proof(eth_client: &Client, query: Query, proof: Vec<u8>) -> Result<String> {
-    let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-    debug!(
-        "📝 Submitting proof for query {:?}, chain id {}",
-        query.id(),
-        chain_id
-    );
-
-    // Get the deployment artifact
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
-
-    // Submit the proof
-    let tx_hash = artifact
-        .contract
-        .submit_query_proof(eth_client, query.id().0.into(), proof)
-        .await?;
-
-    info!(
-        "✅ Proof submitted successfully for query: {:?}, tx_hash: {}",
-        query.id(),
-        tx_hash
-    );
-    Ok(tx_hash.to_string())
-}
-
-/// Submit proof by `QueryId` directly, used when resuming pending light proving jobs
+/// Submit proof by `QueryId` directly
 pub async fn submit_proof_by_id(
     eth_client: &Client,
     query_id: QueryId,
@@ -145,7 +120,7 @@ pub async fn submit_proof_by_id(
 ) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
     debug!(
-        "📝 Submitting proof for resumed query {:?}, chain id {}",
+        "📝 Submitting proof for query {:?}, chain id {}",
         query_id, chain_id
     );
 
@@ -156,7 +131,7 @@ pub async fn submit_proof_by_id(
         .await?;
 
     info!(
-        "✅ Proof submitted successfully for resumed query: {:?}, tx_hash: {}",
+        "✅ Proof submitted successfully for query: {:?}, tx_hash: {}",
         query_id, tx_hash
     );
     Ok(tx_hash.to_string())

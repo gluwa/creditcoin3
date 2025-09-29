@@ -244,7 +244,7 @@ pub async fn get_pending_request_query_ids(
 
     let response = client
         .get(&url)
-        .header(ACCEPT, "*/*")
+        .header(ACCEPT, "application/json")
         .send()
         .await
         .map_err(|e| Error::ReqwestSendError(e.to_string()))?;

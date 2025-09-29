@@ -33,7 +33,7 @@ use config::Config;
 pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
 
 /// Type for managing light proving queries
-type LightProverQueries = FuturesUnordered<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>>;
+type LightProverQueries = FuturesUnordered<JoinHandle<(H256, Result<Vec<u8>, LightProvingError>)>>;
 
 /// `ChainName` type
 pub type ChainName = String;
@@ -194,13 +194,9 @@ impl Server {
         let (queries_to_process_sender, mut queries_to_process_receiver) =
             mpsc::unbounded_channel::<Query>();
 
-        // Channel to receive results for resumed light prover jobs
-        let (resumed_results_sender, mut resumed_results_receiver) =
-            mpsc::unbounded_channel::<(H256, Result<Vec<u8>, LightProvingError>)>();
-
         // If running in light prover mode, resume any pending jobs from the BE
         if self.is_light_prover_mode() {
-            self.resume_pending_light_prover_jobs(resumed_results_sender.clone())
+            self.resume_pending_light_prover_jobs(&mut light_prover_queries)
                 .await?;
         }
 
@@ -231,10 +227,6 @@ impl Server {
                 },
                 Some(result) = light_prover_queries.next() => {
                     self.handle_light_prover_poll_result(result).await?;
-                }
-                Some((resumed_query_id, resumed_result)) = resumed_results_receiver.recv() => {
-                    self.handle_resumed_light_prover_result(resumed_query_id, resumed_result)
-                        .await?;
                 }
                 Some(query_id) = proof_verified_event_receiver.recv() => {
                     // Only increment success metric if we have not seen this query proof before
@@ -468,7 +460,7 @@ impl Server {
                 query_id
             );
 
-            let _ = contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
+            let _ = contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof).await?;
             return Ok(());
         } else if let Either::Right(stone_proof_public_input) = r {
             info!("🔄 Handling external proof for query: {:?}", query_id);
@@ -487,7 +479,7 @@ impl Server {
                     key.as_ref(),
                 )
                 .await;
-                (query, proving_result)
+                (query_id, proving_result)
             }));
         }
 
@@ -549,7 +541,7 @@ impl Server {
             query_id
         );
 
-        contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
+        contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof).await?;
         Ok(())
     }
 
@@ -564,47 +556,6 @@ impl Server {
                 Err(anyhow!(e))
             }
         }
-    }
-
-    /// Handles result for resumed light prover job
-    /// If successful, submits the proof on chain
-    /// If failed, marks the query as invalid on chain
-    /// If the task failed, panics as this is a fatal error
-    async fn handle_resumed_light_prover_result(
-        &mut self,
-        resumed_query_id: H256,
-        resumed_result: Result<Vec<u8>, LightProvingError>,
-    ) -> Result<()> {
-        match resumed_result {
-            Ok(proof) => {
-                info!(
-                    "📝 Submitting proof for resumed query: {:?}",
-                    resumed_query_id
-                );
-                if let Err(e) =
-                    contract::submit_proof_by_id(&self.cc3_eth_client, resumed_query_id, proof)
-                        .await
-                {
-                    error!(
-                        "❌ Failed to submit proof for resumed query: {:?}, Error: {:?}",
-                        resumed_query_id, e
-                    );
-                    self.mark_query_as_invalid(resumed_query_id, e.to_string())
-                        .await?;
-                }
-            }
-            Err(e) => {
-                error!("❌ Resumed query processing failed, Error: {e:?}");
-                if let LightProvingError::ProofGenerationFailed = e {
-                    panic!("Resumed query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
-                } else {
-                    self.mark_query_as_invalid(resumed_query_id, e.to_string())
-                        .await?;
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// Cleans up the query from the internal memory after processing
@@ -642,7 +593,7 @@ impl Server {
     /// On startup, resume listening for any light prover jobs that are still pending on the BE
     async fn resume_pending_light_prover_jobs(
         &mut self,
-        results_sender: mpsc::UnboundedSender<(H256, Result<Vec<u8>, LightProvingError>)>,
+        light_prover_queries: &mut LightProverQueries,
     ) -> Result<()> {
         let Some(addr) = self.config.prover_be_socket_addr.clone() else {
             return Ok(());
@@ -680,17 +631,15 @@ impl Server {
             self.received_query_ids.insert(query_id);
             self.queued_light_proving_queries.insert(query_id);
 
-            let sender = results_sender.clone();
             let addr_clone = addr.clone();
             let id_hex = entry.id.clone();
 
-            tokio::spawn(async move {
+            light_prover_queries.push(task::spawn(async move {
                 let result =
                     query::external::poll_result_for_query_id(id_hex.as_str(), addr_clone.as_ref())
                         .await;
-                // Ignore send errors if receiver dropped
-                let _ = sender.send((query_id, result));
-            });
+                (query_id, result)
+            }));
         }
 
         Ok(())
