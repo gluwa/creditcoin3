@@ -54,7 +54,7 @@ impl SyncState {
         let time_elapsed_ms = now.duration_since(self.last_update_time).as_millis().max(1); // prevent div-by-zero
 
         if blocks_advanced > 0 {
-            let block_time_ms = time_elapsed_ms / blocks_advanced as u128;
+            let block_time_ms = time_elapsed_ms / u128::from(blocks_advanced);
 
             self.average_block_time_ms = (ALPHA_NUM * block_time_ms
                 + (ALPHA_DEN - ALPHA_NUM) * self.average_block_time_ms)
@@ -71,9 +71,9 @@ impl SyncState {
 
     /// Log current progress and ETA
     fn log_progress(&self) {
-        let blocks_done = (self.last_finalized_attested_header - self.initial_header) as u128;
-        let total_blocks = (self.target_header - self.initial_header) as u128;
-        let blocks_remaining = (self.target_header - self.last_finalized_attested_header) as u128;
+        let blocks_done = u128::from(self.last_finalized_attested_header - self.initial_header);
+        let total_blocks = u128::from(self.target_header - self.initial_header);
+        let blocks_remaining = u128::from(self.target_header - self.last_finalized_attested_header);
 
         if blocks_remaining <= REMAINING_BLOCKS_LOG_THRESHOLD {
             debug!("Sync is done, no need to log progress.");

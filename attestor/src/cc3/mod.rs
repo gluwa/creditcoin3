@@ -80,14 +80,14 @@ impl Client {
     }
 }
 
-impl<'a> Client {
+impl Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
     /// - `chain_id`: chain id of the source chain
     pub async fn new(
         url: impl Into<String> + Clone,
-        key: &'a str,
+        key: &str,
         chain_key: ChainKey,
         chain_id: ChainId,
     ) -> Result<Self, Error> {

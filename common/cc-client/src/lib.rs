@@ -91,11 +91,11 @@ pub struct Client {
     url: String,
 }
 
-impl<'a> Client {
+impl Client {
     /// Create a new instance of cc3 client
     /// - `url`: rpc url of a creditcoin node
     /// - `key`: secret phrase for a creditcoin key
-    pub async fn new(url: impl Into<String> + Clone, key: &'a str) -> Result<Self> {
+    pub async fn new(url: impl Into<String> + Clone, key: &str) -> Result<Self> {
         let secret_uri = SecretUri::from_str(key)?;
         let signing_keypair = Keypair::from_uri(&secret_uri)?;
 

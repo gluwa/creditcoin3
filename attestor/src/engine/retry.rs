@@ -131,8 +131,8 @@ pub fn jittered_backoff(attempt: u32) -> std::time::Duration {
     let base_ms: u64 = u64::try_from(base.as_millis()).unwrap_or(u64::MAX);
 
     // Integer jitter span: base_ms * (NUM / DEN), computed in u128 to avoid overflow
-    let span_u128 =
-        (base_ms as u128).saturating_mul(BACKOFF_JITTER_NUM as u128) / (BACKOFF_JITTER_DEN as u128);
+    let span_u128 = u128::from(base_ms).saturating_mul(u128::from(BACKOFF_JITTER_NUM))
+        / u128::from(BACKOFF_JITTER_DEN);
 
     // Clamp span to i64::MAX and materialize as i64 without lossy casts
     let span_i64: i64 = match i128::try_from(span_u128) {

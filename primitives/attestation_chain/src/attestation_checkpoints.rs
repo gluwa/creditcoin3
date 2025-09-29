@@ -43,7 +43,7 @@ impl AttestationCheckpoint {
     }
 }
 
-impl<'a> From<&'a Block> for AttestationCheckpoint {
+impl From<&Block> for AttestationCheckpoint {
     fn from(block: &Block) -> Self {
         Self {
             block_number: block.n(),

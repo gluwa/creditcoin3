@@ -19,7 +19,7 @@ pub trait JsonSerializable: Sized + Serialize + for<'de> Deserialize<'de> {
     fn try_from_file(fname: &str) -> anyhow::Result<Self> {
         let file = std::fs::File::open(fname)?;
 
-        file.lock_shared()?;
+        FileExt::lock_shared(&file)?;
 
         Ok(serde_json::from_reader::<_, Self>(file)?)
     }
