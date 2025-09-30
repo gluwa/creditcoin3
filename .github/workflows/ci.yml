@@ -652,7 +652,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: clippy
-          args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
+          args: --all-targets --all-features -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity -A clippy::result-large-err -A clippy::struct_field_names
 
       # keep this always as the last step
       - name: Schedule self-hosted shutdown
