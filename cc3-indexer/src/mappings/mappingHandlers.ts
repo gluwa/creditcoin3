@@ -488,7 +488,7 @@ export async function handleEventBonded(event: SubstrateEvent): Promise<void> {
         date: event.block.timestamp,
         whoId: from.toString(),
         stashId: stash.toString(),
-        amount: (amount as Balance).toBigInt(),
+        amount: (amount as unknown as Balance).toBigInt(),
     });
 
     await bonded.save();
@@ -514,7 +514,7 @@ export async function handleEventUnbonded(event: SubstrateEvent): Promise<void> 
         date: event.block.timestamp,
         whoId: from.toString(),
         stashId: stash.toString(),
-        amount: (amount as Balance).toBigInt(),
+        amount: (amount as unknown as Balance).toBigInt(),
     });
 
     await unbonded.save();
@@ -540,7 +540,7 @@ export async function handleEventWithdrawn(event: SubstrateEvent): Promise<void>
         date: event.block.timestamp,
         whoId: from.toString(),
         stashId: stash.toString(),
-        amount: (amount as Balance).toBigInt(),
+        amount: (amount as unknown as Balance).toBigInt(),
     });
 
     await withdrawn.save();
@@ -731,14 +731,14 @@ export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent
         blockNumber,
         date: event.block.timestamp,
         whoId: from.toString(),
-        amount: (amount as Balance).toBigInt(),
+        amount: (amount as unknown as Balance).toBigInt(),
     });
 
     // Get attestationChainData
     const chainKeyNumber = BigInt(chainKey.toString());
     const chainData = await getChainData(chainKeyNumber);
     if (chainData) {
-        chainData.minBondRequirement = (amount as Balance).toBigInt();
+        chainData.minBondRequirement = (amount as unknown as Balance).toBigInt();
         await chainData?.save();
     }
 
