@@ -112,22 +112,6 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
             },
             {
                 kind: SubstrateHandlerKind.Event,
-                handler: 'handleEventRewardClaimed',
-                filter: {
-                    module: 'attestation',
-                    method: 'RewardClaimed',
-                },
-            },
-            {
-                kind: SubstrateHandlerKind.Event,
-                handler: 'handleEventRewardPaid',
-                filter: {
-                    module: 'attestation',
-                    method: 'RewardPaid',
-                },
-            },
-            {
-                kind: SubstrateHandlerKind.Event,
                 handler: 'handleEventAttestorActivated',
                 filter: {
                     module: 'attestation',
@@ -148,14 +132,6 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 filter: {
                     module: 'attestation',
                     method: 'MinBondRequirementUpdated',
-                },
-            },
-            {
-                kind: SubstrateHandlerKind.Event,
-                handler: 'handleEventChainRewardUpdated',
-                filter: {
-                    module: 'attestation',
-                    method: 'ChainRewardUpdated',
                 },
             },
             {

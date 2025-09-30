@@ -30,7 +30,6 @@ mod benchmarks {
             None,
             None,
             None,
-            None,
         )
     }
 
@@ -44,7 +43,6 @@ mod benchmarks {
             root_origin.clone(),
             chain_id,
             chain_name,
-            None,
             None,
             None,
             None,

@@ -6,7 +6,7 @@ use sp_runtime::{BoundedVec, RuntimeDebug, Saturating};
 use sp_std::vec::Vec;
 
 use super::pallet::*;
-use crate::{BalanceOf, Config, Error, RewardDestination};
+use crate::{BalanceOf, Config, Error};
 
 pub const BOND_LOCK_ID: LockIdentifier = *b"b0ndl0ck";
 
@@ -86,26 +86,13 @@ impl<T: Config> AttestorLedger<T> {
     }
 
     /// Bonds a ledger.
-    ///
-    /// It sets the reward preferences for the bonded stash.
-    pub(crate) fn bond(self, payee: RewardDestination<T::AccountId>) -> Result<(), Error<T>> {
+    pub(crate) fn bond(self) -> Result<(), Error<T>> {
         if <Ledger<T>>::contains_key(&self.stash) {
             return Err(Error::<T>::AlreadyBonded);
         }
 
         <Ledger<T>>::insert(&self.stash, &self);
-        <Payee<T>>::insert(&self.stash, payee);
         self.update()
-    }
-
-    /// Sets the ledger Payee.
-    pub(crate) fn set_payee(self, payee: RewardDestination<T::AccountId>) -> Result<(), Error<T>> {
-        if !<Ledger<T>>::contains_key(&self.stash) {
-            return Err(Error::<T>::NotStash);
-        }
-
-        <Payee<T>>::insert(&self.stash, payee);
-        Ok(())
     }
 
     /// Remove entries from `unlocking` that are sufficiently old and reduce the
@@ -144,7 +131,6 @@ impl<T: Config> AttestorLedger<T> {
 
         T::Currency::remove_lock(BOND_LOCK_ID, stash);
         <Ledger<T>>::remove(stash);
-        <Payee<T>>::remove(stash);
 
         Ok(())
     }

@@ -18,7 +18,6 @@ pub trait OnRegisterChainProvider {
         target_sample_size: Option<u32>,
         chain_attestation_interval: Option<u64>,
         attestation_checkpoint_interval: Option<u32>,
-        chain_reward: Option<u128>,
         max_attestors: Option<u32>,
         max_invulnerables: Option<u32>,
         attestation_chain_genesis_block_number: Option<u64>,

@@ -69,7 +69,6 @@ describe('show-stash-balance', () => {
         expect(result.stdout).toContain('ActiveStake');
         expect(result.stdout).toContain('Unbonding');
         expect(result.stdout).toContain('CanWithdraw');
-        expect(result.stdout).toContain('UnclaimedRewards');
 
         // teardown
         await api.disconnect();

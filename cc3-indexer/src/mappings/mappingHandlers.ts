@@ -11,12 +11,9 @@ import {
     Bonded,
     Unbonded,
     Withdrawn,
-    RewardClaimed,
-    RewardPaid,
     AttestorActivated,
     AttestorChilled,
     MinBondRequirementUpdated,
-    ChainRewardUpdated,
     CheckpointsCleared,
     ClearedStorageForRemovedChain,
     AttestationIntervalChanged,
@@ -126,9 +123,9 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     const newChain = AttestationChainData.create({
         id: chainKeyNumber.toString(),
         chainKey: chainKeyNumber,
+        chainReward: BigInt(0),
         attestationInterval: BigInt(10),
         checkpointInterval: 10,
-        chainReward: BigInt(0),
         lastAttestedDigest: '',
         lastAttestedHeaderNumber: BigInt(0),
         lastCheckpointHeaderNumber: BigInt(0),
@@ -549,61 +546,6 @@ export async function handleEventWithdrawn(event: SubstrateEvent): Promise<void>
     await withdrawn.save();
 }
 
-export async function handleEventRewardClaimed(event: SubstrateEvent): Promise<void> {
-    logger.info(`New RewardClaimed event found at block ${event.block.block.header.number.toString()}`);
-
-    const {
-        event: {
-            data: [stash, amount],
-        },
-    } = event;
-
-    const from = event.extrinsic?.extrinsic.signer;
-    assert(from, 'Signer is missing');
-
-    const blockNumber = event.block.block.header.number.toBigInt();
-
-    const rewardClaimed = RewardClaimed.create({
-        id: `${blockNumber}-${event.idx}`,
-        blockNumber,
-        date: event.block.timestamp,
-        whoId: from.toString(),
-        stashId: stash.toString(),
-        amount: (amount as Balance).toBigInt(),
-    });
-
-    await rewardClaimed.save();
-}
-
-export async function handleEventRewardPaid(event: SubstrateEvent): Promise<void> {
-    logger.info(`New RewardPaid event found at block ${event.block.block.header.number.toString()}`);
-
-    const {
-        event: {
-            data: [chainKey, stash, amount],
-        },
-    } = event;
-
-    const from = event.extrinsic?.extrinsic.signer;
-    assert(from, 'Signer is missing');
-
-    const blockNumber = event.block.block.header.number.toBigInt();
-
-    const chainKeyNumber = BigInt(chainKey.toString());
-
-    const rewardPaid = RewardPaid.create({
-        id: `${blockNumber}-${event.idx}`,
-        blockNumber,
-        date: event.block.timestamp,
-        whoId: from.toString(),
-        chainKey: chainKeyNumber,
-        stashId: stash.toString(),
-        amount: (amount as Balance).toBigInt(),
-    });
-
-    await rewardPaid.save();
-}
-
 export async function handleEventBlockAttested(event: SubstrateEvent): Promise<void> {
     logger.info(`Block Attested event found at block ${event.block.block.header.number.toString()}`);
 
@@ -801,40 +743,6 @@ export async function handleEventMinBondRequirementUpdated(event: SubstrateEvent
     }
 
     await minBondRequirementUpdated.save();
-}
-
-export async function handleEventChainRewardUpdated(event: SubstrateEvent): Promise<void> {
-    logger.info(`New ChainRewardUpdated event found at block ${event.block.block.header.number.toString()}`);
-
-    const {
-        event: {
-            data: [chainKey, amount],
-        },
-    } = event;
-
-    const from = event.extrinsic?.extrinsic.signer;
-    assert(from, 'Signer is missing');
-
-    const blockNumber = event.block.block.header.number.toBigInt();
-
-    const chainKeyNumber = BigInt(chainKey.toString());
-
-    const chainRewardUpdated = ChainRewardUpdated.create({
-        id: `${blockNumber}-${event.idx}`,
-        blockNumber,
-        date: event.block.timestamp,
-        whoId: from.toString(),
-        amount: (amount as Balance).toBigInt(),
-        chainKey: chainKeyNumber,
-    });
-
-    const data = await getChainData(chainKeyNumber);
-    if (data) {
-        data.chainReward = (amount as Balance).toBigInt();
-        await data.save();
-    }
-
-    await chainRewardUpdated.save();
 }
 
 export async function handleEventCheckpointsCleared(event: SubstrateEvent): Promise<void> {

@@ -72,7 +72,6 @@ declare module '@polkadot/api-base/types/events' {
             AttestorUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
             BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
             Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
-            ChainRewardUpdated: AugmentedEvent<ApiType, [u64, u128]>;
             CheckpointIntervalChanged: AugmentedEvent<ApiType, [u64, u32]>;
             CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
             /**
@@ -97,16 +96,6 @@ declare module '@polkadot/api-base/types/events' {
             MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
             PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
             PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
-            RewardClaimed: AugmentedEvent<
-                ApiType,
-                [stash: AccountId32, amount: u128],
-                { stash: AccountId32; amount: u128 }
-            >;
-            RewardPaid: AugmentedEvent<
-                ApiType,
-                [chainKey: u64, stash: AccountId32, amount: u128],
-                { chainKey: u64; stash: AccountId32; amount: u128 }
-            >;
             TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
             Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
             /**

@@ -36,7 +36,6 @@ declare module '@polkadot/api-base/types/errors' {
              * The chain is not supported
              **/
             ChainNotSupported: AugmentedError<ApiType>;
-            ChainRewardNotFound: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
             /**
@@ -62,7 +61,6 @@ declare module '@polkadot/api-base/types/errors' {
             MaxInvulnerablesCannotBeChanged: AugmentedError<ApiType>;
             NoMoreChunks: AugmentedError<ApiType>;
             NoPreviousDigest: AugmentedError<ApiType>;
-            NoRewards: AugmentedError<ApiType>;
             NoSupportedChains: AugmentedError<ApiType>;
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;

@@ -25,7 +25,6 @@ describe('initiateStoreAndDatabase()', () => {
                             chainKey,
                             attestationInterval,
                             checkpointInterval,
-                            chainReward,
                             maxSetSize,
                             targetSampleSize,
                             minBondRequirement,
@@ -55,11 +54,6 @@ describe('initiateStoreAndDatabase()', () => {
                     (await api.query.attestation.attestationCheckpointInterval(node.chainKey)) as U32
                 ).toNumber();
                 expect(node.checkpointInterval).toEqual(checkpointInterval);
-
-                const chainReward = ((await api.query.attestation.chainReward(node.chainKey)) as Option<U128>)
-                    .unwrap()
-                    .toBigInt();
-                expect(BigInt(node.chainReward)).toEqual(chainReward);
 
                 const maxAttestors = ((await api.query.attestation.maxAttestors(node.chainKey)) as U32).toNumber();
                 expect(node.maxSetSize).toEqual(maxAttestors);

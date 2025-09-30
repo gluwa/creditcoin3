@@ -42,8 +42,6 @@ async function showStashBalanceAction(options: OptionValues) {
         }
     }
 
-    const unclaimedRewardsStash = await api.query.attestation.accumulatedRewards(address);
-    const unclaimedRewardsStashValue = unclaimedRewardsStash.unwrapOrDefault();
     const balanceAll = await getBalancesAll(address, api);
 
     const table = new Table({});
@@ -56,7 +54,6 @@ async function showStashBalanceAction(options: OptionValues) {
         ['ActiveStake', toCTCString(active, 4)],
         ['Unbonding', toCTCString(new BN(unbondingAmount.toString()), 4)],
         ['CanWithdraw', toCTCString(new BN(canWithdraw.toString()), 4)],
-        ['UnclaimedRewards', toCTCString(new BN(unclaimedRewardsStashValue), 4)],
     );
 
     console.log(`Address: ${address}`);

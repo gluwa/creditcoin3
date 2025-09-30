@@ -341,28 +341,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(4))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
-	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
-	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::ChainReward` (r:0 w:1)
-	/// Proof: `Attestation::ChainReward` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_chain_reward() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `359`
-		//  Estimated: `3824`
-		// Minimum execution time: 21_520_000 picoseconds.
-		Weight::from_parts(27_290_000, 0)
-			.saturating_add(Weight::from_parts(0, 3824))
-			.saturating_add(T::DbWeight::get().reads(5))
-			.saturating_add(T::DbWeight::get().writes(3))
-	}
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -403,20 +381,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
-	/// Storage: `Attestation::Ledger` (r:1 w:0)
-	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Payee` (r:0 w:1)
-	/// Proof: `Attestation::Payee` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_payee() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `402`
-		//  Estimated: `3867`
-		// Minimum execution time: 18_100_000 picoseconds.
-		Weight::from_parts(18_500_000, 0)
-			.saturating_add(Weight::from_parts(0, 3867))
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
 	/// Storage: `Attestation::Ledger` (r:1 w:1)
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Staking::CurrentEra` (r:1 w:0)
@@ -436,32 +400,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(0, 4886))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
-	}
-	/// Storage: `Attestation::AccumulatedRewards` (r:1 w:1)
-	/// Proof: `Attestation::AccumulatedRewards` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Payee` (r:1 w:0)
-	/// Proof: `Attestation::Payee` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:1 w:1)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
-	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	fn claim_rewards() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `876`
-		//  Estimated: `4341`
-		// Minimum execution time: 57_800_000 picoseconds.
-		Weight::from_parts(69_260_000, 0)
-			.saturating_add(Weight::from_parts(0, 4341))
-			.saturating_add(T::DbWeight::get().reads(8))
-			.saturating_add(T::DbWeight::get().writes(5))
 	}
 	/// Storage: `Attestation::LastDigest` (r:1 w:0)
 	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)

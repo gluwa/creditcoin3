@@ -7,7 +7,7 @@ type AttestationChainData @entity {
     # The chain key of the attestation chain
     chainKey: BigInt! @index
     # Chain reward
-    chainReward: BigInt!
+    chainReward: BigInt! @deprecated(reason: "Attestor rewards have been phased out")
     # Minimum bond requirement
     minBondRequirement: BigInt!
     # Attestation interval
@@ -307,48 +307,6 @@ type Withdrawn @entity {
     stash: Account!
 }
 
-type RewardClaimed @entity {
-    """
-    id field is always required and must look like this
-    """
-    id: ID!
-
-    """
-    The block height when it happened
-    """
-    blockNumber: BigInt!
-
-    date: Date
-
-    who: Account!
-
-    amount: BigInt!
-
-    stash: Account!
-}
-
-type RewardPaid @entity {
-    """
-    id field is always required and must look like this
-    """
-    id: ID!
-
-    """
-    The block height when it happened
-    """
-    blockNumber: BigInt!
-
-    date: Date
-
-    who: Account!
-
-    chainKey: BigInt!
-
-    amount: BigInt!
-
-    stash: Account!
-}
-
 type AttestorActivated @entity {
     """
     id field is always required and must look like this
@@ -398,30 +356,6 @@ type MinBondRequirementUpdated @entity {
     New value of MinBondRequirementUpdated that was updated by root
     """
     amount: BigInt!
-    """
-    The block height of the transfer
-    """
-    blockNumber: BigInt!
-    """
-    The date of the transfer
-    """
-    date: Date
-
-    who: Account!
-}
-
-type ChainRewardUpdated @entity {
-    """
-    id field is always required and must look like this
-    """
-    id: ID!
-    """
-    New value of ChainRewardUpdated that was updated by root
-    """
-    amount: BigInt!
-
-    chainKey: BigInt!
-
     """
     The block height of the transfer
     """

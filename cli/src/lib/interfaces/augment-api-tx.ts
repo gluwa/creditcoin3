@@ -45,7 +45,6 @@ import type {
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     EthereumTransactionTransactionV2,
-    PalletAttestationPocRewardDestination,
     PalletBalancesAdjustmentDirection,
     PalletIdentityJudgement,
     PalletIdentityLegacyIdentityInfo,
@@ -107,7 +106,6 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
-            claimRewards: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
             commitAttestation: AugmentedSubmittable<
                 (
                     attestations:
@@ -170,13 +168,6 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u64]
             >;
-            setChainReward: AugmentedSubmittable<
-                (
-                    chainKey: u64 | AnyNumber | Uint8Array,
-                    reward: u128 | AnyNumber | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [u64, u128]
-            >;
             setMaxAttestors: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -197,18 +188,6 @@ declare module '@polkadot/api-base/types/submittable' {
                     minBondRequirement: u128 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u128]
-            >;
-            setPayee: AugmentedSubmittable<
-                (
-                    payee:
-                        | PalletAttestationPocRewardDestination
-                        | { Stash: any }
-                        | { Account: any }
-                        | { None: any }
-                        | string
-                        | Uint8Array,
-                ) => SubmittableExtrinsic<ApiType>,
-                [PalletAttestationPocRewardDestination]
             >;
             setTargetSampleSize: AugmentedSubmittable<
                 (
@@ -3046,24 +3025,12 @@ declare module '@polkadot/api-base/types/submittable' {
                     targetSampleSize: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     chainAttestationInterval: Option<u64> | null | Uint8Array | u64 | AnyNumber,
                     attestationCheckpointInterval: Option<u32> | null | Uint8Array | u32 | AnyNumber,
-                    chainReward: Option<u128> | null | Uint8Array | u128 | AnyNumber,
                     maxAttestors: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     maxInvulnerables: Option<u32> | null | Uint8Array | u32 | AnyNumber,
                     attestationChainGenesisBlockNumber: Option<u64> | null | Uint8Array | u64 | AnyNumber,
                     voteAcceptanceWindow: Option<u64> | null | Uint8Array | u64 | AnyNumber,
                 ) => SubmittableExtrinsic<ApiType>,
-                [
-                    u64,
-                    Text,
-                    Option<u32>,
-                    Option<u64>,
-                    Option<u32>,
-                    Option<u128>,
-                    Option<u32>,
-                    Option<u32>,
-                    Option<u64>,
-                    Option<u64>,
-                ]
+                [u64, Text, Option<u32>, Option<u64>, Option<u32>, Option<u32>, Option<u32>, Option<u64>, Option<u64>]
             >;
             removeChain: AugmentedSubmittable<
                 (

@@ -27,7 +27,6 @@ import type {
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
     PalletAttestationPocLedgerAttestorLedger,
-    PalletAttestationPocRewardDestination,
     PalletBagsListListBag,
     PalletBagsListListNode,
     PalletBalancesAccountData,
@@ -80,17 +79,6 @@ export type __QueryableStorageEntry<ApiType extends ApiTypes> = QueryableStorage
 declare module '@polkadot/api-base/types/storage' {
     interface AugmentedQueries<ApiType extends ApiTypes> {
         attestation: {
-            /**
-             * Map from all the stash account id's to the reward that they have earned.
-             *
-             * This is used to store the reward for each stash account.
-             **/
-            accumulatedRewards: AugmentedQuery<
-                ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<Option<u128>>,
-                [AccountId32]
-            > &
-                QueryableStorageEntry<ApiType, [AccountId32]>;
             activeAttestors: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<AccountId32>>,
@@ -156,17 +144,6 @@ declare module '@polkadot/api-base/types/storage' {
             chainAttestationInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
-                [u64]
-            > &
-                QueryableStorageEntry<ApiType, [u64]>;
-            /**
-             * Map from all supported chain keys to the chain rewards.
-             *
-             * This is used to store the reward for each chain.
-             **/
-            chainReward: AugmentedQuery<
-                ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u128>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
@@ -238,17 +215,6 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
-            /**
-             * Where the reward payment should be made. Keyed by stash.
-             *
-             * TWOX-NOTE: SAFE since `AccountId` is a secure hash.
-             **/
-            payee: AugmentedQuery<
-                ApiType,
-                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletAttestationPocRewardDestination>>,
-                [AccountId32]
-            > &
-                QueryableStorageEntry<ApiType, [AccountId32]>;
             pendingAttestationInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,

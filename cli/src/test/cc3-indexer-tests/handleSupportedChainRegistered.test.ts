@@ -1,4 +1,4 @@
-import { Option, U32, U64, U128 } from '@polkadot/types-codec';
+import { U32, U64, U128 } from '@polkadot/types-codec';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
@@ -36,7 +36,6 @@ describe('handleSupportedChainRegistered()', () => {
                     api.tx.supportedChains.registerChain(
                         newChainId,
                         newChainName,
-                        null,
                         null,
                         null,
                         null,
@@ -112,7 +111,6 @@ describe('handleSupportedChainRegistered()', () => {
                             chainKey,
                             attestationInterval,
                             checkpointInterval,
-                            chainReward,
                             lastAttestedDigest,
                             lastAttestedHeaderNumber,
                             lastCheckpointHeaderNumber,
@@ -140,11 +138,6 @@ describe('handleSupportedChainRegistered()', () => {
                     (await api.query.attestation.attestationCheckpointInterval(node.chainKey)) as U32
                 ).toNumber();
                 expect(node.checkpointInterval).toEqual(checkpointInterval);
-
-                const chainReward = ((await api.query.attestation.chainReward(node.chainKey)) as Option<U128>)
-                    .unwrap()
-                    .toBigInt();
-                expect(BigInt(node.chainReward)).toEqual(chainReward);
 
                 expect(node.lastAttestedDigest).toEqual('');
                 expect(BigInt(node.lastAttestedHeaderNumber)).toEqual(0n);

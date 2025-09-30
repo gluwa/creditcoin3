@@ -268,7 +268,6 @@ impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyReg
         _target_sample_size: Option<u32>,
         _chain_attestation_interval: Option<u64>,
         _attestation_checkpoint_interval: Option<u32>,
-        _chain_reward: Option<u128>,
         _max_attestors: Option<u32>,
         _max_invulnerables: Option<u32>,
         _attestation_chain_genesis_block_number: Option<u64>,

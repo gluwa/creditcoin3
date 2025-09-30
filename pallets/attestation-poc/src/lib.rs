@@ -34,7 +34,6 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::FullCodec;
-    use sp_runtime::traits::SaturatedConversion;
     use sp_staking::StakingInterface;
     use sp_std::collections::vec_deque::VecDeque;
     use sp_std::{fmt::Debug, vec::Vec};
@@ -47,17 +46,6 @@ pub mod pallet {
     pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
         <T as frame_system::Config>::AccountId,
     >>::PositiveImbalance;
-
-    /// A destination account for payment.
-    #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-    pub enum RewardDestination<AccountId> {
-        /// Pay into the stash account.
-        Stash,
-        /// Pay into a specified account.
-        Account(AccountId),
-        /// Receive no reward.
-        None,
-    }
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
@@ -148,10 +136,7 @@ pub mod pallet {
         fn set_min_bond_requirement() -> Weight;
         fn chill() -> Weight;
         fn attest() -> Weight;
-        fn set_payee() -> Weight;
         fn withdraw_unbonded() -> Weight;
-        fn set_chain_reward() -> Weight;
-        fn claim_rewards() -> Weight;
         fn on_initialize(a: u32) -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
@@ -300,13 +285,6 @@ pub mod pallet {
         T::DefaultMinBondRequirement::get().into()
     }
 
-    /// Where the reward payment should be made. Keyed by stash.
-    ///
-    /// TWOX-NOTE: SAFE since `AccountId` is a secure hash.
-    #[pallet::storage]
-    pub type Payee<T: Config> =
-        StorageMap<_, Twox64Concat, T::AccountId, RewardDestination<T::AccountId>, OptionQuery>;
-
     /// Map from all (unlocked) "controller" accounts to info regarding staking.
     ///
     /// Note: All the reads and mutations to this storage *MUST* be done through the methods exposed
@@ -314,22 +292,6 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn ledger)]
     pub type Ledger<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AttestorLedger<T>>;
-
-    /// Map from all supported chain keys to the chain rewards.
-    ///
-    /// This is used to store the reward for each chain.
-    #[pallet::storage]
-    #[pallet::getter(fn chain_reward)]
-    pub type ChainReward<T: Config> =
-        StorageMap<_, Blake2_128Concat, ChainKey, BalanceOf<T>, OptionQuery>;
-
-    /// Map from all the stash account id's to the reward that they have earned.
-    ///
-    /// This is used to store the reward for each stash account.
-    #[pallet::storage]
-    #[pallet::getter(fn accumulated_rewards)]
-    pub type AccumulatedRewards<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, OptionQuery>;
 
     /// Progress markers for removing the checkpoints associated with source chains that are
     /// no longer supported. Maps from a chain_key to a cursor representing the point up to which
@@ -430,10 +392,6 @@ pub mod pallet {
                     chain_configuration.chain_key,
                     chain_configuration.vote_acceptance_window,
                 );
-                ChainReward::<T>::insert(
-                    chain_configuration.chain_key,
-                    BalanceOf::<T>::saturated_from(chain_configuration.chain_reward),
-                );
 
                 MaxAttestors::<T>::insert(
                     chain_configuration.chain_key,
@@ -491,22 +449,12 @@ pub mod pallet {
         },
         AttestorActivated(ChainKey, T::AccountId, BlsPublicKey),
         AttestorChilled(ChainKey, T::AccountId),
-        RewardPaid {
-            chain_key: ChainKey,
-            stash: T::AccountId,
-            amount: BalanceOf<T>,
-        },
-        RewardClaimed {
-            stash: T::AccountId,
-            amount: BalanceOf<T>,
-        },
         AttestorsElected {
             epoch: u64,
             chain_key: ChainKey,
             attestors: Vec<T::AccountId>,
         },
         MinBondRequirementUpdated(ChainKey, BalanceOf<T>),
-        ChainRewardUpdated(ChainKey, BalanceOf<T>),
 
         /// Note a change in the attestation interval for a source chain. Also notes the
         /// block number of the latest attestation for that source chain at the time of
@@ -570,10 +518,6 @@ pub mod pallet {
         NoMoreChunks,
         // Not your attestor
         NotYourAttestor,
-        // Chain reward not found
-        ChainRewardNotFound,
-        // No rewards to claim
-        NoRewards,
         // Already bonded
         AlreadyBonded,
         // Attestor is not in idle state
@@ -619,6 +563,8 @@ pub mod pallet {
         }
     }
 
+    /// Deprecation notice: The extrinsics with indexes 12, 15 and 17 have been removed.
+    /// The functionality of these extrinsics has been eliminated.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
@@ -843,27 +789,6 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(12)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_chain_reward())]
-        pub fn set_chain_reward(
-            origin: OriginFor<T>,
-            chain_key: ChainKey,
-            reward: BalanceOf<T>,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-
-            ensure!(
-                T::SupportedChains::is_chain_supported(chain_key),
-                Error::<T>::ChainNotSupported
-            );
-
-            ChainReward::<T>::insert(chain_key, reward);
-
-            Self::deposit_event(Event::<T>::ChainRewardUpdated(chain_key, reward));
-
-            Ok(())
-        }
-
         #[pallet::call_index(13)]
         #[pallet::weight(<T as Config>::WeightInfo::attest())]
         pub fn attest(
@@ -899,36 +824,12 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(15)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_payee())]
-        pub fn set_payee(
-            origin: OriginFor<T>,
-            payee: RewardDestination<T::AccountId>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            let ledger = Self::ledger(&who).ok_or(Error::<T>::NotStash)?;
-            ledger.set_payee(payee)?;
-
-            Ok(())
-        }
-
         #[pallet::call_index(16)]
         #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded())]
         pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             Self::do_withdraw_unbonded(&who)?;
-
-            Ok(())
-        }
-
-        #[pallet::call_index(17)]
-        #[pallet::weight(<T as Config>::WeightInfo::claim_rewards())]
-        pub fn claim_rewards(origin: OriginFor<T>) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            Self::do_claim_rewards(who)?;
 
             Ok(())
         }
@@ -1101,7 +1002,6 @@ pub mod pallet {
             target_sample_size: Option<u32>,
             chain_attestation_interval: Option<u64>,
             attestation_checkpoint_interval: Option<u32>,
-            chain_reward: Option<u128>,
             max_attestors: Option<u32>,
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
@@ -1147,16 +1047,6 @@ pub mod pallet {
             Self::deposit_event(Event::<T>::VoteAcceptanceWindowChanged(
                 chain_key,
                 vote_acceptance_window.unwrap_or(T::DefaultVoteAcceptanceWindow::get()),
-            ));
-
-            ChainReward::<T>::insert(
-                chain_key,
-                BalanceOf::<T>::saturated_from(chain_reward.unwrap_or(0)),
-            );
-
-            Self::deposit_event(Event::<T>::ChainRewardUpdated(
-                chain_key,
-                BalanceOf::<T>::saturated_from(chain_reward.unwrap_or(0)),
             ));
 
             MaxAttestors::<T>::insert(

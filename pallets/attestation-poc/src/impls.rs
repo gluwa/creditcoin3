@@ -1,6 +1,6 @@
 use frame_support::{
     pallet_prelude::*,
-    traits::{Currency, DefensiveSaturating, OnUnbalanced},
+    traits::{Currency, DefensiveSaturating},
     transactional,
 };
 use log::debug;
@@ -11,7 +11,7 @@ use sp_runtime::{
 };
 use sp_staking::StakingInterface;
 use sp_std::{
-    collections::{btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque},
+    collections::{btree_set::BTreeSet, vec_deque::VecDeque},
     vec::Vec,
 };
 
@@ -98,10 +98,9 @@ impl<T: Config> Pallet<T> {
         let ledger: AttestorLedger<T> =
             AttestorLedger::new(stash.clone(), Self::min_bond_requirement(chain_key));
 
-        // Default to stash as payee
         // If bond fails, it means it's already bonded and there is already an attestor(s) registerd by this stash
         // In this case, we just bond extra to the stash
-        if ledger.bond(RewardDestination::Stash).is_err() {
+        if ledger.bond().is_err() {
             Self::bond_extra(chain_key, &stash)?;
         } else {
             // Would fail if account has no provider.
@@ -279,9 +278,6 @@ impl<T: Config> Pallet<T> {
         // Update last digest
         LastDigest::<T>::set(chain_key, Some(digest));
 
-        // Pay out attestation rewards
-        Self::payout_attestors(chain_key, &attestation.attestors)?;
-
         // Emit event
         Self::deposit_event(Event::<T>::BlockAttested(chain_key, attestation, digest));
 
@@ -419,35 +415,6 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-
-    /// Claim the rewards for the given stash
-    /// The rewards are transferred to the reward destination
-    /// If the reward destination is not set, the rewards are not claimed
-    pub(super) fn do_claim_rewards(stash: T::AccountId) -> DispatchResult {
-        let amount = AccumulatedRewards::<T>::take(&stash).ok_or(Error::<T>::NoRewards)?;
-        if amount.is_zero() {
-            return Ok(());
-        }
-
-        let imbalance = if let Some(payee) = Payee::<T>::get(&stash) {
-            match payee {
-                // No reward destination, do nothing
-                RewardDestination::None => return Ok(()),
-                RewardDestination::Account(a) => T::Currency::deposit_creating(&a, amount),
-                RewardDestination::Stash => T::Currency::deposit_into_existing(&stash, amount)?,
-            }
-        } else {
-            // Transfer the amount to the reward destination
-            T::Currency::deposit_into_existing(&stash, amount)?
-        };
-
-        // Make sure we try to drop any imbalance that may have occurred
-        T::Reward::on_unbalanced(imbalance);
-
-        Self::deposit_event(Event::<T>::RewardClaimed { stash, amount });
-
-        Ok(())
-    }
 }
 
 /// NON-CALL FUNCTIONS ///
@@ -480,51 +447,6 @@ impl<T: Config> Pallet<T> {
             stash: stash.clone(),
             amount: extra,
         });
-
-        Ok(())
-    }
-
-    /// Payout the rewards to the attestors
-    /// This actually saves all the rewards in the `AccumulatedRewards` storage item
-    /// A stash can manually withdraw the rewards by calling `claim_rewards`
-    pub(super) fn payout_attestors(chain_key: u64, attestors: &[T::AccountId]) -> DispatchResult {
-        // Retrieve the reward amount for the given chain key or return an error if not found
-        let reward = ChainReward::<T>::get(chain_key).ok_or(Error::<T>::ChainRewardNotFound)?;
-
-        // Create a map to store total rewards per stash
-        let mut total_per_stash: BTreeMap<T::AccountId, BalanceOf<T>> = BTreeMap::new();
-
-        // Accumulate the rewards for each attestor
-        for attestor in attestors {
-            let stash = Attestors::<T>::get(chain_key, attestor)
-                .ok_or(Error::<T>::AddressNotAttestor)?
-                .stash;
-
-            // Increment the total reward for each stash
-            total_per_stash
-                .entry(stash)
-                .and_modify(|total| *total += reward)
-                .or_insert(reward);
-        }
-
-        // Update the accumulated rewards for each stash in storage
-        for (stash, total) in total_per_stash {
-            // Deposit the reward event
-            Self::deposit_event(Event::<T>::RewardPaid {
-                chain_key,
-                stash: stash.clone(),
-                amount: total,
-            });
-
-            // Update the accumulated rewards for the stash
-            AccumulatedRewards::<T>::mutate(stash, |accumulated| {
-                if let Some(ref mut rewards) = accumulated {
-                    *rewards += total;
-                } else {
-                    *accumulated = Some(total);
-                }
-            });
-        }
 
         Ok(())
     }
@@ -1064,7 +986,6 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         ChainAttestationInterval::<T>::remove(chain_key);
         PendingAttestationInterval::<T>::remove(chain_key);
         AttestationCheckpointInterval::<T>::remove(chain_key);
-        ChainReward::<T>::remove(chain_key);
 
         if remove_checkpoints {
             // Starting the process of clearing checkpoints. There may be a very large number of checkpoints

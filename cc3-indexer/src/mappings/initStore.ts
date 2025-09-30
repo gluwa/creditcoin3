@@ -38,9 +38,6 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         const attestationInterval = (await att.chainAttestationInterval(chainKey)).toBigInt(); // u64
         const checkpointInterval = (await att.attestationCheckpointInterval(chainKey)).toNumber(); // u32
 
-        const chainRewardOpt = await att.chainReward(chainKey); // Option<u128>
-        const chainReward = chainRewardOpt && chainRewardOpt.isSome ? chainRewardOpt.unwrap().toBigInt() : BI(0);
-
         const lastDigestOpt = await att.lastDigest(chainKey); // Option<H256>
         const lastAttestedDigest = lastDigestOpt && lastDigestOpt.isSome ? lastDigestOpt.unwrap().toHex() : '';
 
@@ -73,9 +70,9 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         const acd = AttestationChainData.create({
             id,
             chainKey,
+            chainReward: BI(0),
             attestationInterval,
             checkpointInterval,
-            chainReward,
             lastAttestedDigest,
             lastAttestedHeaderNumber: BI(0), // fill in later if you want to derive these
             lastCheckpointHeaderNumber: BI(0),
