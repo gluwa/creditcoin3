@@ -22,7 +22,7 @@ jobs:
           channel: "#protocol-internal"
           message: "Release pipeline started! cc <@U028EMRHS3S>"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
           fetch-depth: 0
@@ -100,12 +100,12 @@ jobs:
       - build-wasm-runtime
       - docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifact
           pattern: binary-for-*
