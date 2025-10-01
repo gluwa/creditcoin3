@@ -28,6 +28,12 @@ pub struct ProofVerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
 type ConstU50MB = sp_core::ConstU32<52428800>;
 
+const GAS_BASE_VERIFY: u64 = 50_000; // Base overhead for entering the precompile
+const GAS_PER_PROOF_BYTE: u64 = 10; // Per byte Gas for the proof
+const STARK_META_VALUE_ENCODED_LEN: usize = 32; // H256 via SCALE => 32 bytes
+const WEIGHT_STARK_VERIFY: u64 = 5_000_000; // STARK verification heavy cost (fixed for now)
+const GAS_STORAGE_LOOKUP: u64 = 5_000; // Each storage read
+
 fn encode_revert_message(message: &str) -> Vec<u8> {
     // function selector for Error(string)
     let mut revert_with_selector = [0x08, 0xc3, 0x79, 0xa0].to_vec();
@@ -63,8 +69,12 @@ where
         query: Query,
     ) -> EvmResult<VerifyResult> {
         handle.record_log_costs_manual(3, 32)?;
+        // Base cost for invoking the precompile
+        handle.record_cost(GAS_BASE_VERIFY)?;
 
         let proof_bytes: Vec<u8> = proof.into();
+
+        handle.record_cost(GAS_PER_PROOF_BYTE.saturating_mul(proof_bytes.len() as u64))?;
 
         if proof_bytes.is_empty() {
             error!("Empty proof submitted. QueryId: {:?}", query.id());
@@ -76,6 +86,11 @@ where
         }
 
         let metadata: Vec<(u8, H256)> = StarkProgramMetadata::<Runtime>::iter().collect();
+        for _ in &metadata {
+            // charge one DB read
+            handle.record_db_read::<Runtime>(STARK_META_VALUE_ENCODED_LEN)?;
+        }
+
         if metadata.is_empty() {
             error!(
                 "Verification failed: Stark program metadata not set, QueryId: {:?}",
@@ -90,10 +105,15 @@ where
 
         #[cfg(not(feature = "runtime-benchmarks"))]
         {
+            // Charge fixed weight for the STARK verification work (converted to gas using WeightPerGas)
+            let w = sp_weights::Weight::from_parts(WEIGHT_STARK_VERIFY, 0);
+            RuntimeHelper::<Runtime>::record_external_cost(handle, w, 0)?;
+
             let (status, result_segments, continuity_proof_len, continuity_checkpoint_digest) =
                 proof_verifier::host_api::verify_proof(proof_bytes, query.clone(), metadata);
 
             let status = Self::handle_error_status(
+                handle,
                 status,
                 continuity_proof_len,
                 continuity_checkpoint_digest,
@@ -115,11 +135,15 @@ where
 
         #[cfg(feature = "runtime-benchmarks")]
         {
+            // Charge fixed weight for the STARK verification work (converted to gas using WeightPerGas)
+            let w = sp_weights::Weight::from_parts(WEIGHT_STARK_VERIFY, 0);
+            RuntimeHelper::<Runtime>::record_external_cost(handle, w, 0)?;
             let result = proof_verifier::host_benchmark_api::verify_proof(
                 proof_bytes,
                 query.clone(),
                 metadata,
             );
+            handle.record_cost(GAS_STORAGE_LOOKUP)?;
             if !result {
                 error!("Proof verification failed: Invalid proof submitted");
                 let encoded_revert = crate::encode_revert_message("Invalid proof submitted");
@@ -161,6 +185,7 @@ where
 
     #[cfg(not(feature = "runtime-benchmarks"))]
     fn check_continuity_block_number(
+        handle: &mut impl PrecompileHandle,
         continuity_proof_len: u64,
         continuity_checkpoint_digest: H256,
         query: &Query,
@@ -169,6 +194,8 @@ where
 
         // Always try to get a matching attestation first. The proof may have been generated using an
         // attestation, even if there is now a checkpoint at that height.
+        // Charge for attestation storage lookup
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
         let expected_block_number = if let Some(matching_attestation) =
             <Runtime as pallet_prover::Config>::Attestations::get_attestation(
                 query.chain_id,
@@ -177,6 +204,8 @@ where
             matching_attestation.attestation.header_number
         } else {
             // On error, try to get a matching checkpoint instead
+            // Charge for checkpoint storage lookup
+            handle.record_cost(GAS_STORAGE_LOOKUP)?;
             if let Some(number) = <Runtime as pallet_prover::Config>::Checkpoints::get_checkpoint(
                 query.chain_id,
                 continuity_checkpoint_digest,
@@ -212,6 +241,7 @@ where
 
     #[cfg(not(feature = "runtime-benchmarks"))]
     fn handle_error_status(
+        handle: &mut impl PrecompileHandle,
         status: u8,
         continuity_proof_len: Option<u64>,
         continuity_checkpoint_digest: Option<H256>,
@@ -227,6 +257,7 @@ where
                     )?;
 
                 Self::check_continuity_block_number(
+                    handle,
                     continuity_proof_len,
                     continuity_checkpoint_digest,
                     query,

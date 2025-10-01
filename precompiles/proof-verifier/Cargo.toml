@@ -38,6 +38,7 @@ sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
+sp-weights = { workspace = true }
 
 # Frontier
 fp-account = { workspace = true }
@@ -85,6 +86,7 @@ std = [
     "sp-io/std",
     "sp-runtime/std",
     "sp-std/std",
+    "sp-weights/std",
     "pallet-supported-chains/std",
     "attestor-primitives/std",
     "pallet-attestation-poc/std",
