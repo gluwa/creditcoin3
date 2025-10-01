@@ -6,7 +6,7 @@
     "@openzeppelin/contracts": "^5.4.0"
   },
   "devDependencies": {
-    "mocha": "^10.8.2"
+    "mocha": "^11.7.3"
   },
   "scripts": {
     "test": "mocha"
