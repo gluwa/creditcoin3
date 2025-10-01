@@ -79,6 +79,10 @@ pub enum Error {
     LightProverQueryTimeout(String),
     #[error("Prover BE side query timeout reached (60 minutes) for QueryId: {0}")]
     ProverBEQueryTimeout(String),
+    #[error("HTTP client error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("JSON deserialization error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 type Proof = Vec<u8>;
@@ -177,8 +181,7 @@ async fn post_work_order(
                 String::from_utf8_lossy(&bytes)
             );
 
-            Ok(serde_json::from_slice::<WorkOrderResponse>(&bytes)
-                .map_err(|e| Error::BadProofOrderResponse(e.to_string()))?)
+            Ok(serde_json::from_slice::<WorkOrderResponse>(&bytes)?)
         }
         other_status => Err(Error::BadProofOrderRequest(other_status.to_string())),
     }
@@ -246,17 +249,12 @@ pub async fn get_pending_request_query_ids(
         .get(&url)
         .header(ACCEPT, "application/json")
         .send()
-        .await
-        .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
+        .await?;
 
     match response.status() {
         reqwest::StatusCode::OK => {
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|e| Error::BadProofResultResponse(e.to_string()))?;
-            Ok(serde_json::from_slice::<Vec<PendingRequestEntry>>(&bytes)
-                .map_err(|e| Error::BadProofResultResponse(e.to_string()))?)
+            let bytes = response.bytes().await?;
+            Ok(serde_json::from_slice::<Vec<PendingRequestEntry>>(&bytes)?)
         }
         other_status => Err(Error::BadProofResultRequest(other_status.to_string())),
     }
