@@ -6,18 +6,20 @@ publish = false
 version = "0.1.0"
 
 [dependencies]
+# External
 anyhow = { workspace = true }
 hex = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
-pallet-prover-primitives = { workspace = true, default-features = false }
-prover-primitives = { workspace = true, optional = true }
-
 serde_json = { workspace = true, default-features = false }
 sp-core = { workspace = true, default-features = false }
 sp-io = { workspace = true, default-features = false }
 tempfile = { workspace = true, optional = true, default-features = false }
 thiserror = { workspace = true, default-features = false, optional = true }
 utils = { workspace = true, optional = true }
+
+# Common
+pallet-prover-primitives = { workspace = true, default-features = false }
+prover-primitives = { workspace = true, optional = true }
 
 [features]
 default = ["std"]

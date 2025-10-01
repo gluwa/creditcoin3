@@ -25,20 +25,20 @@ use crate::{error::VerifierError, result_segments};
 pub const NULL_ABI: [u8; 1] = [0x80; 1];
 
 pub fn run_verifier(
-    proof: Vec<u8>,
+    proof: &[u8],
     query: Query,
     metadata: Vec<(u8, StarkProgramAuthHash)>,
 ) -> Result<(String, Vec<ResultSegment>, ContinuityProofLength, H256), VerifierError> {
     debug!("current dir: {:?}", env::current_dir()?.as_os_str());
 
     // Write proof to a temporary JSON file
-    let temp_file_path = write_proof_to_temp_file(&proof)?;
+    let temp_file_path = write_proof_to_temp_file(proof)?;
 
     debug!("Created temp file with proof at: {temp_file_path}");
 
-    let proof: StoneProofJson = serde_json::from_slice(&proof)?;
+    let proof: StoneProofJson = serde_json::from_slice(proof)?;
 
-    let mut stone_proof = StoneProof::from(proof.clone());
+    let mut stone_proof = StoneProof::from(proof);
 
     stone_proof
         .strip_off_annotations()
@@ -296,7 +296,7 @@ pub mod tests {
 
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
-        let result = super::run_verifier(proof_example, query, metadata);
+        let result = super::run_verifier(&proof_example, query, metadata);
 
         assert!(result.is_ok());
     }
@@ -312,7 +312,7 @@ pub mod tests {
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
         let result =
-            super::run_verifier(proof_example, query, metadata).expect("Result should be Ok()");
+            super::run_verifier(&proof_example, query, metadata).expect("Result should be Ok()");
 
         check_result_segments_against_expected(result.1);
     }
@@ -331,7 +331,7 @@ pub mod tests {
 
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
-        let result = super::run_verifier(proof_example, query, metadata);
+        let result = super::run_verifier(&proof_example, query, metadata);
 
         // Note that the program hash provided in the error message is the one coming from
         // the proof itself which is none of the existing hashes defined in the constants
@@ -371,7 +371,7 @@ pub mod tests {
         // Cairo program thus rendering this input not to be authenticated
         let metadata = vec![(1, STARK_PROGRAM_V1_HASH)];
 
-        let result = super::run_verifier(proof_example, query, metadata);
+        let result = super::run_verifier(&proof_example, query, metadata);
 
         assert!(result.is_err());
 
@@ -408,7 +408,7 @@ pub mod tests {
 
         let metadata = vec![(1, STARK_PROGRAM_V3_HASH)];
 
-        let result = super::run_verifier(proof_example, query.clone(), metadata);
+        let result = super::run_verifier(&proof_example, query.clone(), metadata);
 
         assert!(result.is_err());
 

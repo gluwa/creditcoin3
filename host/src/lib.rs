@@ -14,7 +14,7 @@ pub trait HostApi {
     ) -> VerifierResponse {
         #[cfg(target_arch = "x86_64")]
         {
-            match verifier_core::run_verifier(proof, query, metadata) {
+            match verifier_core::run_verifier(&proof, query, metadata) {
                 Ok(r) => {
                     log::debug!("result of verifying proof: {r:?}");
                     (0, r.1, Some(r.2), Some(r.3))
@@ -55,7 +55,7 @@ pub trait HostBenchmarkApi {
         let proof = std::fs::read(proof_example.clone())
             .unwrap_or_else(|_| panic!("should read file from {proof_example}"));
 
-        match verifier_core::run_verifier(proof, query, metadata) {
+        match verifier_core::run_verifier(&proof, query, metadata) {
             Ok(r) => {
                 log::debug!("result of verifying proof: {r:?}");
                 true
