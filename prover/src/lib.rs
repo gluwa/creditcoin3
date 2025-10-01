@@ -444,7 +444,15 @@ impl Server {
         let query_id = query.id();
 
         if let Either::Left(proof) = r {
-            info!("📝 Submitting proof for query: {:?}", query_id);
+            debug!("⏳ Validating generated proof for query: {:?}", query_id);
+            let metadata = self.fetch_stark_metadata().await?;
+            verifier_core::run_verifier(&proof, query.clone(), metadata)?;
+
+            info!(
+                "✅ Local proof verification passed. Submitting proof for query: {:?}",
+                query_id
+            );
+
             let _ = contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
             return Ok(());
         } else if let Either::Right(stone_proof_public_input) = r {
@@ -520,14 +528,18 @@ impl Server {
         proof: Vec<u8>,
     ) -> Result<()> {
         let query_id = query.id();
+
         debug!("📝 Verifying external BE proof for query: {:?}", query_id);
         let metadata = self.fetch_stark_metadata().await?;
-        match verifier_core::run_verifier(&proof, query.clone(), metadata) {
-            Ok(_verified) => self.handle_verification_success(query, proof).await,
-            Err(e) => Err(anyhow!(format!(
-                "Failed to verify external BE proof: {e:?}"
-            ))),
-        }
+        verifier_core::run_verifier(&proof, query.clone(), metadata)?;
+
+        info!(
+            "✅ External BE proof verification passed. Submitting proof for query: {:?}",
+            query_id
+        );
+
+        contract::submit_proof(&self.cc3_eth_client, query, proof).await?;
+        Ok(())
     }
 
     /// Fetches STARK program metadata.
@@ -535,35 +547,12 @@ impl Server {
     /// - `Err(e)` when metadata is missing or fetching failed.
     async fn fetch_stark_metadata(&mut self) -> Result<Vec<(u8, H256)>> {
         match self.cc3_client.fetch_stark_program_metadata().await {
-            Ok(m) if m.is_empty() => {
-                error!("❌ No STARK program metadata found on-chain.");
-                Err(anyhow!("No STARK program metadata on-chain"))
-            }
             Ok(m) => Ok(m),
             Err(e) => {
                 error!("❌ Failed to fetch STARK program metadata: {e:?}");
                 Err(anyhow!(e))
             }
         }
-    }
-
-    /// Handles successful proof verification by submitting the proof on chain
-    async fn handle_verification_success(&mut self, query: Query, proof: Vec<u8>) -> Result<()> {
-        let query_id = query.id();
-        info!(
-            "✅ External BE proof verification passed. Submitting proof for query: {:?}",
-            query_id
-        );
-
-        if let Err(e) = contract::submit_proof(&self.cc3_eth_client, query, proof).await {
-            error!(
-                "❌ Failed to submit proof for query: {:?}, Error: {:?}, Most likely on-chain verifier failed and reverted",
-                query_id, e
-            );
-            self.mark_query_as_invalid(query_id, e.to_string()).await?;
-        }
-
-        Ok(())
     }
 
     /// Cleans up the query from the internal memory after processing

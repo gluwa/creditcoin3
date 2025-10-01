@@ -77,6 +77,8 @@ pub enum Error {
     FailedToCreateProofOfInclusion(#[from] VrfError),
     #[error("Failed to get chain name")]
     FailedToGetChainName,
+    #[error("Failed to get STARK metadata: {0}")]
+    FailedToGetStarkMetadata(String),
 }
 
 #[derive(Clone)]
@@ -870,7 +872,12 @@ impl Client {
             };
             metadata.push((version, sp_core::H256::from(kv.value.0)));
         }
-
+        if metadata.is_empty() {
+            error!("No stark program metadata found in storage");
+            return Err(Error::FailedToGetStarkMetadata(
+                "No stark program metadata found in storage".to_string(),
+            ));
+        }
         Ok(metadata)
     }
 }
