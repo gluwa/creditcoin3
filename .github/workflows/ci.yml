@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Download locally built docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/gluwa/
@@ -43,7 +43,7 @@ jobs:
           docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
           docker images
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -196,7 +196,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.base_ref == 'dev'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -232,7 +232,7 @@ jobs:
   sanity-tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -266,12 +266,12 @@ jobs:
   sanity-test-cli:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -293,7 +293,7 @@ jobs:
   sanity-test-precompiles:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -336,7 +336,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -361,7 +361,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -396,7 +396,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -428,7 +428,7 @@ jobs:
   unit-test-creditcoin:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -499,18 +499,18 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -545,17 +545,17 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
       - name: Install Node Dependencies
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
@@ -585,12 +585,12 @@ jobs:
   unit-test-cli:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -636,7 +636,7 @@ jobs:
     name: deploy-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -704,7 +704,7 @@ jobs:
     name: remove-github-runner / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -768,20 +768,20 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -905,18 +905,18 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -965,18 +965,18 @@ jobs:
     name: integration-test-chainspec-${{ matrix.chainspec }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-${{ matrix.chainspec }}
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -1020,7 +1020,7 @@ jobs:
     name: cargo audit
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -1064,7 +1064,7 @@ jobs:
     name: "🐚 Shellcheck"
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
       - name: Run ShellCheck
@@ -1081,12 +1081,12 @@ jobs:
         command: [lint, typecheck, check-format]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm install -g yarn
@@ -1102,18 +1102,18 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download creditcoin-node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binary-for-testing-ci
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
