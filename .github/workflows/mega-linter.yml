@@ -26,7 +26,7 @@ jobs:
     steps:
       # Git Checkout
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           lfs: true
           token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
@@ -38,7 +38,7 @@ jobs:
         # You can override MegaLinter flavor used to have faster performances
         # More info at https://megalinter.io/latest/flavors/
         # pin version to workaround CSUB-1418 and https://github.com/oxsecurity/megalinter/issues/4617
-        uses: oxsecurity/megalinter/flavors/rust@v8.8.0
+        uses: oxsecurity/megalinter/flavors/rust@v9.0.1
         env:
           # All available variables are described at https://megalinter.io/latest/configuration/
           # and configured in .mega-linter.yml
