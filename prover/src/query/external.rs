@@ -63,16 +63,22 @@ pub enum Error {
     BadProofOrderRequest(String),
     #[error("Couldn't parse work order response. Error: {0}")]
     BadProofOrderResponse(String),
-    #[error("Timeout reached: Result not available within 60 minutes")]
-    ProvingPipelineTimeout,
-    #[error("The Prover BE deleted our proving job completely rather than setting it to a failed state. This indicates the issue is with the prover BE and not with our query.")]
+    #[error("Proof generation failed. The main reason this would happen if in the case of an invalid query.")]
     ProofGenerationFailed,
-    #[error("Bad proof result request. StatusCode: {0}")]
+    #[error("The Prover BE has no record of our query. If the BE previously accepted our query, then this indicates the issue is with the prover BE and not with our query.")]
+    ProofOrderNotFound,
+    #[error("Failed to fetch prover output")]
+    FailedToFetchProverOutput,
+    #[error("Bad proof result request. Likely an issue with the Prover BE. StatusCode: {0}")]
     BadProofResultRequest(String),
     #[error("Bad proof result response. Error: {0}")]
     BadProofResultResponse(String),
     #[error("Form preparation failed: {0}")]
     FormPreparationFailed(String),
+    #[error("Light prover side query timeout reached (60 minutes) for QueryId: {0}")]
+    LightProverQueryTimeout(String),
+    #[error("Prover BE side query timeout reached (60 minutes) for QueryId: {0}")]
+    ProverBEQueryTimeout(String),
 }
 
 type Proof = Vec<u8>;
@@ -183,7 +189,7 @@ async fn poll_for_result(
 
     while start.elapsed() < timeout {
         // If response is Ok but no proof is supplied, then pipeline is still in progress.
-        let result = get_work_order_result(client, &url).await;
+        let result = get_work_order_result(client, &url, query_id).await;
         match result {
             Ok(maybe_proof) => {
                 if let Some(proof) = maybe_proof {
@@ -207,12 +213,13 @@ async fn poll_for_result(
         sleep(interval).await;
     }
 
-    Err(Error::ProvingPipelineTimeout)
+    Err(Error::LightProverQueryTimeout(query_id.to_string()))
 }
 
 async fn get_work_order_result(
     client: &Client,
     url: &str,
+    query_id: &str,
 ) -> std::result::Result<Option<Vec<u8>>, Error> {
     let response = client
         .get(url)
@@ -230,8 +237,19 @@ async fn get_work_order_result(
                 .into(),
         )),
         // Result not available yet. Pipeline still in progress.
+        reqwest::StatusCode::NO_CONTENT => Ok(None),
+        reqwest::StatusCode::NOT_FOUND => Err(Error::ProofOrderNotFound),
+        // This is the key error which designates a query as invalid. The light prover
+        // tried the proving pipeline and it failed.
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY => Err(Error::ProofGenerationFailed),
+        // This status indicates that the proving process timed out (> 30m)
+        reqwest::StatusCode::REQUEST_TIMEOUT => {
+            Err(Error::ProverBEQueryTimeout(query_id.to_string()))
+        }
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR => Err(Error::FailedToFetchProverOutput),
+        // This status code handling is retained for backwards compatibility. After update the prover
+        // BE should use StatusCode::NoContent instead of StatusCode::BadRequest
         reqwest::StatusCode::BAD_REQUEST => Ok(None),
-        reqwest::StatusCode::NOT_FOUND => Err(Error::ProofGenerationFailed),
         other_status => Err(Error::BadProofResultRequest(other_status.to_string())),
     }
 }

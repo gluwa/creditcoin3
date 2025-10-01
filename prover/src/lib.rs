@@ -508,12 +508,8 @@ impl Server {
                     }
                     Err(e) => {
                         error!("❌ Light prover error for query {:?}: {:?}", query_id, e);
-                        match e {
-                            LightProvingError::ProofGenerationFailed => {
-                                panic!("Query processing failed fatally. Prover BE pipeline is likely rejecting proving jobs due to auth/ip. Fix prover BE then restart.");
-                            }
-                            _ => self.mark_query_as_invalid(query_id, e.to_string()).await,
-                        }
+                        self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                        Ok(())
                     }
                 }
             }
