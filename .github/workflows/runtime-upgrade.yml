@@ -28,7 +28,7 @@ jobs:
       last_block_number: ${{ steps.last-block-info.outputs.last_block_number }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -171,7 +171,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -260,7 +260,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -354,18 +354,18 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download creditcoin3-node from current PR
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: creditcoin3-node
           path: target/release
 
       - name: Download creditcoin-fork.json
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: creditcoin-fork.json
 
@@ -387,7 +387,7 @@ jobs:
           .github/install-docker-engine-from-upstream.sh
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - working-directory: cli
@@ -416,7 +416,7 @@ jobs:
 
       - name: Download WASM runtime from current PR
         id: download-wasm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: creditcoin3_runtime.compact.compressed.wasm
 
@@ -481,12 +481,12 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
       - name: Download creditcoin3-node from current PR
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: creditcoin3-node
           path: target/release
@@ -517,7 +517,7 @@ jobs:
           .github/wait-for-sync.sh ${{ needs.setup.outputs.last_block_number }}
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - working-directory: cli
@@ -546,7 +546,7 @@ jobs:
 
       - name: Download WASM runtime
         id: download-wasm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: creditcoin3_runtime.compact.compressed.wasm
 
@@ -617,7 +617,7 @@ jobs:
     name: deploy-github-runner / type=${{ matrix.proxy_type }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -665,7 +665,7 @@ jobs:
     name: remove-github-runner / type=${{ matrix.proxy_type }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
 
