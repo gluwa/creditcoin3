@@ -52,6 +52,12 @@ where
     }
 
     pub fn consider_vote(&self, round: Round, epoch: u64) -> Consider {
+        if self.epoch == 0 {
+            // Filter not initialized yet
+            // Reject the vote as NotInitialized to avoid storing it
+            return Consider::NotInitialized;
+        }
+
         if epoch < self.epoch {
             info!(target: LOG_TARGET, "📝 Vote for round #{:?} expired because epoch has changed. Vote epoch: {}, Expected epoch: {}", round, epoch, self.epoch);
             return Consider::RejectPast;
@@ -154,6 +160,10 @@ where
                 return Action::DiscardNoReport;
             }
             Consider::Accept => {}
+            Consider::NotInitialized => {
+                debug!(target: LOG_TARGET, "📝 Filter not initialized yet");
+                return Action::DiscardNoReport;
+            }
         }
 
         let attestor = attestation.attestor.clone();

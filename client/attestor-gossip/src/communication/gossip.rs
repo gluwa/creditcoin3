@@ -28,4 +28,6 @@ pub enum Consider {
     RejectFuture,
     /// Message cannot be evaluated. Reject.
     CannotEvaluate,
+    /// Not initialized yet. Reject.
+    NotInitialized,
 }
