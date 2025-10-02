@@ -63,7 +63,7 @@ pub enum Error {
     BadProofOrderRequest(String),
     #[error("Couldn't parse work order response. Error: {0}")]
     BadProofOrderResponse(String),
-    #[error("Proof generation failed. The main reason this would happen if in the case of an invalid query.")]
+    #[error("Proof generation failed. The main reason this would happen is in the case of an invalid query.")]
     ProofGenerationFailed,
     #[error("The Prover BE has no record of our query. If the BE previously accepted our query, then this indicates the issue is with the prover BE and not with our query.")]
     ProofOrderNotFound,
@@ -237,7 +237,10 @@ async fn get_work_order_result(
                 .into(),
         )),
         // Result not available yet. Pipeline still in progress.
-        reqwest::StatusCode::NO_CONTENT => Ok(None),
+        // BAD_REQUEST status code is outdated but still handled for backwards
+        // compatibility. After update the prover BE should use StatusCode::NoContent
+        // instead of StatusCode::BadRequest
+        reqwest::StatusCode::NO_CONTENT | reqwest::StatusCode::BAD_REQUEST => Ok(None),
         reqwest::StatusCode::NOT_FOUND => Err(Error::ProofOrderNotFound),
         // This is the key error which designates a query as invalid. The light prover
         // tried the proving pipeline and it failed.
@@ -247,9 +250,6 @@ async fn get_work_order_result(
             Err(Error::ProverBEQueryTimeout(query_id.to_string()))
         }
         reqwest::StatusCode::INTERNAL_SERVER_ERROR => Err(Error::FailedToFetchProverOutput),
-        // This status code handling is retained for backwards compatibility. After update the prover
-        // BE should use StatusCode::NoContent instead of StatusCode::BadRequest
-        reqwest::StatusCode::BAD_REQUEST => Ok(None),
         other_status => Err(Error::BadProofResultRequest(other_status.to_string())),
     }
 }
