@@ -33,7 +33,7 @@ use config::Config;
 pub type AttestationCacheType = AttestationCache<H256, AccountId32>;
 
 /// Type for managing light proving queries
-type LightProverQueries = FuturesUnordered<JoinHandle<(H256, Result<Vec<u8>, LightProvingError>)>>;
+type LightProverQueries = FuturesUnordered<JoinHandle<(Query, Result<Vec<u8>, LightProvingError>)>>;
 
 /// `ChainName` type
 pub type ChainName = String;
@@ -479,7 +479,7 @@ impl Server {
                     key.as_ref(),
                 )
                 .await;
-                (query_id, proving_result)
+                (query, proving_result)
             }));
         }
 
@@ -620,6 +620,14 @@ impl Server {
             pending.len()
         );
 
+        // Fetch current unprocessed queries from chain so we can reconstruct Query objects
+        let unprocessed_queries = contract::get_initial_unprocessed_queries(&self.cc3_eth_client)
+            .await
+            .unwrap_or_else(|e| {
+                warn!("⚠️ Failed to fetch unprocessed queries from chain: {:?}", e);
+                Vec::new()
+            });
+
         for entry in pending {
             let parse_res = H256::from_str(&entry.id);
             let Ok(query_id) = parse_res else {
@@ -634,11 +642,24 @@ impl Server {
             let addr_clone = addr.clone();
             let id_hex = entry.id.clone();
 
+            // Find the full Query corresponding to this pending ID so our task returns (Query, Result<..>)
+            let maybe_query = unprocessed_queries
+                .iter()
+                .find(|q| q.id() == query_id)
+                .cloned();
+            let Some(query) = maybe_query else {
+                warn!(
+                    "⚠️ Could not find unprocessed on-chain Query for pending BE id {}. Skipping resume.",
+                    id_hex
+                );
+                continue;
+            };
+
             light_prover_queries.push(task::spawn(async move {
                 let result =
                     query::external::poll_result_for_query_id(id_hex.as_str(), addr_clone.as_ref())
                         .await;
-                (query_id, result)
+                (query, result)
             }));
         }
 
