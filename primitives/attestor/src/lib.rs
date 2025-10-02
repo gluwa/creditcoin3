@@ -81,22 +81,14 @@ pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"attest0r";
 #[derive(Encode, Decode, sp_runtime::RuntimeDebug, PartialEq, Eq, Clone)]
 pub enum InherentError {
     NotValid,
-    InvalidAttestorFound,
-    AttestorNotActive,
-    AttestorWithInvalidPublicKey,
     Duplicate(Digest),
-    MajorityNotReached,
 }
 
 impl IsFatalError for InherentError {
     fn is_fatal_error(&self) -> bool {
         match self {
             InherentError::NotValid => true,
-            InherentError::InvalidAttestorFound => true,
-            InherentError::AttestorNotActive => true,
-            InherentError::AttestorWithInvalidPublicKey => true,
-            InherentError::Duplicate(_) => true,
-            InherentError::MajorityNotReached => true,
+            InherentError::Duplicate(_) => false,
         }
     }
 }

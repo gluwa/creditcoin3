@@ -3,7 +3,7 @@ use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use attestor_primitives::{
     Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainKey,
-    InherentError, SignedAttestation,
+    SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
@@ -1740,7 +1740,7 @@ fn commit_attestation_should_error_when_chain_is_not_supported() {
         let attestation = create_signed_attestation(vec![attestor], chain_key, 1, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, InherentError::NotValid);
+        assert_err!(result, Error::<Test>::ChainNotSupported);
     })
 }
 
@@ -1773,7 +1773,7 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 
         // Should error when trying to submit the same attestation again
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, InherentError::Duplicate(attestation.digest()));
+        assert_err!(result, Error::<Test>::AttestationExists);
 
         let attestation = create_signed_attestation(vec![attestor], 1, 10, None);
 
@@ -1784,7 +1784,7 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 
         // Should error when trying to submit the same attestation again
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, InherentError::Duplicate(attestation.digest()));
+        assert_err!(result, Error::<Test>::AttestationExists);
     })
 }
 
@@ -1796,7 +1796,7 @@ fn commit_attestation_should_error_when_it_cannot_validate_the_attestation() {
 
         // note: not calling register_attestor() will cause the validation to fail
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, InherentError::AttestorNotActive);
+        assert_err!(result, Error::<Test>::AttestorNotActive);
     })
 }
 
@@ -1866,6 +1866,13 @@ fn submitting_attestation_chain_works() {
 #[test]
 fn test_attestation_submission_fails_if_threshold_not_met() {
     ExtBuilder.build_and_execute(|| {
+        // Set target sample size to 3
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            3
+        ));
+
         let attestor_1 = Attestor::new(STASH_1, ATTESTOR_1);
 
         assert_ok!(Attestation::register_attestor(
@@ -1887,7 +1894,7 @@ fn test_attestation_submission_fails_if_threshold_not_met() {
         let attestation =
             create_signed_attestation(vec![attestor_1.clone()], SUPPORTED_CHAIN_KEY, 0, None);
         let result = Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &attestation);
-        assert_err!(result, InherentError::MajorityNotReached);
+        assert_err!(result, Error::<Test>::MajorityNotReached);
     })
 }
 
@@ -2408,7 +2415,7 @@ fn chilled_attestor_cannot_commit_attestation() {
         let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
-        assert_err!(result, InherentError::AttestorNotActive);
+        assert_err!(result, Error::<Test>::AttestorNotActive);
     });
 }
 
@@ -2883,10 +2890,10 @@ fn batch_attestations_duplicate_fails() {
         assert_eq!(checkpoint_block_number, 0);
 
         let result = Attestation::validate_attestation(attestation1.chain_key(), &attestation1);
-        assert_err!(result, InherentError::Duplicate(attestation1.digest()));
+        assert_err!(result, Error::<Test>::AttestationExists);
 
         let result = Attestation::validate_attestation(attestation2.chain_key(), &attestation2);
-        assert_err!(result, InherentError::Duplicate(attestation2.digest()));
+        assert_err!(result, Error::<Test>::AttestationExists);
     });
 }
 
@@ -2964,11 +2971,11 @@ fn batch_attestations_adding_one_on_duplicates_fails() {
 
         // Duplicate attestation1
         let result = Attestation::validate_attestation(attestation1.chain_key(), &attestation1);
-        assert_err!(result, InherentError::Duplicate(attestation1.digest()));
+        assert_err!(result, Error::<Test>::AttestationExists);
 
         // Duplicate attestation2
         let result = Attestation::validate_attestation(attestation2.chain_key(), &attestation2);
-        assert_err!(result, InherentError::Duplicate(attestation2.digest()));
+        assert_err!(result, Error::<Test>::AttestationExists);
 
         // Add a new attestation
         let result = Attestation::validate_attestation(attestation3.chain_key(), &attestation3);

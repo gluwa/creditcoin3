@@ -536,6 +536,17 @@ pub mod pallet {
         InvalidAttestationBlockNumber,
         // Tried to set vote acceptance window to an invalid value.
         InvalidVoteAcceptanceWindow,
+        // Errors when validating an attestation
+        // Invalid attestor account
+        InvalidAttestorFound,
+        // Attestor is not active
+        AttestorNotActive,
+        // BLS public key is invalid
+        AttestorWithInvalidPublicKey,
+        // Majority of signatures not reached
+        MajorityNotReached,
+        // Duplicate attestor in signatures
+        DuplicateAttestor,
     }
 
     #[pallet::hooks]
@@ -919,34 +930,11 @@ pub mod pallet {
 
             // Check if at least one attestation can be submitted
             if let Some(attestations) = inherent_data {
-                let valid_attestations: Vec<_> = attestations
-                    .into_iter()
-                    .filter(|attestation| {
-                        // Check if the attestation is valid, if not filter it out
-                        if Self::validate_attestation(attestation.chain_key(), attestation).is_err()
-                        {
-                            log::info!(
-                                "📝 Attestation with digest {:?} is invalid",
-                                attestation.digest()
-                            );
-                            false
-                        } else {
-                            log::info!(
-                                "📝 Attestation with digest {:?} is valid ✅",
-                                attestation.digest()
-                            );
-                            true
-                        }
-                    })
-                    .collect();
-
-                if valid_attestations.is_empty() {
+                if attestations.is_empty() {
                     return None;
                 }
 
-                Some(Call::commit_attestation {
-                    attestations: valid_attestations.try_into().unwrap(),
-                })
+                Some(Call::commit_attestation { attestations })
             } else {
                 None
             }

@@ -17,7 +17,7 @@ use sp_std::{
 
 use attestor_primitives::{
     calculate_threshold, AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey,
-    BlsSignature, ChainKey, Digest, InherentError, SignedAttestation,
+    BlsSignature, ChainKey, Digest, SignedAttestation,
 };
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
@@ -269,6 +269,9 @@ impl<T: Config> Pallet<T> {
         attestation: SignedAttestation<T::Hash, T::AccountId>,
     ) -> DispatchResult {
         let chain_key = attestation.chain_key();
+
+        // Validate the attestation
+        Self::validate_attestation(chain_key, &attestation)?;
 
         // Store the attestation
         let digest = attestation.digest();
@@ -698,14 +701,14 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn validate_attestation(
         chain_key: ChainKey,
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
-    ) -> Result<(), InherentError> {
+    ) -> DispatchResult {
         ensure!(
             T::SupportedChains::is_chain_supported(chain_key),
-            InherentError::NotValid
+            Error::<T>::ChainNotSupported
         );
 
         if Self::check_duplicate(attestation) {
-            return Err(InherentError::Duplicate(attestation.digest()));
+            return Err(Error::<T>::AttestationExists.into());
         }
 
         // Attestor eligibility validation
@@ -718,7 +721,14 @@ impl<T: Config> Pallet<T> {
                 .attestors
                 .iter()
                 .all(|attestor| active_attestors.contains(attestor)),
-            InherentError::AttestorNotActive
+            Error::<T>::AttestorNotActive
+        );
+
+        // Ensure no duplicate attestors
+        let unique_attestors: BTreeSet<&T::AccountId> = attestation.attestors.iter().collect();
+        ensure!(
+            unique_attestors.len() == attestation.attestors.len(),
+            Error::<T>::DuplicateAttestor
         );
 
         // Threshold validation
@@ -726,7 +736,7 @@ impl<T: Config> Pallet<T> {
         let threshold = calculate_threshold(target_sample_size);
         ensure!(
             attestation.attestors.len() as u32 >= threshold,
-            InherentError::MajorityNotReached
+            Error::<T>::MajorityNotReached
         );
 
         // Signature verification
@@ -736,7 +746,7 @@ impl<T: Config> Pallet<T> {
         let aggregated_public_key =
             aggregate_public_keys(&attestor_public_keys[..]).map_err(|_| {
                 log::error!("Failed to aggregate public keys");
-                InherentError::NotValid
+                Error::<T>::InvalidBlsSignature
             })?;
 
         let message = &attestation.attestation.serialize()[..];
@@ -871,32 +881,32 @@ impl<T: Config> Pallet<T> {
         false
     }
 
-    pub(crate) fn extract_agg_signature(signature: &[u8]) -> Result<Signature, InherentError> {
+    pub(crate) fn extract_agg_signature(signature: &[u8]) -> Result<Signature, Error<T>> {
         Signature::from_bytes(signature).map_err(|_| {
             log::error!("Failed to aggregate BLS signature");
-            InherentError::NotValid
+            Error::<T>::InvalidBlsSignature
         })
     }
 
     pub(crate) fn gather_attestor_public_keys(
         chain_key: ChainKey,
         attestors: &[T::AccountId],
-    ) -> Result<Vec<PublicKey>, InherentError> {
+    ) -> Result<Vec<PublicKey>, Error<T>> {
         attestors
             .iter()
             .map(|attestor| {
                 let attestor = Attestors::<T>::get(chain_key, attestor).ok_or_else(|| {
                     log::error!("Attestor {attestor:?} not found");
-                    InherentError::InvalidAttestorFound
+                    Error::<T>::InvalidAttestorFound
                 })?;
                 match attestor.bls_public_key {
                     Some(key) => PublicKey::from_bytes(&key[..]).map_err(|_| {
                         log::error!("Invalid BLS key for attestor {attestor:?}");
-                        InherentError::AttestorWithInvalidPublicKey
+                        Error::<T>::AttestorWithInvalidPublicKey
                     }),
                     None => {
                         log::error!("No BLS key for attestor {attestor:?}");
-                        Err(InherentError::AttestorWithInvalidPublicKey)
+                        Err(Error::<T>::AttestorWithInvalidPublicKey)
                     }
                 }
             })
@@ -907,10 +917,10 @@ impl<T: Config> Pallet<T> {
         agg_signature: &Signature,
         message: &[u8],
         agg_public_key: PublicKey,
-    ) -> Result<(), InherentError> {
+    ) -> Result<(), Error<T>> {
         if !bls_signatures::verify_agg_message(agg_signature, message, agg_public_key) {
             log::error!("Aggregated signature is invalid");
-            return Err(InherentError::NotValid);
+            return Err(Error::<T>::InvalidBlsSignature);
         }
         Ok(())
     }
