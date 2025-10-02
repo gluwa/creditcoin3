@@ -20,6 +20,7 @@ no_effect_underscore_binding = "allow"
 pedantic = "warn"
 redundant_slicing = "allow"
 too_many_lines = "allow"
+result_large_err = "allow"
 
 [package.metadata.release]
 release = false

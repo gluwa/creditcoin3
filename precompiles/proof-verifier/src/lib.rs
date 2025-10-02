@@ -105,7 +105,7 @@ where
                 query.id(),
                 status
             );
-            log::debug!("Result segments: {:?}", result_segments);
+            log::debug!("Result segments: {result_segments:?}");
 
             Ok(VerifyResult {
                 status,
@@ -144,10 +144,7 @@ where
         query_id: H256,
     ) -> Result<(u64, H256), PrecompileFailure> {
         if continuity_proof_len.is_none() || continuity_checkpoint_digest.is_none() {
-            error!(
-                "Missing continuity proof or checkpoint digest. QueryId: {:?}",
-                query_id
-            );
+            error!("Missing continuity proof or checkpoint digest. QueryId: {query_id:?}",);
             let encoded_revert =
                 encode_revert_message("Missing continuity proof or checkpoint digest");
             return Err(PrecompileFailure::Revert {

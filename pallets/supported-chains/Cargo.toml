@@ -7,6 +7,9 @@ publish.workspace = true
 repository.workspace = true
 version.workspace = true
 
+[lints.clippy]
+too_many_arguments = "allow"
+
 [dependencies]
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true }

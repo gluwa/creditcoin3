@@ -21,8 +21,8 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
 no_effect_underscore_binding = "allow"
-pedantic = "warn"
 redundant_slicing = "allow"
+struct_field_names = "allow"
 
 [package.metadata.release]
 release = false
