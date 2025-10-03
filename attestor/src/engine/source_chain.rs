@@ -1,6 +1,5 @@
 use anyhow::Result;
-use std::time::Duration;
-use tokio::{sync::mpsc::Sender, time::sleep};
+use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
 
 use eth::{
