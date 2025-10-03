@@ -146,7 +146,7 @@ mod benchmarks {
     fn set_target_sample_size() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        let set_size: u32 = 6;
+        let set_size: u32 = 1;
 
         #[extrinsic_call]
         _(
