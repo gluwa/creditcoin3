@@ -103,12 +103,12 @@ where
             });
         }
 
+        // Charge fixed weight for the STARK verification work (converted to gas using WeightPerGas)
+        let w = sp_weights::Weight::from_parts(WEIGHT_STARK_VERIFY, 0);
+        RuntimeHelper::<Runtime>::record_external_cost(handle, w, 0)?;
+
         #[cfg(not(feature = "runtime-benchmarks"))]
         {
-            // Charge fixed weight for the STARK verification work (converted to gas using WeightPerGas)
-            let w = sp_weights::Weight::from_parts(WEIGHT_STARK_VERIFY, 0);
-            RuntimeHelper::<Runtime>::record_external_cost(handle, w, 0)?;
-
             let (status, result_segments, continuity_proof_len, continuity_checkpoint_digest) =
                 proof_verifier::host_api::verify_proof(proof_bytes, query.clone(), metadata);
 
@@ -135,9 +135,6 @@ where
 
         #[cfg(feature = "runtime-benchmarks")]
         {
-            // Charge fixed weight for the STARK verification work (converted to gas using WeightPerGas)
-            let w = sp_weights::Weight::from_parts(WEIGHT_STARK_VERIFY, 0);
-            RuntimeHelper::<Runtime>::record_external_cost(handle, w, 0)?;
             let result = proof_verifier::host_benchmark_api::verify_proof(
                 proof_bytes,
                 query.clone(),
