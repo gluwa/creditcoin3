@@ -3550,6 +3550,11 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
         readonly isInvalidVoteAcceptanceWindow: boolean;
+        readonly isInvalidAttestorFound: boolean;
+        readonly isAttestorNotActive: boolean;
+        readonly isAttestorWithInvalidPublicKey: boolean;
+        readonly isMajorityNotReached: boolean;
+        readonly isDuplicateAttestor: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3578,7 +3583,12 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidTargetSampleSize'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
-            | 'InvalidVoteAcceptanceWindow';
+            | 'InvalidVoteAcceptanceWindow'
+            | 'InvalidAttestorFound'
+            | 'AttestorNotActive'
+            | 'AttestorWithInvalidPublicKey'
+            | 'MajorityNotReached'
+            | 'DuplicateAttestor';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (413) */

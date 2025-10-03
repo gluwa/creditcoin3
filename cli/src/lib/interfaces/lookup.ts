@@ -3051,6 +3051,11 @@ export default {
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
             'InvalidVoteAcceptanceWindow',
+            'InvalidAttestorFound',
+            'AttestorNotActive',
+            'AttestorWithInvalidPublicKey',
+            'MajorityNotReached',
+            'DuplicateAttestor',
         ],
     },
     /**

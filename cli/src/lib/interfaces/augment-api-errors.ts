@@ -31,12 +31,15 @@ declare module '@polkadot/api-base/types/errors' {
              * The attestor list is at the max size allowed by the current configuration
              **/
             AttestorListFull: AugmentedError<ApiType>;
+            AttestorNotActive: AugmentedError<ApiType>;
             AttestorNotIdle: AugmentedError<ApiType>;
+            AttestorWithInvalidPublicKey: AugmentedError<ApiType>;
             /**
              * The chain is not supported
              **/
             ChainNotSupported: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
+            DuplicateAttestor: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
             /**
              * The call to attest_block failed, the block's cryptographic committments were invalid
@@ -46,6 +49,7 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestationInterval: AugmentedError<ApiType>;
             InvalidAttestationsPerCheckpoint: AugmentedError<ApiType>;
             InvalidAttestorAccount: AugmentedError<ApiType>;
+            InvalidAttestorFound: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
@@ -55,6 +59,7 @@ declare module '@polkadot/api-base/types/errors' {
              * The invulnerable list is full
              **/
             InvulnerableListFull: AugmentedError<ApiType>;
+            MajorityNotReached: AugmentedError<ApiType>;
             /**
              * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
              **/
