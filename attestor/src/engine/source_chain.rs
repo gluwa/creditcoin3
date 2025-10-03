@@ -63,9 +63,6 @@ pub async fn attest_to_heads(
                     // Continuously await new blocks and notify the attestor
                     debug!("Sending height {}", height);
                     sender.send(height).await?;
-
-                    // Sleep for a bit to avoid spamming the receiver
-                    sleep(Duration::from_millis(250)).await;
                 } else {
                     return Err(Error::FailedToSubscribe("No block received".to_string()));
                 }
