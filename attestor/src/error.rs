@@ -1,9 +1,10 @@
-use eth::OrderedBlock;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
-use crate::continuity::Error as ContinuityError;
 use cc_client::attestation::Error as AttestationError;
+use eth::subscription::Height;
+
+use crate::continuity::Error as ContinuityError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -28,7 +29,7 @@ pub enum Error {
     #[error("Eth client error {0}")]
     EthClient(#[from] eth::Error),
     #[error("Send error {0}")]
-    Send(#[from] SendError<OrderedBlock>),
+    Send(#[from] SendError<Height>),
     #[error("Continuity Error {0}")]
     Continuity(#[from] ContinuityError),
     #[error("Block already attested to: {0}")]

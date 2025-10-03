@@ -15,10 +15,10 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 // --- workspace crates ---
-use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest};
+use attestor_primitives::{AttestorId, ChainKey, Digest};
 use cc_client::attestation::{CcEvent, Subscription};
 use creditcoin3_attestor_gossip::communication::Attestation;
-use eth::{Client, OrderedBlock};
+use eth::{subscription::Height, Client};
 
 // --- local crate ---
 use crate::{
@@ -117,7 +117,7 @@ pub struct AttestorService {
     // Source-chain subscription pump
     source_chain_task: Option<JoinHandle<()>>,
     // Source-chain heads receiver (unmatured)
-    heads_rx: Option<Receiver<OrderedBlock>>,
+    heads_rx: Option<Receiver<Height>>,
 
     // CC events
     cc_events: Option<Subscription>,
@@ -241,8 +241,7 @@ impl AttestorService {
                 maybe_head = async {
                     self.heads_rx.as_mut().expect("ensured by guard").recv().await
                 }, if have_heads => {
-                    if let Some(a) = maybe_head {
-                        let block_number = a.number();
+                    if let Some(block_number) = maybe_head {
                         self.pending.entry(block_number).or_default().push(block_number);
                         info!(
                             "📥 Buffered block with header number: {}; pending={} items",
@@ -530,30 +529,22 @@ impl AttestorService {
         }
 
         for block_header in ready {
-            let block = self.eth_client.get_block(block_header).await?;
-            let attestation = crate::util::create_attestation(self.chain_key, &block);
-
-            let n = block.number();
-            // dedupe double-votes
-            let can_submit = self.voted_for.insert((n, attestation.digest()));
-            if !can_submit {
-                info!(
-                    "❗ Double vote detected for block: {}, digest: {}",
-                    n,
-                    attestation.digest()
-                );
-                continue;
-            }
-
             info!(
-                "👨 Attestation({}) matured, going to prepare it for submission...",
-                n
+                "👨 Block({}) matured, going to prepare it for submission...",
+                block_header
             );
 
             // prepare + submit
-            match self.prepare_attestation(attestation).await {
+            match self.prepare_attestation(block_header).await {
                 Ok(signed) => {
                     let digest = signed.digest();
+                    // dedupe double-votes
+                    let can_submit = self.voted_for.insert((block_header, digest));
+                    if !can_submit {
+                        info!("❗ Double vote detected for block: {} with digest: {:?}, skipping submission", block_header, digest);
+                        continue;
+                    }
+
                     let round = signed.round();
                     if let Err(e) = self
                         .cc3_client
@@ -719,10 +710,8 @@ impl AttestorService {
     /// Prepare an attestation for submission
     async fn prepare_attestation(
         &mut self,
-        mut attestation: AttestationPrimitive<H256>,
+        header_number: u64,
     ) -> Result<Attestation<H256, AttestorId>, Error> {
-        let header_number = attestation.header_number;
-
         // Eligiblity check
         let vrf_output = self.cc3_client.sign_vrf(header_number).await.map_err(|e| {
             debug!("Error signing vrf: {:?}", e);
@@ -732,20 +721,23 @@ impl AttestorService {
         // Create continuity fragment
         let continuity_fragment = self.create_continuity_proof(header_number).await?;
 
-        let current_epoch = self.cc3_client.get_current_epoch().await?;
-
-        // Set the previous digest
-        attestation.prev_digest = Some(
+        // Get the eth block for the header number
+        let block = self.eth_client.get_block(header_number).await?;
+        // Get the previous digest from the continuity fragment
+        let prev_digest = Some(
             continuity_fragment
                 .head_digest()
                 .map_or_else(sp_core::H256::zero, |d| H256::from(d.to_bytes_be())),
         );
-        debug!("Previous digest set, {:?}", attestation.prev_digest);
+        // Create attestation data
+        let attestation = crate::util::create_attestation(self.chain_key, &block, prev_digest);
 
         // Serialize the fragment to be sent over the wire
         let serialized_fragment =
             continuity::AttestationFragmentSerializable::from(&continuity_fragment);
 
+        // Sign the attestation
+        let current_epoch = self.cc3_client.get_current_epoch().await?;
         let signed_attestation = self.cc3_client.sign_attestation(
             attestation,
             serialized_fragment,

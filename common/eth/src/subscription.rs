@@ -1,4 +1,3 @@
-use crate::{Client, OrderedBlock};
 use alloy::providers::Provider;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -7,21 +6,23 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::Error;
+use crate::{Client, Error};
+
+pub type Height = u64;
 
 #[async_trait]
 pub trait BlockSubscription: Send + Sync {
     fn cancel(&self);
-    async fn next(&mut self) -> Result<Option<OrderedBlock>, Error>;
+    async fn next(&mut self) -> Result<Option<Height>, Error>;
 }
 
 const BUFFER_SIZE: usize = 100;
 
-/// `NewBlockSubscription` is a struct that references to a receiving end of a channel where blocks are pushed upon
-/// It subscribes to the head of the chain and pushes new blocks to the channel
+/// `NewBlockSubscription` is a struct that references to a receiving end of a channel where block heights are pushed upon
+/// It subscribes to the head of the chain and pushes new block heights to the channel
 #[derive(Debug)]
 struct NewBlockSubscription {
-    receiver: mpsc::Receiver<OrderedBlock>,
+    receiver: mpsc::Receiver<Height>,
     handle: JoinHandle<Result<(), Error>>,
 }
 
@@ -41,9 +42,9 @@ impl BlockSubscription for NewBlockSubscription {
     }
 
     /// Get the next block from the channel
-    async fn next(&mut self) -> Result<Option<OrderedBlock>, Error> {
+    async fn next(&mut self) -> Result<Option<Height>, Error> {
         match self.receiver.recv().await {
-            Some(block) => Ok(Some(block)),
+            Some(h) => Ok(Some(h)),
             None => {
                 warn!("Channel closed; no more blocks will be received");
                 Ok(None)
@@ -77,10 +78,8 @@ fn subscribe_latest_heads(
                     continue;
                 }
 
-                let block = client.get_block(block_number).await?;
-
                 debug!("Sending block({}) to channel", block_number);
-                sender.send(block).await?;
+                sender.send(block_number).await?;
             } else {
                 info!("Subscription stream ended");
                 return Err(Error::EndOfSubscription);
@@ -93,7 +92,6 @@ fn subscribe_latest_heads(
 
 /// `BlockFetcher` is a struct that fetches blocks from a given height with a given interval
 struct BlockFetcher {
-    pub client: Client,
     pub config: SubscriptionConfig,
     pub interval: u64,
 }
@@ -112,7 +110,7 @@ impl BlockFetcher {
         }
     }
 
-    pub fn new(client: Client, mut config: SubscriptionConfig, interval: u64) -> Self {
+    pub fn new(mut config: SubscriptionConfig, interval: u64) -> Self {
         // Align the first block we will fetch to the attestation interval,
         // so we only emit blocks where block_number % interval == 0.
         if interval > 0 {
@@ -122,7 +120,6 @@ impl BlockFetcher {
         }
 
         Self {
-            client,
             config,
             interval: if interval == 0 { 1 } else { interval },
         }
@@ -133,7 +130,7 @@ impl BlockFetcher {
 impl BlockSubscription for BlockFetcher {
     fn cancel(&self) {}
 
-    async fn next(&mut self) -> Result<Option<OrderedBlock>, Error> {
+    async fn next(&mut self) -> Result<Option<Height>, Error> {
         // If we reached the end block, return EndOfSubscription error
         if self.config.start_block >= self.config.end_block {
             return Err(Error::EndOfSubscription);
@@ -143,8 +140,8 @@ impl BlockSubscription for BlockFetcher {
             "Blockfetcher: Fetching block at height: {}",
             self.config.start_block
         );
-        // Get the block at the current height
-        let block = self.client.get_block(self.config.start_block).await?;
+
+        let block_num = self.config.start_block;
 
         // Step to the next aligned height.
         // Use checked_add to be extra safe against overflow on u64.
@@ -154,7 +151,7 @@ impl BlockSubscription for BlockFetcher {
             .checked_add(self.interval)
             .ok_or(Error::EndOfSubscription)?; // or define a dedicated overflow error
 
-        Ok(Some(block))
+        Ok(Some(block_num))
     }
 }
 
@@ -182,7 +179,7 @@ impl Client {
     ) -> Result<Box<dyn BlockSubscription>, Error> {
         let client = self.clone();
         if let Some(config) = config {
-            Ok(Box::new(BlockFetcher::new(client, config, interval)))
+            Ok(Box::new(BlockFetcher::new(config, interval)))
         } else {
             Ok(subscribe_latest_heads(client, interval)?)
         }

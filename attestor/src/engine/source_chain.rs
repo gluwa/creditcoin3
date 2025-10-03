@@ -3,7 +3,10 @@ use std::time::Duration;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info};
 
-use eth::{self, subscription::SubscriptionConfig, OrderedBlock};
+use eth::{
+    self,
+    subscription::{Height, SubscriptionConfig},
+};
 
 use crate::error::Error;
 
@@ -11,7 +14,7 @@ use crate::error::Error;
 /// This function will open a subscription to the source chain and continuously await new blocks.
 pub async fn attest_to_heads(
     eth_client: eth::Client,
-    sender: Sender<OrderedBlock>,
+    sender: Sender<Height>,
     eth_start_block: u64,
     eth_target_block: u64,
     attestation_interval: u64,
@@ -56,10 +59,10 @@ pub async fn attest_to_heads(
     loop {
         match subscription.next().await {
             Ok(next) => {
-                if let Some(block) = next {
+                if let Some(height) = next {
                     // Continuously await new blocks and notify the attestor
-                    debug!("Sending block with number: {}", block.number());
-                    sender.send(block).await?;
+                    debug!("Sending height {}", height);
+                    sender.send(height).await?;
 
                     // Sleep for a bit to avoid spamming the receiver
                     sleep(Duration::from_millis(250)).await;

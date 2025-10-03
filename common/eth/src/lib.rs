@@ -33,6 +33,8 @@ use utils::{
 
 pub use alloy::core::primitives::Address;
 
+use crate::subscription::Height;
+
 pub mod evm;
 pub mod subscription;
 
@@ -61,7 +63,7 @@ pub enum Error {
     #[error("Failed to get sync info")]
     FailedToGetSyncInfo,
     #[error("Failed to send block on channel")]
-    SendError(#[from] SendError<OrderedBlock>),
+    SendError(#[from] SendError<Height>),
     #[error("No Wallet configured")]
     NoWalletConfigured,
     #[error("Hex decoding error {0}")]

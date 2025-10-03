@@ -10,7 +10,11 @@ pub mod sanitize_url;
 
 // Create the attestation data from a NewBlock
 #[must_use]
-pub fn create_attestation(chain_key: ChainKey, new_block: &OrderedBlock) -> Attestation<H256> {
+pub fn create_attestation(
+    chain_key: ChainKey,
+    new_block: &OrderedBlock,
+    prev_digest: Option<H256>,
+) -> Attestation<H256> {
     let mt = eth::starknet_pedersen_mmr(new_block);
 
     debug!("Root h256: {:?}", sp_core::H256(mt.root().0.to_bytes_be()));
@@ -23,7 +27,6 @@ pub fn create_attestation(chain_key: ChainKey, new_block: &OrderedBlock) -> Atte
         header_number: new_block.number(),
         header_hash: sp_core::H256(*new_block.hash().unwrap()),
         root: mt.root().0.to_bytes_be(),
-        // We don't have a prev_digest yet, so we set it to None
-        prev_digest: None,
+        prev_digest,
     }
 }
