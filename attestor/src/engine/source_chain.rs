@@ -1,11 +1,9 @@
 use anyhow::Result;
-use sp_core::H256;
 use std::time::Duration;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info};
 
-use attestor_primitives::{Attestation, ChainKey};
-use eth::{self, subscription::SubscriptionConfig};
+use eth::{self, subscription::SubscriptionConfig, OrderedBlock};
 
 use crate::error::Error;
 
@@ -13,10 +11,9 @@ use crate::error::Error;
 /// This function will open a subscription to the source chain and continuously await new blocks.
 pub async fn attest_to_heads(
     eth_client: eth::Client,
-    sender: Sender<Attestation<H256>>,
+    sender: Sender<OrderedBlock>,
     eth_start_block: u64,
     eth_target_block: u64,
-    chain_key: ChainKey,
     attestation_interval: u64,
 ) -> Result<(), Error> {
     let mut config = SubscriptionConfig {
@@ -61,13 +58,10 @@ pub async fn attest_to_heads(
             Ok(next) => {
                 if let Some(block) = next {
                     // Continuously await new blocks and notify the attestor
-                    let attestation = crate::util::create_attestation(chain_key, &block);
+                    debug!("Sending block with number: {}", block.number());
+                    sender.send(block).await?;
 
-                    debug!("Sending attestation: {:?}", attestation.round());
-                    // Send an attestation back on the channel
-                    sender.send(attestation).await?;
-
-                    // Sleep for a bit to avoid spamming the chain
+                    // Sleep for a bit to avoid spamming the receiver
                     sleep(Duration::from_millis(250)).await;
                 } else {
                     return Err(Error::FailedToSubscribe("No block received".to_string()));

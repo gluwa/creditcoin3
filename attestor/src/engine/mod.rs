@@ -18,7 +18,7 @@ use tracing::{debug, error, info, warn};
 use attestor_primitives::{Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest};
 use cc_client::attestation::{CcEvent, Subscription};
 use creditcoin3_attestor_gossip::communication::Attestation;
-use eth::Client;
+use eth::{Client, OrderedBlock};
 
 // --- local crate ---
 use crate::{
@@ -117,7 +117,7 @@ pub struct AttestorService {
     // Source-chain subscription pump
     source_chain_task: Option<JoinHandle<()>>,
     // Source-chain heads receiver (unmatured)
-    heads_rx: Option<Receiver<AttestationPrimitive<H256>>>,
+    heads_rx: Option<Receiver<OrderedBlock>>,
 
     // CC events
     cc_events: Option<Subscription>,
@@ -126,7 +126,7 @@ pub struct AttestorService {
     next_backoff_deadline: Option<Instant>,
 
     // Maturity queue
-    pending: BTreeMap<u64, Vec<AttestationPrimitive<H256>>>,
+    pending: BTreeMap<u64, Vec<u64>>,
 
     chain_name: String,
 }
@@ -242,11 +242,11 @@ impl AttestorService {
                     self.heads_rx.as_mut().expect("ensured by guard").recv().await
                 }, if have_heads => {
                     if let Some(a) = maybe_head {
-                        let attestation_header_number = a.header_number();
-                        self.pending.entry(attestation_header_number).or_default().push(a);
+                        let block_number = a.number();
+                        self.pending.entry(block_number).or_default().push(block_number);
                         info!(
-                            "📥 Buffered attestation with header number: {}; pending={} items",
-                            attestation_header_number,
+                            "📥 Buffered block with header number: {}; pending={} items",
+                            block_number,
                             self.pending.values().map(Vec::len).sum::<usize>()
                         );
 
@@ -387,18 +387,11 @@ impl AttestorService {
         // Channel and spawn
         let (tx, rx) = mpsc::channel(ATTESTATION_BUFFER_SIZE);
         let eth = self.eth_client.clone();
-        let chain_key = self.chain_key;
         let cmd_tx = self.cmd_tx.clone();
         self.source_chain_task = Some(tokio::spawn(async move {
-            if let Err(e) = source_chain::attest_to_heads(
-                eth,
-                tx,
-                start,
-                target_header,
-                chain_key,
-                attestation_interval,
-            )
-            .await
+            if let Err(e) =
+                source_chain::attest_to_heads(eth, tx, start, target_header, attestation_interval)
+                    .await
             {
                 error!("source chain subscription ended: {:?}", e);
                 info!("🔄 Requesting attestation service restart");
@@ -536,15 +529,18 @@ impl AttestorService {
             );
         }
 
-        for att in ready {
-            let n = att.header_number();
+        for block_header in ready {
+            let block = self.eth_client.get_block(block_header).await?;
+            let attestation = crate::util::create_attestation(self.chain_key, &block);
+
+            let n = block.number();
             // dedupe double-votes
-            let can_submit = self.voted_for.insert((n, att.digest()));
+            let can_submit = self.voted_for.insert((n, attestation.digest()));
             if !can_submit {
                 info!(
                     "❗ Double vote detected for block: {}, digest: {}",
                     n,
-                    att.digest()
+                    attestation.digest()
                 );
                 continue;
             }
@@ -555,7 +551,7 @@ impl AttestorService {
             );
 
             // prepare + submit
-            match self.prepare_attestation(att).await {
+            match self.prepare_attestation(attestation).await {
                 Ok(signed) => {
                     let digest = signed.digest();
                     let round = signed.round();

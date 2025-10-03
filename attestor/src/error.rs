@@ -1,9 +1,8 @@
-use sp_core::H256;
+use eth::OrderedBlock;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
 use crate::continuity::Error as ContinuityError;
-use attestor_primitives::Attestation;
 use cc_client::attestation::Error as AttestationError;
 
 #[derive(Error, Debug)]
@@ -29,7 +28,7 @@ pub enum Error {
     #[error("Eth client error {0}")]
     EthClient(#[from] eth::Error),
     #[error("Send error {0}")]
-    Send(#[from] SendError<Attestation<H256>>),
+    Send(#[from] SendError<OrderedBlock>),
     #[error("Continuity Error {0}")]
     Continuity(#[from] ContinuityError),
     #[error("Block already attested to: {0}")]
