@@ -95,23 +95,6 @@ pub async fn get_initial_unprocessed_queries(eth_client: &Client) -> Result<Vec<
     Ok(queries)
 }
 
-// Queries contract storage to fetch all existing unprocessed queries
-// and then subscribes to new query submissions. It sends everything to the provided query channel.
-pub async fn provide_unprocessed_queries(
-    eth_client: &Client,
-    query_channel: mpsc::UnboundedSender<Query>,
-) -> Result<()> {
-    info!("🔄 Polling for all existing unprocessed queries...");
-    let queries = get_initial_unprocessed_queries(eth_client).await?;
-    info!("🔍 Found {} existing queries to process.", queries.len());
-    for query in queries {
-        query_channel.send(query)?;
-    }
-
-    info!("🔄 Initial poll complete. Subscribing for new queries...");
-    subscribe_query_submissions(eth_client, query_channel).await
-}
-
 /// Submit proof by `QueryId` directly
 pub async fn submit_proof_by_id(
     eth_client: &Client,

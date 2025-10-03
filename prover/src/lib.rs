@@ -164,10 +164,30 @@ impl Server {
         // Channel for new queries
         let (new_query_sender, mut new_query_receiver) = mpsc::unbounded_channel::<Query>();
 
-        // Spawn a task to check for queries on contract storage and subscribe to new submissions
+        // Fetch initial unprocessed queries and push them to the channel
+        info!("🔄 Polling for all existing unprocessed queries...");
+        let initial_unprocessed_queries =
+            contract::get_initial_unprocessed_queries(&self.cc3_eth_client)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!("⚠️ Failed to fetch unprocessed queries from chain: {:?}", e);
+                    Vec::new()
+                });
+
+        info!(
+            "🔍 Found {} existing queries to process.",
+            initial_unprocessed_queries.len()
+        );
+
+        for q in &initial_unprocessed_queries {
+            new_query_sender.send(q.clone())?;
+        }
+
+        // Subscribe to new query submissions only (initial set already pushed)
+        info!("🔄 Initial poll complete. Subscribing for new queries...");
         let client_clone = self.cc3_eth_client.clone();
         tokio::spawn(async move {
-            contract::provide_unprocessed_queries(&client_clone, new_query_sender.clone()).await
+            contract::subscribe_query_submissions(&client_clone, new_query_sender.clone()).await
         });
 
         let (proof_verified_event_sender, mut proof_verified_event_receiver) =
@@ -196,8 +216,11 @@ impl Server {
 
         // If running in light prover mode, resume any pending jobs from the BE
         if self.is_light_prover_mode() {
-            self.resume_pending_light_prover_jobs(&mut light_prover_queries)
-                .await?;
+            self.resume_pending_light_prover_jobs(
+                &mut light_prover_queries,
+                &initial_unprocessed_queries,
+            )
+            .await?;
         }
 
         loop {
@@ -594,6 +617,7 @@ impl Server {
     async fn resume_pending_light_prover_jobs(
         &mut self,
         light_prover_queries: &mut LightProverQueries,
+        unprocessed_queries: &[Query],
     ) -> Result<()> {
         let Some(addr) = self.config.prover_be_socket_addr.clone() else {
             return Ok(());
@@ -619,14 +643,6 @@ impl Server {
             "🔍 Found {} pending BE proving requests. Resuming...",
             pending.len()
         );
-
-        // Fetch current unprocessed queries from chain so we can reconstruct Query objects
-        let unprocessed_queries = contract::get_initial_unprocessed_queries(&self.cc3_eth_client)
-            .await
-            .unwrap_or_else(|e| {
-                warn!("⚠️ Failed to fetch unprocessed queries from chain: {:?}", e);
-                Vec::new()
-            });
 
         for entry in pending {
             let parse_res = H256::from_str(&entry.id);
