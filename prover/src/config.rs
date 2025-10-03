@@ -15,6 +15,7 @@
 /// - `enable_prometheus_metrics`:
 /// - `prometheus_host`:
 /// - `prometheus_port`:
+/// - `artifacts_file`: Path to the artifacts storage JSON file used for deployment artifacts
 pub struct Config {
     pub cc3_rpc_url: String,
     pub cc3_key: String,
@@ -32,4 +33,5 @@ pub struct Config {
     pub enable_prometheus_metrics: bool,
     pub prometheus_host: String,
     pub prometheus_port: u16,
+    pub artifacts_file: String,
 }

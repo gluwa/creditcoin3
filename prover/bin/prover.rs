@@ -87,6 +87,13 @@ pub struct Prover {
         help = "Flag indicating the attestor will launch a server to expose metrics."
     )]
     enable_prometheus_metrics: bool,
+
+    #[arg(
+        long,
+        default_value = "artifacts/chain_deployment_artifacts.json",
+        help = "Path to the artifacts storage file used to store/fetch deployment artifacts"
+    )]
+    artifacts_file: String,
 }
 
 #[tokio::main]
@@ -143,6 +150,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         prometheus_host: args.prometheus_host,
         prometheus_port: args.prometheus_port,
         enable_prometheus_metrics: args.enable_prometheus_metrics,
+        artifacts_file: args.artifacts_file,
     };
 
     if args.reset_db {

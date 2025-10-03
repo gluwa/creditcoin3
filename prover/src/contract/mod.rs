@@ -21,12 +21,14 @@ pub async fn deploy(
     chain_key: ChainKey,
     display_name: String,
     timeout: u64,
+    artifacts_path: &str,
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = if artifacts::has_artifact(chain_id).await? {
+    let artifact = if artifacts::has_artifact(chain_id, artifacts_path).await? {
         info!("🔍 Found existing deployment artifact, fetching...");
-        let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+        let artifact =
+            artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
 
         if let Some(artifact_hash) = artifact.bytecode_hash {
             info!("🔑 Artifact bytecode hash: {:?}", artifact_hash);
@@ -69,7 +71,8 @@ pub async fn deploy(
         )
         .await?;
 
-        artifacts::create_deployment_artifact(chain_id, contract, bytecode_hash).await?
+        artifacts::create_deployment_artifact(chain_id, contract, bytecode_hash, artifacts_path)
+            .await?
     };
 
     info!(
@@ -82,10 +85,13 @@ pub async fn deploy(
 
 // Get unprocessed queries
 // This function will fetch all unprocessed queries from the chain
-pub async fn get_initial_unprocessed_queries(eth_client: &Client) -> Result<Vec<Query>> {
+pub async fn get_initial_unprocessed_queries(
+    eth_client: &Client,
+    artifacts_path: &str,
+) -> Result<Vec<Query>> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
 
     let queries = artifact
         .contract
@@ -100,6 +106,7 @@ pub async fn submit_proof_by_id(
     eth_client: &Client,
     query_id: QueryId,
     proof: Vec<u8>,
+    artifacts_path: &str,
 ) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
     debug!(
@@ -107,7 +114,10 @@ pub async fn submit_proof_by_id(
         query_id, chain_id
     );
 
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+    // Get the deployment artifact
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
+
+    // Submit the proof
     let tx_hash = artifact
         .contract
         .submit_query_proof(eth_client, query_id.0.into(), proof)
@@ -123,10 +133,11 @@ pub async fn submit_proof_by_id(
 pub async fn subscribe_proof_verification_events(
     eth_client: &Client,
     proof_channel: mpsc::UnboundedSender<QueryId>,
+    artifacts_path: &str,
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
 
     artifact
         .contract
@@ -143,10 +154,11 @@ pub async fn subscribe_proof_verification_events(
 pub async fn subscribe_query_submissions(
     eth_client: &Client,
     query_channel: mpsc::UnboundedSender<Query>,
+    artifacts_path: &str,
 ) -> Result<()> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
 
     artifact
         .contract
@@ -161,10 +173,11 @@ pub async fn mark_query_as_invalid(
     eth_client: &Client,
     query_id: QueryId,
     reason: String,
+    artifacts_path: &str,
 ) -> Result<String> {
     let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
 
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id).await?;
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
 
     let tx_hash = artifact
         .contract

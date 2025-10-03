@@ -22,6 +22,7 @@ pub mod config;
 
 mod attestation;
 mod contract;
+
 pub mod postgres;
 mod prom;
 mod query;
@@ -105,6 +106,7 @@ impl Server {
             config.chain_key,
             config.name.clone(),
             config.timeout,
+            &config.artifacts_file,
         )
         .await?;
         info!("✅ Deployed prover contract");
@@ -186,14 +188,16 @@ impl Server {
         // Subscribe to new query submissions only (initial set already pushed)
         info!("🔄 Initial poll complete. Subscribing for new queries...");
         let client_clone = self.cc3_eth_client.clone();
+        let artifacts_path_clone = self.config.artifacts_file.clone();
         tokio::spawn(async move {
-            contract::subscribe_query_submissions(&client_clone, new_query_sender.clone()).await
+            contract::subscribe_query_submissions(&client_clone, new_query_sender.clone(), &artifacts_path_clone).await
         });
 
         let (proof_verified_event_sender, mut proof_verified_event_receiver) =
             mpsc::unbounded_channel::<H256>();
 
         let proof_client_clone = self.cc3_eth_client.clone();
+        let proof_artifacts_path_clone = self.config.artifacts_file.clone();
 
         // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
         info!("🛰️  Subscribing to proof verification events on the contract");
@@ -201,6 +205,7 @@ impl Server {
             contract::subscribe_proof_verification_events(
                 &proof_client_clone,
                 proof_verified_event_sender.clone(),
+                &proof_artifacts_path_clone,
             )
             .await
         });
@@ -483,7 +488,8 @@ impl Server {
                 query_id
             );
 
-            let _ = contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof).await?;
+            let _ = contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof,                 &self.config.artifacts_file,
+            ).await?;
             return Ok(());
         } else if let Either::Right(stone_proof_public_input) = r {
             info!("🔄 Handling external proof for query: {:?}", query_id);
@@ -564,7 +570,8 @@ impl Server {
             query_id
         );
 
-        contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof).await?;
+        contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof, &self.config.artifacts_file,
+        ).await?;
         Ok(())
     }
 
@@ -601,7 +608,14 @@ impl Server {
         // Clean up the query from internal memory
         self.cleanup_query(query_id);
 
-        match contract::mark_query_as_invalid(&self.cc3_eth_client, query_id, reason).await {
+        match contract::mark_query_as_invalid(
+            &self.cc3_eth_client,
+            query_id,
+            reason,
+            &self.config.artifacts_file,
+        )
+        .await
+        {
             Ok(_) => {
                 info!("✅ Marked query {:?} as invalid", query_id);
                 Ok(())
