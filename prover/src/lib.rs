@@ -168,8 +168,10 @@ impl Server {
 
         // Fetch initial unprocessed queries and push them to the channel
         info!("🔄 Polling for all existing unprocessed queries...");
+        let artifacts_path_clone = self.config.artifacts_file.clone();
+
         let initial_unprocessed_queries =
-            contract::get_initial_unprocessed_queries(&self.cc3_eth_client)
+            contract::get_initial_unprocessed_queries(&self.cc3_eth_client, &artifacts_path_clone)
                 .await
                 .unwrap_or_else(|e| {
                     warn!("⚠️ Failed to fetch unprocessed queries from chain: {:?}", e);
@@ -190,7 +192,12 @@ impl Server {
         let client_clone = self.cc3_eth_client.clone();
         let artifacts_path_clone = self.config.artifacts_file.clone();
         tokio::spawn(async move {
-            contract::subscribe_query_submissions(&client_clone, new_query_sender.clone(), &artifacts_path_clone).await
+            contract::subscribe_query_submissions(
+                &client_clone,
+                new_query_sender.clone(),
+                &artifacts_path_clone,
+            )
+            .await
         });
 
         let (proof_verified_event_sender, mut proof_verified_event_receiver) =
@@ -488,8 +495,13 @@ impl Server {
                 query_id
             );
 
-            let _ = contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof,                 &self.config.artifacts_file,
-            ).await?;
+            let _ = contract::submit_proof_by_id(
+                &self.cc3_eth_client,
+                query_id,
+                proof,
+                &self.config.artifacts_file,
+            )
+            .await?;
             return Ok(());
         } else if let Either::Right(stone_proof_public_input) = r {
             info!("🔄 Handling external proof for query: {:?}", query_id);
@@ -570,8 +582,13 @@ impl Server {
             query_id
         );
 
-        contract::submit_proof_by_id(&self.cc3_eth_client, query_id, proof, &self.config.artifacts_file,
-        ).await?;
+        contract::submit_proof_by_id(
+            &self.cc3_eth_client,
+            query_id,
+            proof,
+            &self.config.artifacts_file,
+        )
+        .await?;
         Ok(())
     }
 
