@@ -2,9 +2,11 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sp_core::H256;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eth::evm::prover::GluwaPublicProverContract;
+
+const ARTIFACT_STORAGE_FILE: &str = "artifacts/chain_deployment_artifacts.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainDeploymentArtifact {
@@ -21,83 +23,89 @@ struct ArtifactStorage {
     artifacts: Vec<ChainDeploymentArtifact>,
 }
 
-pub async fn has_artifact(chain_id: u64, path: &str) -> Result<bool> {
-    // Check if the file exists
-    if !Path::new(path).exists() {
-        return Ok(false);
-    }
-
-    // Read the existing file
-    let data = tokio::fs::read_to_string(path).await?;
-    let artifact_storage = serde_json::from_str::<ArtifactStorage>(&data)?;
-
-    // Check if the artifact exists
-    Ok(artifact_storage
-        .artifacts
-        .iter()
-        .any(|artifact| artifact.chain_id == chain_id))
+#[derive(Clone, Debug)]
+pub struct ArtifactStore {
+    storage_path: PathBuf,
 }
 
-pub async fn get_latest_deployment_artifact_for(
-    chain_id: u64,
-    path: &str,
-) -> Result<ChainDeploymentArtifact> {
-    // Read the existing file
-    let data = tokio::fs::read_to_string(path).await?;
-    let artifact_storage = serde_json::from_str::<ArtifactStorage>(&data)?;
-
-    // Find the artifact
-    let artifact = artifact_storage
-        .artifacts
-        .iter()
-        .filter(|artifact| artifact.chain_id == chain_id)
-        .max_by(|a, b| a.created_at.cmp(&b.created_at))
-        .ok_or_else(|| anyhow::anyhow!("Artifact not found"))?;
-
-    Ok(artifact.clone())
-}
-
-pub async fn create_deployment_artifact(
-    chain_id: u64,
-    deployment: GluwaPublicProverContract,
-    bytecode_hash: H256,
-    path: &str,
-) -> Result<ChainDeploymentArtifact> {
-    let created_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis();
-
-    let artifact = ChainDeploymentArtifact {
-        chain_id,
-        contract: deployment,
-        bytecode_hash: Some(bytecode_hash),
-        created_at,
-    };
-
-    // Ensure the parent directory exists
-    if let Some(parent_dir) = Path::new(path).parent() {
-        tokio::fs::create_dir_all(parent_dir).await?;
-    }
-
-    // Check if the file exists
-    let mut artifact_storage = if Path::new(path).exists() {
-        // Read the existing file
-        let data = tokio::fs::read_to_string(path).await?;
-        serde_json::from_str::<ArtifactStorage>(&data)?
-    } else {
-        // If the file doesn't exist, create a new empty storage
-        ArtifactStorage {
-            artifacts: Vec::new(),
+impl ArtifactStore {
+    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+        Self {
+            storage_path: path.into(),
         }
-    };
+    }
 
-    // Add the new artifact
-    artifact_storage.artifacts.push(artifact.clone());
+    pub fn new_default() -> Self {
+        Self::new(ARTIFACT_STORAGE_FILE)
+    }
 
-    // Serialize the updated storage and save it back to the file
-    let serialized = serde_json::to_string_pretty(&artifact_storage)?;
-    let mut file = tokio::fs::File::create(path).await?;
-    tokio::io::AsyncWriteExt::write_all(&mut file, serialized.as_bytes()).await?;
+    pub async fn has_artifact(&self, chain_id: u64) -> Result<bool> {
+        if !Path::new(&self.storage_path).exists() {
+            return Ok(false);
+        }
 
-    Ok(artifact)
+        let data = tokio::fs::read_to_string(&self.storage_path).await?;
+        let artifact_storage = serde_json::from_str::<ArtifactStorage>(&data)?;
+
+        Ok(artifact_storage
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.chain_id == chain_id))
+    }
+
+    pub async fn get_latest_deployment_artifact_for(
+        &self,
+        chain_id: u64,
+    ) -> Result<ChainDeploymentArtifact> {
+        let data = tokio::fs::read_to_string(&self.storage_path).await?;
+        let artifact_storage = serde_json::from_str::<ArtifactStorage>(&data)?;
+
+        let artifact = artifact_storage
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.chain_id == chain_id)
+            .max_by(|a, b| a.created_at.cmp(&b.created_at))
+            .ok_or_else(|| anyhow::anyhow!("Artifact not found"))?;
+
+        Ok(artifact.clone())
+    }
+
+    pub async fn create_deployment_artifact(
+        &self,
+        chain_id: u64,
+        deployment: GluwaPublicProverContract,
+        bytecode_hash: H256,
+    ) -> Result<ChainDeploymentArtifact> {
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis();
+
+        let artifact = ChainDeploymentArtifact {
+            chain_id,
+            contract: deployment,
+            bytecode_hash: Some(bytecode_hash),
+            created_at,
+        };
+
+        if let Some(parent_dir) = Path::new(&self.storage_path).parent() {
+            tokio::fs::create_dir_all(parent_dir).await?;
+        }
+
+        let mut artifact_storage = if Path::new(&self.storage_path).exists() {
+            let data = tokio::fs::read_to_string(&self.storage_path).await?;
+            serde_json::from_str::<ArtifactStorage>(&data)?
+        } else {
+            ArtifactStorage {
+                artifacts: Vec::new(),
+            }
+        };
+
+        artifact_storage.artifacts.push(artifact.clone());
+
+        let serialized = serde_json::to_string_pretty(&artifact_storage)?;
+        let mut file = tokio::fs::File::create(&self.storage_path).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, serialized.as_bytes()).await?;
+
+        Ok(artifact)
+    }
 }

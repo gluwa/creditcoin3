@@ -27,6 +27,7 @@ pub mod postgres;
 mod prom;
 mod query;
 
+use crate::contract::ProverContractClient;
 use crate::{attestation::fragment::Error, prom::ProverMetrics};
 use config::Config;
 
@@ -42,8 +43,8 @@ pub type ChainName = String;
 /// Prover server is configured using `Config`
 pub struct Server {
     config: Config,
-    // Ethereum client for the cc3 chain where the prover contract is deployed
-    cc3_eth_client: EthClient,
+    // Wrapper client encapsulating contract + artifacts
+    contract_client: ProverContractClient,
     // Creditcoin client for the cc3 chain where the prover contract is deployed
     cc3_client: CcClient,
     // Ethereum client for the source chain
@@ -83,6 +84,8 @@ impl Server {
         // This will deploy it on ccnext chain
         let cc3_eth_client =
             EthClient::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
+        let contract_client =
+            ProverContractClient::new(cc3_eth_client.clone(), Some(config.artifacts_file.clone()));
 
         let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
 
@@ -99,16 +102,15 @@ impl Server {
             return Err(Error::WrongChain(chain_id, supported_chain.chain_id).into());
         }
 
-        contract::deploy(
-            &cc3_eth_client,
-            config.cost_per_byte,
-            config.base_fee,
-            config.chain_key,
-            config.name.clone(),
-            config.timeout,
-            &config.artifacts_file,
-        )
-        .await?;
+        contract_client
+            .deploy(
+                config.cost_per_byte,
+                config.base_fee,
+                config.chain_key,
+                config.name.clone(),
+                config.timeout,
+            )
+            .await?;
         info!("✅ Deployed prover contract");
 
         // Register metrics server if configured
@@ -134,10 +136,10 @@ impl Server {
 
         Ok(Server {
             config,
-            cc3_eth_client,
             cc3_client,
             source_chain_eth_client,
             attestations_cache,
+            contract_client,
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
             received_query_ids: HashSet::new(),
@@ -168,15 +170,15 @@ impl Server {
 
         // Fetch initial unprocessed queries and push them to the channel
         info!("🔄 Polling for all existing unprocessed queries...");
-        let artifacts_path_clone = self.config.artifacts_file.clone();
+        let contract_client = self.contract_client.clone();
 
-        let initial_unprocessed_queries =
-            contract::get_initial_unprocessed_queries(&self.cc3_eth_client, &artifacts_path_clone)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("⚠️ Failed to fetch unprocessed queries from chain: {:?}", e);
-                    Vec::new()
-                });
+        let initial_unprocessed_queries = contract_client
+            .get_initial_unprocessed_queries()
+            .await
+            .unwrap_or_else(|e| {
+                warn!("⚠️ Failed to fetch unprocessed queries from chain: {:?}", e);
+                Vec::new()
+            });
 
         info!(
             "🔍 Found {} existing queries to process.",
@@ -189,32 +191,23 @@ impl Server {
 
         // Subscribe to new query submissions only (initial set already pushed)
         info!("🔄 Initial poll complete. Subscribing for new queries...");
-        let client_clone = self.cc3_eth_client.clone();
-        let artifacts_path_clone = self.config.artifacts_file.clone();
         tokio::spawn(async move {
-            contract::subscribe_query_submissions(
-                &client_clone,
-                new_query_sender.clone(),
-                &artifacts_path_clone,
-            )
-            .await
+            contract_client
+                .subscribe_query_submissions(new_query_sender.clone())
+                .await
         });
 
         let (proof_verified_event_sender, mut proof_verified_event_receiver) =
             mpsc::unbounded_channel::<H256>();
 
-        let proof_client_clone = self.cc3_eth_client.clone();
-        let proof_artifacts_path_clone = self.config.artifacts_file.clone();
+        let contract_client = self.contract_client.clone();
 
         // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
         info!("🛰️  Subscribing to proof verification events on the contract");
         tokio::spawn(async move {
-            contract::subscribe_proof_verification_events(
-                &proof_client_clone,
-                proof_verified_event_sender.clone(),
-                &proof_artifacts_path_clone,
-            )
-            .await
+            contract_client
+                .subscribe_proof_verification_events(proof_verified_event_sender.clone())
+                .await
         });
 
         let mut subscription = self
@@ -495,13 +488,10 @@ impl Server {
                 query_id
             );
 
-            let _ = contract::submit_proof_by_id(
-                &self.cc3_eth_client,
-                query_id,
-                proof,
-                &self.config.artifacts_file,
-            )
-            .await?;
+            let _ = self
+                .contract_client
+                .submit_proof_by_id(query_id, proof)
+                .await?;
             return Ok(());
         } else if let Either::Right(stone_proof_public_input) = r {
             info!("🔄 Handling external proof for query: {:?}", query_id);
@@ -583,13 +573,9 @@ impl Server {
             query_id
         );
 
-        contract::submit_proof_by_id(
-            &self.cc3_eth_client,
-            query_id,
-            proof,
-            &self.config.artifacts_file,
-        )
-        .await?;
+        self.contract_client
+            .submit_proof_by_id(query_id, proof)
+            .await?;
         Ok(())
     }
 
@@ -629,13 +615,10 @@ impl Server {
         // Clean up the query from internal memory
         self.cleanup_query(query_id);
 
-        match contract::mark_query_as_invalid(
-            &self.cc3_eth_client,
-            query_id,
-            reason,
-            &self.config.artifacts_file,
-        )
-        .await
+        match self
+            .contract_client
+            .mark_query_as_invalid(query_id, reason)
+            .await
         {
             Ok(_) => {
                 info!("✅ Marked query {:?} as invalid", query_id);
