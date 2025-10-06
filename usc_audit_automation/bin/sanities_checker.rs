@@ -4,7 +4,7 @@ use std::{fs, path::PathBuf};
 use tracing::debug;
 use tracing_subscriber::EnvFilter;
 
-use usc_audit_automation::{self, block_height_sanity_check, SanitiesChecker, SanitiesConfigFile};
+use usc_audit_automation::{self, attestation_checks, SanitiesChecker, SanitiesConfigFile};
 
 fn load_config(path: &PathBuf) -> anyhow::Result<SanitiesConfigFile> {
     let contents = fs::read_to_string(path).context("failed to read config.toml")?;
@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
 
     debug!("CLI args: {:?}", args);
 
-    block_height_sanity_check::check_best_block_height_diff(&config).await?;
+    attestation_checks::run_attestation_sanity_checks(&config).await?;
 
     Ok(())
 }

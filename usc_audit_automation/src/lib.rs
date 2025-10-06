@@ -3,9 +3,9 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-pub mod block_height_sanity_check;
+mod attestation_check_result;
+pub mod attestation_checks;
 mod create_json_message;
-
 #[cfg(test)]
 mod tests;
 

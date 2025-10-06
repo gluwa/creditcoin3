@@ -68,9 +68,11 @@ pub enum Error {
     NoWalletConfigured,
     #[error("Hex decoding error {0}")]
     HexDecodingError(#[from] FromHexError),
+    #[error("Failed to get block by hash {0}")]
+    FailedToGetBlockByHash(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TxRx {
     id: BlockItemIdentifier,
     tx: Transaction,
@@ -121,7 +123,7 @@ impl BlockItem for TxRx {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OrderedBlock {
     chain_id: u64,
     number: u64,
@@ -204,6 +206,7 @@ impl OrderedRawBlock {
 }
 
 type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
+pub type AlloyB256 = BlockHash;
 
 pub(crate) type ExeFiller = JoinFill<
     Identity,
@@ -350,7 +353,7 @@ impl Client {
             .ok_or(Error::FailedToGetBlock(number))
     }
 
-    async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
+    pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
         self.ws
             .get_block(
                 BlockId::Number(BlockNumberOrTag::Number(number)),
@@ -373,6 +376,21 @@ impl Client {
             error!("Failed to get chain id: {:?}", e);
             Error::FailedToGetChainId(e.to_string())
         })
+    }
+
+    pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
+        let block_opt = self
+            .ws
+            .get_block_by_hash(hash, true.into())
+            .await
+            .map_err(|e| {
+                error!("Failed to get block by hash: {:?}", e);
+                Error::FailedToGetBlockByHash(hash.to_string())
+            })?;
+
+        let block = block_opt.ok_or(Error::FailedToGetBlockByHash(hash.to_string()))?;
+
+        Ok(block.header.number)
     }
 }
 
