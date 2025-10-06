@@ -45,9 +45,17 @@ enum QueryState {
     Submitted,
     // ChainQuery is verified and the result is available
     ResultAvailable,
-    // ChainQuery targeted a transaction outside of the containing
-    // range or the query's layout is impossible given the t
-    InvalidQuery
+    // The query is malformed such that proving is not possible.
+    // This can happen when the Query targeted a transaction number 
+    // not contained in the queried block, or the query's layout calls 
+    // for data beyond the range of bytes present in the transaction.
+    // This state doesn't allow for retries.
+    InvalidQuery,
+    // There are many reasons why the prover might fail to process
+    // a query, unrelated to that query's validity. The prover
+    // might be be misconfigured, or networking could fail. We allow
+    // for retries in these cases.
+    QueryProcessingFailed
 }
 
 enum VerifierExitStatus {

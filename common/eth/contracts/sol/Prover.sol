@@ -88,7 +88,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
         // Prevent resubmission of invalid queries
-        if (queries[queryId].state == QueryState.InvalidQuery && !isQueryTimedOut(queryId)) {
+        if (queries[queryId].state == QueryState.InvalidQuery) {
             revert("Cannot resubmit an invalid query");
         }
 
@@ -101,6 +101,8 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         if (queries[queryId].state == QueryState.Submitted && !isQueryTimedOut(queryId)) {
             revert("Query already submitted and still pending");
         }
+
+        // We implicitly allow resubmission of queries in the state QueryProcessingFailed
 
         // Store query details
         // .state
@@ -147,11 +149,11 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         // Explicitly revert if the state is ResultAvailable
         require(state != QueryState.ResultAvailable, "Cannot reclaim: query result is available");
 
-        // Allow reclaim if timeout has passed OR if the query is invalid
-        bool isInvalidQuery = (state == QueryState.InvalidQuery);
+        // Allow reclaim if timeout has passed OR if the query processing failed
+        bool queryProcessingFailed = (state == QueryState.InvalidQuery || state == QueryState.QueryProcessingFailed);
 
         require(
-            isInvalidQuery || isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met"
+            queryProcessingFailed || isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met"
         );
 
         // Reclaim the escrowed amount
@@ -247,7 +249,19 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         // Reclaim escrowed payment
         helper_reclaimEscrowPayment(queryId);
 
-        emit QueryProofVerificationFailed(queryId, reason);
+        emit QueryMarkedInvalid(queryId, reason);
+    }
+
+    function markProcessingFailed(QueryId queryId, string memory reason) public onlyOwner {
+        require(queries[queryId].state != QueryState.Uninitialized, "Query not found");
+        require(queries[queryId].state != QueryState.ResultAvailable, "Cannot mark processing as failed: result available");
+
+        queries[queryId].state = QueryState.QueryProcessingFailed;
+
+        // Reclaim escrowed payment
+        helper_reclaimEscrowPayment(queryId);
+
+        emit QueryProcessingFailed(queryId, reason);
     }
 
     function helper_reclaimEscrowPayment(QueryId queryId) private {
@@ -307,7 +321,9 @@ event QuerySubmitted(QueryId indexed queryId, uint256 estimatedCost, uint256 esc
 
 event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments, QueryState state);
 
-event QueryProofVerificationFailed(QueryId indexed queryId, string reason);
+event QueryMarkedInvalid(QueryId indexed queryId, string reason);
+
+event QueryProcessingFailed(QueryId, string reason);
 
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 

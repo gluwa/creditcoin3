@@ -7,7 +7,7 @@ import { graphQLQuery } from './common';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import solidityJSON = require('../blockchain-tests/artifacts/from-hardhat/ProverForTesting.sol/ProverForTesting.json');
 
-describe('handleQueryProofVerificationFailed()', () => {
+describe('handleQueryMarkedInvalid()', () => {
     let api: ApiPromise;
     let alith: any;
     let contract: any;
@@ -37,7 +37,7 @@ describe('handleQueryProofVerificationFailed()', () => {
             10n,
             1000n,
             sampleQuery.chainId,
-            'Prover-for-handleQueryProofVerificationFailed',
+            'Prover-for-handleQueryMarkedInvalid',
             1000, // timeout in seconds
         );
         await contract.waitForDeployment();
@@ -74,7 +74,7 @@ describe('handleQueryProofVerificationFailed()', () => {
             expect(queryDetailsOnChain.state).toEqual(1n); // QueryState.Submitted
             expect(queryDetailsOnChain.escrowedAmount).toBeGreaterThan(0n);
 
-            // Mark query as invalid - trigger QueryProofVerificationFailed event
+            // Mark query as invalid - trigger QueryMarkedInvalid event
             await (await contract.markAsInvalid(queryId, failureReason)).wait();
 
             // Verify the query state changed on-chain

@@ -13,7 +13,7 @@ import {
     QueryProofVerifiedEventObject,
     BaseFeeUpdatedEventObject,
     CostPerByteUpdatedEventObject,
-    QueryProofVerificationFailedEventObject,
+    QueryMarkedInvalidEventObject,
 } from '../types/chain/ProverAbi';
 
 // event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount);
@@ -144,6 +144,9 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
         case 3:
             query.state = QueryStatus.InvalidQuery;
             break;
+        case 4:
+            query.state = QueryStatus.QueryProcessingFailed;
+            break;
         default:
             query.state = QueryStatus.InvalidQuery;
     }
@@ -152,13 +155,11 @@ export async function handleQueryProofVerified(event: FrontierEvmEvent<QueryProo
     await query.save();
 }
 
-type QueryProofVerificationFailedArgs = [string, string] & QueryProofVerificationFailedEventObject;
+type QueryMarkedInvalidArgs = [string, string] & QueryMarkedInvalidEventObject;
 
-export async function handleQueryProofVerificationFailed(
-    event: FrontierEvmEvent<QueryProofVerificationFailedArgs>,
-): Promise<void> {
+export async function handleQueryMarkedInvalid(event: FrontierEvmEvent<QueryMarkedInvalidArgs>): Promise<void> {
     if (!event.args) {
-        logger.error(`No args found for QueryProofVerificationFailed event`);
+        logger.error(`No args found for QueryMarkedInvalid event`);
         return;
     }
 
@@ -177,8 +178,10 @@ export async function handleQueryProofVerificationFailed(
     const query = queries[0];
     query.escrowedAmount = BigInt(0);
     // Update state
-    // The state is set to InvalidQuery when the proof verification fails
-    query.state = QueryStatus.InvalidQuery;
+    // The state is set to QueryProcessingFailed when the proof verification fails. A malfunctioning
+    // or malicious prover can generate an invalid proof for a valid query, so we don't want to use
+    // the state InvalidQuery here.
+    query.state = QueryStatus.QueryProcessingFailed;
     query.failedReason = reason;
 
     // Save the updated query

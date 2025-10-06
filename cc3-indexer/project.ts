@@ -1,5 +1,5 @@
 import { SubstrateProject, SubstrateRuntimeDatasource } from '@subql/types';
-import { FrontierEvmDatasource } from "@subql/frontier-evm-processor";
+import { FrontierEvmDatasource } from '@subql/frontier-evm-processor';
 
 import { proverDatasource, attestationDatasources, genesisDatasource } from './datasources';
 
@@ -15,16 +15,16 @@ dotenv.config({ path: dotenvPath });
 const dataSources: (FrontierEvmDatasource | SubstrateRuntimeDatasource)[] = [];
 
 if (process.env.DATASOURCE === 'prover') {
-    dataSources.push(proverDatasource)
+    dataSources.push(proverDatasource);
 } else if (process.env.DATASOURCE === 'attestations') {
-    dataSources.push(attestationDatasources)
-    dataSources.push(genesisDatasource)
+    dataSources.push(attestationDatasources);
+    dataSources.push(genesisDatasource);
 } else if (process.env.DATASOURCE === 'all-in-one') {
-    dataSources.push(proverDatasource)
-    dataSources.push(attestationDatasources)
-    dataSources.push(genesisDatasource)
+    dataSources.push(proverDatasource);
+    dataSources.push(attestationDatasources);
+    dataSources.push(genesisDatasource);
 } else {
-    throw new Error('DATASOURCE must be either prover or attestations')
+    throw new Error('DATASOURCE must be either prover or attestations');
 }
 
 // Can expand the Datasource processor types via the genreic param
@@ -59,7 +59,7 @@ const project: SubstrateProject<FrontierEvmDatasource> = {
          */
         endpoint: process.env.ENDPOINT!?.split(',') as string[] | string,
     },
-    dataSources
+    dataSources,
 };
 
 // Must set default to the project instance

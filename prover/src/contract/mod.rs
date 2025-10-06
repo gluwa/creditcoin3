@@ -191,3 +191,26 @@ pub async fn mark_query_as_invalid(
 
     Ok(tx_hash)
 }
+
+pub async fn mark_query_processing_failed(
+    eth_client: &Client,
+    query_id: QueryId,
+    reason: String,
+    artifacts_path: &str,
+) -> Result<String> {
+    let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
+
+    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
+
+    let tx_hash = artifact
+        .contract
+        .mark_query_processing_failed(eth_client, query_id, reason)
+        .await?;
+
+    info!(
+        "📝 Query with id {} marked as having failed processing, tx_hash: {}",
+        query_id, tx_hash
+    );
+
+    Ok(tx_hash)
+}

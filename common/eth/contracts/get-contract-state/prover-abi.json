@@ -170,7 +170,7 @@
           "type": "string"
         }
       ],
-      "name": "QueryProofVerificationFailed",
+      "name": "QueryMarkedInvalid",
       "type": "event"
     },
     {

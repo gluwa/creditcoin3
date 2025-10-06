@@ -515,6 +515,7 @@ enum QueryStatus {
     ResultAvailable
     TimedOut
     InvalidQuery
+    QueryProcessingFailed
 }
 
 type LayoutSegment @jsonField {

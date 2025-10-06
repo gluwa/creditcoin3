@@ -597,7 +597,7 @@ describe('CreditcoinPublicProver', function () {
 
             // owner pays this gas, not the user
             await expect(prover.connect(owner).markAsInvalid(queryId, 'Invalid query because of some reason'))
-                .to.emit(prover, 'QueryProofVerificationFailed')
+                .to.emit(prover, 'QueryMarkedInvalid')
                 .withArgs(queryId, 'Invalid query because of some reason');
 
             const newQueryDetails = await prover.queries(queryId);

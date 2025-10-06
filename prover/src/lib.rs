@@ -257,7 +257,7 @@ impl Server {
                     let query_id = query.id();
                     if let Err(e) = self.handle_query_to_process(query, &mut light_prover_queries).await {
                         error!("❌ Failed to process query: {:?}, Error: {:?}", query_id, e);
-                        self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                        self.mark_query_processing_failed(query_id, e.to_string()).await?;
                     }
                 },
                 Some(result) = light_prover_queries.next() => {
@@ -440,7 +440,7 @@ impl Server {
                 query_id
             );
             return self
-                .mark_query_as_invalid(
+                .mark_query_processing_failed(
                     query_id,
                     "No attestations are synced for this query".to_string(),
                 )
@@ -543,10 +543,10 @@ impl Server {
                         if let Err(e) = self.handle_light_prover_received_proof(query, proof).await
                         {
                             error!(
-                                "❌ Light prover delivered proof but processing failed for query {:?}: {:?}. Marking as invalid.",
+                                "❌ Light prover delivered proof but processing failed for query {:?}: {:?}. Marking processing as failed.",
                                 query_id, e
                             );
-                            self.mark_query_as_invalid(
+                            self.mark_query_processing_failed(
                                 query_id,
                                 format!("Light prover proof processing failed: {e:?}"),
                             )
@@ -556,7 +556,8 @@ impl Server {
                     }
                     Err(e) => {
                         error!("❌ Light prover error for query {:?}: {:?}", query_id, e);
-                        self.mark_query_as_invalid(query_id, e.to_string()).await?;
+                        self.mark_query_processing_failed(query_id, e.to_string())
+                            .await?;
                         Ok(())
                     }
                 }
@@ -611,6 +612,9 @@ impl Server {
         self.received_query_ids.remove(&query_id);
     }
 
+    // TODO: Use this again once we have a definitive solution
+    // for determining whether a query is malformed.
+    #[allow(unused)]
     /// Marks a query as invalid on chain with the given reason
     /// Increments the failed proofs metric
     /// Cleans up the query from internal memory
@@ -639,6 +643,42 @@ impl Server {
             }
             Err(e) => {
                 error!("❌ Failed to mark query {:?} as invalid: {:?}", query_id, e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Updates the query's on chain state to QueryState::QueryProcessingFailed with the given reason.
+    /// Increments the failed proofs metric.
+    /// Cleans up the query from internal memory.
+    async fn mark_query_processing_failed(&mut self, query_id: H256, reason: String) -> Result<()> {
+        metric_inc_with_labels!(
+            self.metrics,
+            query_proofs_failed,
+            self.chain_name,
+            self.config.chain_key
+        );
+
+        // Clean up the query from internal memory
+        self.cleanup_query(query_id);
+
+        match contract::mark_query_processing_failed(
+            &self.cc3_eth_client,
+            query_id,
+            reason,
+            &self.config.artifacts_file,
+        )
+        .await
+        {
+            Ok(_) => {
+                info!("✅ Marked query {:?} as having failed processing, though not necessarily invalid", query_id);
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    "❌ Failed to mark query {:?} as having failed processing: {:?}",
+                    query_id, e
+                );
                 Err(e)
             }
         }

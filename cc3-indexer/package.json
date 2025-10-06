@@ -1,58 +1,58 @@
 {
-  "name": "cc3-indexer",
-  "version": "1.0.0",
-  "description": "cc3-indexer",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "subql codegen && yarn generate-types && subql build",
-    "codegen": "subql codegen && yarn generate-types",
-    "start:docker": "docker compose pull && docker compose up --remove-orphans",
-    "dev": "subql codegen && subql build && docker compose pull && docker compose up --remove-orphans",
-    "prepack": "rm -rf dist && npm run build",
-    "test": "subql build && c8 --exclude-after-remap subql-node test",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "check-format": "prettier --check \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
-    "typecheck": "echo 'Type checking is disabled b/c of SecondLayerHandlerProcessor_1_0_0'",
-    "typecheck:disabled": "yarn codegen && tsc --noEmit",
-    "build:develop": "NODE_ENV=develop subql codegen && NODE_ENV=develop subql build",
-    "generate-types": "typechain --target=ethers-v5 --out-dir src/types/chain 'abis/*.json'"
-  },
-  "homepage": "https://github.com/gluwa/creditcoin3-next",
-  "repository": "github:gluwa/creditcoin3-next",
-  "files": [
-    "dist",
-    "schema.graphql",
-    "project.yaml"
-  ],
-  "author": "gluwa",
-  "license": "MIT",
-  "devDependencies": {
-    "@polkadot/api": "16.4.3",
-    "@subql/cli": "6.4.1",
-    "@subql/common-substrate": "4.5.2",
-    "@subql/frontier-evm-processor": "1.0.3",
-    "@subql/node": "6.3.5",
-    "@subql/testing": "2.3.0",
-    "@subql/types": "3.14.2",
-    "@typechain/ethers-v5": "^11.1.2",
-    "@typescript-eslint/eslint-plugin": "8.40.0",
-    "@typescript-eslint/parser": "8.46.0",
-    "dotenv": "17.2.0",
-    "eslint": "^8.57.0",
-    "eslint-config-prettier": "^10.1.8",
-    "prettier": "^3.6.2",
-    "source-map-support": "^0.5.21",
-    "ts-node": "^10.9.1",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.2.2"
-  },
-  "resolutions": {
-    "ipfs-unixfs": "6.0.6"
-  },
-  "dependencies": {
-    "package-json-type": "^1.0.3",
-    "pino": "^10.0.0",
-    "typechain": "^8.3.2"
-  }
+    "name": "cc3-indexer",
+    "version": "1.0.0",
+    "description": "cc3-indexer",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "subql codegen && yarn generate-types && subql build",
+        "codegen": "subql codegen && yarn generate-types",
+        "start:docker": "docker compose pull && docker compose up --remove-orphans",
+        "dev": "subql codegen && subql build && docker compose pull && docker compose up --remove-orphans",
+        "prepack": "rm -rf dist && npm run build",
+        "test": "subql build && c8 --exclude-after-remap subql-node test",
+        "format": "prettier --write \"src/**/*.ts\"",
+        "check-format": "prettier --check \"src/**/*.ts\"",
+        "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
+        "typecheck": "echo 'Type checking is disabled b/c of SecondLayerHandlerProcessor_1_0_0'",
+        "typecheck:disabled": "yarn codegen && tsc --noEmit",
+        "build:develop": "NODE_ENV=develop subql codegen && NODE_ENV=develop subql build",
+        "generate-types": "typechain --target=ethers-v5 --out-dir src/types/chain 'abis/*.json'"
+    },
+    "homepage": "https://github.com/gluwa/creditcoin3-next",
+    "repository": "github:gluwa/creditcoin3-next",
+    "files": [
+        "dist",
+        "schema.graphql",
+        "project.yaml"
+    ],
+    "author": "gluwa",
+    "license": "MIT",
+    "devDependencies": {
+        "@polkadot/api": "16.4.3",
+        "@subql/cli": "6.4.1",
+        "@subql/common-substrate": "4.5.2",
+        "@subql/frontier-evm-processor": "1.0.3",
+        "@subql/node": "6.3.5",
+        "@subql/testing": "2.3.0",
+        "@subql/types": "3.14.2",
+        "@typechain/ethers-v5": "^11.1.2",
+        "@typescript-eslint/eslint-plugin": "8.40.0",
+        "@typescript-eslint/parser": "8.46.0",
+        "dotenv": "17.2.0",
+        "eslint": "^8.57.0",
+        "eslint-config-prettier": "^10.1.8",
+        "prettier": "^3.6.2",
+        "source-map-support": "^0.5.21",
+        "ts-node": "^10.9.1",
+        "tsconfig-paths": "^4.2.0",
+        "typescript": "^5.2.2"
+    },
+    "resolutions": {
+        "ipfs-unixfs": "6.0.6"
+    },
+    "dependencies": {
+        "package-json-type": "^1.0.3",
+        "pino": "^10.0.0",
+        "typechain": "^8.3.2"
+    }
 }

@@ -256,10 +256,10 @@ export const proverDatasource: FrontierEvmDatasource = {
                 },
             },
             {
-                handler: 'handleQueryProofVerificationFailed',
+                handler: 'handleQueryMarkedInvalid',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['QueryProofVerificationFailed(bytes32,string)'],
+                    topics: ['QueryMarkedInvalid(bytes32,string)'],
                 },
             },
             {

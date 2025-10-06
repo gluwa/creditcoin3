@@ -18,7 +18,7 @@ use attestor_primitives::ChainKey;
 
 enum StreamMessage<T1, T2> {
     FromQueryProofVerified(T1),
-    FromQueryProofVerificationFailed(T2),
+    FromQueryMarkedInvalid(T2),
 }
 
 sol! {
@@ -384,9 +384,7 @@ impl GluwaPublicProverContract {
 
         let verification_filter = contract.QueryProofVerified_filter().topic1(query_id);
 
-        let failure_filter = contract
-            .QueryProofVerificationFailed_filter()
-            .topic1(query_id);
+        let failure_filter = contract.QueryMarkedInvalid_filter().topic1(query_id);
 
         let stream_verified = verification_filter
             .subscribe()
@@ -398,7 +396,7 @@ impl GluwaPublicProverContract {
             .subscribe()
             .await?
             .into_stream()
-            .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerificationFailed(event));
+            .map_ok(|(event, _log)| StreamMessage::FromQueryMarkedInvalid(event));
 
         let mut combined = stream_select!(stream_verified, stream_failed);
 
@@ -417,7 +415,7 @@ impl GluwaPublicProverContract {
                         return Ok(segments);
                     }
                 }
-                Ok(StreamMessage::FromQueryProofVerificationFailed(event)) => {
+                Ok(StreamMessage::FromQueryMarkedInvalid(event)) => {
                     if event.queryId == query_id {
                         info!("Verification failed for {:?}: {}", query_id, event.reason);
                         return Err(anyhow::anyhow!(
@@ -509,6 +507,25 @@ impl GluwaPublicProverContract {
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let builder = contract.markAsInvalid(query_id.0.into(), reason);
+
+        let result = builder.send().await?.get_receipt().await?;
+
+        Ok(result.transaction_hash.to_string())
+    }
+
+    pub async fn mark_query_processing_failed(
+        &self,
+        client: &Client,
+        query_id: H256,
+        reason: String,
+    ) -> Result<String> {
+        info!("Marking query as having failed processing: {:?}", query_id);
+
+        let provider = client.get_wallet_ws_provider().await?;
+
+        let contract = CreditcoinPublicProver::new(self.address, provider);
+
+        let builder = contract.markProcessingFailed(query_id.0.into(), reason);
 
         let result = builder.send().await?.get_receipt().await?;
 
