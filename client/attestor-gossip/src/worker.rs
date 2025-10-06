@@ -471,6 +471,7 @@ where
             attestation: attestation.attestation_data,
             signature: aggregated_signature,
             attestors,
+            // continuity_proof: attestation.continuity_proof,
         };
 
         match self.inherent_provider.0.lock() {

@@ -4,12 +4,14 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use attestation_chain::{block::Block, continuity_chain::Manager};
-use eth::Client;
+use eth::{
+    continuity::{Error as ContinuityError, Manager},
+    Client,
+};
 
-pub use attestation_chain::{
+pub use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    continuity_chain::Error as ContinuityError,
+    block::Block,
 };
 
 #[derive(Debug, Clone)]

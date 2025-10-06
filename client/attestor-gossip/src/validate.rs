@@ -11,9 +11,9 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use log::{debug, error, info, warn};
 use parity_scale_codec::Codec;
 
-use attestation_chain::block::Block;
 use attestor_primitives::{
     api::AttestorApi,
+    block::Block,
     bls::{Bls, BlsSerialize, CryptoScheme, PublicKey},
 };
 use randomness_primitives::api::RandomnessPalletApi;

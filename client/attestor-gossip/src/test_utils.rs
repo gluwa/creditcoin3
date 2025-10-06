@@ -1,5 +1,7 @@
-use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
-use attestor_primitives::{Attestation as AttestationPrimitive, BlsPublicKey};
+use attestor_primitives::{
+    attestation_fragment::AttestationFragmentSerializable, Attestation as AttestationPrimitive,
+    BlsPublicKey,
+};
 use bls_signatures::Signature;
 use bls_signatures::{key::Serialize, PrivateKey};
 use sp_core::sr25519::Pair as Sr25519Pair;

@@ -3,12 +3,12 @@ use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::debug;
 
-use crate::{
+use attestor_primitives::{
     attestation_fragment::{AttestationFragment, AttestationFragmentError},
     block::{Block as FragmentBlock, BlockError},
 };
 
-use eth::{Client, Error as EthError};
+use super::{Client, Error as EthError};
 use mmr::traits::MerkleTreeTrait;
 use utils::Felt;
 
@@ -78,7 +78,7 @@ impl<'a> Manager<'a> {
                 let end_block = self.end_block;
                 tokio::task::spawn_blocking(move || {
                     debug!("Merkleization of block {}/{}", block.number(), end_block);
-                    let root = eth::starknet_pedersen_mmr(&block);
+                    let root = crate::starknet_pedersen_mmr(&block);
                     (block, root)
                 })
             })

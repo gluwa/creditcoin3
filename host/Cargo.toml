@@ -43,4 +43,6 @@ std = [
     "thiserror",
     "tempfile",
     "verifier-core/std",
+    "anyhow/std",
+    "hex/std"
 ]

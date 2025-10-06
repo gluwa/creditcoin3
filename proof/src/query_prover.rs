@@ -1,5 +1,12 @@
 use crate::json_serializable::JsonSerializable;
-use attestation_chain::attestation_fragment::FragmentContinuityBlocksSerializable;
+use sp_core::serde::Serialize;
+use std::fs::{create_dir_all, File};
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
+use tracing::debug;
+use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
+
+use attestor_primitives::attestation_fragment::FragmentContinuityBlocksSerializable;
 use eth_common::OrderedBlock;
 use mmr::traits::MerkleTreeTrait;
 use prover_primitives::query::QuerySerializable;
@@ -8,12 +15,6 @@ use prover_primitives::types::{
     CairoVerifierOutput, MerkleProofSerializable, QueryDigestRoot, QueryProverError, ScriptError,
     StoneProof, StoneProofJson,
 };
-use serde::Serialize;
-use std::fs::{create_dir_all, File};
-use std::io::{BufWriter, Write};
-use std::path::PathBuf;
-use tracing::debug;
-use utils::{block_item_traits::BlockItem, StarknetPedersenMerkleProof};
 
 #[derive(Serialize)]
 pub struct QueryProver {

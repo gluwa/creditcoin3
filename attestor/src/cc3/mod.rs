@@ -1,5 +1,4 @@
 use anyhow::Result;
-use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
 use bls_signatures::{PrivateKey, Serialize as BlsSerialize};
 use serde::Serialize;
 use sp_core::H256;
@@ -9,8 +8,9 @@ use tracing::{debug, error, info};
 use cc_client::{AccountId32, Client as CcClient};
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorId, AttestorStatus,
-    BlsPublicKey, BlsSignature, ChainId, ChainKey, SignedAttestation,
+    attestation_fragment::AttestationFragmentSerializable, Attestation as AttestationPrimitive,
+    AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainId,
+    ChainKey, SignedAttestation,
 };
 use creditcoin3_attestor_gossip::communication::Attestation;
 use vrf::ProofOfInclusion;

@@ -36,7 +36,6 @@ eth-common = { path = "../common/eth", package = "eth" }
 utils = { path = "../common/utils", default-features = false }
 
 # Primitive dependencies
-attestation-chain = { workspace = true }
 attestor-primitives = { workspace = true, features = ["std"] }
 pallet-attestation-poc = { workspace = true, features = ["std"] }
 prover-primitives = { workspace = true, features = ["std"] }

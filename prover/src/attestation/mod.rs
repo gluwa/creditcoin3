@@ -1,7 +1,8 @@
 use anyhow::Result;
-use attestation_chain::block::Block;
 use starknet_types_core::felt::Felt as FieldElement;
 use tracing::debug;
+
+use attestor_primitives::block::Block;
 use utils::Felt;
 
 use crate::postgres;

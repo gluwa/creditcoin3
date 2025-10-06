@@ -888,6 +888,8 @@ impl<A> From<CcSignedAttestation<H256, A>> for SignedAttestation<Digest, A> {
             attestation: attestation.attestation.into(),
             signature: attestation.signature,
             attestors: attestation.attestors,
+            // TODO: change me
+            // continuity_proof: Default::default(),
         }
     }
 }

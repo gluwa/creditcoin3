@@ -32,7 +32,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 
 # Creditcoin deps
-attestation-chain = { workspace = true }
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }

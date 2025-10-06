@@ -33,4 +33,6 @@ std = [
     "utils/std",
     "thiserror",
     "tempfile",
+    "anyhow/std",
+    "hex/std"
 ]

@@ -1452,34 +1452,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "attestation-chain"
-version = "3.65.0"
-dependencies = [
- "anyhow",
- "attestor-primitives",
- "eth",
- "futures 0.3.31",
- "mmr",
- "num",
- "parity-scale-codec",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "sp-core",
- "starknet-crypto",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "utils",
-]
-
-[[package]]
 name = "attestor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "attestation-chain",
  "attestor-primitives",
  "axum",
  "bls-signatures",
@@ -2798,7 +2775,6 @@ version = "3.65.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "attestation-chain",
  "attestor-primitives",
  "bls-signatures",
  "env_logger 0.11.8",
@@ -2835,7 +2811,6 @@ dependencies = [
 name = "creditcoin3-attestor-rpc"
 version = "0.1.0"
 dependencies = [
- "attestation-chain",
  "creditcoin3-attestor-gossip",
  "jsonrpsee",
  "log",
@@ -10507,7 +10482,6 @@ name = "proof"
 version = "3.65.0"
 dependencies = [
  "anyhow",
- "attestation-chain",
  "attestor-primitives",
  "colored",
  "either",
@@ -10705,7 +10679,6 @@ name = "prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "attestation-chain",
  "attestor-primitives",
  "axum",
  "base64 0.22.1",

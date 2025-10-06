@@ -1,11 +1,10 @@
-use crate::attestation_checkpoints::{AttestationCheckpoint, AttestationInterval};
-use crate::block::{Block, BlockError, BlockSerializable, ContinuityBlockSerializable};
-use crate::AttestationChainParams;
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use utils::json_serializable::JsonSerializable;
+use scale_info::TypeInfo;
+use sp_std::vec::Vec;
+
 use utils::Felt;
+
+use crate::block::{Block, BlockError, BlockSerializable, ContinuityBlockSerializable};
 
 #[derive(Debug, Clone, Default)]
 pub struct AttestationFragment {
@@ -44,14 +43,6 @@ impl AttestationFragment {
         self.blocks.first()
     }
 
-    pub fn checkpoint(&self) -> Option<AttestationCheckpoint> {
-        if self.is_full() {
-            self.head().map(AttestationCheckpoint::from)
-        } else {
-            None
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.blocks.len()
     }
@@ -61,15 +52,6 @@ impl AttestationFragment {
     }
     pub fn is_full(&self) -> bool {
         self.len() == self.fragment_length
-    }
-
-    // With variable interval length, calculating the start of an interval is more
-    // involved and costly. We do this once in get_interval_bounds() of fragment.rs
-    // Here we assume that the fragment was filled with the appropriate blocks rather
-    // than trying to re-calculate the interval from scratch.
-    pub fn interval(&self) -> Option<AttestationInterval> {
-        self.tail()
-            .map(|tail| AttestationInterval(tail.n() + 1, tail.n() + self.fragment_length as u64))
     }
 
     // TODO: Appears to be completely vestigial. Only used in early prototype crates.
@@ -99,9 +81,7 @@ impl AttestationFragment {
             self.blocks.push(block);
             Ok(self.head().expect("fragment not empty"))
         } else {
-            Err(AttestationFragmentError::BlockDigestMismatch(Box::new(
-                block,
-            )))
+            Err(AttestationFragmentError::BlockDigestMismatch(block))
         }
     }
 
@@ -125,31 +105,12 @@ impl AttestationFragment {
                     blocks: blocks_subset,
                 })
             }
-            _ => {
-                Err(AttestationFragmentError::Other(format!("Could not get block subset from fragment. Fragment start: {tail:?}, Fragment end: {head:?}, Claim block: {claim_block_number:?}")))
-            }
+            _ => Err(AttestationFragmentError::Other),
         }
     }
 }
 
-impl AttestationFragment {
-    pub fn try_from_file(
-        fname: &str,
-        params: AttestationChainParams,
-    ) -> Result<Self, AttestationFragmentError> {
-        AttestationFragmentSerializable::try_from_file(fname)
-            .map_err(|err| AttestationFragmentError::Other(format!("{err:?}")))
-            .and_then(|fr| AttestationFragment::try_from((fr, params)))
-    }
-
-    pub fn to_file(&self, fname: &str) -> Result<(), AttestationFragmentError> {
-        AttestationFragmentSerializable::from(self)
-            .to_file(fname)
-            .map_err(|err| AttestationFragmentError::Other(format!("{err:?}")))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FragmentBlocksSerializable {
     pub start: u64,
     pub blocks: Vec<BlockSerializable>,
@@ -168,27 +129,39 @@ impl From<FragmentBlocksSerializable> for FragmentContinuityBlocksSerializable {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeInfo, Decode, Encode, Eq, PartialEq)]
 pub struct FragmentContinuityBlocksSerializable {
     pub start: u64,
     pub blocks: Vec<ContinuityBlockSerializable>,
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone)]
 pub enum AttestationFragmentError {
-    #[error("Fragment blocks must be sequential! Block number: {0}")]
     BlockNumberMismatch(u64),
-    #[error("Prev digest of added block must match digest of prior block, Block: {0:?}")]
-    BlockDigestMismatch(Box<Block>),
-    #[error("Misaligned block, Block: {0:?}")]
-    MisalignedBlock(Box<Block>),
-    #[error("`root` field of block is empty, Block number: {0}")]
+    BlockDigestMismatch(Block),
+    MisalignedBlock(Block),
     EmptyBlock(u64),
-    #[error("Cannot add block to full fragment")]
     FragmentIsFull,
-    #[error("{0}")]
-    Other(String),
+    Other,
 }
+
+#[cfg(feature = "std")]
+impl std::fmt::Display for AttestationFragmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BlockNumberMismatch(num) => write!(f, "Block number mismatch: expected {}", num),
+            Self::BlockDigestMismatch(block) => write!(f, "Block digest mismatch: {:?}", block),
+            Self::MisalignedBlock(block) => write!(f, "Misaligned block: {:?}", block),
+            Self::EmptyBlock(num) => write!(f, "Empty block at height {}", num),
+            Self::FragmentIsFull => write!(f, "Fragment is full"),
+            Self::Other => write!(f, "An unknown error occurred"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for AttestationFragmentError {}
 
 impl From<BlockError> for AttestationFragmentError {
     fn from(err: BlockError) -> AttestationFragmentError {
@@ -201,29 +174,8 @@ impl From<BlockError> for AttestationFragmentError {
     }
 }
 
-impl TryFrom<(AttestationFragmentSerializable, AttestationChainParams)> for AttestationFragment {
-    type Error = AttestationFragmentError;
-
-    fn try_from(
-        chain_json_with_params: (AttestationFragmentSerializable, AttestationChainParams),
-    ) -> Result<Self, Self::Error> {
-        let mut chain = Self::new(chain_json_with_params.1.interval);
-
-        for b in chain_json_with_params
-            .0
-            .blocks
-            .into_iter()
-            .map(Block::try_from)
-        {
-            let b = b.map_err(|err| AttestationFragmentError::Other(format!("{err:?}")))?;
-
-            chain.try_append_block(b)?;
-        }
-        Ok(chain)
-    }
-}
-
-#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, TypeInfo, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct AttestationFragmentSerializable {
     //    params: AttestationChainParams,
     blocks: Vec<BlockSerializable>,
@@ -250,8 +202,6 @@ impl AttestationFragmentSerializable {
         self.blocks.first()
     }
 }
-
-impl JsonSerializable for AttestationFragmentSerializable {}
 
 impl From<&AttestationFragment> for AttestationFragmentSerializable {
     fn from(fragment: &AttestationFragment) -> Self {

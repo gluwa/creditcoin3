@@ -1,19 +1,33 @@
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use scale_info::TypeInfo;
+use sp_core::H256;
+
 use utils::Felt;
 
 pub trait MaybeCreatedFromEmpty {
     fn created_from_empty(&self) -> bool;
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum BlockError {
-    #[error("Block number mismatch: {0}")]
     BlockNumberMismatch(u64),
-    #[error("Block: {0} was created from empty")]
     Empty(u64),
 }
+
+#[cfg(feature = "std")]
+impl std::fmt::Display for BlockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockError::BlockNumberMismatch(n) => {
+                write!(f, "Block number mismatch: expected {}, got {}", n - 1, n)
+            }
+            BlockError::Empty(n) => write!(f, "Block {} is empty", n),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BlockError {}
 
 #[derive(Debug, Clone, Default)]
 pub struct Block {
@@ -104,12 +118,13 @@ impl MaybeCreatedFromEmpty for Block {
     }
 }
 
-#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, MaxEncodedLen, TypeInfo, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BlockSerializable {
     block_number: u64,
-    root: String,
-    prev_digest: String,
-    digest: String,
+    root: H256,
+    prev_digest: H256,
+    digest: H256,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -118,17 +133,18 @@ pub struct ContinuityBlock {
     digest: Felt,
 }
 
-#[derive(Encode, Decode, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, TypeInfo, Decode, Encode, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ContinuityBlockSerializable {
-    root: String,
-    digest: String,
+    root: H256,
+    digest: H256,
 }
 
 impl From<&ContinuityBlock> for ContinuityBlockSerializable {
     fn from(b: &ContinuityBlock) -> Self {
         Self {
-            root: b.root.to_string(),
-            digest: b.digest.to_string(),
+            root: H256::from_slice(&b.root.to_bytes_be()),
+            digest: H256::from_slice(&b.digest.to_bytes_be()),
         }
     }
 }
@@ -156,8 +172,8 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 
     fn try_from(block: ContinuityBlockSerializable) -> Result<Self, ()> {
         Ok(Self {
-            root: Felt::from_dec_str(block.root.as_ref()).map_err(|_| ())?,
-            digest: Felt::from_dec_str(block.digest.as_ref()).map_err(|_| ())?,
+            root: Felt::from_bytes_be(&block.root.0),
+            digest: Felt::from_bytes_be(&block.digest.0),
         })
     }
 }
@@ -166,9 +182,9 @@ impl From<&Block> for BlockSerializable {
     fn from(b: &Block) -> Self {
         Self {
             block_number: b.block_number,
-            root: b.root.to_string(),
-            prev_digest: b.prev_digest.to_string(),
-            digest: b.digest.to_string(),
+            root: H256::from_slice(&b.root.to_bytes_be()),
+            prev_digest: H256::from_slice(&b.prev_digest.to_bytes_be()),
+            digest: H256::from_slice(&b.digest.to_bytes_be()),
         }
     }
 }
@@ -179,9 +195,9 @@ impl TryFrom<BlockSerializable> for Block {
     fn try_from(block: BlockSerializable) -> Result<Self, ()> {
         Ok(Self {
             block_number: block.block_number,
-            root: Felt::from_dec_str(block.root.as_ref()).map_err(|_| ())?,
-            prev_digest: Felt::from_dec_str(block.prev_digest.as_ref()).map_err(|_| ())?,
-            digest: Felt::from_dec_str(block.digest.as_ref()).map_err(|_| ())?,
+            root: Felt::from_bytes_be(&block.root.0),
+            prev_digest: Felt::from_bytes_be(&block.prev_digest.0),
+            digest: Felt::from_bytes_be(&block.digest.0),
         })
     }
 }

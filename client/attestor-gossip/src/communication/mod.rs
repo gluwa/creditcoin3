@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
 
-use attestation_chain::attestation_fragment::AttestationFragmentSerializable;
-use attestor_primitives::bls::{Bls, CryptoScheme};
 use attestor_primitives::{
+    attestation_fragment::AttestationFragmentSerializable,
+    bls::{Bls, CryptoScheme},
     Attestation as AttestationPrimitive, AttestorId, ChainKey, Digest, Round,
 };
 

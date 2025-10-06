@@ -36,6 +36,7 @@ pub use alloy::core::primitives::Address;
 
 use crate::subscription::Height;
 
+pub mod continuity;
 pub mod evm;
 pub mod subscription;
 

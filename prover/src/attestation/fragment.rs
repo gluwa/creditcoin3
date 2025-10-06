@@ -1,18 +1,20 @@
 use std::str::FromStr;
 
 use anyhow::Result;
-use attestation_chain::block::Block;
 use hex::ToHex;
 use sp_core::H256;
 use starknet_types_core::felt::Felt;
 use thiserror::Error;
 use tracing::debug;
 
-use attestation_chain::attestation_fragment::{AttestationFragment, AttestationFragmentError};
-use attestation_chain::continuity_chain::{
-    Error as FragmentManagerError, Manager as FragmentManager,
+use attestor_primitives::{
+    attestation_fragment::{AttestationFragment, AttestationFragmentError},
+    block::Block,
 };
-use eth::Client;
+use eth::{
+    continuity::{Error as FragmentManagerError, Manager as FragmentManager},
+    Client,
+};
 use pallet_prover_primitives::Query;
 
 use crate::attestation::create_block_with_prev_digest;

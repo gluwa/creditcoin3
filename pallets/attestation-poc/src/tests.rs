@@ -2698,6 +2698,8 @@ fn create_signed_attestation(
             .try_into()
             .expect("Failed to convert to array"),
         attestors: attestors.iter().map(|a| a.attestor_id).collect::<Vec<_>>(),
+        // TODO: change me
+        // continuity_proof: Default::default(),
     };
 
     attestation

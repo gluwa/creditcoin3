@@ -4,7 +4,6 @@ use sp_std::vec;
 use sp_std::vec::Vec;
 
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub type PublicFor<C> = <C as CryptoScheme>::Public;
 
@@ -58,16 +57,18 @@ impl Decode for WrapEncode<bls_signatures::Signature> {
     }
 }
 
-impl Serialize for WrapEncode<bls_signatures::Signature> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+#[cfg(feature = "std")]
+impl serde::Serialize for WrapEncode<bls_signatures::Signature> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.as_bytes().serialize(serializer)
     }
 }
 
-impl<'a> Deserialize<'a> for WrapEncode<bls_signatures::Signature> {
+#[cfg(feature = "std")]
+impl<'a> serde::Deserialize<'a> for WrapEncode<bls_signatures::Signature> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'a>,
+        D: serde::Deserializer<'a>,
     {
         let bytes = Vec::<u8>::deserialize(deserializer)?;
         let signature = bls_signatures::Signature::from_bytes(&bytes)

@@ -10,8 +10,12 @@ use sp_std::vec::Vec;
 use starknet_types_core::felt::Felt;
 
 pub mod api;
+pub mod attestation_fragment;
+pub mod block;
 pub mod bls;
 pub mod provider;
+
+use crate::attestation_fragment::AttestationFragmentSerializable;
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]
 /// Attestor struct
@@ -129,6 +133,7 @@ pub struct SignedAttestation<H, AccountId> {
     pub attestation: Attestation<H>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId>,
+    // pub continuity_proof: AttestationFragmentSerializable,
 }
 
 impl<H, A> SignedAttestation<H, A>

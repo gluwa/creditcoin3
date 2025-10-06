@@ -255,7 +255,6 @@ evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluw
 moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 # Attestation
-attestation-chain = { path = "primitives/attestation_chain" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
 creditcoin3-attestor-gossip = { path = "client/attestor-gossip" }
 creditcoin3-attestor-rpc = { path = "client/attestor-rpc" }
@@ -278,8 +277,8 @@ bls-signatures = { git = "https://github.com/gluwa/bls-signatures", default-feat
     "pairing",
 ] }
 cc-client = { path = "common/cc-client" }
-eth = { path = "common/eth" }
-mmr = { path = "common/mmr", features = ["par_mmr"], default-features = false }
+eth = { path = "common/eth", default-features = false }
+mmr = { path = "common/mmr", default-features = false }
 prometheus = { path = "common/prometheus" }
 utils = { path = "common/utils", default-features = false }
 vrf = { path = "common/vrf", default-features = false }
