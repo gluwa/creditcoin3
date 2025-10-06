@@ -314,14 +314,21 @@ mod benchmarks {
         // Set max attestors to accomodate benchmark
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         assert_ok!(Attestation::<T>::set_max_attestors(
-            root_origin,
+            root_origin.clone(),
             DEV_CHAIN_KEY,
             MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
         ));
 
+        // Set target sample to one
+        assert_ok!(Attestation::<T>::set_target_sample_size(
+            root_origin,
+            DEV_CHAIN_KEY,
+            1
+        ));
+
         // Creating attestor to attest
         let mut attestors: Vec<Attestor<T>> = Vec::new();
-        for j in 1..=a {
+        for j in 0..=a {
             let stash_id = create_funded_user_with_balance::<T>("stash", j);
             let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
             let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
