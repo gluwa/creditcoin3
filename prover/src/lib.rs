@@ -742,10 +742,16 @@ impl Server {
                 continue;
             };
 
+            let be_api_key_clone = self.config.be_api_key.clone().ok_or(anyhow!(
+                "We check in main() that be_api_key is always Some if prover_be_socket_addr is Some"
+            ))?;
             light_prover_queries.push(task::spawn(async move {
-                let result =
-                    query::external::poll_result_for_query_id(id_hex.as_str(), addr_clone.as_ref())
-                        .await;
+                let result = query::external::poll_result_for_query_id(
+                    id_hex.as_str(),
+                    addr_clone.as_ref(),
+                    &be_api_key_clone,
+                )
+                .await;
                 (query, result)
             }));
         }

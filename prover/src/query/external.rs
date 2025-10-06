@@ -116,7 +116,13 @@ pub async fn handle_proof_order(
     .await?;
 
     // Poll for the result
-    let proof_bytes = poll_for_result(&client, &response.query_id, prover_be_socket_addr).await?;
+    let proof_bytes = poll_for_result(
+        &client,
+        &response.query_id,
+        prover_be_socket_addr,
+        be_api_key,
+    )
+    .await?;
     debug!("Work order proof len: {}", proof_bytes.len());
     Ok(proof_bytes)
 }
@@ -191,6 +197,7 @@ async fn poll_for_result(
     client: &Client,
     query_id: &str,
     prover_be_socket_addr: &str,
+    be_api_key: &str,
 ) -> std::result::Result<Vec<u8>, Error> {
     let url = format!(
         "{prover_be_socket_addr}/AzureAppService/GetProverOutput/prover-output/{query_id}",
@@ -202,7 +209,7 @@ async fn poll_for_result(
 
     while start.elapsed() < timeout {
         // If response is Ok but no proof is supplied, then pipeline is still in progress.
-        let result = get_work_order_result(client, &url, query_id).await;
+        let result = get_work_order_result(client, &url, query_id, be_api_key).await;
         match result {
             Ok(maybe_proof) => {
                 if let Some(proof) = maybe_proof {
@@ -233,9 +240,10 @@ async fn poll_for_result(
 pub async fn poll_result_for_query_id(
     query_id_hex: &str,
     prover_be_socket_addr: &str,
+    be_api_key: &str,
 ) -> std::result::Result<Vec<u8>, Error> {
     let client = Client::new();
-    poll_for_result(&client, query_id_hex, prover_be_socket_addr).await
+    poll_for_result(&client, query_id_hex, prover_be_socket_addr, be_api_key).await
 }
 
 /// Fetch list of pending requests from the Prover BE
@@ -264,10 +272,12 @@ async fn get_work_order_result(
     client: &Client,
     url: &str,
     query_id: &str,
+    be_api_key: &str,
 ) -> std::result::Result<Option<Vec<u8>>, Error> {
     let response = client
         .get(url)
         .header(ACCEPT, "*/*")
+        .header(HeaderName::from_static(API_KEY), be_api_key)
         .send()
         .await
         .map_err(|e| Error::ReqwestSendError(e.to_string()))?;
