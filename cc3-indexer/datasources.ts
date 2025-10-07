@@ -263,6 +263,13 @@ export const proverDatasource: FrontierEvmDatasource = {
                 },
             },
             {
+                handler: 'handleQueryProcessingFailed',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['QueryProcessingFailed(bytes32,string)'],
+                },
+            },
+            {
                 handler: 'handleEscrowedPaymentReclaimed',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
