@@ -101,7 +101,7 @@ declare module '@polkadot/api-base/types/submittable' {
                 (
                     attestation:
                         | AttestorPrimitivesSignedAttestation
-                        | { attestation?: any; signature?: any; attestors?: any }
+                        | { attestation?: any; signature?: any; attestors?: any; continuityProof?: any }
                         | string
                         | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
@@ -120,7 +120,7 @@ declare module '@polkadot/api-base/types/submittable' {
                         | Vec<AttestorPrimitivesSignedAttestation>
                         | (
                               | AttestorPrimitivesSignedAttestation
-                              | { attestation?: any; signature?: any; attestors?: any }
+                              | { attestation?: any; signature?: any; attestors?: any; continuityProof?: any }
                               | string
                               | Uint8Array
                           )[],

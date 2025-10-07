@@ -8,8 +8,10 @@ import '@polkadot/types/types/registry';
 import type {
     AttestorPrimitivesAttestation,
     AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesAttestationFragmentAttestationFragmentSerializable,
     AttestorPrimitivesAttestor,
     AttestorPrimitivesAttestorStatus,
+    AttestorPrimitivesBlockBlockSerializable,
     AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
@@ -232,8 +234,10 @@ declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
         AttestorPrimitivesAttestation: AttestorPrimitivesAttestation;
         AttestorPrimitivesAttestationCheckpoint: AttestorPrimitivesAttestationCheckpoint;
+        AttestorPrimitivesAttestationFragmentAttestationFragmentSerializable: AttestorPrimitivesAttestationFragmentAttestationFragmentSerializable;
         AttestorPrimitivesAttestor: AttestorPrimitivesAttestor;
         AttestorPrimitivesAttestorStatus: AttestorPrimitivesAttestorStatus;
+        AttestorPrimitivesBlockBlockSerializable: AttestorPrimitivesBlockBlockSerializable;
         AttestorPrimitivesSignedAttestation: AttestorPrimitivesSignedAttestation;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;
