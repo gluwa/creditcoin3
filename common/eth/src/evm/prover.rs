@@ -1,5 +1,5 @@
 use anyhow::Result;
-use futures_util::{stream_select, StreamExt, TryStreamExt};
+use futures_util::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use tokio::sync::mpsc;
@@ -16,9 +16,8 @@ use alloy::{
 };
 use attestor_primitives::ChainKey;
 
-enum StreamMessage<T1, T2> {
+enum StreamMessage<T1> {
     FromQueryProofVerified(T1),
-    FromQueryMarkedInvalid(T2),
 }
 
 sol! {
@@ -384,25 +383,15 @@ impl GluwaPublicProverContract {
 
         let verification_filter = contract.QueryProofVerified_filter().topic1(query_id);
 
-        let failure_filter = contract.QueryMarkedInvalid_filter().topic1(query_id);
-
-        let stream_verified = verification_filter
+        let mut stream_verified = verification_filter
             .subscribe()
             .await?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerified(event));
 
-        let stream_failed = failure_filter
-            .subscribe()
-            .await?
-            .into_stream()
-            .map_ok(|(event, _log)| StreamMessage::FromQueryMarkedInvalid(event));
-
-        let mut combined = stream_select!(stream_verified, stream_failed);
-
         info!("Subscribed to proof verification");
 
-        while let Some(message) = combined.next().await {
+        while let Some(message) = stream_verified.next().await {
             match message {
                 Ok(StreamMessage::FromQueryProofVerified(event)) => {
                     if event.queryId == query_id {
@@ -413,16 +402,6 @@ impl GluwaPublicProverContract {
                             .collect::<Result<Vec<_>>>()?;
 
                         return Ok(segments);
-                    }
-                }
-                Ok(StreamMessage::FromQueryMarkedInvalid(event)) => {
-                    if event.queryId == query_id {
-                        info!("Verification failed for {:?}: {}", query_id, event.reason);
-                        return Err(anyhow::anyhow!(
-                            "Query {:?} verification failed: {}",
-                            event.queryId,
-                            event.reason
-                        ));
                     }
                 }
                 Err(e) => {
