@@ -85,7 +85,7 @@ impl Server {
         let cc3_eth_client =
             EthClient::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
         let contract_client =
-            ProverContractClient::new(cc3_eth_client.clone(), Some(config.artifacts_file.clone()));
+            ProverContractClient::new(cc3_eth_client.clone(), config.artifacts_file.clone());
 
         let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
 

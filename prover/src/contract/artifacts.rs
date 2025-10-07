@@ -6,8 +6,6 @@ use std::path::{Path, PathBuf};
 
 use eth::evm::prover::GluwaPublicProverContract;
 
-const ARTIFACT_STORAGE_FILE: &str = "artifacts/chain_deployment_artifacts.json";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainDeploymentArtifact {
     pub chain_id: u64,
@@ -33,10 +31,6 @@ impl ArtifactStore {
         Self {
             storage_path: path.into(),
         }
-    }
-
-    pub fn new_default() -> Self {
-        Self::new(ARTIFACT_STORAGE_FILE)
     }
 
     pub async fn has_artifact(&self, chain_id: u64) -> Result<bool> {

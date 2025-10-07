@@ -23,11 +23,8 @@ pub struct ProverContractClient {
 
 impl ProverContractClient {
     /// Create a client with a custom artifact store path. If `path` is None, defaults to the built-in artifact path.
-    pub fn new<P: Into<PathBuf>>(client: Client, path: Option<P>) -> Self {
-        let store = match path {
-            Some(p) => artifacts::ArtifactStore::new(p.into()),
-            None => artifacts::ArtifactStore::new_default(),
-        };
+    pub fn new<P: Into<PathBuf>>(client: Client, path: P) -> Self {
+        let store = artifacts::ArtifactStore::new(path);
         Self { client, store }
     }
 
