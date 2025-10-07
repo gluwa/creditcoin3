@@ -788,7 +788,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.62.16
+        uses: taiki-e/install-action@v2.62.23
         with:
           tool: cargo-llvm-cov
 
