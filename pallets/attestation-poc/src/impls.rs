@@ -777,9 +777,13 @@ impl<T: Config> Pallet<T> {
 
         let message = &attestation.attestation.serialize()[..];
 
+        // Verify the aggregated signature
         Self::verify_agg_signature(&agg_signature, message, aggregated_public_key)?;
-
         log::debug!("Attestation signature is valid");
+
+        // Continuity validation
+        Self::validate_attestation_continuity(attestation)?;
+        log::debug!("Attestation continuity is valid");
 
         Ok(())
     }

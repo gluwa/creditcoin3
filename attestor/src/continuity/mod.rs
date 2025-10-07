@@ -166,9 +166,10 @@ impl Cache {
         // Log the final fragment's blocks and their digests
         for block in final_fragment.blocks() {
             debug!(
-                "Block({}) digest: {:?}, prev_digest: {:?}",
+                "Block({}) digest: {:?}, root: {:?} prev_digest: {:?}",
                 block.block_number,
                 H256::from(block.digest().to_bytes_be()),
+                H256::from(block.root.to_bytes_be()),
                 H256::from(block.prev_digest().to_bytes_be())
             );
         }

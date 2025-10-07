@@ -133,7 +133,7 @@ pub struct SignedAttestation<H, AccountId> {
     pub attestation: Attestation<H>,
     pub signature: BlsSignature,
     pub attestors: Vec<AccountId>,
-    // pub continuity_proof: AttestationFragmentSerializable,
+    pub continuity_proof: AttestationFragmentSerializable,
 }
 
 impl<H, A> SignedAttestation<H, A>

@@ -2,6 +2,7 @@
 use super::Pallet as Attestation;
 use super::*;
 use bls_signatures::{aggregate, key::Serialize, PrivateKey};
+use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::{OnInitialize, OriginTrait};
@@ -74,12 +75,20 @@ fn create_signed_attestation<T: frame_system::Config>(
     header_number: u64,
     prev_digest: Option<H256>,
 ) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
+    let fragment = construct_fragment(prev_digest, 1, header_number.saturating_sub(1));
+
     let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
         chain_key,
         header_number,
         header_hash: <T as frame_system::Config>::Hash::default(),
         root: [0; 32],
-        prev_digest,
+        prev_digest: fragment.head().map(|h| {
+            H256::from(
+                attestor_primitives::block::Block::from(h.clone().into())
+                    .digest()
+                    .to_bytes_be(),
+            )
+        }),
     };
 
     let mut signatures = Vec::new();
@@ -102,6 +111,7 @@ fn create_signed_attestation<T: frame_system::Config>(
             .iter()
             .map(|a| a.attestor_id.clone())
             .collect::<Vec<_>>(),
+        continuity_proof: fragment,
     };
 
     attestation

@@ -189,15 +189,13 @@ impl From<&Block> for BlockSerializable {
     }
 }
 
-impl TryFrom<BlockSerializable> for Block {
-    type Error = ();
-
-    fn try_from(block: BlockSerializable) -> Result<Self, ()> {
-        Ok(Self {
-            block_number: block.block_number,
-            root: Felt::from_bytes_be(&block.root.0),
-            prev_digest: Felt::from_bytes_be(&block.prev_digest.0),
-            digest: Felt::from_bytes_be(&block.digest.0),
-        })
+impl Into<Block> for BlockSerializable {
+    fn into(self) -> Block {
+        Block {
+            block_number: self.block_number,
+            root: Felt::from_bytes_be(&self.root.0),
+            prev_digest: Felt::from_bytes_be(&self.prev_digest.0),
+            digest: Felt::from_bytes_be(&self.digest.0),
+        }
     }
 }

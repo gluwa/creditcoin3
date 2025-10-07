@@ -7,6 +7,7 @@ use sp_core::{
     sr25519::{self},
     Pair, U256,
 };
+use starknet_types_core::felt::Felt;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
     backend::rpc::{
@@ -27,13 +28,16 @@ use tracing::{debug, error, info};
 
 use cc3::runtime_types::{
     attestor_primitives::{
-        Attestation as CcAttestation, AttestationCheckpoint as CcAttestationCheckpoint,
-        SignedAttestation as CcSignedAttestation,
+        attestation_fragment::AttestationFragmentSerializable as CcAttestationFragment,
+        block::BlockSerializable as CcBlockSerializable, Attestation as CcAttestation,
+        AttestationCheckpoint as CcAttestationCheckpoint, SignedAttestation as CcSignedAttestation,
     },
     supported_chains_primitives::SupportedChain as CcSupportedChain,
 };
 
 use attestor_primitives::{
+    attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
+    block::Block,
     Attestation, AttestationCheckpoint, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature,
     ChainKey, Digest, SignedAttestation,
 };
@@ -889,7 +893,26 @@ impl<A> From<CcSignedAttestation<H256, A>> for SignedAttestation<Digest, A> {
             signature: attestation.signature,
             attestors: attestation.attestors,
             // TODO: change me
-            // continuity_proof: Default::default(),
+            continuity_proof: attestation.continuity_proof.into(),
+        }
+    }
+}
+
+impl From<CcAttestationFragment> for AttestationFragmentSerializable {
+    fn from(fragment: CcAttestationFragment) -> Self {
+        let fragment =
+            AttestationFragment::from_blocks(fragment.blocks.into_iter().map(Into::into).collect());
+        (&fragment).into()
+    }
+}
+
+impl From<CcBlockSerializable> for Block {
+    fn from(block: CcBlockSerializable) -> Self {
+        Block {
+            block_number: block.block_number,
+            root: Felt::from_bytes_be(&block.root.0),
+            prev_digest: Felt::from_bytes_be(&block.prev_digest.0),
+            digest: Felt::from_bytes_be(&block.digest.0),
         }
     }
 }

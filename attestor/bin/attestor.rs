@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // enable tracing debug logs if verbose flag is set
     let env_filter = if args.verbose {
         debug!("debug mode enabled!");
-        "attestor=debug"
+        "debug"
     } else {
         "attestor=info"
     };

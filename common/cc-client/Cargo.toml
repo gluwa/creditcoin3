@@ -15,6 +15,7 @@ no_effect_underscore_binding = "allow"
 pedantic = "warn"
 redundant_slicing = "allow"
 too_many_arguments = "allow"
+large_enum_variant = "allow"
 
 [dependencies]
 anyhow = "1.0"
@@ -42,6 +43,7 @@ sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+starknet-types-core = { workspace = true }
 
 [features]
 default = ["std"]

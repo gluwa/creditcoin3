@@ -1,0 +1,36 @@
+use attestor_primitives::{
+    attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
+    block::Block,
+    Digest,
+};
+use starknet_crypto::Felt;
+
+pub fn construct_fragment(
+    prev_digest: Option<Digest>,
+    start: u64,
+    end: u64,
+) -> AttestationFragmentSerializable {
+    if end == 0 {
+        return AttestationFragmentSerializable::default();
+    }
+    // Create a dummy fragment from start to end and use provided digest if we can
+    let mut fragment = AttestationFragment::new((end - start + 1) as usize);
+    let mut current_prev_digest =
+        Felt::from_bytes_be(&prev_digest.map(|d| d.0).unwrap_or_default());
+
+    for block_number in start..=end {
+        let block = Block::new_from_prev_digest(block_number, Felt::default(), current_prev_digest);
+        log::info!(
+            "Constructed block number: {}, prev_digest: {:?}, digest: {:?}",
+            block_number,
+            current_prev_digest,
+            block.digest()
+        );
+        let appended_block = fragment
+            .try_append_block(block)
+            .expect("Failed to append block");
+        current_prev_digest = appended_block.digest();
+    }
+
+    AttestationFragmentSerializable::from(&fragment)
+}

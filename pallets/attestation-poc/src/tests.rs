@@ -7,6 +7,7 @@ use attestor_primitives::{
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey, PublicKey};
+use continuity_dev::construct_fragment;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
@@ -17,6 +18,8 @@ pub struct Attestor {
     pub stash: RuntimeOrigin,
     pub stash_id: AccountId,
     pub attestor_id: AccountId,
+    #[allow(dead_code)]
+    pub attestor_origin: RuntimeOrigin,
     private_key: PrivateKey,
     pub public_key: BlsPublicKey,
     pub signature: BlsSignature,
@@ -37,21 +40,67 @@ impl Attestor {
             stash,
             stash_id,
             attestor_id,
+            attestor_origin: RuntimeOrigin::signed(attestor_id),
             private_key,
             public_key,
             signature,
         }
     }
 
-    fn sign(&self, message: &[u8]) -> BlsSignature {
+    pub fn sign(&self, message: &[u8]) -> BlsSignature {
         self.private_key.sign(message).as_bytes()[..]
             .try_into()
             .unwrap()
     }
 
-    fn private_key(&self) -> PrivateKey {
+    pub fn private_key(&self) -> PrivateKey {
         self.private_key
     }
+}
+
+pub fn create_signed_attestation(
+    attestors: Vec<Attestor>,
+    chain_key: ChainKey,
+    header_number: u64,
+    prev_digest: Option<H256>,
+) -> SignedAttestation<H256, mock::AccountId> {
+    let fragment = construct_fragment(prev_digest, 1, header_number.saturating_sub(1));
+
+    let attestation = AttestationPrimitive {
+        chain_key,
+        header_number,
+        header_hash: H256::random(),
+        root: [0; 32],
+        prev_digest: fragment.head().map(|h| {
+            H256::from(
+                attestor_primitives::block::Block::from(h.clone().into())
+                    .digest()
+                    .to_bytes_be(),
+            )
+        }),
+    };
+
+    let mut signatures = Vec::new();
+    for attestor in attestors.iter() {
+        let signature = attestor.sign(&attestation.serialize());
+        let bls_sig = bls_signatures::Signature::from_bytes(&signature[..])
+            .expect("Failed to create signature");
+
+        signatures.push(bls_sig);
+    }
+    // sign
+    let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
+
+    let attestation = SignedAttestation {
+        attestation,
+        signature: aggregated_signature.as_bytes()[..]
+            .try_into()
+            .expect("Failed to convert to array"),
+        attestors: attestors.iter().map(|a| a.attestor_id).collect::<Vec<_>>(),
+        continuity_proof: fragment,
+    };
+
+    attestation
 }
 
 #[test]
@@ -1848,19 +1897,20 @@ fn commit_attestation_works() {
 
         progress_to_block(5);
 
-        let attestation =
+        let attestation_1 =
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None);
+        log::info!("Attestation 1: {:?}", attestation_1.digest());
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
-            vec![attestation.clone()].try_into().unwrap()
+            vec![attestation_1.clone()].try_into().unwrap()
         ));
 
         // The first attestation for a chain immediately creates a corresponding checkpoint
         // rather than adding to the checkpointing queue.
         let expected_checkpoint = AttestationCheckpoint {
-            block_number: attestation.header_number(),
-            digest: attestation.digest(),
+            block_number: attestation_1.header_number(),
+            digest: attestation_1.digest(),
         };
         assert_eq!(
             Attestation::checkpoints(SUPPORTED_CHAIN_KEY, expected_checkpoint.digest),
@@ -1873,7 +1923,12 @@ fn commit_attestation_works() {
         );
 
         // Create a second attestation since first became a checkpoint and was removed from attestations
-        let attestation = create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 10, None);
+        let attestation = create_signed_attestation(
+            vec![attestor],
+            SUPPORTED_CHAIN_KEY,
+            10,
+            Some(attestation_1.digest()),
+        );
 
         assert_ok!(Attestation::commit_attestation(
             RuntimeOrigin::none(),
@@ -2665,44 +2720,6 @@ fn chilled_attestor_cannot_commit_attestation() {
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
         assert_err!(result, Error::<Test>::AttestorNotActive);
     });
-}
-
-fn create_signed_attestation(
-    attestors: Vec<Attestor>,
-    chain_key: ChainKey,
-    header_number: u64,
-    prev_digest: Option<H256>,
-) -> SignedAttestation<H256, mock::AccountId> {
-    let attestation = AttestationPrimitive {
-        chain_key,
-        header_number,
-        header_hash: H256::random(),
-        root: [0; 32],
-        prev_digest,
-    };
-
-    let mut signatures = Vec::new();
-    for attestor in attestors.iter() {
-        let signature = attestor.sign(&attestation.serialize());
-        let bls_sig = bls_signatures::Signature::from_bytes(&signature[..])
-            .expect("Failed to create signature");
-
-        signatures.push(bls_sig);
-    }
-    // sign
-    let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
-
-    let attestation = SignedAttestation {
-        attestation,
-        signature: aggregated_signature.as_bytes()[..]
-            .try_into()
-            .expect("Failed to convert to array"),
-        attestors: attestors.iter().map(|a| a.attestor_id).collect::<Vec<_>>(),
-        // TODO: change me
-        // continuity_proof: Default::default(),
-    };
-
-    attestation
 }
 
 #[test]

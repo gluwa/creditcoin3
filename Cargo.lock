@@ -2172,6 +2172,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core",
+ "starknet-types-core",
  "subxt",
  "subxt-signer",
  "supported-chains-primitives",
@@ -8939,6 +8940,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "hex",
  "log",
  "pallet-authorship",
  "pallet-babe",
@@ -8961,6 +8963,7 @@ dependencies = [
  "sp-staking",
  "sp-std",
  "starknet-crypto",
+ "starknet-types-core",
  "supported-chains-primitives",
 ]
 

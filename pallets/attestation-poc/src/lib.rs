@@ -11,10 +11,16 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod continuity_dev;
+
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+#[cfg(feature = "runtime-benchmarks")]
+mod continuity_dev;
 
 mod asset;
+mod continuity;
 mod impls;
 mod ledger;
 
@@ -599,6 +605,8 @@ pub mod pallet {
         AttestorAlreadyAuthorized,
         // Attestor is not authorized for the chain.
         AttestorNotAuthorized,
+        // Continuity proof is invalid
+        InvalidAttestationContinuityProof,
     }
 
     #[pallet::hooks]
