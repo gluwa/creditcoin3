@@ -150,10 +150,10 @@ pub enum AttestationFragmentError {
 impl std::fmt::Display for AttestationFragmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BlockNumberMismatch(num) => write!(f, "Block number mismatch: expected {}", num),
-            Self::BlockDigestMismatch(block) => write!(f, "Block digest mismatch: {:?}", block),
-            Self::MisalignedBlock(block) => write!(f, "Misaligned block: {:?}", block),
-            Self::EmptyBlock(num) => write!(f, "Empty block at height {}", num),
+            Self::BlockNumberMismatch(num) => write!(f, "Block number mismatch: expected {num}"),
+            Self::BlockDigestMismatch(block) => write!(f, "Block digest mismatch: {block:?}"),
+            Self::MisalignedBlock(block) => write!(f, "Misaligned block: {block:?}"),
+            Self::EmptyBlock(num) => write!(f, "Empty block at height {num}"),
             Self::FragmentIsFull => write!(f, "Fragment is full"),
             Self::Other => write!(f, "An unknown error occurred"),
         }

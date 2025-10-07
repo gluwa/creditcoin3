@@ -21,7 +21,7 @@ impl std::fmt::Display for BlockError {
             BlockError::BlockNumberMismatch(n) => {
                 write!(f, "Block number mismatch: expected {}, got {}", n - 1, n)
             }
-            BlockError::Empty(n) => write!(f, "Block {} is empty", n),
+            BlockError::Empty(n) => write!(f, "Block {n} is empty"),
         }
     }
 }
@@ -161,8 +161,8 @@ impl From<&Block> for ContinuityBlock {
 impl From<BlockSerializable> for ContinuityBlockSerializable {
     fn from(b: BlockSerializable) -> Self {
         Self {
-            root: b.root.clone(),
-            digest: b.digest.clone(),
+            root: b.root,
+            digest: b.digest,
         }
     }
 }
@@ -189,13 +189,13 @@ impl From<&Block> for BlockSerializable {
     }
 }
 
-impl Into<Block> for BlockSerializable {
-    fn into(self) -> Block {
+impl From<BlockSerializable> for Block {
+    fn from(val: BlockSerializable) -> Self {
         Block {
-            block_number: self.block_number,
-            root: Felt::from_bytes_be(&self.root.0),
-            prev_digest: Felt::from_bytes_be(&self.prev_digest.0),
-            digest: Felt::from_bytes_be(&self.digest.0),
+            block_number: val.block_number,
+            root: Felt::from_bytes_be(&val.root.0),
+            prev_digest: Felt::from_bytes_be(&val.prev_digest.0),
+            digest: Felt::from_bytes_be(&val.digest.0),
         }
     }
 }
