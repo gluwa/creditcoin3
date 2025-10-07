@@ -145,25 +145,22 @@ jobs:
     runs-on: ubuntu-24.04
     needs: setup
     steps:
-      - name: Install
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install ruby-dev
-          # note: also update faraday b/c of
-          # https://github.com/github-changelog-generator/github-changelog-generator/issues/1056
-          sudo gem install faraday github_changelog_generator
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+          always-auth: true
+          scope: "@gluwa"
+      - run: npm install -g yarn
 
-      - name: Generate changelog
+      - name: Install
+        run: yarn install
+
+      - name: Generate Changelog
         id: generate-changelog
         run: |
-          # shellcheck disable=SC2129
-          github_changelog_generator \
-            -u ${{ github.repository_owner }} \
-            -p ${{ github.event.repository.name }} \
-            --since-tag ${{ needs.setup.outputs.previous_release }} \
-            -t ${{ secrets.GITHUB_TOKEN }} \
-            --output /var/tmp/changelog.md
+          yarn conventional-changelog -p conventionalcommits -r 1 -u -o /var/tmp/changelog.md
 
           echo "===== DEBUG ====="
           cat /var/tmp/changelog.md
