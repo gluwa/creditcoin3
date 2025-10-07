@@ -22,7 +22,14 @@ pub struct ProverContractClient {
 }
 
 impl ProverContractClient {
-    /// Create a client with a custom artifact store path. If `path` is None, defaults to the built-in artifact path.
+    /// Creates a new `ProverContractClient` with the given Ethereum client and artifact store path.
+    ///
+    /// # Parameters
+    /// - `client`: The Ethereum client used for contract interactions.
+    /// - `path`: The path to the artifact store. This sets where deployment artifacts are stored.
+    ///
+    /// # Returns
+    /// A new instance of `ProverContractClient` with the specified client and artifact store location.
     pub fn new<P: Into<PathBuf>>(client: Client, path: P) -> Self {
         let store = artifacts::ArtifactStore::new(path);
         Self { client, store }
