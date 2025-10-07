@@ -14,6 +14,7 @@ import {
     BaseFeeUpdatedEventObject,
     CostPerByteUpdatedEventObject,
     QueryMarkedInvalidEventObject,
+    QueryProcessingFailedEventObject,
 } from '../types/chain/ProverAbi';
 
 // event ProverDeployed(address indexed contractAddress, address indexed owner, address proceedsAccount);
@@ -178,9 +179,36 @@ export async function handleQueryMarkedInvalid(event: FrontierEvmEvent<QueryMark
     const query = queries[0];
     query.escrowedAmount = BigInt(0);
     // Update state
-    // The state is set to QueryProcessingFailed when the proof verification fails. A malfunctioning
-    // or malicious prover can generate an invalid proof for a valid query, so we don't want to use
-    // the state InvalidQuery here.
+    query.state = QueryStatus.InvalidQuery;
+    query.failedReason = reason;
+
+    // Save the updated query
+    await query.save();
+}
+
+type QueryProcessingFailedArgs = [string, string] & QueryProcessingFailedEventObject;
+
+export async function handleQueryProcessingFailed(event: FrontierEvmEvent<QueryMarkedInvalidArgs>): Promise<void> {
+    if (!event.args) {
+        logger.error(`No args found for QueryProcessingFailed event`);
+        return;
+    }
+
+    const { queryId, reason } = event.args;
+
+    logger.info(`Query processing failed for query ${queryId}, reason: ${reason}`);
+
+    // Get the query entity
+    const queries = await ChainQueries.getByFields([['chainQueryId', '=', queryId]], { limit: 1 });
+
+    if (queries.length === 0) {
+        logger.error(`Query with ID ${queryId} not found`);
+        return;
+    }
+
+    const query = queries[0];
+    query.escrowedAmount = BigInt(0);
+    // Update state
     query.state = QueryStatus.QueryProcessingFailed;
     query.failedReason = reason;
 
