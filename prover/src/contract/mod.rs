@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -19,6 +19,8 @@ const CC3_CHAIN_ID: u64 = 42;
 pub struct ProverContractClient {
     client: Client,
     store: artifacts::ArtifactStore,
+    chain_id: u64,
+    chain_deployment_artifact: Option<artifacts::ChainDeploymentArtifact>,
 }
 
 impl ProverContractClient {
@@ -29,27 +31,32 @@ impl ProverContractClient {
     /// - `path`: The path to the artifact store. This sets where deployment artifacts are stored.
     ///
     /// # Returns
-    /// A new instance of `ProverContractClient` with the specified client and artifact store location.
-    pub fn new<P: Into<PathBuf>>(client: Client, path: P) -> Self {
+    /// A new instance of `ProverContractClient` with the specified client, artifact store location,
+    /// a `chain_id`, and an artifact.
+    pub async fn new(client: Client, path: impl Into<PathBuf>) -> Self {
         let store = artifacts::ArtifactStore::new(path);
-        Self { client, store }
+        let chain_id = client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
+        Self {
+            client,
+            store,
+            chain_id,
+            chain_deployment_artifact: None,
+        }
     }
 
     pub async fn deploy(
-        &self,
+        &mut self,
         cost_per_byte: u64,
         base_fee: u64,
         chain_key: ChainKey,
         display_name: String,
         timeout: u64,
     ) -> Result<()> {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-
-        let artifact = if self.store.has_artifact(chain_id).await? {
+        let artifact = if self.store.has_artifact(self.chain_id).await? {
             info!("🔍 Found existing deployment artifact, fetching...");
             let artifact = self
                 .store
-                .get_latest_deployment_artifact_for(chain_id)
+                .get_latest_deployment_artifact_for(self.chain_id)
                 .await?;
 
             if let Some(artifact_hash) = artifact.bytecode_hash {
@@ -96,13 +103,15 @@ impl ProverContractClient {
             .await?;
 
             self.store
-                .create_deployment_artifact(chain_id, contract, bytecode_hash)
+                .create_deployment_artifact(self.chain_id, contract, bytecode_hash)
                 .await?
         };
 
+        self.chain_deployment_artifact = Some(artifact.clone());
+
         info!(
-            "📜 Creditcoin Public Prover contract address({:?}) on chain {chain_id}",
-            artifact.contract.address
+            "📜 Creditcoin Public Prover contract address({:?}) on chain {}",
+            artifact.contract.address, self.chain_id,
         );
 
         Ok(())
@@ -110,12 +119,12 @@ impl ProverContractClient {
 
     /// Fetches all unprocessed queries from the contract.
     pub async fn get_initial_unprocessed_queries(&self) -> Result<Vec<Query>> {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-
         let artifact = self
-            .store
-            .get_latest_deployment_artifact_for(chain_id)
-            .await?;
+            .chain_deployment_artifact
+            .as_ref()
+            .context(
+                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
+            )?;
 
         let queries = artifact
             .contract
@@ -127,16 +136,17 @@ impl ProverContractClient {
 
     /// Submit proof by `QueryId` directly
     pub async fn submit_proof_by_id(&self, query_id: QueryId, proof: Vec<u8>) -> Result<String> {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
         debug!(
             "📝 Submitting proof for query {:?}, chain id {}",
-            query_id, chain_id
+            query_id, self.chain_id
         );
 
         let artifact = self
-            .store
-            .get_latest_deployment_artifact_for(chain_id)
-            .await?;
+            .chain_deployment_artifact
+            .as_ref()
+            .context(
+                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
+            )?;
 
         // Submit the proof
         let tx_hash = artifact
@@ -156,12 +166,12 @@ impl ProverContractClient {
         &self,
         proof_channel: mpsc::UnboundedSender<QueryId>,
     ) -> Result<()> {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-
         let artifact = self
-            .store
-            .get_latest_deployment_artifact_for(chain_id)
-            .await?;
+            .chain_deployment_artifact
+            .as_ref()
+            .context(
+                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
+            )?;
 
         artifact
             .contract
@@ -170,7 +180,7 @@ impl ProverContractClient {
 
         info!(
             "✅ Subscribed to proof verification events on chain {}",
-            chain_id
+            self.chain_id
         );
         Ok(())
     }
@@ -180,30 +190,33 @@ impl ProverContractClient {
         &self,
         query_channel: mpsc::UnboundedSender<Query>,
     ) -> Result<()> {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-
         let artifact = self
-            .store
-            .get_latest_deployment_artifact_for(chain_id)
-            .await?;
+            .chain_deployment_artifact
+            .as_ref()
+            .context(
+                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
+            )?;
 
         artifact
             .contract
             .subscribe_query_submissions(&self.client, query_channel)
             .await?;
 
-        info!("✅ Subscribed to query submissions on chain {}", chain_id);
+        info!(
+            "✅ Subscribed to query submissions on chain {}",
+            self.chain_id
+        );
         Ok(())
     }
 
     /// Marks a query as invalid on chain with the provided reason.
     pub async fn mark_query_as_invalid(&self, query_id: QueryId, reason: String) -> Result<String> {
-        let chain_id = self.client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
-
         let artifact = self
-            .store
-            .get_latest_deployment_artifact_for(chain_id)
-            .await?;
+            .chain_deployment_artifact
+            .as_ref()
+            .context(
+                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
+            )?;
 
         let tx_hash = artifact
             .contract

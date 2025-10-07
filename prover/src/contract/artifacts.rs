@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sp_core::H256;
@@ -27,7 +27,7 @@ pub struct ArtifactStore {
 }
 
 impl ArtifactStore {
-    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             storage_path: path.into(),
         }
@@ -56,12 +56,12 @@ impl ArtifactStore {
 
         let artifact = artifact_storage
             .artifacts
-            .iter()
+            .into_iter()
             .filter(|artifact| artifact.chain_id == chain_id)
             .max_by(|a, b| a.created_at.cmp(&b.created_at))
-            .ok_or_else(|| anyhow::anyhow!("Artifact not found"))?;
+            .context("Artifact not found")?;
 
-        Ok(artifact.clone())
+        Ok(artifact)
     }
 
     pub async fn create_deployment_artifact(
@@ -81,7 +81,7 @@ impl ArtifactStore {
             created_at,
         };
 
-        if let Some(parent_dir) = Path::new(&self.storage_path).parent() {
+        if let Some(parent_dir) = self.storage_path.as_path().parent() {
             tokio::fs::create_dir_all(parent_dir).await?;
         }
 

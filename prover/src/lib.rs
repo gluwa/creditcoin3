@@ -7,6 +7,7 @@ use query::external::Error as LightProvingError;
 use sp_core::H256;
 use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
+use std::sync::Arc;
 use tokio::{
     sync::mpsc,
     task::{self, JoinError, JoinHandle},
@@ -44,7 +45,7 @@ pub type ChainName = String;
 pub struct Server {
     config: Config,
     // Wrapper client encapsulating contract + artifacts
-    contract_client: ProverContractClient,
+    contract_client: Arc<ProverContractClient>,
     // Creditcoin client for the cc3 chain where the prover contract is deployed
     cc3_client: CcClient,
     // Ethereum client for the source chain
@@ -84,8 +85,8 @@ impl Server {
         // This will deploy it on ccnext chain
         let cc3_eth_client =
             EthClient::new(&config.cc3_rpc_url, Some(&config.cc3_evm_private_key)).await?;
-        let contract_client =
-            ProverContractClient::new(cc3_eth_client.clone(), config.artifacts_file.clone());
+        let mut contract_client =
+            ProverContractClient::new(cc3_eth_client.clone(), config.artifacts_file.clone()).await;
 
         let cc3_client = CcClient::new(&config.cc3_rpc_url, &config.cc3_key).await?;
 
@@ -139,7 +140,7 @@ impl Server {
             cc3_client,
             source_chain_eth_client,
             attestations_cache,
-            contract_client,
+            contract_client: contract_client.into(),
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
             received_query_ids: HashSet::new(),
@@ -170,7 +171,7 @@ impl Server {
 
         // Fetch initial unprocessed queries and push them to the channel
         info!("🔄 Polling for all existing unprocessed queries...");
-        let contract_client = self.contract_client.clone();
+        let contract_client = Arc::clone(&self.contract_client);
 
         let initial_unprocessed_queries = contract_client
             .get_initial_unprocessed_queries()
@@ -200,7 +201,7 @@ impl Server {
         let (proof_verified_event_sender, mut proof_verified_event_receiver) =
             mpsc::unbounded_channel::<H256>();
 
-        let contract_client = self.contract_client.clone();
+        let contract_client = Arc::clone(&self.contract_client);
 
         // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
         info!("🛰️  Subscribing to proof verification events on the contract");
