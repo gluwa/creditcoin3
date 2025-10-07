@@ -188,7 +188,7 @@ export async function handleQueryMarkedInvalid(event: FrontierEvmEvent<QueryMark
 
 type QueryProcessingFailedArgs = [string, string] & QueryProcessingFailedEventObject;
 
-export async function handleQueryProcessingFailed(event: FrontierEvmEvent<QueryMarkedInvalidArgs>): Promise<void> {
+export async function handleQueryProcessingFailed(event: FrontierEvmEvent<QueryProcessingFailedArgs>): Promise<void> {
     if (!event.args) {
         logger.error(`No args found for QueryProcessingFailed event`);
         return;

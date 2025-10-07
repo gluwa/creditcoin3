@@ -323,7 +323,7 @@ event QueryProofVerified(QueryId indexed queryId, ResultSegment[] resultSegments
 
 event QueryMarkedInvalid(QueryId indexed queryId, string reason);
 
-event QueryProcessingFailed(QueryId, string reason);
+event QueryProcessingFailed(QueryId indexed queryId, string reason);
 
 event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
 
