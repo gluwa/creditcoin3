@@ -42,6 +42,7 @@ declare module '@polkadot/api-base/types/errors' {
             ChainNotSupported: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
             DuplicateAttestor: AugmentedError<ApiType>;
+            EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
             /**
              * The call to attest_block failed, the block's cryptographic committments were invalid
@@ -49,7 +50,11 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestation: AugmentedError<ApiType>;
             InvalidAttestationBlockNumber: AugmentedError<ApiType>;
             InvalidAttestationContinuityProof: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofBlock: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofHead: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofTail: AugmentedError<ApiType>;
             InvalidAttestationInterval: AugmentedError<ApiType>;
+            InvalidAttestationPrevDigest: AugmentedError<ApiType>;
             InvalidAttestationsPerCheckpoint: AugmentedError<ApiType>;
             InvalidAttestorAccount: AugmentedError<ApiType>;
             InvalidAttestorFound: AugmentedError<ApiType>;
