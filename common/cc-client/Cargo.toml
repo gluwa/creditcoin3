@@ -8,6 +8,7 @@ repository.workspace = true
 version.workspace = true
 
 [lints.clippy]
+large_enum_variant = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
@@ -15,7 +16,6 @@ no_effect_underscore_binding = "allow"
 pedantic = "warn"
 redundant_slicing = "allow"
 too_many_arguments = "allow"
-large_enum_variant = "allow"
 
 [dependencies]
 anyhow = "1.0"
@@ -40,10 +40,10 @@ sc-service = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sp-core = { workspace = true, default-features = false }
+starknet-types-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-starknet-types-core = { workspace = true }
 
 [features]
 default = ["std"]

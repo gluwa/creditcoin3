@@ -208,5 +208,5 @@ std = [
     "log/std",
     "pallet-randomness/std",
     "randomness-primitives/std",
-    "evm-tracing-events/std"
+    "evm-tracing-events/std",
 ]

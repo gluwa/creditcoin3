@@ -12,8 +12,8 @@ use sp_std::vec;
 use sp_std::vec::Vec;
 
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
-    ChainAttestationIntervalType, ChainKey, SignedAttestation,
+    block::Block, Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey,
+    BlsSignature, ChainAttestationIntervalType, ChainKey, SignedAttestation,
 };
 
 const DEV_CHAIN_KEY: ChainKey = 1;
@@ -83,11 +83,8 @@ fn create_signed_attestation<T: frame_system::Config>(
         header_hash: <T as frame_system::Config>::Hash::default(),
         root: [0; 32],
         prev_digest: fragment.head().map(|h| {
-            H256::from(
-                attestor_primitives::block::Block::from(h.clone().into())
-                    .digest()
-                    .to_bytes_be(),
-            )
+            let block: Block = h.clone().into();
+            H256::from(block.digest().to_bytes_be())
         }),
     };
 

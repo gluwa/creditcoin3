@@ -11,13 +11,11 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "runtime-benchmarks"))]
 mod continuity_dev;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
-#[cfg(feature = "runtime-benchmarks")]
-mod continuity_dev;
 
 mod asset;
 mod continuity;

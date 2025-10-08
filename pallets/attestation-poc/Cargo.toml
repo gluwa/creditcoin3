@@ -7,6 +7,9 @@ publish.workspace = true
 repository.workspace = true
 version.workspace = true
 
+[lints.clippy]
+large_enum_variant = "allow"
+
 [dependencies]
 log = { workspace = true }
 
@@ -35,6 +38,7 @@ assert_matches = { workspace = true }
 env_logger = { workspace = true }
 extend = "1.2.0"
 frame-election-provider-support = { workspace = true }
+hex = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-offences = { workspace = true }
@@ -47,7 +51,6 @@ pallet-timestamp = { workspace = true }
 sp-consensus-babe = { workspace = true, default-features = false, features = [
     "serde",
 ] }
-hex = { workspace = true }
 starknet-types-core = { workspace = true, default-features = false }
 
 [features]

@@ -44,5 +44,5 @@ std = [
     "tempfile",
     "verifier-core/std",
     "anyhow/std",
-    "hex/std"
+    "hex/std",
 ]

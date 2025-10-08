@@ -56,8 +56,7 @@ impl<T: Config> Pallet<T> {
 
         // Validate the prev digest of the attestation against the head of the continuity proof
         if let Some(attestation_head) = attestation.continuity_proof.head() {
-            let block: Block = Block::try_from(attestation_head.clone())
-                .map_err(|_| Error::<T>::InvalidAttestationContinuityProof)?;
+            let block: Block = attestation_head.clone().into();
             let block_digest = H256::from_slice(&block.digest.to_bytes_be());
 
             if block_digest != attestation.prev_digest().unwrap_or_default() {
@@ -74,8 +73,7 @@ impl<T: Config> Pallet<T> {
         // Otherwise check if we actually have the digest in storage, it could be that the last finalized attestation from attestation view is not the last finalized attestation in storage
         // This could happen if the attestation view is lagging behind
         if let Some(tail) = attestation.continuity_proof.tail() {
-            let block: Block = Block::try_from(tail.clone())
-                .map_err(|_| Error::<T>::InvalidAttestationContinuityProof)?;
+            let block: Block = tail.clone().into();
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
             if block_prev_digest != last_block_digest {
                 // Check if we have the last_block_digest in storage
@@ -91,8 +89,7 @@ impl<T: Config> Pallet<T> {
         }
 
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
-            let block: Block = Block::try_from(serializable.clone())
-                .map_err(|_| Error::<T>::InvalidAttestationContinuityProof)?;
+            let block: Block = serializable.clone().into();
 
             let block_digest = H256::from_slice(&block.digest.to_bytes_be());
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());

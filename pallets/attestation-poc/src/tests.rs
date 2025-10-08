@@ -2,8 +2,8 @@ use super::*;
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use attestor_primitives::{
-    Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus, ChainKey,
-    SignedAttestation,
+    block::Block, Attestation as AttestationPrimitive, AttestationCheckpoint, AttestorStatus,
+    ChainKey, SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey, PublicKey};
@@ -72,11 +72,8 @@ pub fn create_signed_attestation(
         header_hash: H256::random(),
         root: [0; 32],
         prev_digest: fragment.head().map(|h| {
-            H256::from(
-                attestor_primitives::block::Block::from(h.clone().into())
-                    .digest()
-                    .to_bytes_be(),
-            )
+            let block: Block = h.clone().into();
+            H256::from(block.digest().to_bytes_be())
         }),
     };
 

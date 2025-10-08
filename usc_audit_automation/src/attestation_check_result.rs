@@ -219,6 +219,7 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![],
+            continuity_proof: Default::default(),
         }
     }
 

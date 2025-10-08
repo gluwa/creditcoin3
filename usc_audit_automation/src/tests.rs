@@ -220,6 +220,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
     let calculated_ethereum_block_merkle_root =
@@ -316,6 +317,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         },
         signature: [0u8; 96],
         attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
+        continuity_proof: Default::default(),
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
     let calculated_ethereum_block_merkle_root =
@@ -410,6 +412,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         },
         signature: [0u8; 96],
         attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
+        continuity_proof: Default::default(),
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
     let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
@@ -594,6 +597,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![AccountId32::from([10u8; 32]), AccountId32::from([11u8; 32])],
+        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let last_checkpoint_block_number = 50;
@@ -668,6 +672,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -757,6 +762,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -848,6 +854,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
     let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64)); // matches header_number
@@ -936,6 +943,7 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =

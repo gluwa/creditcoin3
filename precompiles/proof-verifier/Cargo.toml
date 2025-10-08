@@ -96,5 +96,5 @@ std = [
     "supported-chains-primitives/std",
     "pallet-babe/std",
     "proof-verifier/std",
-    "ethabi/std"
+    "ethabi/std",
 ]
