@@ -1,11 +1,25 @@
+use anyhow::{Context, Result};
+use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
+use cc_client::{Client as USCClient, Error as USCError};
 use clap::Parser;
+use eth::{self, AlloyB256, Client as EthClient, OrderedBlock};
+use ethers::types::U64;
 use futures::future::BoxFuture;
+use futures::future::FutureExt;
+use mmr::traits::MerkleTreeTrait;
+use mockall::{automock, predicate::*};
 use serde::Deserialize;
+use sp_core::H256;
 use std::path::PathBuf;
+use subxt::utils::AccountId32;
+use tracing::info;
 
-mod attestation_check_result;
+const MAX_ALLOWED_BLOCK_HEIGHT_DIFF: i128 = 50;
+
+pub mod attestation_check_result;
 pub mod attestation_checks;
 mod create_json_message;
+
 #[cfg(test)]
 mod tests;
 
@@ -47,9 +61,189 @@ pub struct SanitiesConfigFile {
 
 pub type BoxFutureResult<'a, T, E = anyhow::Error> = BoxFuture<'a, Result<Option<T>, E>>;
 
+#[automock]
+pub trait EthereumProvider {
+    fn fetch_block_number(&self) -> BoxFutureResult<'_, U64>;
+    fn fetch_block_by_hash(&self, block_hash: ethers_core::types::H256)
+        -> BoxFutureResult<'_, U64>;
+    fn get_block_by_number(&self, block_number: u64) -> BoxFutureResult<'_, OrderedBlock>;
+}
+
+impl EthereumProvider for EthClient {
+    fn fetch_block_number(&self) -> BoxFutureResult<'_, U64> {
+        (async move {
+            let block_number = self.get_last_block().await?;
+            Ok(Some(U64::from(block_number)))
+        })
+        .boxed()
+    }
+    fn fetch_block_by_hash(
+        &self,
+        block_hash: ethers_core::types::H256,
+    ) -> BoxFutureResult<'_, U64> {
+        (async move {
+            let block_number = self
+                .get_block_number_by_hash(AlloyB256::from_slice(block_hash.as_bytes()))
+                .await?;
+
+            Ok(Some(U64::from(block_number)))
+        })
+        .boxed()
+    }
+    fn get_block_by_number(&self, block_number: u64) -> BoxFutureResult<'_, OrderedBlock> {
+        (async move {
+            let ordered_block = self.get_block(block_number).await?;
+            Ok(Some(ordered_block))
+        })
+        .boxed()
+    }
+}
+
+pub trait UniversalSmartContractProvider {
+    fn fetch_last_digest(&self, chain_key: u64) -> BoxFutureResult<'_, H256>;
+    fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> BoxFutureResult<'_, SignedAttestation<H256, AccountId32>, USCError>;
+    fn get_last_attestation_checkpoint(
+        &self,
+        chain_key: u64,
+    ) -> BoxFutureResult<'_, AttestationCheckpoint>;
+    fn get_checkpoint_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u32>;
+    fn get_attestation_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u64>;
+    fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> BoxFutureResult<'_, u64>;
+}
+
+pub struct USCClientWrapper(USCClient);
+impl UniversalSmartContractProvider for USCClientWrapper {
+    fn fetch_last_digest(&self, chain_key: u64) -> BoxFutureResult<'_, H256> {
+        (async move {
+            self.0
+                .fetch_last_digest(chain_key)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .boxed()
+    }
+
+    fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> BoxFutureResult<'_, SignedAttestation<H256, AccountId32>, USCError> {
+        (async move { self.0.get_attestation_by_digest(chain_key, digest).await }).boxed()
+    }
+
+    fn get_last_attestation_checkpoint(
+        &self,
+        chain_key: u64,
+    ) -> BoxFutureResult<'_, AttestationCheckpoint> {
+        (async move {
+            let checkpoint = self.0.get_last_checkpoint(chain_key).await?;
+            Ok(checkpoint)
+        })
+        .boxed()
+    }
+    fn get_checkpoint_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u32> {
+        (async move {
+            self.0
+                .chain_checkpoint_interval(chain_key)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .boxed()
+    }
+    fn get_attestation_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u64> {
+        (async move { self.0.chain_attestation_interval(chain_key).await }).boxed()
+    }
+    fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> BoxFutureResult<'_, u64> {
+        (async move {
+            self.0
+                .get_attestation_vote_acceptance_window(chain_key)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .boxed()
+    }
+}
+
+#[derive(Debug)]
+pub struct CheckPointCreatedWithinRangeChecker {
+    last_checkpoint_block_number: u64,
+    latest_ethereum_block_number: u64,
+    checkpoint_created_within_range: bool,
+}
+
+pub async fn check_attestation_checkpoint_created_within_block_interval_range(
+    client: &impl UniversalSmartContractProvider,
+    chain_key: u64,
+    latest_ethereum_block_number: u64,
+) -> Result<CheckPointCreatedWithinRangeChecker> {
+    let checkpoint_interval = client
+        .get_checkpoint_interval(chain_key)
+        .await?
+        .unwrap_or_default();
+    info!("Checkpoint interval: {:?}", checkpoint_interval);
+    let attestation_interval = client
+        .get_attestation_interval(chain_key)
+        .await?
+        .unwrap_or_default();
+    info!("Attestation interval: {:?}", attestation_interval);
+    let vote_acceptance_window = client
+        .get_attestation_vote_acceptance_window(chain_key)
+        .await?
+        .unwrap_or_default();
+    info!("Vote acceptance window: {:?}", vote_acceptance_window);
+
+    // Number of attestations between checkpoints
+    let checkpoint_block_range =
+        checkpoint_interval as u64 * attestation_interval * vote_acceptance_window;
+
+    info!("Checkpoint expected range: {}", checkpoint_block_range);
+
+    let last_checkpoint = client
+        .get_last_attestation_checkpoint(chain_key)
+        .await?
+        .context("No last checkpoint found")?;
+
+    info!("Last checkpoint: {:?}", last_checkpoint);
+    info!(
+        "Latest Ethereum block number: {}",
+        latest_ethereum_block_number
+    );
+
+    let mut checkpoint_created_within_range_checker = CheckPointCreatedWithinRangeChecker {
+        last_checkpoint_block_number: last_checkpoint.block_number,
+        latest_ethereum_block_number,
+        checkpoint_created_within_range: false,
+    };
+
+    if latest_ethereum_block_number.saturating_sub(last_checkpoint.block_number)
+        <= checkpoint_block_range
+    {
+        checkpoint_created_within_range_checker.checkpoint_created_within_range = true;
+        return Ok(checkpoint_created_within_range_checker);
+    }
+
+    Ok(checkpoint_created_within_range_checker)
+}
+
 pub fn calculate_usc_and_source_chain_block_diff(
     usc_block_height: u64,
     source_chain_block_height: u64,
 ) -> i128 {
     source_chain_block_height as i128 - usc_block_height as i128
+}
+
+pub async fn calculate_merkle_root(
+    eth_client: &impl EthereumProvider,
+    block_number: u64,
+) -> Result<[u8; 32]> {
+    let ordered_block = eth_client
+        .get_block_by_number(block_number)
+        .await?
+        .context("Failed to get block")?;
+    let merkle_tree = eth::starknet_pedersen_mmr(&ordered_block);
+    Ok(merkle_tree.root().0.to_bytes_be())
 }

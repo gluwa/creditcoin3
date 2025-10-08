@@ -1,11 +1,8 @@
-use attestor_primitives::SignedAttestation;
-
-use crate::NetworkTarget;
-use ethers::types::U64;
+use crate::{attestation_check_result::AttestationCheckResult, NetworkTarget};
+use anyhow::{anyhow, Result};
 use num_format::{Locale, ToFormattedString};
 use serde_json::{json, Value};
-use sp_core::H256;
-use subxt::utils::AccountId32;
+use tracing::error;
 
 const USERNAME: &str = "usc-audit-automation";
 const ICON_PRIMARY: &str = ":shield:";
@@ -24,7 +21,12 @@ fn slack_payload(text: impl Into<String>, icon: &str) -> Value {
     })
 }
 
-fn alert_reasons(exceeded: bool, header_hash_match: bool, roots_match: bool) -> Vec<&'static str> {
+fn alert_reasons(
+    exceeded: bool,
+    header_hash_match: bool,
+    roots_match: bool,
+    checkpoint_creation_in_range: bool,
+) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if exceeded {
         reasons.push("Current block difference exceeds threshold!");
@@ -35,34 +37,38 @@ fn alert_reasons(exceeded: bool, header_hash_match: bool, roots_match: bool) -> 
     if !roots_match {
         reasons.push("Calculated merkle root does not match attestation root!");
     }
+    if !checkpoint_creation_in_range {
+        reasons.push("Last checkpoint creation out of range!");
+    }
     reasons
+}
+
+fn format_slack_alert_id_starts_with(group: &str) -> Result<String> {
+    if group.starts_with('U') {
+        Ok(format!("<@{group}>"))
+    } else if group.starts_with('S') {
+        Ok(format!("<!subteam^{group}>"))
+    } else {
+        Err(anyhow!("Unexpected Slack ID: {group}"))
+    }
 }
 
 pub fn create_json_message(
     target: NetworkTarget,
-    latest_signed_attestation: SignedAttestation<H256, AccountId32>,
-    latest_ethereum_block_number: u64,
-    calculated_ethereum_block_merkle_root: String,
-    fetched_ethereum_block_number_by_hash: Option<U64>,
-    slack_alert_group: Option<String>,
+    attestation_check_result: AttestationCheckResult,
+    slack_alert_group: &Option<String>,
 ) -> (Value, Option<Value>) {
-    let attestation_check_result =
-        crate::attestation_check_result::compute_attestation_check_result(
-            &latest_signed_attestation,
-            latest_ethereum_block_number,
-            &calculated_ethereum_block_merkle_root,
-            fetched_ethereum_block_number_by_hash,
-        );
-
     let eth_fmt = attestation_check_result
+        .ethereum_block_info
         .latest_ethereum_block_number
         .to_formatted_string(&Locale::en);
     let att_fmt = attestation_check_result
+        .attestation_info
         .attestor_best_block_number
         .to_formatted_string(&Locale::en);
 
     let (attestation_height_status_emoji, attestation_height_verdict) =
-        if attestation_check_result.block_height_exceeded {
+        if attestation_check_result.is_block_height_exceeded() {
             ("❌", "Attestation block heights diff")
         } else {
             ("✅", "Attestation block heights diff")
@@ -71,7 +77,7 @@ pub fn create_json_message(
     let (
         attestation_header_matches_correct_fetched_ethereum_block_number_by_hash_emoji,
         attestation_header_matches_correct_fetched_ethereum_block_number_by_hash_verdict,
-    ) = if attestation_check_result.header_hash_matches {
+    ) = if attestation_check_result.header_hash_matches() {
         (
             "✅",
             "Attestation header hash matches correct Ethereum block",
@@ -83,7 +89,8 @@ pub fn create_json_message(
         )
     };
 
-    let (roots_match_emoji, roots_match_verdict) = if attestation_check_result.merkle_roots_match {
+    let (roots_match_emoji, roots_match_verdict) = if attestation_check_result.merkle_roots_match()
+    {
         ("✅", "Calculated merkle root matches attestation root")
     } else {
         (
@@ -92,11 +99,27 @@ pub fn create_json_message(
         )
     };
 
+    let (checkpoint_creation_in_range_emoji, checkpoint_creation_in_range_verdict) =
+        if attestation_check_result.is_checkpoint_in_range() {
+            ("✅", "Last checkpoint creation is within checkpoint range")
+        } else {
+            ("❌", "Last checkpoint creation is outside checkpoint range")
+        };
+    let checkpoint_interval_diff = attestation_check_result
+        .check_point_created_in_range_checker
+        .latest_ethereum_block_number
+        .saturating_sub(
+            attestation_check_result
+                .check_point_created_in_range_checker
+                .last_checkpoint_block_number,
+        );
+
     // Single, consistent base line (only the emoji differs)
     let base_line = format!(
         "⬛ {}\n{} {}: {} ({}|{})\n\
         {} {}: ({}|{})\n\
-        {} {}: ({}|{})",
+        {} {}: ({}|{})\n\
+        {} {}: {} ({}|{})",
         target.usc_network_name,
         attestation_height_status_emoji,
         attestation_height_verdict,
@@ -108,16 +131,33 @@ pub fn create_json_message(
         attestation_header_matches_correct_fetched_ethereum_block_number_by_hash_emoji,
         attestation_header_matches_correct_fetched_ethereum_block_number_by_hash_verdict,
         attestation_check_result
+            .ethereum_block_info
             .fetched_ethereum_block_number_by_hash
             .map(|n| n.to_formatted_string(&Locale::en))
             .unwrap_or_else(|| "N/A".to_string()),
         attestation_check_result
+            .attestation_info
             .attestor_best_block_number
             .to_formatted_string(&Locale::en),
         roots_match_emoji,
         roots_match_verdict,
-        attestation_check_result.calculated_ethereum_block_merkle_root,
-        attestation_check_result.attestation_merkle_root,
+        attestation_check_result
+            .ethereum_block_info
+            .calculated_ethereum_block_merkle_root,
+        attestation_check_result
+            .attestation_info
+            .attestation_merkle_root,
+        checkpoint_creation_in_range_emoji,
+        checkpoint_creation_in_range_verdict,
+        checkpoint_interval_diff.to_formatted_string(&Locale::en),
+        attestation_check_result
+            .check_point_created_in_range_checker
+            .latest_ethereum_block_number
+            .to_formatted_string(&Locale::en),
+        attestation_check_result
+            .check_point_created_in_range_checker
+            .last_checkpoint_block_number
+            .to_formatted_string(&Locale::en),
     );
 
     // Primary message (always present)
@@ -126,18 +166,28 @@ pub fn create_json_message(
     // Optional secondary alert (only when exceeded and a group is provided)
     let secondary = match slack_alert_group {
         Some(group)
-            if attestation_check_result.block_height_exceeded
-                || !attestation_check_result.header_hash_matches
-                || !attestation_check_result.merkle_roots_match =>
+            if attestation_check_result.is_block_height_exceeded()
+                || !attestation_check_result.header_hash_matches()
+                || !attestation_check_result.merkle_roots_match()
+                || !attestation_check_result.is_checkpoint_in_range() =>
         {
             let reasons = alert_reasons(
-                attestation_check_result.block_height_exceeded,
-                attestation_check_result.header_hash_matches,
-                attestation_check_result.merkle_roots_match,
+                attestation_check_result.is_block_height_exceeded(),
+                attestation_check_result.header_hash_matches(),
+                attestation_check_result.merkle_roots_match(),
+                attestation_check_result.is_checkpoint_in_range(),
             );
 
+            let slack_alert_id = match format_slack_alert_id_starts_with(group) {
+                Ok(id) => id,
+                Err(e) => {
+                    error!("Failed to format Slack alert ID: {e}");
+                    return (primary, None);
+                }
+            };
+
             let alert_text = format!(
-                "<!subteam^{group}> {}\n{}",
+                "{slack_alert_id} {}\n{}",
                 "The following issues were detected:",
                 reasons.join("\n- ")
             );
@@ -147,4 +197,31 @@ pub fn create_json_message(
     };
 
     (primary, secondary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_user_id_with_u_prefix() {
+        let result = format_slack_alert_id_starts_with("U123456").unwrap();
+        assert_eq!(result, "<@U123456>");
+    }
+
+    #[test]
+    fn formats_subteam_id_with_s_prefix() {
+        let result = format_slack_alert_id_starts_with("S123456").unwrap();
+        assert_eq!(result, "<!subteam^S123456>");
+    }
+
+    #[test]
+    fn returns_error_for_unexpected_prefix() {
+        let result = format_slack_alert_id_starts_with("X123456");
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Unexpected Slack ID: X123456"
+        );
+    }
 }
