@@ -137,8 +137,8 @@ where
             let block: Block = tail.clone().into();
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
             if block_prev_digest != last_block_digest {
-                // Check if we have the last_block_digest in storage
-                let exists = runtime.contains_digest(block_hash, chain_key, last_block_digest)?;
+                // Check if we have the block_prev_digest in storage
+                let exists = runtime.contains_digest(block_hash, chain_key, block_prev_digest)?;
                 if !exists {
                     error!(target: LOG_TARGET, "❌ Continuity proof tail prev digest mismatch, expected {last_block_digest:?}, got {block_prev_digest:?}, and we don't have it in storage");
                     return Err(Error::InvalidAttestationContinuityProof);

@@ -12,8 +12,9 @@ use sp_std::vec;
 use sp_std::vec::Vec;
 
 use attestor_primitives::{
-    block::Block, Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey,
-    BlsSignature, ChainAttestationIntervalType, ChainKey, SignedAttestation,
+    attestation_fragment::AttestationFragmentSerializable, block::Block,
+    Attestation as AttestationPrimitive, AttestationCheckpoint, BlsPublicKey, BlsSignature,
+    ChainAttestationIntervalType, ChainKey, SignedAttestation,
 };
 
 const DEV_CHAIN_KEY: ChainKey = 1;
@@ -83,7 +84,7 @@ fn create_signed_attestation<T: frame_system::Config>(
         header_hash: <T as frame_system::Config>::Hash::default(),
         root: [0; 32],
         prev_digest: fragment.head().map(|h| {
-            let block: Block = h.clone().into();
+            let block: Block = h.clone();
             H256::from(block.digest().to_bytes_be())
         }),
     };
@@ -99,6 +100,8 @@ fn create_signed_attestation<T: frame_system::Config>(
     // sign
     let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
+    let continuity_proof = AttestationFragmentSerializable::from(&fragment);
+
     let attestation = SignedAttestation {
         attestation,
         signature: aggregated_signature.as_bytes()[..]
@@ -108,7 +111,7 @@ fn create_signed_attestation<T: frame_system::Config>(
             .iter()
             .map(|a| a.attestor_id.clone())
             .collect::<Vec<_>>(),
-        continuity_proof: fragment,
+        continuity_proof,
     };
 
     attestation

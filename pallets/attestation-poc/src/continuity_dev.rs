@@ -1,17 +1,13 @@
-use attestor_primitives::{
-    attestation_fragment::{AttestationFragment, AttestationFragmentSerializable},
-    block::Block,
-    Digest,
-};
+use attestor_primitives::{attestation_fragment::AttestationFragment, block::Block, Digest};
 use starknet_crypto::Felt;
 
 pub fn construct_fragment(
     prev_digest: Option<Digest>,
     start: u64,
     end: u64,
-) -> AttestationFragmentSerializable {
+) -> AttestationFragment {
     if end == 0 {
-        return AttestationFragmentSerializable::default();
+        return AttestationFragment::default();
     }
     // Create a dummy fragment from start to end and use provided digest if we can
     let mut fragment = AttestationFragment::new((end - start + 1) as usize);
@@ -32,5 +28,5 @@ pub fn construct_fragment(
         current_prev_digest = appended_block.digest();
     }
 
-    AttestationFragmentSerializable::from(&fragment)
+    fragment
 }

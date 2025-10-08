@@ -603,8 +603,18 @@ pub mod pallet {
         AttestorAlreadyAuthorized,
         // Attestor is not authorized for the chain.
         AttestorNotAuthorized,
+        // Continuity proof is empty when it shouldn't be
+        EmptyContinuityProof,
         // Continuity proof is invalid
         InvalidAttestationContinuityProof,
+        // Continuity proof tail does not link to last finalized attestation
+        InvalidAttestationContinuityProofTail,
+        // Continuity proof head does not link to attestation prev_digest
+        InvalidAttestationContinuityProofHead,
+        // Continuity proof has a bad block link
+        InvalidAttestationContinuityProofBlock,
+        // Attestation previous digest is invalid
+        InvalidAttestationPrevDigest,
     }
 
     #[pallet::hooks]
