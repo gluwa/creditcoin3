@@ -863,4 +863,67 @@ describe('CreditcoinPublicProver', function () {
             expect(proceedsBalanceAfter).to.equal(proceedsBalanceBefore + contractBalanceBefore);
         });
     });
+
+    describe('getQueryResult()', function () {
+        it('Should reject query with mismatched chainId', async function () {
+            const queryTwo = sampleQuery;
+            queryTwo.chainId = 999999;
+
+            await expect(prover.connect(user).getQueryResult(queryTwo)).to.be.revertedWith('Chain not supported');
+        });
+
+        it('Should return empty result segment when query state != QueryState.ResultAvailable', async function () {
+            await prover.connect(owner).mock_submitQueryWithState(
+                sampleQuery,
+                await user.getAddress(),
+                3, // QueryState.InvalidQuery
+                { value: queryCost },
+            );
+
+            const resultSegments = await prover.connect(user).getQueryResult(sampleQuery);
+            expect(resultSegments).to.have.lengthOf(0);
+        });
+
+        it('Should return result segments when query state == QueryState.ResultAvailable', async function () {
+            const receipt = await (
+                await prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n })
+            ).wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // explicitly set the state: QueryState.ResultAvailable
+            await prover.connect(owner).mock_setQueryState(queryId, 2);
+            const expectedSegment = { offset: 1n, abiBytes: new Uint8Array(32) };
+            // mock queryDetails just so we have result segments to look for later
+            await (
+                await prover.connect(owner).mock_pushQueryDetails(
+                    // QueryId 0
+                    queryId,
+                    // QueryDetails
+                    {
+                        // ResultAvailable
+                        state: 2,
+                        query: {
+                            chainId: 1,
+                            height: 12345678,
+                            index: 0,
+                            layoutSegments: [],
+                        },
+                        escrowedAmount: '1000000000000000000',
+                        principal: '0x1234567890abcdef1234567890abcdef12345678',
+                        estimatedCost: '25000000000000000',
+                        timestamp: '0',
+                        resultSegments: [expectedSegment],
+                    },
+                )
+            ).wait();
+
+            const resultSegments = await prover.connect(user).getQueryResult(sampleQuery);
+            expect(resultSegments).to.have.lengthOf(1);
+
+            const [offset, abiBytes] = resultSegments[0];
+            expect(offset).to.equal(expectedSegment.offset);
+            expect(abiBytes).to.equal('0x0000000000000000000000000000000000000000000000000000000000000000');
+        });
+    });
 });
