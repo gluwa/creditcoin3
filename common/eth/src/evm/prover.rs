@@ -1,5 +1,5 @@
 use anyhow::Result;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::{stream_select, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use tokio::sync::mpsc;
@@ -8,6 +8,9 @@ use tracing::{debug, error, info};
 use pallet_prover_primitives::{LayoutSegment, Query, ResultSegment};
 use sp_core::H256;
 
+use crate::evm::prover::CreditcoinPublicProver::{
+    QueryMarkedInvalid, QueryProcessingFailed, QueryProofVerified,
+};
 use crate::Client;
 use alloy::{
     primitives::{Address, FixedBytes, U256},
@@ -16,8 +19,10 @@ use alloy::{
 };
 use attestor_primitives::ChainKey;
 
-enum StreamMessage<T1> {
-    FromQueryProofVerified(T1),
+enum StreamMessage {
+    FromQueryProofVerified(QueryProofVerified),
+    FromQueryMarkedInvalid(QueryMarkedInvalid),
+    FromQueryProcessingFailed(QueryProcessingFailed),
 }
 
 sol! {
@@ -383,15 +388,37 @@ impl GluwaPublicProverContract {
 
         let verification_filter = contract.QueryProofVerified_filter().topic1(query_id);
 
-        let mut stream_verified = verification_filter
+        let query_invalid_filter = contract.QueryMarkedInvalid_filter().topic1(query_id);
+
+        let processing_failed_filter = contract.QueryProcessingFailed_filter().topic1(query_id);
+
+        let stream_verified = verification_filter
             .subscribe()
             .await?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerified(event));
 
+        let invalid_query_stream = query_invalid_filter
+            .subscribe()
+            .await?
+            .into_stream()
+            .map_ok(|(event, _log)| StreamMessage::FromQueryMarkedInvalid(event));
+
+        let processing_failed_stream = processing_failed_filter
+            .subscribe()
+            .await?
+            .into_stream()
+            .map_ok(|(event, _log)| StreamMessage::FromQueryProcessingFailed(event));
+
+        let mut combined = stream_select!(
+            stream_verified,
+            invalid_query_stream,
+            processing_failed_stream
+        );
+
         info!("Subscribed to proof verification");
 
-        while let Some(message) = stream_verified.next().await {
+        while let Some(message) = combined.next().await {
             match message {
                 Ok(StreamMessage::FromQueryProofVerified(event)) => {
                     if event.queryId == query_id {
@@ -402,6 +429,32 @@ impl GluwaPublicProverContract {
                             .collect::<Result<Vec<_>>>()?;
 
                         return Ok(segments);
+                    }
+                }
+                Ok(StreamMessage::FromQueryMarkedInvalid(event)) => {
+                    if event.queryId == query_id {
+                        info!(
+                            "Query marked invalid. query: {:?} reason: {}",
+                            query_id, event.reason
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Query marked invalid. {:?} reason: {}",
+                            event.queryId,
+                            event.reason
+                        ));
+                    }
+                }
+                Ok(StreamMessage::FromQueryProcessingFailed(event)) => {
+                    if event.queryId == query_id {
+                        info!(
+                            "Query processing failed. query: {:?} reason: {}",
+                            query_id, event.reason
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Query processing failed. {:?} reason: {}",
+                            event.queryId,
+                            event.reason
+                        ));
                     }
                 }
                 Err(e) => {
