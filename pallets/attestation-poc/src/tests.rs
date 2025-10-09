@@ -6,7 +6,7 @@ use attestor_primitives::{
     SignedAttestation,
 };
 use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
-use bls_signatures::{aggregate, key::Serialize, PrivateKey};
+use bls_signatures::{aggregate, key::Serialize, PrivateKey, PublicKey};
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
@@ -1989,6 +1989,66 @@ fn validate_attestation_should_error_when_it_cannot_validate_the_attestation() {
 }
 
 #[test]
+fn validate_attestation_should_error_when_signed_by_more_attestors() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        // 1 registered & active, 2 signed
+        let attestation = create_signed_attestation(vec![attestor.clone(), attestor], 1, 1, None);
+
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, Error::<Test>::DuplicateAttestor);
+    })
+}
+
+#[test]
+fn validate_attestation_should_error_when_majority_not_reached() {
+    ExtBuilder.build_and_execute(|| {
+        // default is 1, set target > 1 to trigger failure
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            44
+        ));
+
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
+
+        let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
+        assert_err!(result, Error::<Test>::MajorityNotReached);
+    })
+}
+
+#[test]
 fn submitting_attestation_chain_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -3800,4 +3860,94 @@ mod kick_active_attestor {
             );
         })
     }
+}
+
+#[test]
+#[should_panic(expected = "InvalidBlsSignature")]
+fn extract_agg_signature_should_fail_when_signature_is_invalid() {
+    ExtBuilder.build_and_execute(|| {
+        Attestation::extract_agg_signature(b"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap();
+    })
+}
+
+#[test]
+#[should_panic(expected = "InvalidBlsSignature")]
+fn verify_agg_signature_should_error_when_no_active_attestors() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor1 = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestation = create_signed_attestation(vec![attestor1], 1, 1, None);
+
+        let attestor2 = Attestor::new(STASH_2, ATTESTOR_2);
+
+        let agg_signature = Attestation::extract_agg_signature(&attestation.signature).unwrap();
+        let message = &attestation.attestation.serialize()[..];
+        Attestation::verify_agg_signature(
+            &agg_signature,
+            message,
+            PublicKey::from_bytes(&attestor2.public_key).expect("failed"),
+        )
+        .unwrap();
+    })
+}
+
+#[test]
+#[should_panic(expected = "InvalidAttestorFound")]
+fn gather_attestor_public_keys_should_error_when_attestor_not_registered() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        Attestation::gather_attestor_public_keys(SUPPORTED_CHAIN_KEY, &[attestor.attestor_id])
+            .unwrap();
+    })
+}
+
+#[test]
+#[should_panic(expected = "AttestorWithInvalidPublicKey")]
+fn gather_attestor_public_keys_should_error_when_bls_pubkey_malformed() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        crate::Attestors::<Test>::mutate(
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+            |attestor_item| {
+                attestor_item.as_mut().unwrap().bls_public_key =
+                    Some(*b"000000000000000000000000000000000000000000000000");
+            },
+        );
+
+        Attestation::gather_attestor_public_keys(SUPPORTED_CHAIN_KEY, &[attestor.attestor_id])
+            .unwrap();
+    })
+}
+
+#[test]
+#[should_panic(expected = "AttestorWithInvalidPublicKey")]
+fn gather_attestor_public_keys_should_error_when_bls_pubkey_is_none() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        crate::Attestors::<Test>::mutate(
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+            |attestor_item| {
+                attestor_item.as_mut().unwrap().bls_public_key = None;
+            },
+        );
+
+        Attestation::gather_attestor_public_keys(SUPPORTED_CHAIN_KEY, &[attestor.attestor_id])
+            .unwrap();
+    })
 }
