@@ -1920,7 +1920,7 @@ fn commit_attestation_should_error_when_signed_by_root() {
 }
 
 #[test]
-fn commit_attestation_should_error_when_chain_is_not_supported() {
+fn validate_attestation_should_error_when_chain_is_not_supported() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 2;
 
@@ -1977,7 +1977,7 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 }
 
 #[test]
-fn commit_attestation_should_error_when_it_cannot_validate_the_attestation() {
+fn validate_attestation_should_error_when_it_cannot_validate_the_attestation() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let attestation = create_signed_attestation(vec![attestor], 1, 1, None);
