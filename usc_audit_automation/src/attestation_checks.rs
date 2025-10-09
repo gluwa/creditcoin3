@@ -13,7 +13,7 @@ use crate::{
     NetworkTarget, SanitiesConfigFile, USCClientWrapper, UniversalSmartContractProvider,
 };
 
-pub async fn get_attestor_latest_attestation_data(
+pub(crate) async fn get_attestor_latest_attestation_data(
     usc_client: &impl UniversalSmartContractProvider,
     target: &NetworkTarget,
 ) -> Result<SignedAttestation<H256, AccountId32>> {
@@ -34,7 +34,9 @@ pub async fn get_attestor_latest_attestation_data(
     Ok(signed_attestation)
 }
 
-pub async fn get_ethereum_current_block_number(provider: &impl EthereumProvider) -> Result<u64> {
+pub(crate) async fn get_ethereum_current_block_number(
+    provider: &impl EthereumProvider,
+) -> Result<u64> {
     // Query latest block number
     let ethereum_block_number = provider
         .fetch_block_number()

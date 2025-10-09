@@ -1,5 +1,5 @@
 use crate::{
-    calculate_usc_and_source_chain_block_diff, CheckPointCreatedWithinRangeChecker,
+    calculate_usc_and_source_chain_block_diff, CheckpointCreatedWithinRangeResult,
     MAX_ALLOWED_BLOCK_HEIGHT_DIFF,
 };
 use attestor_primitives::SignedAttestation;
@@ -18,7 +18,7 @@ pub struct AttestationCheckResult {
     pub attestation_info: AttestationInfo,
     pub block_height_diff: i128,
     pub ethereum_block_info: EthereumBlockInfo,
-    pub check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker,
+    pub check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
 }
 
 impl AttestationCheckResult {
@@ -55,7 +55,7 @@ pub fn compute_attestation_check_result(
     latest_ethereum_block_number: u64,
     calculated_ethereum_block_merkle_root: &str,
     fetched_ethereum_block_number_by_hash: Option<U64>,
-    check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker,
+    check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
 ) -> AttestationCheckResult {
     let attestor_best_block_number = latest_signed_attestation.attestation.header_number;
     let block_height_diff = calculate_usc_and_source_chain_block_diff(
@@ -129,7 +129,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: String::new(),
                 fetched_ethereum_block_number_by_hash: None,
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -155,7 +155,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: String::new(),
                 fetched_ethereum_block_number_by_hash: None,
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -178,7 +178,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: String::new(),
                 fetched_ethereum_block_number_by_hash: Some(100),
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -201,7 +201,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: String::new(),
                 fetched_ethereum_block_number_by_hash: Some(99),
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -224,7 +224,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: String::new(),
                 fetched_ethereum_block_number_by_hash: None,
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -247,7 +247,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: String::new(),
                 fetched_ethereum_block_number_by_hash: None,
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: false,
@@ -270,7 +270,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: "0xdeadbeef".to_string(),
                 fetched_ethereum_block_number_by_hash: None,
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -293,7 +293,7 @@ mod tests {
                 calculated_ethereum_block_merkle_root: "0xfeedface".to_string(),
                 fetched_ethereum_block_number_by_hash: None,
             },
-            check_point_created_in_range_checker: CheckPointCreatedWithinRangeChecker {
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
                 last_checkpoint_block_number: 0,
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
@@ -309,7 +309,7 @@ mod tests {
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
         let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode([1u8; 32]));
-        let checkpoint_created_in_range_checker = CheckPointCreatedWithinRangeChecker {
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 50,
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: true,
@@ -325,6 +325,7 @@ mod tests {
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
         assert!(result.merkle_roots_match());
+        assert!(result.is_checkpoint_in_range());
     }
 
     #[test]
@@ -333,7 +334,7 @@ mod tests {
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(10u64.into());
         let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode([1u8; 32]));
-        let checkpoint_created_in_range_checker = CheckPointCreatedWithinRangeChecker {
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 5,
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: true,
@@ -350,6 +351,7 @@ mod tests {
         assert!(result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
         assert!(result.merkle_roots_match());
+        assert!(result.is_checkpoint_in_range());
     }
 
     #[test]
@@ -358,7 +360,7 @@ mod tests {
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(99u64.into());
         let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode([1u8; 32]));
-        let checkpoint_created_in_range_checker = CheckPointCreatedWithinRangeChecker {
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 50,
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: true,
@@ -375,6 +377,7 @@ mod tests {
         assert!(!result.is_block_height_exceeded());
         assert!(!result.header_hash_matches());
         assert!(result.merkle_roots_match());
+        assert!(result.is_checkpoint_in_range());
     }
 
     #[test]
@@ -383,7 +386,7 @@ mod tests {
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
         let calculated_ethereum_block_merkle_root = "0xdeadbeef".to_string();
-        let checkpoint_created_in_range_checker = CheckPointCreatedWithinRangeChecker {
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 50,
             latest_ethereum_block_number: 100,
             checkpoint_created_within_range: true,
@@ -400,5 +403,33 @@ mod tests {
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
         assert!(!result.merkle_roots_match());
+        assert!(result.is_checkpoint_in_range());
+    }
+
+    #[test]
+    fn test_checkpoint_not_in_range_only() {
+        let attestation = dummy_attestation(100, [1u8; 32]);
+        let latest_ethereum_block_number = 100;
+        let fetched_ethereum_block_number_by_hash = Some(100u64.into());
+        // Match the merkle root to make merkle_roots_match() pass
+        let root_bytes = [1u8; 32];
+        let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode(root_bytes));
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
+            last_checkpoint_block_number: 50,
+            latest_ethereum_block_number: 100,
+            checkpoint_created_within_range: false,
+        };
+        let result = compute_attestation_check_result(
+            &attestation,
+            latest_ethereum_block_number,
+            &calculated_ethereum_block_merkle_root,
+            fetched_ethereum_block_number_by_hash,
+            checkpoint_created_in_range_checker,
+        );
+
+        assert!(!result.is_block_height_exceeded());
+        assert!(result.header_hash_matches());
+        assert!(result.merkle_roots_match());
+        assert!(!result.is_checkpoint_in_range());
     }
 }

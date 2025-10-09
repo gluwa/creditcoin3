@@ -1,11 +1,9 @@
 use anyhow::{Context, Result};
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
-use cc_client::{Client as USCClient, Error as USCError};
+use cc_client::Client as USCClient;
 use clap::Parser;
 use eth::{self, AlloyB256, Client as EthClient, OrderedBlock};
 use ethers::types::U64;
-use futures::future::BoxFuture;
-use futures::future::FutureExt;
 use mmr::traits::MerkleTreeTrait;
 use mockall::{automock, predicate::*};
 use serde::Deserialize;
@@ -13,7 +11,6 @@ use sp_core::H256;
 use std::path::PathBuf;
 use subxt::utils::AccountId32;
 use tracing::info;
-
 const MAX_ALLOWED_BLOCK_HEIGHT_DIFF: i128 = 50;
 
 pub mod attestation_check_result;
@@ -59,127 +56,112 @@ pub struct SanitiesConfigFile {
     pub log_verbose: bool,
 }
 
-pub type BoxFutureResult<'a, T, E = anyhow::Error> = BoxFuture<'a, Result<Option<T>, E>>;
-
 #[automock]
-pub trait EthereumProvider {
-    fn fetch_block_number(&self) -> BoxFutureResult<'_, U64>;
-    fn fetch_block_by_hash(&self, block_hash: ethers_core::types::H256)
-        -> BoxFutureResult<'_, U64>;
-    fn get_block_by_number(&self, block_number: u64) -> BoxFutureResult<'_, OrderedBlock>;
-}
-
-impl EthereumProvider for EthClient {
-    fn fetch_block_number(&self) -> BoxFutureResult<'_, U64> {
-        (async move {
-            let block_number = self.get_last_block().await?;
-            Ok(Some(U64::from(block_number)))
-        })
-        .boxed()
-    }
-    fn fetch_block_by_hash(
+pub(crate) trait EthereumProvider {
+    async fn fetch_block_number(&self) -> Result<Option<U64>>;
+    async fn fetch_block_by_hash(
         &self,
         block_hash: ethers_core::types::H256,
-    ) -> BoxFutureResult<'_, U64> {
-        (async move {
-            let block_number = self
-                .get_block_number_by_hash(AlloyB256::from_slice(block_hash.as_bytes()))
-                .await?;
+    ) -> Result<Option<U64>>;
+    async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>>;
+}
+impl EthereumProvider for EthClient {
+    async fn fetch_block_number(&self) -> Result<Option<U64>> {
+        let block_number = self.get_last_block().await?;
 
-            Ok(Some(U64::from(block_number)))
-        })
-        .boxed()
+        Ok(Some(U64::from(block_number)))
     }
-    fn get_block_by_number(&self, block_number: u64) -> BoxFutureResult<'_, OrderedBlock> {
-        (async move {
-            let ordered_block = self.get_block(block_number).await?;
-            Ok(Some(ordered_block))
-        })
-        .boxed()
+    async fn fetch_block_by_hash(
+        &self,
+        block_hash: ethers_core::types::H256,
+    ) -> Result<Option<U64>> {
+        let block_number = self
+            .get_block_number_by_hash(AlloyB256::from_slice(block_hash.as_bytes()))
+            .await?;
+
+        Ok(Some(U64::from(block_number)))
+    }
+    async fn get_block_by_number(&self, block_number: u64) -> Result<Option<OrderedBlock>> {
+        let ordered_block = self.get_block(block_number).await?;
+
+        Ok(Some(ordered_block))
     }
 }
 
-pub trait UniversalSmartContractProvider {
-    fn fetch_last_digest(&self, chain_key: u64) -> BoxFutureResult<'_, H256>;
-    fn get_attestation_by_digest(
+pub(crate) trait UniversalSmartContractProvider {
+    async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>>;
+    async fn get_attestation_by_digest(
         &self,
         chain_key: u64,
         digest: H256,
-    ) -> BoxFutureResult<'_, SignedAttestation<H256, AccountId32>, USCError>;
-    fn get_last_attestation_checkpoint(
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>>;
+    async fn get_last_attestation_checkpoint(
         &self,
         chain_key: u64,
-    ) -> BoxFutureResult<'_, AttestationCheckpoint>;
-    fn get_checkpoint_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u32>;
-    fn get_attestation_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u64>;
-    fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> BoxFutureResult<'_, u64>;
+    ) -> Result<Option<AttestationCheckpoint>>;
+    async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u32>>;
+    async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>>;
+    async fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> Result<Option<u64>>;
 }
 
 pub struct USCClientWrapper(USCClient);
 impl UniversalSmartContractProvider for USCClientWrapper {
-    fn fetch_last_digest(&self, chain_key: u64) -> BoxFutureResult<'_, H256> {
-        (async move {
-            self.0
-                .fetch_last_digest(chain_key)
-                .await
-                .map_err(anyhow::Error::from)
-        })
-        .boxed()
+    async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>> {
+        let last_digest = self.0.fetch_last_digest(chain_key).await?;
+
+        Ok(last_digest)
     }
 
-    fn get_attestation_by_digest(
+    async fn get_attestation_by_digest(
         &self,
         chain_key: u64,
         digest: H256,
-    ) -> BoxFutureResult<'_, SignedAttestation<H256, AccountId32>, USCError> {
-        (async move { self.0.get_attestation_by_digest(chain_key, digest).await }).boxed()
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        let signed_attestation = self.0.get_attestation_by_digest(chain_key, digest).await?;
+
+        Ok(signed_attestation)
     }
 
-    fn get_last_attestation_checkpoint(
+    async fn get_last_attestation_checkpoint(
         &self,
         chain_key: u64,
-    ) -> BoxFutureResult<'_, AttestationCheckpoint> {
-        (async move {
-            let checkpoint = self.0.get_last_checkpoint(chain_key).await?;
-            Ok(checkpoint)
-        })
-        .boxed()
+    ) -> Result<Option<AttestationCheckpoint>> {
+        let last_attestation_checkpoint = self.0.get_last_checkpoint(chain_key).await?;
+
+        Ok(last_attestation_checkpoint)
     }
-    fn get_checkpoint_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u32> {
-        (async move {
-            self.0
-                .chain_checkpoint_interval(chain_key)
-                .await
-                .map_err(anyhow::Error::from)
-        })
-        .boxed()
+    async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u32>> {
+        let checkpoint_interval = self.0.chain_checkpoint_interval(chain_key).await?;
+
+        Ok(checkpoint_interval)
     }
-    fn get_attestation_interval(&self, chain_key: u64) -> BoxFutureResult<'_, u64> {
-        (async move { self.0.chain_attestation_interval(chain_key).await }).boxed()
+    async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>> {
+        let attestation_interval = self.0.chain_attestation_interval(chain_key).await?;
+
+        Ok(attestation_interval)
     }
-    fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> BoxFutureResult<'_, u64> {
-        (async move {
-            self.0
-                .get_attestation_vote_acceptance_window(chain_key)
-                .await
-                .map_err(anyhow::Error::from)
-        })
-        .boxed()
+    async fn get_attestation_vote_acceptance_window(&self, chain_key: u64) -> Result<Option<u64>> {
+        let vote_acceptance_window = self
+            .0
+            .get_attestation_vote_acceptance_window(chain_key)
+            .await?;
+
+        Ok(vote_acceptance_window)
     }
 }
 
 #[derive(Debug)]
-pub struct CheckPointCreatedWithinRangeChecker {
+pub struct CheckpointCreatedWithinRangeResult {
     last_checkpoint_block_number: u64,
     latest_ethereum_block_number: u64,
     checkpoint_created_within_range: bool,
 }
 
-pub async fn check_attestation_checkpoint_created_within_block_interval_range(
+pub(crate) async fn check_attestation_checkpoint_created_within_block_interval_range(
     client: &impl UniversalSmartContractProvider,
     chain_key: u64,
     latest_ethereum_block_number: u64,
-) -> Result<CheckPointCreatedWithinRangeChecker> {
+) -> Result<CheckpointCreatedWithinRangeResult> {
     let checkpoint_interval = client
         .get_checkpoint_interval(chain_key)
         .await?
@@ -213,14 +195,14 @@ pub async fn check_attestation_checkpoint_created_within_block_interval_range(
         latest_ethereum_block_number
     );
 
-    let mut checkpoint_created_within_range_checker = CheckPointCreatedWithinRangeChecker {
+    let mut checkpoint_created_within_range_checker = CheckpointCreatedWithinRangeResult {
         last_checkpoint_block_number: last_checkpoint.block_number,
         latest_ethereum_block_number,
         checkpoint_created_within_range: false,
     };
 
     if latest_ethereum_block_number.saturating_sub(last_checkpoint.block_number)
-        <= checkpoint_block_range
+        <= checkpoint_block_range + MAX_ALLOWED_BLOCK_HEIGHT_DIFF as u64
     {
         checkpoint_created_within_range_checker.checkpoint_created_within_range = true;
         return Ok(checkpoint_created_within_range_checker);
@@ -236,7 +218,7 @@ pub fn calculate_usc_and_source_chain_block_diff(
     source_chain_block_height as i128 - usc_block_height as i128
 }
 
-pub async fn calculate_merkle_root(
+pub(crate) async fn calculate_merkle_root(
     eth_client: &impl EthereumProvider,
     block_number: u64,
 ) -> Result<[u8; 32]> {
