@@ -254,7 +254,7 @@ fn decode_result_segment(
     let offset = result_segment
         .offset
         .try_into()
-        .map_err(|_| Error::OffsetOverflow(result_segment.offset.into()))?;
+        .map_err(|_| Error::OffsetOverflow(result_segment.offset))?;
 
     let abi_bytes_vec = result_segment.abiBytes.to_vec();
     if abi_bytes_vec.len() != 32 {
