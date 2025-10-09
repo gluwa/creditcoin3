@@ -682,6 +682,131 @@ describe('CreditcoinPublicProver', function () {
         });
     });
 
+    describe('markProcessingFailed()', function () {
+        it('Should set query state to QueryProcessingFailed', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // call
+            await expect(prover.connect(owner).markProcessingFailed(queryId, 'failed during testing'))
+                .to.emit(prover, 'QueryProcessingFailed')
+                .withArgs(queryId, 'failed during testing');
+
+            const newQueryIds = await prover.allQueryIds();
+            expect(newQueryIds).to.include.members([queryId]);
+
+            // not removed, but state is set to QueryProcessingFailed
+            const newQueryDetails = await prover.queries(queryId);
+            expect(newQueryDetails.query.chainId).to.equal(sampleQuery.chainId);
+            expect(newQueryDetails.query.height).to.equal(sampleQuery.height);
+            expect(newQueryDetails.query.index).to.equal(sampleQuery.index);
+            expect(newQueryDetails.state).to.equal(4); // QueryState.QueryProcessingFailed
+            expect(newQueryDetails.escrowedAmount).to.equal(0);
+        });
+
+        it('Should repay escrowed amount when query is marked as failed', async function () {
+            const userAddress = await user.getAddress();
+
+            const balanceBefore = await ethers.provider.getBalance(userAddress);
+
+            const tx = await prover.connect(user).submitQuery(sampleQuery, userAddress, { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            if (!receipt) {
+                throw new Error('Transaction receipt was null');
+            }
+
+            const gasUsed = receipt.gasUsed * tx.gasPrice;
+
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            const oldQueryDetails = await prover.queries(queryId);
+            expect(oldQueryDetails.escrowedAmount).to.equal(queryCost + 1n);
+
+            // owner pays this gas, not the user
+            await expect(prover.connect(owner).markProcessingFailed(queryId, 'should return escrow'))
+                .to.emit(prover, 'QueryProcessingFailed')
+                .withArgs(queryId, 'should return escrow');
+
+            const newQueryDetails = await prover.queries(queryId);
+            expect(newQueryDetails.escrowedAmount).to.equal(0n);
+
+            const balanceAfter = await ethers.provider.getBalance(userAddress);
+
+            // Expect only the submitQuery gas to be deducted
+            // small tolerance for gas price fluctuations
+            expect(balanceBefore - balanceAfter).to.be.closeTo(gasUsed, 2000);
+
+            // Assert that contract totalEscrowedBalance was decreased by exactly the cost paid for this query
+            const totalEscrowedBalanceAfter = await prover.getTotalEscrowBalance();
+            expect(totalEscrowedBalanceAfter).to.equal(0n);
+        });
+
+        it('Should NOT remove when ID does not match', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // call with an id which doesn't match
+            // Should revert and not change anything
+            await expect(
+                prover
+                    .connect(owner)
+                    .markProcessingFailed(
+                        '0x9999999999999999999999999999999999999999999999999999999999999999',
+                        'wrong queryId',
+                    ),
+            ).to.be.revertedWith('Query not found');
+
+            const newQueryIds = await prover.allQueryIds();
+            expect(newQueryIds).to.include.members([queryId]);
+
+            // nothing has changed
+            const newQueryDetails = await prover.queries(queryId);
+            expect(newQueryDetails.query.chainId).to.equal(sampleQuery.chainId);
+            expect(newQueryDetails.query.height).to.equal(sampleQuery.height);
+            expect(newQueryDetails.query.index).to.equal(sampleQuery.index);
+        });
+
+        it('Does not allow calls from non-owner', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            await expect(
+                prover.connect(user).markProcessingFailed(queryId, 'call by non owner'),
+            ).to.be.revertedWithCustomError(prover, 'OwnableUnauthorizedAccount');
+        });
+
+        it('Should revert when trying to mark as failed with result available', async function () {
+            const tx = await prover
+                .connect(user)
+                .submitQuery(sampleQuery, await user.getAddress(), { value: queryCost + 1n });
+            const receipt = await tx.wait();
+            // @ts-ignore
+            const queryId = receipt?.logs[0]?.args?.[0];
+
+            // Set state to ResultAvailable
+            await prover.connect(owner).mock_setQueryState(queryId, 2);
+
+            await expect(
+                prover
+                    .connect(owner)
+                    .markProcessingFailed(queryId, 'cannot mark as failed b/c result already available'),
+            ).to.be.revertedWith('Cannot mark processing as failed: result available');
+        });
+    });
+
     describe('getUnprocessedQueries()', function () {
         it('starts with zero queries', async function () {
             const unprocessed = await prover.connect(user).getUnprocessedQueries();
