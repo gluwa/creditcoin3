@@ -355,6 +355,7 @@ mod arch_dependent_tests {
             attestation,
             signature: [0u8; 96],
             attestors: Vec::new(),
+            continuity_proof: Default::default(),
         }
     }
 }
