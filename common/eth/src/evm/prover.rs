@@ -2,6 +2,7 @@ use anyhow::Result;
 use futures_util::{stream_select, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
@@ -18,6 +19,46 @@ use alloy::{
     sol,
 };
 use attestor_primitives::ChainKey;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Offset too large to fit into u64. Offset: {0}")]
+    OffsetOverflow(U256),
+    #[error("abiBytes must be exactly 32 bytes. Bytes len: {0}")]
+    AbiBytesNot32(usize),
+    #[error("Eth client error. Error: {0}")]
+    EthClient(String),
+    #[error("Couldn't get transaction receipt. Error: {0}")]
+    AlloyGetReceipt(String),
+    #[error("Failed to send transaction. Error: {0}")]
+    AlloyTransactionSend(String),
+    #[error("Failed to subscribe to event. Error: {0}")]
+    AlloySubscribe(String),
+    #[error("Error received in alloy stream item. Error: {0}")]
+    AlloyStream(String),
+    #[error("Watching for tx inclusion failed. Inner Error: {0}")]
+    AlloyWatch(String),
+    #[error("Query submission stream ended")]
+    QueryStreamEnded,
+    #[error("Proof verification event stream ended")]
+    VerificationEventStreamEnded,
+    #[error("Query marked as invalid. QueryId: {0}, Reason: {1}")]
+    QueryMarkedInvalid(FixedBytes<32>, String),
+    #[error("Query processing failed. QueryId: {0}, Reason: {1}")]
+    QueryProcessingFailed(FixedBytes<32>, String),
+    #[error("Stream ended without matching proof verification or failure")]
+    VerificationOrFailureStreamEnded,
+    #[error("Contract deployment failed. Error: {0}")]
+    ContractDeploymentFailed(String),
+    #[error("Couldn't parse contract address")]
+    AddressParse,
+    #[error("Query channel rx dropped. Inner Error: {0}")]
+    QueryChannelDropped(String),
+    #[error("Proof channel rx dropped. Inner Error: {0}")]
+    ProofChannelDropped(String),
+    #[error("Error: {0}")]
+    Other(String),
+}
 
 #[allow(clippy::enum_variant_names)]
 enum StreamMessage {
@@ -52,11 +93,19 @@ pub async fn deploy(
     chain_key: ChainKey,
     display_name: String,
     timeout: u64,
-) -> Result<(GluwaPublicProverContract, H256)> {
-    let provider = client.get_wallet_ws_provider().await?;
+) -> Result<(GluwaPublicProverContract, H256), Error> {
+    let provider = client
+        .get_wallet_ws_provider()
+        .await
+        .map_err(|e| Error::EthClient(e.to_string()))?;
 
     // If the proceeds address is not provided, use the cc client keypair derived evm address
-    let proceeds_address = proceeds_address.unwrap_or(client.get_signer()?.address());
+    let proceeds_address = proceeds_address.unwrap_or(
+        client
+            .get_signer()
+            .map_err(|e| Error::EthClient(e.to_string()))?
+            .address(),
+    );
 
     // We compute the bytecode hash here to store it in the artifact
     // This allows us to verify latter if the contracts bytecode has changed
@@ -72,7 +121,8 @@ pub async fn deploy(
         display_name,
         timeout,
     )
-    .await?;
+    .await
+    .map_err(|e| Error::ContractDeploymentFailed(e.to_string()))?;
 
     info!(
         "Gluwa Public Prover contract deploy at {}",
@@ -104,11 +154,24 @@ pub async fn check_fees_against_existing(
     desired_cost_per_byte: u64,
     desired_base_fee: u64,
     contract_address: Address,
-) -> Result<()> {
-    let provider = eth_client.get_wallet_ws_provider().await?;
+) -> Result<(), Error> {
+    let provider = eth_client
+        .get_wallet_ws_provider()
+        .await
+        .map_err(|e| Error::EthClient(e.to_string()))?;
     let prover = CreditcoinPublicProver::new(contract_address, provider.clone());
-    let onchain_base_fee = prover.baseFee().call().await?._0;
-    let onchain_cost_per_byte_fee = prover.costPerByte().call().await?._0;
+    let onchain_base_fee = prover
+        .baseFee()
+        .call()
+        .await
+        .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+        ._0;
+    let onchain_cost_per_byte_fee = prover
+        .costPerByte()
+        .call()
+        .await
+        .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+        ._0;
 
     let desired_base_fee = U256::from(desired_base_fee);
     let desired_cost_per_byte = U256::from(desired_cost_per_byte);
@@ -118,10 +181,22 @@ pub async fn check_fees_against_existing(
             "🛠️ baseFee mismatch: on-chain={} vs desired={}, updating…",
             onchain_base_fee, desired_base_fee
         );
-        let pending = prover.updateBaseFee(desired_base_fee).send().await?;
+        let pending = prover
+            .updateBaseFee(desired_base_fee)
+            .send()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?;
 
-        let receipt = pending.get_receipt().await?;
-        let new_base_fee = prover.baseFee().call().await?._0;
+        let receipt = pending
+            .get_receipt()
+            .await
+            .map_err(|e| Error::AlloyGetReceipt(e.to_string()))?;
+        let new_base_fee = prover
+            .baseFee()
+            .call()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            ._0;
         info!(
             "✅ baseFee updated: {}, tx hash: {}",
             new_base_fee,
@@ -140,10 +215,19 @@ pub async fn check_fees_against_existing(
         let pending = prover
             .updateCostPerByte(desired_cost_per_byte)
             .send()
-            .await?;
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?;
 
-        let receipt = pending.get_receipt().await?;
-        let new_cost_per_byte = prover.costPerByte().call().await?._0;
+        let receipt = pending
+            .get_receipt()
+            .await
+            .map_err(|e| Error::AlloyGetReceipt(e.to_string()))?;
+        let new_cost_per_byte = prover
+            .costPerByte()
+            .call()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            ._0;
         info!(
             "✅ costPerByte updated: {}, tx hash: {}",
             new_cost_per_byte,
@@ -156,9 +240,9 @@ pub async fn check_fees_against_existing(
     Ok(())
 }
 
-pub fn new(address: String) -> Result<GluwaPublicProverContract> {
+pub fn new(address: String) -> Result<GluwaPublicProverContract, Error> {
     Ok(GluwaPublicProverContract {
-        address: address.parse()?,
+        address: address.parse().map_err(|_| Error::AddressParse)?,
         gas_limit: GAS_LIMIT,
     })
 }
@@ -166,15 +250,15 @@ pub fn new(address: String) -> Result<GluwaPublicProverContract> {
 /// Helper function to decode contract's ResultSegment type into the pallet's ResultSegment type
 fn decode_result_segment(
     result_segment: CreditcoinPublicProver::ResultSegment,
-) -> Result<ResultSegment> {
+) -> Result<ResultSegment, Error> {
     let offset = result_segment
         .offset
         .try_into()
-        .map_err(|_| anyhow::anyhow!("Offset too large to fit into u64"))?;
+        .map_err(|_| Error::OffsetOverflow(result_segment.offset.into()))?;
 
     let abi_bytes_vec = result_segment.abiBytes.to_vec();
     if abi_bytes_vec.len() != 32 {
-        return Err(anyhow::anyhow!("abiBytes must be exactly 32 bytes"));
+        return Err(Error::AbiBytesNot32(abi_bytes_vec.len()));
     }
 
     let bytes = H256::from_slice(&abi_bytes_vec);
@@ -183,10 +267,13 @@ fn decode_result_segment(
 
 impl GluwaPublicProverContract {
     /// Compute the query cost
-    pub async fn compute_query_cost(&self, client: &Client, query: Query) -> Result<u64> {
+    pub async fn compute_query_cost(&self, client: &Client, query: Query) -> Result<u64, Error> {
         info!("Computing query cost");
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
@@ -208,7 +295,11 @@ impl GluwaPublicProverContract {
         // checkpoint to be included in the cost calculations
         // TODO: add distance to nearest checkpoint to the query
         let builder = contract.computeQueryCost(query);
-        let cost = builder.call().await?._0;
+        let cost = builder
+            .call()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            ._0;
 
         let num: u64 = cost.to::<u64>();
 
@@ -221,10 +312,13 @@ impl GluwaPublicProverContract {
         client: &Client,
         query_id: FixedBytes<32>,
         proof: Proof,
-    ) -> Result<String> {
+    ) -> Result<String, Error> {
         debug!("Submitting query proof for query: {:?}", query_id);
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider.clone());
 
@@ -235,8 +329,15 @@ impl GluwaPublicProverContract {
             .max_fee_per_gas(5_000_000_000u128)
             .max_priority_fee_per_gas(3_000_000_000u128);
 
-        let builder = provider.send_transaction(tx_request).await?;
-        let result = builder.get_receipt().await?.transaction_hash;
+        let builder = provider
+            .send_transaction(tx_request)
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?;
+        let result = builder
+            .get_receipt()
+            .await
+            .map_err(|e| Error::AlloyGetReceipt(e.to_string()))?
+            .transaction_hash;
 
         Ok(result.to_string())
     }
@@ -245,7 +346,7 @@ impl GluwaPublicProverContract {
         &self,
         client: &Client,
         query_channel: mpsc::UnboundedSender<Query>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         info!(
             "Subscribing to query submissions for contract with address: {}",
             self.address
@@ -253,14 +354,18 @@ impl GluwaPublicProverContract {
 
         let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
-        let sub = contract.QuerySubmitted_filter().subscribe().await?;
+        let sub = contract
+            .QuerySubmitted_filter()
+            .subscribe()
+            .await
+            .map_err(|e| Error::AlloySubscribe(e.to_string()))?;
         let mut stream = sub.into_stream();
 
         info!("Subscribed to query submissions");
 
         while let Some(query) = stream.next().await {
             info!("New query submission");
-            let (query_submitted, _log) = query?;
+            let (query_submitted, _log) = query.map_err(|e| Error::AlloyStream(e.to_string()))?;
 
             // TODO: check log
 
@@ -279,18 +384,23 @@ impl GluwaPublicProverContract {
                     .collect::<Vec<_>>(),
             };
 
-            query_channel.send(query)?;
+            query_channel
+                .send(query)
+                .map_err(|e| Error::QueryChannelDropped(e.to_string()))?;
         }
 
-        Err(anyhow::anyhow!("Query submission stream ended"))
+        Err(Error::QueryStreamEnded)
     }
 
     pub async fn get_query_result(
         &self,
         client: &Client,
         query: Query,
-    ) -> Result<Option<Vec<ResultSegment>>> {
-        let provider = client.get_wallet_ws_provider().await?;
+    ) -> Result<Option<Vec<ResultSegment>>, Error> {
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let chain_query = CreditcoinPublicProver::ChainQuery {
@@ -307,7 +417,11 @@ impl GluwaPublicProverContract {
                 .collect(),
         };
 
-        let result_segments = contract.getQueryResult(chain_query).call().await?;
+        let result_segments = contract
+            .getQueryResult(chain_query)
+            .call()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?;
 
         if result_segments._0.is_empty() {
             Ok(None)
@@ -316,17 +430,27 @@ impl GluwaPublicProverContract {
                 ._0
                 .into_iter()
                 .map(decode_result_segment)
-                .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>, Error>>()?;
 
             Ok(Some(res))
         }
     }
 
-    pub async fn submit_query(&self, client: &Client, query: Query, cost: u64) -> Result<String> {
-        let signer = client.get_signer()?;
+    pub async fn submit_query(
+        &self,
+        client: &Client,
+        query: Query,
+        cost: u64,
+    ) -> Result<String, Error> {
+        let signer = client
+            .get_signer()
+            .map_err(|e| Error::EthClient(e.to_string()))?;
         let principal = signer.address();
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
@@ -348,7 +472,14 @@ impl GluwaPublicProverContract {
             .submitQuery(query, principal)
             .value(U256::from(cost));
 
-        let result = builder.send().await?.get_receipt().await?.transaction_hash;
+        let result = builder
+            .send()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            .get_receipt()
+            .await
+            .map_err(|e| Error::AlloyGetReceipt(e.to_string()))?
+            .transaction_hash;
 
         Ok(result.to_string())
     }
@@ -357,29 +488,35 @@ impl GluwaPublicProverContract {
         &self,
         client: &Client,
         proof_channel: mpsc::UnboundedSender<H256>,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
-        let sub = contract.QueryProofVerified_filter().subscribe().await?;
+        let sub = contract
+            .QueryProofVerified_filter()
+            .subscribe()
+            .await
+            .map_err(|e| Error::AlloySubscribe(e.to_string()))?;
         let mut stream = sub.into_stream();
 
         info!("Subscribed to proof verification events");
 
         while let Some(proof) = stream.next().await {
-            let (proof_verified, _log) = proof?;
+            let (proof_verified, _log) = proof.map_err(|e| Error::AlloyStream(e.to_string()))?;
             let query_id = proof_verified.queryId;
 
-            proof_channel.send(H256::from_slice(&query_id[..]))?;
+            proof_channel
+                .send(H256::from_slice(&query_id[..]))
+                .map_err(|e| Error::ProofChannelDropped(e.to_string()))?;
         }
 
-        Err(anyhow::anyhow!("Proof verification event stream ended"))
+        Err(Error::VerificationEventStreamEnded)
     }
 
     pub async fn subscribe_proof_verification(
         &self,
         client: &Client,
         query_id: FixedBytes<32>,
-    ) -> Result<Vec<ResultSegment>> {
+    ) -> Result<Vec<ResultSegment>, Error> {
         debug!(
             "Subscribing to proof verification for query: {:?}",
             query_id
@@ -395,19 +532,22 @@ impl GluwaPublicProverContract {
 
         let stream_verified = verification_filter
             .subscribe()
-            .await?
+            .await
+            .map_err(|e| Error::AlloySubscribe(e.to_string()))?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerified(event));
 
         let invalid_query_stream = query_invalid_filter
             .subscribe()
-            .await?
+            .await
+            .map_err(|e| Error::AlloySubscribe(e.to_string()))?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryMarkedInvalid(event));
 
         let processing_failed_stream = processing_failed_filter
             .subscribe()
-            .await?
+            .await
+            .map_err(|e| Error::AlloySubscribe(e.to_string()))?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryProcessingFailed(event));
 
@@ -427,7 +567,7 @@ impl GluwaPublicProverContract {
                             .resultSegments
                             .into_iter()
                             .map(decode_result_segment)
-                            .collect::<Result<Vec<_>>>()?;
+                            .collect::<Result<Vec<_>, Error>>()?;
 
                         return Ok(segments);
                     }
@@ -438,11 +578,7 @@ impl GluwaPublicProverContract {
                             "Query marked invalid. query: {:?} reason: {}",
                             query_id, event.reason
                         );
-                        return Err(anyhow::anyhow!(
-                            "Query marked invalid. {:?} reason: {}",
-                            event.queryId,
-                            event.reason
-                        ));
+                        return Err(Error::QueryMarkedInvalid(query_id, event.reason));
                     }
                 }
                 Ok(StreamMessage::FromQueryProcessingFailed(event)) => {
@@ -451,11 +587,7 @@ impl GluwaPublicProverContract {
                             "Query processing failed. query: {:?} reason: {}",
                             query_id, event.reason
                         );
-                        return Err(anyhow::anyhow!(
-                            "Query processing failed. {:?} reason: {}",
-                            event.queryId,
-                            event.reason
-                        ));
+                        return Err(Error::QueryProcessingFailed(query_id, event.reason));
                     }
                 }
                 Err(e) => {
@@ -464,17 +596,19 @@ impl GluwaPublicProverContract {
             }
         }
 
-        Err(anyhow::anyhow!(
-            "Stream ended without matching proof verification"
-        ))
+        Err(Error::VerificationOrFailureStreamEnded)
     }
 
-    pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>> {
+    pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>, Error> {
         info!("Getting unprocessed queries");
 
         let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
-        let unprocessed = contract.getUnprocessedQueries().call().await?;
+        let unprocessed = contract
+            .getUnprocessedQueries()
+            .call()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?;
 
         Ok(unprocessed
             ._0
@@ -499,30 +633,52 @@ impl GluwaPublicProverContract {
         &self,
         client: Client,
         new_cost_per_byte: u64,
-    ) -> Result<String> {
+    ) -> Result<String, Error> {
         info!("Setting base cost per bytes: {}", new_cost_per_byte);
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let builder = contract.updateCostPerByte(U256::from(new_cost_per_byte));
 
-        let result = builder.send().await?.watch().await?;
+        let result = builder
+            .send()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            .watch()
+            .await
+            .map_err(|e| Error::AlloyWatch(e.to_string()))?;
 
         Ok(result.to_string())
     }
 
-    pub async fn update_base_fee(&self, client: Client, new_base_fee: u64) -> Result<String> {
+    pub async fn update_base_fee(
+        &self,
+        client: Client,
+        new_base_fee: u64,
+    ) -> Result<String, Error> {
         info!("Setting base fee: {}", new_base_fee);
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let builder = contract.updateBaseFee(U256::from(new_base_fee));
 
-        let result = builder.send().await?.watch().await?;
+        let result = builder
+            .send()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            .watch()
+            .await
+            .map_err(|e| Error::AlloyWatch(e.to_string()))?;
 
         Ok(result.to_string())
     }
@@ -532,16 +688,25 @@ impl GluwaPublicProverContract {
         client: &Client,
         query_id: H256,
         reason: String,
-    ) -> Result<String> {
+    ) -> Result<String, Error> {
         info!("Marking query as invalid: {:?}", query_id);
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let builder = contract.markAsInvalid(query_id.0.into(), reason);
 
-        let result = builder.send().await?.get_receipt().await?;
+        let result = builder
+            .send()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            .get_receipt()
+            .await
+            .map_err(|e| Error::AlloyGetReceipt(e.to_string()))?;
 
         Ok(result.transaction_hash.to_string())
     }
@@ -551,16 +716,25 @@ impl GluwaPublicProverContract {
         client: &Client,
         query_id: H256,
         reason: String,
-    ) -> Result<String> {
+    ) -> Result<String, Error> {
         info!("Marking query as having failed processing: {:?}", query_id);
 
-        let provider = client.get_wallet_ws_provider().await?;
+        let provider = client
+            .get_wallet_ws_provider()
+            .await
+            .map_err(|e| Error::EthClient(e.to_string()))?;
 
         let contract = CreditcoinPublicProver::new(self.address, provider);
 
         let builder = contract.markProcessingFailed(query_id.0.into(), reason);
 
-        let result = builder.send().await?.get_receipt().await?;
+        let result = builder
+            .send()
+            .await
+            .map_err(|e| Error::AlloyTransactionSend(e.to_string()))?
+            .get_receipt()
+            .await
+            .map_err(|e| Error::AlloyGetReceipt(e.to_string()))?;
 
         Ok(result.transaction_hash.to_string())
     }
