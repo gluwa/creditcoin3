@@ -19,6 +19,7 @@ use alloy::{
 };
 use attestor_primitives::ChainKey;
 
+#[allow(clippy::enum_variant_names)]
 enum StreamMessage {
     FromQueryProofVerified(QueryProofVerified),
     FromQueryMarkedInvalid(QueryMarkedInvalid),
