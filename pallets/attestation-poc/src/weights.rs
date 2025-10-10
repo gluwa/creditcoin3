@@ -460,7 +460,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `a` is `[0, 1]`.
 	/// The range of component `a` is `[0, 1]`.
-	fn on_initialize(_a: u32, ) -> Weight {
+	fn on_initialize(a: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `354`
 		//  Estimated: `3819`
