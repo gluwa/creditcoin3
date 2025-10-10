@@ -16,7 +16,7 @@ pub fn construct_fragment(
 
     for block_number in start..=end {
         let block = Block::new_from_prev_digest(block_number, Felt::default(), current_prev_digest);
-        log::info!(
+        log::debug!(
             "Constructed block number: {}, prev_digest: {:?}, digest: {:?}",
             block_number,
             current_prev_digest,

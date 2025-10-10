@@ -9,6 +9,7 @@ version.workspace = true
 
 [lints.clippy]
 large_enum_variant = "allow"
+useless_conversion = "allow"
 
 [dependencies]
 log = { workspace = true }

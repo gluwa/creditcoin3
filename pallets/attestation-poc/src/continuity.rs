@@ -21,11 +21,11 @@ impl<T: Config> Pallet<T> {
 
         // Get last digest, either checkpoint or last attestation
         let last_block_digest = Self::last_digest(chain_key);
-        log::info!(
+        info!(
             "📝 Last finalized attestation digest for chain_key {chain_key:?}: {last_block_digest:?}"
         );
 
-        log::info!(
+        info!(
             "📝 Validating attestation continuity for attestation: chain_key: {chain_key:?}, header_number: {header_number}, prev_digest: {:?}, continuity_proof length: {}",
             attestation.prev_digest(),
             attestation.continuity_proof.len()
@@ -33,7 +33,7 @@ impl<T: Config> Pallet<T> {
         // Validate the attestation's previous digest,
         match attestation.prev_digest() {
             Some(digest) => {
-                if digest.is_zero() && last_block_digest.is_none() {
+                if digest.is_zero() && last_block_digest.is_some() {
                     error!("❌ Attestation has a zero prev digest and we don't have a finalized attestation yet");
                     return Err(Error::<T>::InvalidAttestationPrevDigest.into());
                 }
@@ -78,8 +78,9 @@ impl<T: Config> Pallet<T> {
         // This could happen if the attestation view is lagging behind
         if let Some(tail) = attestation.continuity_proof.tail() {
             let block: Block = tail.clone().into();
+            info!("📝 Checking continuity proof tail: {block:?}");
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
-            if block_prev_digest != last_block_digest {
+            if block_prev_digest != last_block_digest && block.block_number != 0 {
                 // Check if we have the last_block_digest in storage
                 let exists = Self::contains_digest(chain_key, block_prev_digest);
                 if !exists {
@@ -98,7 +99,7 @@ impl<T: Config> Pallet<T> {
             let block_digest = H256::from_slice(&block.digest.to_bytes_be());
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
 
-            info!(
+            debug!(
                 "📝 Checking block number: {}, block_digest: {:?}, block_root: {:?} block_prev_digest: {:?}",
                 block.block_number,
                 block_digest,
@@ -111,14 +112,17 @@ impl<T: Config> Pallet<T> {
             if last_block_digest == block_prev_digest {
                 debug!("📝 Continuity proof continues with block {block:?}");
             } else {
-                error!("❌ Continuity proof invalid, expected {last_block_digest:?}, got {block_prev_digest:?}, block: {block:?}");
-                return Err(Error::<T>::InvalidAttestationContinuityProofBlock.into());
+                // Make an exception for the genesis block
+                if block.block_number != 0 {
+                    error!("❌ Continuity proof invalid, expected {last_block_digest:?}, got {block_prev_digest:?}, block: {block:?}");
+                    return Err(Error::<T>::InvalidAttestationContinuityProofBlock.into());
+                }
             }
             // Update the last block digest to the current block's digest
             last_block_digest = block_digest;
         }
 
-        info!("✅ Attestation continuity proof & signature are valid.");
+        debug!("✅ Attestation continuity proof & signature are valid.");
         Ok(())
     }
 }

@@ -150,7 +150,7 @@ pub mod pallet {
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
         fn bootstrap_chain(a: u32) -> Weight;
-        fn commit_attestation(a: u32) -> Weight;
+        fn commit_attestation(a: u32, b: u32, c: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
@@ -804,21 +804,33 @@ pub mod pallet {
         }
 
         #[pallet::call_index(9)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(attestations.len() as u32), DispatchClass::Mandatory))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(
+            attestations.len() as u32,
+            attestations.iter()
+                .map(|a| a.continuity_proof.len() as u32) // or .encoded_size() as u32
+                .max().unwrap_or(0),
+            T::MaxAttestationNodes::get()
+        ), DispatchClass::Mandatory))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
             attestations: BoundedVec<
                 SignedAttestation<T::Hash, T::AccountId>,
                 T::MaxAttestationsPerBlock,
             >,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             ensure_none(origin)?;
 
+            let mut weight = Weight::default();
             for attestation in attestations.into_iter() {
+                weight += <T as Config>::WeightInfo::commit_attestation(
+                    1,
+                    attestation.continuity_proof.len() as u32,
+                    attestation.attestors.len() as u32,
+                );
                 Self::do_commit_attestation(attestation)?;
             }
 
-            Ok(())
+            Ok(Some(weight).into())
         }
 
         #[pallet::call_index(10)]

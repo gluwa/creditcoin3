@@ -504,6 +504,7 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
@@ -1034,6 +1035,7 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         },
         signature: [0u8; 96],
         attestors: vec![],
+        continuity_proof: Default::default(),
     };
     let latest_ethereum_block_number = 200_u64;
     let ethereum_current_block_calculated_merkle_root =

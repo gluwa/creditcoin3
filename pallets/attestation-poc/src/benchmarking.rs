@@ -73,10 +73,11 @@ impl<T: frame_system::Config> Attestor<T> {
 fn create_signed_attestation<T: frame_system::Config>(
     attestors: Vec<Attestor<T>>,
     chain_key: ChainKey,
+    start_block: u64,
     header_number: u64,
     prev_digest: Option<H256>,
 ) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
-    let fragment = construct_fragment(prev_digest, 1, header_number.saturating_sub(1));
+    let fragment = construct_fragment(prev_digest, start_block, header_number.saturating_sub(1));
 
     let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
         chain_key,
@@ -121,7 +122,8 @@ fn create_signed_attestation<T: frame_system::Config>(
 mod benchmarks {
     use super::*;
 
-    /// We want to test attestations signed by varying numbers of attestors
+    pub const MAX_BATCH: u32 = 10; // bounded by call
+    pub const MAX_SPAN: u32 = 300; // tune to a realistic worst path
     const MAX_ATTESTORS: u32 = 100;
 
     #[benchmark]
@@ -307,7 +309,7 @@ mod benchmarks {
         let attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors, chain_key, 0, None);
+        > = create_signed_attestation::<T>(attestors, chain_key, 1, 0, None);
 
         #[extrinsic_call]
         _(
@@ -317,12 +319,17 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn commit_attestation(a: Linear<1, MAX_ATTESTORS>) {
-        // Setup
+    fn commit_attestation(
+        n: Linear<1, MAX_BATCH>,     // number of attestations in the call
+        s: Linear<1, MAX_SPAN>,      // continuity length (#headers)
+        m: Linear<1, MAX_ATTESTORS>, // number of attestors
+    ) {
         let none_origin = <T as frame_system::Config>::RuntimeOrigin::none();
-
-        // Set max attestors to accomodate benchmark
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        log::info!("Benchmark parameters: n = {n}, s = {s}, m = {m}");
+
+        // Ensure pallet limits allow `m` attestors
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin.clone(),
             DEV_CHAIN_KEY,
@@ -338,7 +345,7 @@ mod benchmarks {
 
         // Creating attestor to attest
         let mut attestors: Vec<Attestor<T>> = Vec::new();
-        for j in 0..=a {
+        for j in 0..=m {
             let stash_id = create_funded_user_with_balance::<T>("stash", j);
             let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
             let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
@@ -359,34 +366,61 @@ mod benchmarks {
             attestors.push(attestor);
         }
 
-        // Create prior attestation. Needed to get most expensive code path in commit_attestation()
+        // Worst-path prep (prior committed + election started)
         let prior_attestation: SignedAttestation<
             <T as frame_system::Config>::Hash,
             <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 0, None);
+        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, 0, None);
 
         Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
-
         assert_ok!(Attestation::<T>::commit_attestation(
             none_origin.clone(),
             vec![prior_attestation.clone()].try_into().unwrap(),
         ));
 
-        // Create attestation
-        let attestation: SignedAttestation<
-            <T as frame_system::Config>::Hash,
-            <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(
-            attestors,
-            DEV_CHAIN_KEY,
-            10_u64,
-            Some(prior_attestation.digest()),
-        );
+        // --- Build batch of size `n`, each with continuity width = `s` (multiple of 10),
+        //     and end headers fixed at 10, 20, 30, ...
+        let mut batch: Vec<
+            SignedAttestation<
+                <T as frame_system::Config>::Hash,
+                <T as frame_system::Config>::AccountId,
+            >,
+        > = Vec::with_capacity(n as usize);
+
+        let interval: u64 = Attestation::<T>::chain_attestation_interval(DEV_CHAIN_KEY);
+
+        let mut prev_digest = prior_attestation.digest();
+        // We want atmost 'n' attestations
+        for i in 1..n {
+            let remainder = (s as u64) % interval;
+
+            // Only create an attestation if divisible
+            if remainder == 0 {
+                let start_header = (s as u64 / interval) * interval * (i as u64 - 1u64) + 1u64;
+                let att_header = ((s as u64 / interval) * interval) * i as u64;
+                log::info!("Creating attestation for header {att_header}, in iteration {i} with {} attestors", attestors.len());
+
+                let att = create_signed_attestation::<T>(
+                    attestors.clone(),
+                    DEV_CHAIN_KEY,
+                    start_header,
+                    att_header,
+                    Some(prev_digest),
+                );
+
+                log::info!("Created attestation for header {att_header}, in iteration {i} with digest {:?} and continuity len {}", att.digest(), att.continuity_proof.len());
+
+                // Set prev_digest for next attestation
+                prev_digest = att.digest();
+                // Add to batch
+                batch.push(att);
+            }
+        }
 
         #[extrinsic_call]
         _(
             none_origin as <T as frame_system::Config>::RuntimeOrigin,
-            vec![attestation].try_into().unwrap(),
+            batch.try_into().unwrap(),
         )
     }
 
