@@ -26,6 +26,7 @@ import type {
     FrameSystemEventRecord,
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
+    PalletAttestationPocAttestorElectionPolicy,
     PalletAttestationPocLedgerAttestorLedger,
     PalletBagsListListBag,
     PalletBagsListListNode,
@@ -141,9 +142,25 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            authorizedAttestors: AugmentedQuery<
+                ApiType,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: AccountId32 | string | Uint8Array) => Observable<Null>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             chainAttestationInterval: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The current election policy for each chain.
+             * Represents the policy used when electing new attestors after each epoch.
+             **/
+            chainElectionPolicy: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<PalletAttestationPocAttestorElectionPolicy>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

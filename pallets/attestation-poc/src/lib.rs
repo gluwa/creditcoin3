@@ -47,6 +47,23 @@ pub mod pallet {
         <T as frame_system::Config>::AccountId,
     >>::PositiveImbalance;
 
+    /// The election policy used when electing new attestors after each epoch.
+    #[derive(
+        PartialEq, Eq, Copy, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+    )]
+    pub enum AttestorElectionPolicy {
+        /// Any attestor can be selected.
+        #[default]
+        OpenToAny = 0,
+        /// Only authorized attestors can be selected.
+        AuthorizedOnly = 1,
+        /// No new attestors can be selected.
+        DeniedToAll = 2,
+    }
+
+    // We define this type alias so that clippy doesn't complain about the unused unit type.
+    type AuthorizationValue = ();
+
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -141,6 +158,10 @@ pub mod pallet {
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_vote_acceptance_window() -> Weight;
+        fn set_election_policy() -> Weight;
+        fn authorize_attestor() -> Weight;
+        fn remove_authorized_attestor() -> Weight;
+        fn kick_active_attestor() -> Weight;
     }
 
     #[pallet::storage]
@@ -359,6 +380,27 @@ pub mod pallet {
         AttestationChainGenesisBlockNumberDefault<T>,
     >;
 
+    /// The current election policy for each chain.
+    /// Represents the policy used when electing new attestors after each epoch.
+    #[pallet::storage]
+    #[pallet::getter(fn chain_election_policy)]
+    pub type ChainElectionPolicy<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, AttestorElectionPolicy, ValueQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn authorized_attestors)]
+    #[allow(clippy::unused_unit)]
+    // Authorized attestors are a subset of attestors that can be elected when the election policy is AuthorizedOnly
+    pub type AuthorizedAttestors<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        AuthorizationValue,
+        ValueQuery,
+    >;
+
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
@@ -474,6 +516,12 @@ pub mod pallet {
         AttestationChainGenesisBlockNumberSet(ChainKey, u64),
         /// Note a change in the voter acceptance window for a chain.
         VoteAcceptanceWindowChanged(ChainKey, u64),
+        /// Note a change in the attestor election policy.
+        ChangedElectionPolicy(ChainKey, AttestorElectionPolicy),
+        /// An attestor was authorized for a specific chain.
+        AuthorizedAttestorAdded(ChainKey, T::AccountId),
+        /// An attestor was unauthorized for a specific chain.
+        AuthorizedAttestorRemoved(ChainKey, T::AccountId),
     }
 
     #[pallet::error]
@@ -547,6 +595,10 @@ pub mod pallet {
         MajorityNotReached,
         // Duplicate attestor in signatures
         DuplicateAttestor,
+        // Attestor is already authorized for the chain.
+        AttestorAlreadyAuthorized,
+        // Attestor is not authorized for the chain.
+        AttestorNotAuthorized,
     }
 
     #[pallet::hooks]
@@ -830,7 +882,7 @@ pub mod pallet {
             // Only chill your own attestor
             ensure!(attestor.stash == who, Error::<T>::NotYourAttestor);
 
-            Self::do_chill_attestor(chain_key, attestor_id, attestor);
+            Self::do_chill_attestor(chain_key, attestor_id);
 
             Ok(())
         }
@@ -909,6 +961,111 @@ pub mod pallet {
                 chain_key,
                 vote_acceptance_window,
             ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(21)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_election_policy())]
+        pub fn set_election_policy(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            new_policy: AttestorElectionPolicy,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            ChainElectionPolicy::<T>::insert(chain_key, new_policy);
+
+            Self::deposit_event(Event::<T>::ChangedElectionPolicy(chain_key, new_policy));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(22)]
+        #[pallet::weight(<T as Config>::WeightInfo::authorize_attestor())]
+        pub fn authorize_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+            ensure!(
+                Attestors::<T>::contains_key(chain_key, &attestor_id),
+                Error::<T>::AddressNotAttestor
+            );
+            ensure!(
+                !AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
+                Error::<T>::AttestorAlreadyAuthorized
+            );
+
+            AuthorizedAttestors::<T>::insert(chain_key, attestor_id.clone(), ());
+
+            Self::deposit_event(Event::<T>::AuthorizedAttestorAdded(chain_key, attestor_id));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(23)]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_authorized_attestor())]
+        pub fn remove_authorized_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            ensure!(
+                AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
+                Error::<T>::AttestorNotAuthorized
+            );
+
+            AuthorizedAttestors::<T>::remove(chain_key, &attestor_id);
+
+            Self::deposit_event(Event::<T>::AuthorizedAttestorRemoved(
+                chain_key,
+                attestor_id,
+            ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(24)]
+        #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor())]
+        pub fn kick_active_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+            unregister: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let attestor = Attestors::<T>::get(chain_key, &attestor_id)
+                .ok_or(Error::<T>::AddressNotAttestor)?;
+
+            Self::do_chill_attestor(chain_key, attestor_id.clone());
+
+            // We also remove the attestor from the active attestor list if they are present
+            ActiveAttestors::<T>::mutate(chain_key, |active_attestors| {
+                if let Some(pos) = active_attestors.iter().position(|x| *x == attestor_id) {
+                    active_attestors.swap_remove(pos);
+                }
+            });
+
+            if unregister {
+                // If unregister is true, also remove the attestor from the attestor list
+                let stash = attestor.stash.clone();
+                Self::remove_attestor_and_emit_event(chain_key, stash, attestor_id)?;
+            }
 
             Ok(())
         }

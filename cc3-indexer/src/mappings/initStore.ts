@@ -44,6 +44,9 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         const maxSetSize = (await att.maxAttestors(chainKey)).toNumber(); // u32
         const targetSampleSize = (await att.targetSampleSize(chainKey)).toNumber(); // u32
 
+        const electionPolicy = await att.chainElectionPolicy(chainKey); // AttestorElectionPolicy
+        const electionPolicyValue = electionPolicy.toString();
+
         // Need this for devnet as this storage item was upgraded during it's lifetime
         let minBondRequirement = BigInt(100000000000000000000); // u128, default to 100000000000000000000 if not set
         try {
@@ -80,6 +83,7 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
             targetSampleSize,
             minBondRequirement,
             voteAcceptanceWindow,
+            electionPolicy: electionPolicyValue,
         });
 
         await Promise.all([supported.save(), acd.save()]);

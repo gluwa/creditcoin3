@@ -29,6 +29,10 @@ import {
     AttestationChainData,
     MaxAttestorsChanged,
     VoteAcceptanceWindowChanged,
+    ChangedElectionPolicy,
+    AuthorizedAttestorAdded,
+    AuthorizedAttestors,
+    AuthorizedAttestorRemoved,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
@@ -119,6 +123,9 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         chainId: BigInt(chainId.toString()),
     });
 
+    // default to OpenToAny on registration, see pallet attestation for details
+    const defaultElectionPolicy = 'OpenToAny';
+
     // Create attestation chain data
     const newChain = AttestationChainData.create({
         id: chainKeyNumber.toString(),
@@ -133,6 +140,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         targetSampleSize: 3,
         minBondRequirement: BigInt(100000000000000000000),
         voteAcceptanceWindow: BigInt(3),
+        electionPolicy: defaultElectionPolicy,
     });
 
     logger.info(`New Supported Chain event created at block ${blockNumber}`);
@@ -950,4 +958,103 @@ export async function handleEventVoteAcceptanceWindowChanged(event: SubstrateEve
     }
 
     await voteAcceptanceWindowChanged.save();
+}
+
+export async function handleAttestorElectionPolicyChanged(event: SubstrateEvent): Promise<void> {
+    logger.info(`AttestorElectionPolicyChanged event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, newPolicy],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyNumber = BigInt(chainKey.toString());
+
+    const electionPolicy = newPolicy.toString();
+
+    const attestorElectionPolicyChanged = ChangedElectionPolicy.create({
+        id: `${blockNumber}-${event.idx}`,
+        blockNumber,
+        date: event.block.timestamp,
+        chainKey: chainKeyNumber,
+        electionPolicy,
+    });
+
+    logger.info(`Going to update chainKey ${chainKeyNumber} with electionPolicy ${electionPolicy}`);
+    const data = await getChainData(chainKeyNumber);
+    if (data) {
+        logger.info(`AttestorElectionPolicyChanged event found for chainKey ${chainKeyNumber}`);
+        data.electionPolicy = electionPolicy;
+        await data.save();
+    }
+
+    await attestorElectionPolicyChanged.save();
+}
+
+export async function handleAuthorizedAttestorAdded(event: SubstrateEvent): Promise<void> {
+    logger.info(`AuthorizedAttestorAdded event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, attestor],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyNumber = BigInt(chainKey.toString());
+
+    const authorizedAttestorAdded = AuthorizedAttestorAdded.create({
+        id: `${blockNumber}-${event.idx}`,
+        blockNumber,
+        date: event.block.timestamp,
+        chainKey: chainKeyNumber,
+        attestorId: attestor.toString(),
+    });
+
+    const authorizedAttestor = AuthorizedAttestors.create({
+        id: `${chainKeyNumber.toString()}-${attestor.toString()}`,
+        chainKey: chainKeyNumber,
+        attestorId: attestor.toString(),
+    });
+
+    logger.info(`Going to create authorized attestor ${attestor.toString()} for chainKey ${chainKeyNumber}`);
+
+    const promiseList = [authorizedAttestorAdded.save(), authorizedAttestor.save()];
+
+    await Promise.all(promiseList);
+}
+
+export async function handleAuthorizedAttestorRemoved(event: SubstrateEvent): Promise<void> {
+    logger.info(`AuthorizedAttestorRemoved event found at block ${event.block.block.header.number.toString()}`);
+
+    const {
+        event: {
+            data: [chainKey, attestor],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyNumber = BigInt(chainKey.toString());
+
+    const authorizedAttestorRemoved = AuthorizedAttestorRemoved.create({
+        id: `${blockNumber}-${event.idx}`,
+        blockNumber,
+        date: event.block.timestamp,
+        chainKey: chainKeyNumber,
+        attestorId: attestor.toString(),
+    });
+
+    // Remove the authorized attestor entry
+    const removeAuthorizedAttestor = AuthorizedAttestors.remove(`${chainKeyNumber.toString()}-${attestor.toString()}`);
+
+    logger.info(`Going to remove authorized attestor ${attestor.toString()} for chainKey ${chainKeyNumber}`);
+
+    const promiseList = [authorizedAttestorRemoved.save(), removeAuthorizedAttestor];
+
+    await Promise.all(promiseList);
 }

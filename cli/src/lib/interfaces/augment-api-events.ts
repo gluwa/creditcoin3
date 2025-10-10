@@ -31,6 +31,7 @@ import type {
     EvmCoreErrorExitReason,
     FrameSupportDispatchDispatchInfo,
     FrameSupportTokensMiscBalanceStatus,
+    PalletAttestationPocAttestorElectionPolicy,
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsCommissionClaimPermission,
@@ -70,8 +71,20 @@ declare module '@polkadot/api-base/types/events' {
                 { epoch: u64; chainKey: u64; attestors: Vec<AccountId32> }
             >;
             AttestorUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * An attestor was authorized for a specific chain.
+             **/
+            AuthorizedAttestorAdded: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * An attestor was unauthorized for a specific chain.
+             **/
+            AuthorizedAttestorRemoved: AugmentedEvent<ApiType, [u64, AccountId32]>;
             BlockAttested: AugmentedEvent<ApiType, [u64, AttestorPrimitivesSignedAttestation, H256]>;
             Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            /**
+             * Note a change in the attestor election policy.
+             **/
+            ChangedElectionPolicy: AugmentedEvent<ApiType, [u64, PalletAttestationPocAttestorElectionPolicy]>;
             CheckpointIntervalChanged: AugmentedEvent<ApiType, [u64, u32]>;
             CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
             /**

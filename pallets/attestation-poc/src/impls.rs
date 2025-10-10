@@ -372,13 +372,12 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub(crate) fn do_chill_attestor(
-        chain_key: ChainKey,
-        attestor_id: T::AccountId,
-        mut attestor: Attestor<T::AccountId>,
-    ) {
-        attestor.status = AttestorStatus::Idle;
-        Attestors::<T>::insert(chain_key, &attestor_id, attestor);
+    pub(crate) fn do_chill_attestor(chain_key: ChainKey, attestor_id: T::AccountId) {
+        Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
+            if let Some(attestor) = maybe_attestor {
+                attestor.status = AttestorStatus::Idle;
+            }
+        });
 
         Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
     }
@@ -474,10 +473,12 @@ impl<T: Config> Pallet<T> {
     /// Start a new election for the given epoch
     /// This will select the active attestors for the given epoch
     /// All attestors with `Active` status will be selected
+    /// Attestors with `Waiting` status will be selected based on the election policy
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
         let supported_chains = T::SupportedChains::supported_chains();
 
         for chain_key in supported_chains {
+            let chain_election_policy = ChainElectionPolicy::<T>::get(chain_key);
             let prefix: Vec<_> = Attestors::<T>::iter_prefix(chain_key).collect();
             let prefix_len = prefix.len();
 
@@ -487,10 +488,35 @@ impl<T: Config> Pallet<T> {
                     match attestor.status {
                         AttestorStatus::Active => Some(account),
                         AttestorStatus::Waiting => {
-                            // Transition from Waiting to Active
-                            attestor.status = AttestorStatus::Active;
-                            Attestors::<T>::insert(chain_key, &account, attestor);
-                            Some(account)
+                            match chain_election_policy {
+                                AttestorElectionPolicy::OpenToAny => {
+                                    // Transition from Waiting to Active
+                                    attestor.status = AttestorStatus::Active;
+                                    Attestors::<T>::insert(chain_key, &account, attestor);
+                                    Some(account)
+                                }
+                                AttestorElectionPolicy::AuthorizedOnly => {
+                                    // If the attestor is not authorized, skip them
+                                    if !AuthorizedAttestors::<T>::contains_key(chain_key, &account)
+                                    {
+                                        debug!(
+                                            "Skipping attestor {account:?} for chain {chain_key} as they are not authorized",
+                                        );
+                                        None
+                                    } else {
+                                        // Transition from Waiting to Active
+                                        attestor.status = AttestorStatus::Active;
+                                        Attestors::<T>::insert(chain_key, &account, attestor);
+                                        Some(account)
+                                    }
+                                },
+                                AttestorElectionPolicy::DeniedToAll => {
+                                    debug!(
+                                        "Skipping attestor {account:?} for chain {chain_key} as election policy is DeniedToAll",
+                                    );
+                                    None
+                                }
+                            }
                         }
                         AttestorStatus::Idle => None,
                     }
@@ -589,9 +615,9 @@ impl<T: Config> Pallet<T> {
     }
 
     fn chill_all_attestors_for_chain(chain_key: ChainKey) {
-        let attestors = Attestors::<T>::iter_prefix(chain_key);
-        for (attestor_id, attestor) in attestors {
-            Self::do_chill_attestor(chain_key, attestor_id, attestor);
+        let attestor_ids = Attestors::<T>::iter_key_prefix(chain_key);
+        for attestor_id in attestor_ids {
+            Self::do_chill_attestor(chain_key, attestor_id);
         }
     }
 

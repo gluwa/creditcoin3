@@ -423,6 +423,11 @@ fn attestor_should_be_able_to_toggle_status() {
 #[test]
 fn attestor_should_be_elected_after_5_blocks_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
+        assert_eq!(
+            Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY),
+            AttestorElectionPolicy::OpenToAny
+        );
+
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             att.stash.clone(),
@@ -480,7 +485,85 @@ fn attestor_should_be_elected_after_5_blocks_and_emit_event() {
 }
 
 #[test]
-fn attestor_should_be_not_be_elected_after_5_blocks_if_not_signaling_start() {
+fn attestor_authorized_should_be_elected_after_5_blocks_and_emit_event() {
+    ExtBuilder.build_and_execute(|| {
+        assert_eq!(
+            Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY),
+            AttestorElectionPolicy::OpenToAny
+        );
+
+        // Set the election policy to AuthorizedOnly
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::AuthorizedOnly
+        ));
+
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        // assert_eq!(Attestors::<Test>::count(), 1);
+        assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_1
+        ));
+
+        let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.stash, STASH_1);
+        // Public key should be None
+        assert_eq!(attestor.bls_public_key, None);
+        // Default status should be Idle
+        assert_eq!(attestor.status, AttestorStatus::Idle);
+
+        // Start attesting
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            att.public_key,
+            att.signature
+        ));
+
+        // Authorize the attestor
+        assert_ok!(Attestation::authorize_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        progress_to_block(5);
+
+        assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+
+        // Get events in reverse order
+        let all_events = <frame_system::Pallet<Test>>::events();
+        let attestors_elected_event = all_events
+            .iter()
+            .filter_map(|event| {
+                if let RuntimeEvent::Attestation(event) = &event.event {
+                    Some(event)
+                } else {
+                    None
+                }
+            })
+            .next();
+        assert_eq!(
+            attestors_elected_event,
+            Some(&Event::<Test>::AttestorsElected {
+                epoch: 1,
+                chain_key: 1,
+                attestors: vec![ATTESTOR_1]
+            })
+        );
+    })
+}
+
+#[test]
+fn attestor_should_not_be_elected_after_5_blocks_if_not_signaling_start() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
@@ -504,6 +587,111 @@ fn attestor_should_be_not_be_elected_after_5_blocks_if_not_signaling_start() {
 
         progress_to_block(5);
 
+        assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+    })
+}
+
+#[test]
+fn attestor_should_not_be_elected_after_5_blocks_if_not_authorized() {
+    ExtBuilder.build_and_execute(|| {
+        // We set the election policy to AuthorizedOnly to ensure that attestors are not elected
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::AuthorizedOnly
+        ));
+
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        // assert_eq!(Attestors::<Test>::count(), 1);
+        assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_1
+        ));
+
+        let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.stash, STASH_1);
+        // Public key should be None
+        assert_eq!(attestor.bls_public_key, None);
+        // Default status should be Idle
+        assert_eq!(attestor.status, AttestorStatus::Idle);
+
+        // Start attesting
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            att.public_key,
+            att.signature
+        ));
+
+        progress_to_block(5);
+
+        // The attestor should not be elected because they are not authorized
+        assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+    })
+}
+
+#[test]
+fn attestor_authorized_should_not_be_elected_after_5_blocks_for_deny_policy() {
+    ExtBuilder.build_and_execute(|| {
+        assert_eq!(
+            Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY),
+            AttestorElectionPolicy::OpenToAny
+        );
+
+        // Set the election policy to AuthorizedOnly
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::DeniedToAll
+        ));
+
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        // assert_eq!(Attestors::<Test>::count(), 1);
+        assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_1
+        ));
+
+        let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+        assert_eq!(attestor.stash, STASH_1);
+        // Public key should be None
+        assert_eq!(attestor.bls_public_key, None);
+        // Default status should be Idle
+        assert_eq!(attestor.status, AttestorStatus::Idle);
+
+        // Start attesting
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            att.public_key,
+            att.signature
+        ));
+
+        // Authorize the attestor
+        assert_ok!(Attestation::authorize_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        progress_to_block(5);
+
+        // The attestor should not be elected because the policy is DenyAll
+        // even if it is authorized
         assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
     })
 }
@@ -3190,4 +3378,426 @@ fn set_vote_acceptance_window_updates_internal_storage_and_emits_event() {
             .into(),
         );
     })
+}
+
+#[cfg(test)]
+mod set_election_policy {
+    use super::*;
+
+    #[test]
+    fn set_election_policy_should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_election_policy(
+                    RuntimeOrigin::none(),
+                    SUPPORTED_CHAIN_KEY,
+                    AttestorElectionPolicy::DeniedToAll
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn set_election_policy_should_error_when_not_signed_by_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_election_policy(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    AttestorElectionPolicy::DeniedToAll
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn set_election_policy_should_update_storage_and_emit_event() {
+        ExtBuilder.build_and_execute(|| {
+            let initial_policy = Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY);
+            assert_eq!(initial_policy, AttestorElectionPolicy::OpenToAny);
+
+            assert_ok!(Attestation::set_election_policy(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                AttestorElectionPolicy::DeniedToAll
+            ));
+
+            let updated_policy = Attestation::chain_election_policy(SUPPORTED_CHAIN_KEY);
+            assert_eq!(updated_policy, AttestorElectionPolicy::DeniedToAll);
+
+            System::assert_last_event(
+                crate::Event::ChangedElectionPolicy(
+                    SUPPORTED_CHAIN_KEY,
+                    AttestorElectionPolicy::DeniedToAll,
+                )
+                .into(),
+            );
+        })
+    }
+}
+
+#[cfg(test)]
+mod authorize_attestor {
+    use super::*;
+
+    #[test]
+    fn authorize_attestor_should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::authorize_attestor(
+                    RuntimeOrigin::none(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn authorize_attestor_should_error_when_not_signed_by_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::authorize_attestor(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn authorize_attestor_should_error_when_chain_is_not_supported() {
+        ExtBuilder.build_and_execute(|| {
+            let unsupported_chain_key = 999;
+            assert_noop!(
+                Attestation::authorize_attestor(
+                    RuntimeOrigin::root(),
+                    unsupported_chain_key,
+                    ATTESTOR_1
+                ),
+                Error::<Test>::ChainNotSupported
+            );
+        })
+    }
+
+    #[test]
+    fn authorize_attestor_should_error_when_address_is_not_attestor() {
+        ExtBuilder.build_and_execute(|| {
+            // ATTESTOR_1 is not registered as an attestor yet
+            assert_noop!(
+                Attestation::authorize_attestor(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                Error::<Test>::AddressNotAttestor
+            );
+        })
+    }
+
+    #[test]
+    fn authorize_attestor_should_error_when_attestor_already_authorized() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Authorize the attestor
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Try to authorize the same attestor again - should fail
+            assert_noop!(
+                Attestation::authorize_attestor(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                Error::<Test>::AttestorAlreadyAuthorized
+            );
+        })
+    }
+
+    #[test]
+    fn authorize_attestor_should_update_storage_and_emit_event() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Check that attestor is not yet authorized
+            assert!(!AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Authorize the attestor
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that attestor is now authorized
+            assert!(AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that the event was emitted
+            System::assert_last_event(
+                crate::Event::AuthorizedAttestorAdded(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
+}
+
+#[cfg(test)]
+mod removed_authorized_attestor {
+    use super::*;
+
+    #[test]
+    fn removed_authorized_attestor_should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::remove_authorized_attestor(
+                    RuntimeOrigin::none(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn removed_authorized_attestor_should_error_when_not_signed_by_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::remove_authorized_attestor(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn removed_authorized_attestor_should_error_when_attestor_not_authorized() {
+        ExtBuilder.build_and_execute(|| {
+            // Try to remove authorization for an attestor that was never authorized
+            assert_noop!(
+                Attestation::remove_authorized_attestor(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                Error::<Test>::AttestorNotAuthorized
+            );
+        })
+    }
+
+    #[test]
+    fn removed_authorized_attestor_should_update_storage_and_emit_event() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Then authorize the attestor
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that attestor is authorized
+            assert!(AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Remove the authorization
+            assert_ok!(Attestation::remove_authorized_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that attestor is no longer authorized
+            assert!(!AuthorizedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            // Check that the event was emitted
+            System::assert_last_event(
+                crate::Event::AuthorizedAttestorRemoved(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
+}
+
+#[cfg(test)]
+mod kick_active_attestor {
+    use super::*;
+
+    #[test]
+    fn kick_active_attestor_should_error_when_not_signed() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::kick_active_attestor(
+                    RuntimeOrigin::none(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1,
+                    false
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn kick_active_attestor_should_error_when_not_signed_by_root() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::kick_active_attestor(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1,
+                    false
+                ),
+                BadOrigin
+            );
+        })
+    }
+
+    #[test]
+    fn kick_active_attestor_should_error_when_address_is_not_attestor() {
+        ExtBuilder.build_and_execute(|| {
+            // Try to kick an attestor that doesn't exist
+            assert_noop!(
+                Attestation::kick_active_attestor(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1,
+                    false
+                ),
+                Error::<Test>::AddressNotAttestor
+            );
+        })
+    }
+
+    #[test]
+    fn kick_active_attestor_should_chill_attestor() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Activate the attestor
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+
+            progress_to_block(5);
+
+            // Check that attestor is active
+            let attestor_info = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+            assert_eq!(attestor_info.status, AttestorStatus::Active);
+
+            assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+            // Kick the active attestor
+            assert_ok!(Attestation::kick_active_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1,
+                false
+            ));
+
+            // Check that attestor is now chilled
+            let attestor_info = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+            assert_eq!(attestor_info.status, AttestorStatus::Idle);
+
+            assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+            // Check that the chilled event was emitted
+            System::assert_has_event(
+                crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
+
+    #[test]
+    fn kick_active_attestor_should_unregister_attestor_when_flag_is_set() {
+        ExtBuilder.build_and_execute(|| {
+            // First, register an attestor
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+
+            // Activate the attestor
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+
+            progress_to_block(5);
+
+            // Check that attestor is active
+            let attestor_info = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
+            assert_eq!(attestor_info.status, AttestorStatus::Active);
+
+            // Kick the active attestor with unregister flag set to true
+            assert_ok!(Attestation::kick_active_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1,
+                true
+            ));
+
+            // Check that attestor is no longer registered
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_none());
+
+            // Check that the unregistered event was emitted
+            System::assert_has_event(
+                crate::Event::AttestorUnregistered(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
 }

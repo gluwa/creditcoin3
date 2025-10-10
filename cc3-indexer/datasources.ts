@@ -214,6 +214,30 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                     method: 'VoteAcceptanceWindowChanged',
                 },
             },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleAttestorElectionPolicyChanged',
+                filter: {
+                    module: 'attestation',
+                    method: 'ChangedElectionPolicy',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleAuthorizedAttestorAdded',
+                filter: {
+                    module: 'attestation',
+                    method: 'AuthorizedAttestorAdded',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleAuthorizedAttestorRemoved',
+                filter: {
+                    module: 'attestation',
+                    method: 'AuthorizedAttestorRemoved',
+                },
+            }
         ],
     },
 };

@@ -67,6 +67,7 @@ import type {
     FrameSystemLimitsBlockWeights,
     FrameSystemLimitsWeightsPerClass,
     FrameSystemPhase,
+    PalletAttestationPocAttestorElectionPolicy,
     PalletAttestationPocCall,
     PalletAttestationPocError,
     PalletAttestationPocEvent,
@@ -290,6 +291,7 @@ declare module '@polkadot/types/types/registry' {
         FrameSystemLimitsBlockWeights: FrameSystemLimitsBlockWeights;
         FrameSystemLimitsWeightsPerClass: FrameSystemLimitsWeightsPerClass;
         FrameSystemPhase: FrameSystemPhase;
+        PalletAttestationPocAttestorElectionPolicy: PalletAttestationPocAttestorElectionPolicy;
         PalletAttestationPocCall: PalletAttestationPocCall;
         PalletAttestationPocError: PalletAttestationPocError;
         PalletAttestationPocEvent: PalletAttestationPocEvent;

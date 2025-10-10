@@ -547,4 +547,94 @@ mod benchmarks {
             vote_acceptance_window,
         )
     }
+
+    #[benchmark]
+    fn set_election_policy() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let election_policiy = AttestorElectionPolicy::AuthorizedOnly;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            election_policiy,
+        )
+    }
+
+    #[benchmark]
+    fn authorize_attestor() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn remove_authorized_attestor() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        Attestation::<T>::authorize_attestor(
+            root_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If authorizing the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn kick_active_attestor() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+            true,
+        )
+    }
 }

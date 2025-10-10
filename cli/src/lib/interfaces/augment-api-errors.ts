@@ -27,11 +27,13 @@ declare module '@polkadot/api-base/types/errors' {
             AlreadyBonded: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
             AttestationFoundWhileImporting: AugmentedError<ApiType>;
+            AttestorAlreadyAuthorized: AugmentedError<ApiType>;
             /**
              * The attestor list is at the max size allowed by the current configuration
              **/
             AttestorListFull: AugmentedError<ApiType>;
             AttestorNotActive: AugmentedError<ApiType>;
+            AttestorNotAuthorized: AugmentedError<ApiType>;
             AttestorNotIdle: AugmentedError<ApiType>;
             AttestorWithInvalidPublicKey: AugmentedError<ApiType>;
             /**

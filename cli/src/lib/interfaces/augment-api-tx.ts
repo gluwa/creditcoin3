@@ -45,6 +45,7 @@ import type {
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     EthereumTransactionTransactionV2,
+    PalletAttestationPocAttestorElectionPolicy,
     PalletBalancesAdjustmentDirection,
     PalletIdentityJudgement,
     PalletIdentityLegacyIdentityInfo,
@@ -88,6 +89,13 @@ declare module '@polkadot/api-base/types/submittable' {
                     proofOfPossession: U8aFixed | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, U8aFixed, U8aFixed]
+            >;
+            authorizeAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
             >;
             bootstrapChain: AugmentedSubmittable<
                 (
@@ -133,6 +141,14 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, Vec<AttestorPrimitivesAttestationCheckpoint>]
             >;
+            kickActiveAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                    unregister: bool | boolean | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32, bool]
+            >;
             registerAttestor: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -144,6 +160,13 @@ declare module '@polkadot/api-base/types/submittable' {
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
                     attestor: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            removeAuthorizedAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
@@ -167,6 +190,19 @@ declare module '@polkadot/api-base/types/submittable' {
                     chainAttestationInterval: u64 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u64]
+            >;
+            setElectionPolicy: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    newPolicy:
+                        | PalletAttestationPocAttestorElectionPolicy
+                        | 'OpenToAny'
+                        | 'AuthorizedOnly'
+                        | 'DeniedToAll'
+                        | number
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, PalletAttestationPocAttestorElectionPolicy]
             >;
             setMaxAttestors: AugmentedSubmittable<
                 (

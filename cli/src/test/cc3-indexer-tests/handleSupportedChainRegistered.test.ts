@@ -117,7 +117,8 @@ describe('handleSupportedChainRegistered()', () => {
                             maxSetSize,
                             targetSampleSize,
                             minBondRequirement,
-                            voteAcceptanceWindow
+                            voteAcceptanceWindow,
+                            electionPolicy
                         }
                     }
                 }`,
@@ -158,6 +159,9 @@ describe('handleSupportedChainRegistered()', () => {
                     (await api.query.attestation.voteAcceptanceWindow(node.chainKey)) as U64
                 ).toBigInt();
                 expect(BigInt(node.voteAcceptanceWindow)).toEqual(voteAcceptanceWindow);
+
+                const electionPolicy = (await api.query.attestation.chainElectionPolicy(node.chainKey)).toString();
+                expect(node.electionPolicy).toEqual(electionPolicy);
             }
         });
     });

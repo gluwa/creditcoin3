@@ -26,6 +26,8 @@ type AttestationChainData @entity {
     lastAttestedDigest: String!
     # Vote acceptance window
     voteAcceptanceWindow: BigInt!
+    # Current attestor election policy
+    electionPolicy: String!
 }
 
 type Transfer @entity {
@@ -123,6 +125,17 @@ type Attestors @entity {
     """
     status: Int! # this-is-expected
     blsPublicKey: String!
+}
+
+type AuthorizedAttestors @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    chainKey: BigInt! @index
+
+    attestor: Account! @index
 }
 
 type AttestorsElected @entity {
@@ -618,4 +631,49 @@ type VoteAcceptanceWindowChanged @entity {
     chainKey: BigInt!
 
     voteAcceptanceWindow: BigInt!
+}
+
+type ChangedElectionPolicy @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    chainKey: BigInt!
+
+    electionPolicy: String!
+}
+
+type AuthorizedAttestorAdded @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    chainKey: BigInt!
+
+    attestor: Account!
+}
+
+type AuthorizedAttestorRemoved @entity {
+    """
+    id field is always required and must look like this
+    """
+    id: ID!
+
+    blockNumber: BigInt!
+
+    date: Date
+
+    chainKey: BigInt!
+
+    attestor: Account!
 }
