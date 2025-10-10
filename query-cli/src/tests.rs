@@ -1,7 +1,7 @@
 use super::Network;
 use crate::query_builder::{get_erc20_transfer_segments, BlockscoutAbiProvider};
 use alloy::consensus::Transaction;
-use ccnext_abi_encoding::abi::abi_encode;
+use ccnext_abi_encoding::abi::{abi_encode, EncodingVersion};
 use ccnext_query_builder::{
     abi::query_builder::AbiProvider,
     test_helpers::{check_results, get_transaction_and_receipt, ResultField},
@@ -51,7 +51,9 @@ async fn test_get_erc20_transfer_segments_with_sepolia_gcre() {
     assert!(tx.inner.is_legacy());
 
     // Encode transaction
-    let raw = abi_encode(tx.clone(), rx.clone()).unwrap().abi;
+    let raw = abi_encode(tx.clone(), rx.clone(), EncodingVersion::V1)
+        .unwrap()
+        .abi;
 
     let selected_offsets: Vec<(usize, usize)> =
         get_erc20_transfer_segments(Network::Sepolia(String::new()), tx.clone(), rx.clone())

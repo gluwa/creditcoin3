@@ -2207,24 +2207,20 @@ dependencies = [
 
 [[package]]
 name = "ccnext-abi-encoding"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "124cc8918df22f6a3f59747b8eb2ff3151f04b9aea8e80797b55701d53435ad5"
+checksum = "1d213bbdb8e6dd1530a8f7af72e3fb15a810d962305c0c1f7df44c1255bdb929"
 dependencies = [
  "alloy",
- "alloy-json-abi",
- "hex",
  "serde",
- "serde_json",
  "thiserror 1.0.69",
- "tokio",
 ]
 
 [[package]]
 name = "ccnext-query-builder"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aca65988ba50f3596b216e1b0a330cadf46915360ff61c6d0c292592425c6a7"
+checksum = "d3112a6bf0ea69974e97e903fa0e5ce486a0a987fe29e83f3e3190b6c768e4f6"
 dependencies = [
  "alloy",
  "alloy-json-abi",
@@ -2232,9 +2228,7 @@ dependencies = [
  "ccnext-abi-encoding",
  "hex",
  "serde",
- "serde_json",
  "thiserror 1.0.69",
- "tokio",
 ]
 
 [[package]]
@@ -13451,10 +13445,11 @@ checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
 
 [[package]]
 name = "serde"
-version = "1.0.219"
+version = "1.0.220"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+checksum = "ceecad4c782e936ac90ecfd6b56532322e3262b14320abf30ce89a92ffdbfe22"
 dependencies = [
+ "serde_core",
  "serde_derive",
 ]
 
@@ -13468,10 +13463,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_derive"
-version = "1.0.219"
+name = "serde_core"
+version = "1.0.220"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+checksum = "ddba47394f3b862d6ff6efdbd26ca4673e3566a307880a0ffb98f274bbe0ec32"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.220"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60e1f3b1761e96def5ec6d04a6e7421c0404fa3cf5c0155f1e2848fae3d8cc08"
 dependencies = [
  "proc-macro2",
  "quote",

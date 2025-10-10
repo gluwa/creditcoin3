@@ -2,6 +2,7 @@ use super::Network;
 use alloy::rpc::types::{Transaction, TransactionReceipt};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use ccnext_abi_encoding::abi::EncodingVersion;
 use ccnext_query_builder::abi::{
     models::{QueryBuilderError, QueryableFields},
     query_builder::{AbiProvider, QueryBuilder},
@@ -118,7 +119,7 @@ pub async fn get_erc20_transfer_segments(
     tx: Transaction,
     rx: TransactionReceipt,
 ) -> Result<Vec<LayoutSegment>> {
-    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx)
+    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx, EncodingVersion::V1)
         .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
 
     match network {
@@ -200,7 +201,7 @@ pub async fn get_native_token_transfer_segments(
     tx: Transaction,
     rx: TransactionReceipt,
 ) -> Result<Vec<LayoutSegment>> {
-    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx)
+    let mut query_builder = QueryBuilder::create_from_transaction(tx, rx, EncodingVersion::V1)
         .map_err(|e| anyhow!("Creating query builder failed: {:?}", e))?;
 
     // For native token transfers we know the abi provider will never be used, since the transaction

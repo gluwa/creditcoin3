@@ -22,6 +22,7 @@ use alloy::{
 };
 
 use anyhow::Result;
+use ccnext_abi_encoding::abi::{abi_encode, EncodingVersion};
 use hex::FromHexError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -103,7 +104,7 @@ impl TxRx {
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        ccnext_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone())
+        abi_encode(self.tx().clone(), self.rx().clone(), EncodingVersion::V1)
             .expect("Transaction and receipt should be encodable.")
             .abi
     }
