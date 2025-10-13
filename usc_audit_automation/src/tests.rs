@@ -45,6 +45,7 @@ impl UniversalSmartContractProvider for MockUscRpcClientOk {
             },
             signature: [0u8; 96],
             attestors: vec![],
+            continuity_proof: Default::default(),
         }))
     }
     async fn get_attestation_interval(&self, _chain_key: u64) -> Result<Option<u64>> {
