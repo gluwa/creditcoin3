@@ -16541,7 +16541,6 @@ name = "usc_audit_automation"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "attestor",
  "attestor-primitives",
  "cc-client",
@@ -16558,6 +16557,7 @@ dependencies = [
  "mmr",
  "mockall 0.11.4",
  "num-format",
+ "pallet-supported-chains",
  "reqwest 0.12.15",
  "serde",
  "serde_json",

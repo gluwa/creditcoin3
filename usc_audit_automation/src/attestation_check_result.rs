@@ -11,6 +11,7 @@ use subxt::utils::AccountId32;
 pub struct AttestationInfo {
     pub attestor_best_block_number: u64,
     pub attestation_merkle_root: String,
+    pub signed_attestation: SignedAttestation<H256, AccountId32>,
 }
 
 #[derive(Debug)]
@@ -19,6 +20,7 @@ pub struct AttestationCheckResult {
     pub block_height_diff: i128,
     pub ethereum_block_info: EthereumBlockInfo,
     pub check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
+    pub maybe_elected_attestors: Option<Vec<AccountId32>>,
 }
 
 impl AttestationCheckResult {
@@ -41,6 +43,22 @@ impl AttestationCheckResult {
                 .ethereum_block_info
                 .calculated_ethereum_block_merkle_root
     }
+    pub fn get_unelected_attestors(&self) -> Vec<AccountId32> {
+        if let Some(elected_attestors) = &self.maybe_elected_attestors {
+            let unelected_attestors = self
+                .attestation_info
+                .signed_attestation
+                .attestors
+                .iter()
+                .filter(|attestor| !elected_attestors.contains(attestor))
+                .cloned()
+                .collect::<Vec<_>>();
+
+            return unelected_attestors;
+        }
+
+        Vec::new()
+    }
 }
 
 #[derive(Debug)]
@@ -50,12 +68,19 @@ pub struct EthereumBlockInfo {
     pub fetched_ethereum_block_number_by_hash: Option<u64>,
 }
 
+#[derive(Debug)]
+pub struct BlockHeightDiffChecker {
+    pub block_height_diff: i128,
+    pub block_height_exceeded: bool,
+}
+
 pub fn compute_attestation_check_result(
     latest_signed_attestation: &SignedAttestation<H256, AccountId32>,
     latest_ethereum_block_number: u64,
     calculated_ethereum_block_merkle_root: &str,
     fetched_ethereum_block_number_by_hash: Option<U64>,
     check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
+    maybe_elected_attestors: Option<Vec<AccountId32>>,
 ) -> AttestationCheckResult {
     let attestor_best_block_number = latest_signed_attestation.attestation.header_number;
     let block_height_diff = calculate_usc_and_source_chain_block_diff(
@@ -66,14 +91,12 @@ pub fn compute_attestation_check_result(
     let fetched_ethereum_block_number_by_hash: Option<u64> =
         fetched_ethereum_block_number_by_hash.map(|block| block.as_u64());
 
-    let attestation_merkle_root = format!(
-        "0x{}",
-        hex::encode(latest_signed_attestation.attestation.root)
-    );
+    let attestation_merkle_root = hex::encode(latest_signed_attestation.attestation.root);
 
     let attestation_info = AttestationInfo {
         attestor_best_block_number,
         attestation_merkle_root,
+        signed_attestation: latest_signed_attestation.clone(),
     };
     let ethereum_block_info = EthereumBlockInfo {
         latest_ethereum_block_number,
@@ -86,6 +109,7 @@ pub fn compute_attestation_check_result(
         block_height_diff,
         ethereum_block_info,
         check_point_created_in_range_checker,
+        maybe_elected_attestors,
     }
 }
 
@@ -122,6 +146,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 0,
                 attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(0, [0u8; 32]),
             },
             block_height_diff,
             ethereum_block_info: EthereumBlockInfo {
@@ -134,6 +159,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(result.is_block_height_exceeded());
@@ -148,6 +174,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 0,
                 attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(0, [0u8; 32]),
             },
             block_height_diff,
             ethereum_block_info: EthereumBlockInfo {
@@ -160,6 +187,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(!result.is_block_height_exceeded());
@@ -171,6 +199,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 100,
                 attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(100, [0u8; 32]),
             },
             block_height_diff: 0,
             ethereum_block_info: EthereumBlockInfo {
@@ -183,6 +212,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(result.header_hash_matches());
@@ -194,6 +224,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 100,
                 attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(100, [0u8; 32]),
             },
             block_height_diff: 0,
             ethereum_block_info: EthereumBlockInfo {
@@ -206,6 +237,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(!result.header_hash_matches());
@@ -217,6 +249,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 0,
                 attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(0, [0u8; 32]),
             },
             block_height_diff: 0,
             ethereum_block_info: EthereumBlockInfo {
@@ -229,6 +262,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(result.is_checkpoint_in_range());
@@ -240,6 +274,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 0,
                 attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(0, [0u8; 32]),
             },
             block_height_diff: 0,
             ethereum_block_info: EthereumBlockInfo {
@@ -252,6 +287,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: false,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(!result.is_checkpoint_in_range());
@@ -263,6 +299,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 0,
                 attestation_merkle_root: "0xdeadbeef".to_string(),
+                signed_attestation: dummy_attestation(0, [0u8; 32]),
             },
             block_height_diff: 0,
             ethereum_block_info: EthereumBlockInfo {
@@ -275,6 +312,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(result.merkle_roots_match());
@@ -286,6 +324,7 @@ mod tests {
             attestation_info: AttestationInfo {
                 attestor_best_block_number: 0,
                 attestation_merkle_root: "0xdeadbeef".to_string(),
+                signed_attestation: dummy_attestation(0, [0u8; 32]),
             },
             block_height_diff: 0,
             ethereum_block_info: EthereumBlockInfo {
@@ -298,6 +337,7 @@ mod tests {
                 latest_ethereum_block_number: 0,
                 checkpoint_created_within_range: true,
             },
+            maybe_elected_attestors: None,
         };
 
         assert!(!result.merkle_roots_match());
@@ -308,7 +348,7 @@ mod tests {
         let attestation = dummy_attestation(100, [1u8; 32]);
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
-        let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode([1u8; 32]));
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
         let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 50,
             latest_ethereum_block_number: 100,
@@ -320,12 +360,14 @@ mod tests {
             &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
+            None,
         );
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
         assert!(result.merkle_roots_match());
         assert!(result.is_checkpoint_in_range());
+        assert!(result.get_unelected_attestors().is_empty());
     }
 
     #[test]
@@ -333,7 +375,7 @@ mod tests {
         let attestation = dummy_attestation(10, [1u8; 32]);
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(10u64.into());
-        let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode([1u8; 32]));
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
         let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 5,
             latest_ethereum_block_number: 100,
@@ -346,12 +388,14 @@ mod tests {
             &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
+            None,
         );
 
-        assert!(result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
         assert!(result.merkle_roots_match());
         assert!(result.is_checkpoint_in_range());
+        assert!(result.get_unelected_attestors().is_empty());
+        assert!(result.is_block_height_exceeded());
     }
 
     #[test]
@@ -359,7 +403,7 @@ mod tests {
         let attestation = dummy_attestation(100, [1u8; 32]);
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(99u64.into());
-        let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode([1u8; 32]));
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
         let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 50,
             latest_ethereum_block_number: 100,
@@ -372,12 +416,14 @@ mod tests {
             &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
+            None,
         );
 
         assert!(!result.is_block_height_exceeded());
-        assert!(!result.header_hash_matches());
         assert!(result.merkle_roots_match());
         assert!(result.is_checkpoint_in_range());
+        assert!(result.get_unelected_attestors().is_empty());
+        assert!(!result.header_hash_matches());
     }
 
     #[test]
@@ -398,12 +444,14 @@ mod tests {
             &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
+            None,
         );
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
-        assert!(!result.merkle_roots_match());
         assert!(result.is_checkpoint_in_range());
+        assert!(result.get_unelected_attestors().is_empty());
+        assert!(!result.merkle_roots_match());
     }
 
     #[test]
@@ -412,8 +460,7 @@ mod tests {
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
         // Match the merkle root to make merkle_roots_match() pass
-        let root_bytes = [1u8; 32];
-        let calculated_ethereum_block_merkle_root = format!("0x{}", hex::encode(root_bytes));
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
         let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number: 50,
             latest_ethereum_block_number: 100,
@@ -425,11 +472,121 @@ mod tests {
             &calculated_ethereum_block_merkle_root,
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
+            Some(vec![AccountId32::from([0u8; 32])]),
         );
 
         assert!(!result.is_block_height_exceeded());
         assert!(result.header_hash_matches());
         assert!(result.merkle_roots_match());
+        assert!(result.get_unelected_attestors().is_empty());
         assert!(!result.is_checkpoint_in_range());
+    }
+
+    #[test]
+    fn test_unelected_attestors_only() {
+        let attestation = SignedAttestation {
+            attestation: Attestation {
+                chain_key: 1,
+                header_number: 100,
+                header_hash: H256::zero(),
+                root: [1u8; 32],
+                prev_digest: None,
+            },
+            signature: [0u8; 96],
+            attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
+        };
+        let latest_ethereum_block_number = 100;
+        let fetched_ethereum_block_number_by_hash = Some(100u64.into());
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
+            last_checkpoint_block_number: 50,
+            latest_ethereum_block_number: 100,
+            checkpoint_created_within_range: true,
+        };
+        let maybe_elected_attestors = Some(vec![AccountId32::from([0u8; 32])]);
+
+        let result = compute_attestation_check_result(
+            &attestation,
+            latest_ethereum_block_number,
+            &calculated_ethereum_block_merkle_root,
+            fetched_ethereum_block_number_by_hash,
+            checkpoint_created_in_range_checker,
+            maybe_elected_attestors.clone(),
+        );
+
+        let unelected = result.get_unelected_attestors();
+        assert!(!result.is_block_height_exceeded());
+        assert!(result.header_hash_matches());
+        assert!(result.merkle_roots_match());
+        assert!(result.is_checkpoint_in_range());
+        assert_eq!(unelected, vec![AccountId32::from([2u8; 32])]);
+    }
+
+    #[test]
+    fn test_attestation_signers_are_elected() {
+        let attestation = dummy_attestation(100, [1u8; 32]);
+        let latest_ethereum_block_number = 100;
+        let fetched_ethereum_block_number_by_hash = Some(100u64.into());
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
+            last_checkpoint_block_number: 50,
+            latest_ethereum_block_number: 100,
+            checkpoint_created_within_range: true,
+        };
+        let maybe_elected_attestors = Some(vec![
+            AccountId32::from([0u8; 32]),
+            AccountId32::from([1u8; 32]),
+        ]);
+
+        let result = compute_attestation_check_result(
+            &attestation,
+            latest_ethereum_block_number,
+            &calculated_ethereum_block_merkle_root,
+            fetched_ethereum_block_number_by_hash,
+            checkpoint_created_in_range_checker,
+            maybe_elected_attestors.clone(),
+        );
+
+        let unelected = result.get_unelected_attestors();
+        assert!(unelected.is_empty());
+    }
+
+    #[test]
+    fn test_attestation_signers_are_not_elected() {
+        let attestation = SignedAttestation {
+            attestation: Attestation {
+                chain_key: 1,
+                header_number: 100,
+                header_hash: H256::zero(),
+                root: [1u8; 32],
+                prev_digest: None,
+            },
+            signature: [0u8; 96],
+            attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
+        };
+        let latest_ethereum_block_number = 100;
+        let fetched_ethereum_block_number_by_hash = Some(100u64.into());
+        let calculated_ethereum_block_merkle_root = hex::encode([1u8; 32]);
+        let checkpoint_created_in_range_checker = CheckpointCreatedWithinRangeResult {
+            last_checkpoint_block_number: 50,
+            latest_ethereum_block_number: 100,
+            checkpoint_created_within_range: true,
+        };
+        let maybe_elected_attestors = Some(vec![
+            AccountId32::from([0u8; 32]),
+            AccountId32::from([1u8; 32]),
+        ]);
+
+        let result = compute_attestation_check_result(
+            &attestation,
+            latest_ethereum_block_number,
+            &calculated_ethereum_block_merkle_root,
+            fetched_ethereum_block_number_by_hash,
+            checkpoint_created_in_range_checker,
+            maybe_elected_attestors.clone(),
+        );
+
+        let unelected = result.get_unelected_attestors();
+        assert_eq!(unelected, vec![AccountId32::from([2u8; 32])]);
     }
 }

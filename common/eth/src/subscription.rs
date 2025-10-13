@@ -63,7 +63,7 @@ fn subscribe_latest_heads(
 
     let client = client.clone();
     let handle = tokio::spawn(async move {
-        let subscription = client.ws.subscribe_blocks().await?;
+        let subscription = client.rpc_provider.subscribe_blocks().await?;
         // Open stream
         let mut stream = subscription.into_stream();
 

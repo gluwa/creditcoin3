@@ -1,4 +1,4 @@
-use crate::{attestation_check_result::AttestationCheckResult, NetworkTarget};
+use crate::{attestation_check_result::AttestationCheckResult, SupportedChainInfo};
 use anyhow::{anyhow, Result};
 use num_format::{Locale, ToFormattedString};
 use serde_json::{json, Value};
@@ -26,6 +26,7 @@ fn alert_reasons(
     header_hash_match: bool,
     roots_match: bool,
     checkpoint_creation_in_range: bool,
+    unelected_attestors_is_empty: bool,
 ) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     if exceeded {
@@ -39,6 +40,9 @@ fn alert_reasons(
     }
     if !checkpoint_creation_in_range {
         reasons.push("Last checkpoint creation out of range!");
+    }
+    if !unelected_attestors_is_empty {
+        reasons.push("Found unelected attestors in signed attestors!");
     }
     reasons
 }
@@ -54,8 +58,9 @@ fn format_slack_alert_id_starts_with(group: &str) -> Result<String> {
 }
 
 pub fn create_json_message(
-    target: NetworkTarget,
+    supported_chain_info: &SupportedChainInfo,
     attestation_check_result: AttestationCheckResult,
+    usc_network_name: &str,
     slack_alert_group: &Option<String>,
 ) -> (Value, Option<Value>) {
     let eth_fmt = attestation_check_result
@@ -105,6 +110,32 @@ pub fn create_json_message(
         } else {
             ("❌", "Last checkpoint creation is outside checkpoint range")
         };
+
+    let (
+        unelected_attestors_res,
+        all_signed_attestors_are_elected_emoji,
+        all_signed_attestors_are_elected_verdict,
+    ) = {
+        if attestation_check_result.maybe_elected_attestors.is_some() {
+            let unelected_attestors = attestation_check_result.get_unelected_attestors();
+            if unelected_attestors.is_empty() {
+                (
+                    unelected_attestors,
+                    "✅",
+                    "All signed attestors are elected",
+                )
+            } else {
+                (
+                    unelected_attestors,
+                    "❌",
+                    "Found unelected attestors in signed attestors",
+                )
+            }
+        } else {
+            (Vec::new(), "⚪", "No elected attestors data")
+        }
+    };
+
     let checkpoint_interval_diff = attestation_check_result
         .check_point_created_in_range_checker
         .latest_ethereum_block_number
@@ -114,13 +145,20 @@ pub fn create_json_message(
                 .last_checkpoint_block_number,
         );
 
+    let on_chain_network_details = format!(
+        "[{} - {}]",
+        supported_chain_info.chain_name, supported_chain_info.chain_id
+    );
+
     // Single, consistent base line (only the emoji differs)
     let base_line = format!(
-        "⬛ {}\n{} {}: {} ({}|{})\n\
+        "{} ⬛ {}\n{} {}: {} ({}|{})\n\
         {} {}: ({}|{})\n\
         {} {}: ({}|{})\n\
+        {} {}: {} ({}|{})\n\
         {} {}: {} ({}|{})",
-        target.usc_network_name,
+        on_chain_network_details,
+        usc_network_name,
         attestation_height_status_emoji,
         attestation_height_verdict,
         attestation_check_result
@@ -158,6 +196,24 @@ pub fn create_json_message(
             .check_point_created_in_range_checker
             .last_checkpoint_block_number
             .to_formatted_string(&Locale::en),
+        all_signed_attestors_are_elected_emoji,
+        all_signed_attestors_are_elected_verdict,
+        unelected_attestors_res
+            .iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<String>>()
+            .join(", "),
+        attestation_check_result
+            .attestation_info
+            .signed_attestation
+            .attestors
+            .len()
+            .to_formatted_string(&Locale::en),
+        attestation_check_result
+            .maybe_elected_attestors
+            .as_ref()
+            .map(|e| e.len().to_formatted_string(&Locale::en))
+            .unwrap_or_else(|| "N/A".to_string())
     );
 
     // Primary message (always present)
@@ -169,13 +225,19 @@ pub fn create_json_message(
             if attestation_check_result.is_block_height_exceeded()
                 || !attestation_check_result.header_hash_matches()
                 || !attestation_check_result.merkle_roots_match()
-                || !attestation_check_result.is_checkpoint_in_range() =>
+                || !attestation_check_result.is_checkpoint_in_range()
+                || attestation_check_result
+                    .get_unelected_attestors()
+                    .is_empty() =>
         {
             let reasons = alert_reasons(
                 attestation_check_result.is_block_height_exceeded(),
                 attestation_check_result.header_hash_matches(),
                 attestation_check_result.merkle_roots_match(),
                 attestation_check_result.is_checkpoint_in_range(),
+                attestation_check_result
+                    .get_unelected_attestors()
+                    .is_empty(),
             );
 
             let slack_alert_id = match format_slack_alert_id_starts_with(group) {

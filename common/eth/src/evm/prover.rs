@@ -245,7 +245,7 @@ impl GluwaPublicProverContract {
             self.address
         );
 
-        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
+        let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
         let sub = contract.QuerySubmitted_filter().subscribe().await?;
         let mut stream = sub.into_stream();
@@ -352,7 +352,7 @@ impl GluwaPublicProverContract {
         client: &Client,
         proof_channel: mpsc::UnboundedSender<H256>,
     ) -> Result<()> {
-        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
+        let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
         let sub = contract.QueryProofVerified_filter().subscribe().await?;
         let mut stream = sub.into_stream();
@@ -379,7 +379,7 @@ impl GluwaPublicProverContract {
             query_id
         );
 
-        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
+        let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
         let verification_filter = contract.QueryProofVerified_filter().topic1(query_id);
 
@@ -418,7 +418,7 @@ impl GluwaPublicProverContract {
     pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>> {
         info!("Getting unprocessed queries");
 
-        let contract = CreditcoinPublicProver::new(self.address, client.ws.clone());
+        let contract = CreditcoinPublicProver::new(self.address, client.rpc_provider.clone());
 
         let unprocessed = contract.getUnprocessedQueries().call().await?;
 

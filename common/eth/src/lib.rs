@@ -223,11 +223,16 @@ pub(crate) type WalletExeFiller = JoinFill<
     WalletFiller<EthereumWallet>,
 >;
 
+pub enum ConnectionTransport {
+    Http(alloy::transports::http::reqwest::Url),
+    Ws(WsConnect),
+}
+
 #[derive(Debug, Clone)]
 pub struct Client {
     url: Url,
     private_key: Option<String>,
-    ws: AlloyProvider,
+    rpc_provider: AlloyProvider,
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
@@ -236,16 +241,32 @@ pub struct Client {
 impl Client {
     pub async fn new(url: &str, private_key: Option<&str>) -> Result<Self> {
         let url = Url::parse(url)?;
+        let url_scheme = url.scheme();
 
-        let ws = WsConnect::new(url.clone());
-        let ws_provider = ProviderBuilder::new()
-            .network::<Ethereum>()
-            .on_ws(ws)
-            .await?;
+        let rpc_provider = match url_scheme {
+            "http" | "https" => ProviderBuilder::new()
+                .network::<Ethereum>()
+                .on_http(url.clone()),
+
+            "ws" | "wss" => {
+                let ws = WsConnect::new(url.clone());
+                ProviderBuilder::new()
+                    .network::<Ethereum>()
+                    .on_ws(ws)
+                    .await?
+            }
+
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {}",
+                    url_scheme
+                ));
+            }
+        };
 
         info!("Connecting to Ethereum node at {}", url);
 
-        let chain_id = ws_provider.get_chain_id().await.map_err(|e| {
+        let chain_id = rpc_provider.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
             Error::FailedToGetChainId(e.to_string())
         })?;
@@ -253,7 +274,7 @@ impl Client {
         Ok(Self {
             url,
             private_key: private_key.map(|s| s.to_owned()),
-            ws: ws_provider,
+            rpc_provider,
             chain_id,
         })
     }
@@ -262,18 +283,28 @@ impl Client {
         self.chain_id
     }
 
-    #[must_use]
-    pub fn get_url(&self) -> WsConnect {
-        WsConnect::new(self.url.clone())
+    pub fn get_url(&self) -> Result<ConnectionTransport> {
+        let scheme = self.url.scheme();
+
+        match scheme {
+            "wss" | "ws" => {
+                let ws = WsConnect::new(self.url.clone());
+                Ok(ConnectionTransport::Ws(ws))
+            }
+            "https" | "http" => Ok(ConnectionTransport::Http(self.url.clone())),
+            _ => Err(anyhow::anyhow!("Unsupported scheme: {}", scheme)),
+        }
     }
 
     /// Creates a provider that can be used to send transactions and query the Ethereum network.
     /// This provider contains the wallet configured with the private key.
     pub async fn get_wallet_ws_provider(&self) -> Result<AlloyWalletProvider, Error> {
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(self.get_signer()?))
-            .on_ws(self.get_url())
-            .await?;
+        let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
+
+        let provider = match self.get_url()? {
+            ConnectionTransport::Http(url) => builder.on_http(url),
+            ConnectionTransport::Ws(ws_client) => builder.on_ws(ws_client).await?,
+        };
 
         Ok(provider)
     }
@@ -343,7 +374,7 @@ impl Client {
     }
 
     async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {
-        self.ws
+        self.rpc_provider
             .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
             .await
             .map_err(|e| {
@@ -354,7 +385,7 @@ impl Client {
     }
 
     pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
-        self.ws
+        self.rpc_provider
             .get_block(
                 BlockId::Number(BlockNumberOrTag::Number(number)),
                 true.into(),
@@ -368,11 +399,11 @@ impl Client {
     }
 
     pub async fn get_last_block(&self) -> Result<u64, Error> {
-        Ok(self.ws.get_block_number().await?)
+        Ok(self.rpc_provider.get_block_number().await?)
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, Error> {
-        self.ws.get_chain_id().await.map_err(|e| {
+        self.rpc_provider.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
             Error::FailedToGetChainId(e.to_string())
         })
@@ -380,7 +411,7 @@ impl Client {
 
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
         let block_opt = self
-            .ws
+            .rpc_provider
             .get_block_by_hash(hash, true.into())
             .await
             .map_err(|e| {

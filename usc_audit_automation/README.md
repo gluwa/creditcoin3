@@ -49,14 +49,24 @@ The USC Audit Automation tool is using a config file (config.toml)
 Example config.toml:
 
 ```
-slack_webhook_url = "SLACK_URL"
-slack_alert_group = "<@GROUP_TO_ALERT>"
 log_verbose = false
+rpc_providers = [
+    [
+        "infura",
+        "infura_api_key",
+    ],
+    [
+        "alchemy",
+        "alchemy_api_key",
+    ],
+]
+slack_alert_group = "USER_OR_SUBTEAM_SLACK_ID"
+slack_webhook_url = "SLACK_WEBHOOK_URL"
+usc_account_mnemonic = "USC_NETWORK_ACCOUNT_MNEMONIC"
+usc_graphql_url = "USC_NETWORK_GRAPHQL_ENDPOINT"
+usc_network_name = "USC_NETWORK_NAME"
+usc_rpc_url = "USC_NETWORK_RPC_URL"
 
-[[target]]
-usc_network_name = "Local"
-usc_metrics_url = "metrics_url"
-ethereum_rpc_url = "rpc_url"
 ```
 
 ### 5. CLI Options

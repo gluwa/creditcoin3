@@ -3,7 +3,8 @@ use crate::{
     attestation_checks::{get_attestor_latest_attestation_data, get_ethereum_current_block_number},
     calculate_merkle_root, calculate_usc_and_source_chain_block_diff,
     create_json_message::create_json_message,
-    CheckpointCreatedWithinRangeResult, MockEthereumProvider, UniversalSmartContractProvider,
+    CheckpointCreatedWithinRangeResult, MockEthereumProvider, SupportedChainInfo,
+    UniversalSmartContractProvider,
 };
 use anyhow::Result;
 use attestor_primitives::{AttestationCheckpoint, SignedAttestation};
@@ -104,16 +105,10 @@ impl UniversalSmartContractProvider for MockUscRpcClientError {
 #[tokio::test]
 async fn get_attestor_best_block_height_fetches_best_block_correctly() -> Result<()> {
     let client = MockUscRpcClientOk::new();
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "test_url".to_string(),
-        usc_account_mnemonic: "".to_string(),
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
-        chain_key: 2,
-    };
+    let chain_key = 2_u64;
 
     // Call mock get_attestor_best_block_height
-    let signed_attestation = get_attestor_latest_attestation_data(&client, target).await?;
+    let signed_attestation = get_attestor_latest_attestation_data(&client, chain_key).await?;
     let expected_best_block = 123_u64;
 
     assert_eq!(
@@ -127,16 +122,10 @@ async fn get_attestor_best_block_height_fetches_best_block_correctly() -> Result
 #[tokio::test]
 async fn get_attestor_best_block_height_returns_an_error_when_no_best_block_found() -> Result<()> {
     let client = MockUscRpcClientError::new();
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "test_url".to_string(),
-        usc_account_mnemonic: "".to_string(),
-        chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
-    };
+    let chain_key = 2_u64;
 
     // Call mock get_attestor_best_block_height
-    let result = get_attestor_latest_attestation_data(&client, target).await;
+    let result = get_attestor_latest_attestation_data(&client, chain_key).await;
 
     assert!(result.is_err(), "Expected an error but got Ok");
 
@@ -214,12 +203,10 @@ fn calculate_usc_and_source_chain_block_diff_returns_a_negative_value_if_source_
 #[test]
 fn create_message_returns_chain_status_and_group_notification_when_slack_group_is_some_and_block_diff_check_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
 
     let last_signed_attestation = SignedAttestation {
@@ -234,12 +221,15 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         attestors: vec![],
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
-    let calculated_ethereum_block_merkle_root = format!(
-        "0x{}",
-        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"
-    );
+    let calculated_ethereum_block_merkle_root =
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+
     let fetched_ethereum_block_number_by_hash = Some(U64::from(100u64));
     let latest_ethereum_block_number = 200_u64;
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
 
     let last_checkpoint_block_number = 50;
 
@@ -247,7 +237,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n❌ Attestation block heights diff: 100 (200|100)\n✅ Attestation header hash matches correct Ethereum block: (100|100)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n❌ Attestation block heights diff: 100 (200|100)\n✅ Attestation header hash matches correct Ethereum block: (100|100)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
@@ -265,9 +255,15 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        maybe_elected_attestors,
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }
@@ -275,12 +271,10 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
 #[test]
 fn create_message_returns_chain_status_and_group_notification_when_slack_group_is_some_and_header_hash_check_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
 
     let last_signed_attestation = SignedAttestation {
@@ -292,13 +286,12 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
             prev_digest: None,
         },
         signature: [0u8; 96],
-        attestors: vec![],
+        attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
-    let calculated_ethereum_block_merkle_root = format!(
-        "0x{}",
-        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"
-    );
+    let calculated_ethereum_block_merkle_root =
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+
     let fetched_ethereum_block_number_by_hash = Some(U64::from(100u64)); // mismatch: 100 != 150
     let latest_ethereum_block_number = 200_u64;
 
@@ -308,7 +301,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n❌ Attestation header hash does not match correct Ethereum block: (100|150)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 20 (200|180)```"
+            "text": "```[TEST - 1] ⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n❌ Attestation header hash does not match correct Ethereum block: (100|150)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 20 (200|180)\n✅ All signed attestors are elected:  (2|2)```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
@@ -327,11 +320,16 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
             latest_ethereum_block_number,
             checkpoint_created_within_range: true, // checkpoint check passes
         },
+        Some(vec![
+            AccountId32::from([0u8; 32]),
+            AccountId32::from([1u8; 32]),
+        ]),
     );
 
     let result = create_json_message(
-        target.clone(),
+        &supported_chain_info,
         attestation_checks_result,
+        "TEST",
         &slack_alert_group,
     );
 
@@ -341,14 +339,11 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
 #[test]
 fn create_message_returns_chain_status_and_group_notification_when_slack_group_is_some_and_merkle_root_check_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chains_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
-
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
             chain_key: 2,
@@ -358,10 +353,10 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
             prev_digest: None,
         },
         signature: [0u8; 96],
-        attestors: vec![],
+        attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([1u8; 32])],
     };
     let slack_alert_group = Some("S_TEST_GROUP".to_string());
-    let calculated_ethereum_block_merkle_root = "0xsomecalculatedmerkle".to_string(); // mismatch
+    let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
     let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64)); // matches header_number
     let latest_ethereum_block_number = 200_u64;
 
@@ -369,7 +364,7 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n❌ Calculated merkle root does not match attestation root: (0xsomecalculatedmerkle|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (2|2)```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
@@ -388,76 +383,28 @@ fn create_message_returns_chain_status_and_group_notification_when_slack_group_i
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        Some(vec![
+            AccountId32::from([0u8; 32]),
+            AccountId32::from([1u8; 32]),
+        ]),
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
-
-    assert_eq!(expected_result, result);
-}
-
-#[test]
-fn create_message_returns_chain_status_and_no_group_notification_when_slack_group_is_some_and_all_checks_pass(
-) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
-        chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
-    };
-    let last_signed_attestation = SignedAttestation {
-        attestation: attestor_primitives::Attestation {
-            chain_key: 2,
-            header_number: 170,
-            header_hash: H256::from_slice(&[0u8; 32]),
-            root: hex!("736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"),
-            prev_digest: None,
-        },
-        signature: [0u8; 96],
-        attestors: vec![],
-    };
-    let latest_ethereum_block_number = 200_u64;
-    let calculated_ethereum_block_merkle_root =
-        "0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
-    let fetched_ethereum_block_number_by_hash = Some(U64::from(170u64));
-    let slack_alert_group = Some("TEST_GROUP".to_string());
-
-    let last_checkpoint_block_number = 180;
-
-    let expected_result = (
-        json!({
-            "username": "usc-audit-automation",
-            "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 30 (200|170)\n✅ Attestation header hash matches correct Ethereum block: (170|170)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 20 (200|180)```"
-        }),
-        None,
+    let result = create_json_message(
+        &supported_chains_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
     );
-
-    let attestation_check_result = compute_attestation_check_result(
-        &last_signed_attestation,
-        latest_ethereum_block_number,
-        calculated_ethereum_block_merkle_root.as_str(),
-        fetched_ethereum_block_number_by_hash,
-        CheckpointCreatedWithinRangeResult {
-            last_checkpoint_block_number,
-            latest_ethereum_block_number,
-            checkpoint_created_within_range: true,
-        },
-    );
-
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
 
     assert_eq!(expected_result, result);
 }
 
 #[test]
 fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_when_a_check_fails() {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
@@ -472,17 +419,20 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
-        "0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
     let fetched_ethereum_block_number_by_hash = Some(U64::from(100u64));
     let slack_alert_group = Some("U_TEST_USER".to_string());
-
     let last_checkpoint_block_number = 50;
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n❌ Attestation block heights diff: 100 (200|100)\n✅ Attestation header hash matches correct Ethereum block: (100|100)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n❌ Attestation block heights diff: 100 (200|100)\n✅ Attestation header hash matches correct Ethereum block: (100|100)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         Some(json!({
             "username": "usc-audit-automation",
@@ -501,9 +451,15 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        maybe_elected_attestors,
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }
@@ -511,12 +467,10 @@ fn create_message_returns_chain_status_and_group_notification_with_u_slack_id_wh
 #[test]
 fn create_message_returns_chain_status_and_no_group_notification_when_slack_group_is_none_and_all_checks_fail(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
@@ -530,15 +484,20 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         attestors: vec![],
     };
     let latest_ethereum_block_number = 200_u64;
-    let calculated_ethereum_block_merkle_root = "0xsomecalculatedmerkle".to_string();
+    let last_checkpoint_block_number = 50;
+    let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string();
     let fetched_ethereum_block_number_by_hash = Some(U64::from(100u64));
     let slack_alert_group = None;
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n❌ Attestation block heights diff: 60 (200|140)\n❌ Attestation header hash does not match correct Ethereum block: (100|140)\n❌ Calculated merkle root does not match attestation root: (0xsomecalculatedmerkle|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n❌ Last checkpoint creation is outside checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n❌ Attestation block heights diff: 60 (200|140)\n❌ Attestation header hash does not match correct Ethereum block: (100|140)\n❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n❌ Last checkpoint creation is outside checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         None,
     );
@@ -549,15 +508,17 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         calculated_ethereum_block_merkle_root.as_str(),
         fetched_ethereum_block_number_by_hash,
         CheckpointCreatedWithinRangeResult {
-            last_checkpoint_block_number: 50,
+            last_checkpoint_block_number,
             latest_ethereum_block_number,
             checkpoint_created_within_range: false, // <-- Set to false so checkpoint check fails
         },
+        maybe_elected_attestors,
     );
 
     let result = create_json_message(
-        target.clone(),
+        &supported_chain_info,
         attestation_checks_result,
+        "TEST",
         &slack_alert_group,
     );
 
@@ -567,12 +528,10 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
 #[test]
 fn create_message_returns_chain_status_and_no_group_notification_when_slack_group_is_none_and_block_diff_check_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
@@ -587,17 +546,20 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
-        "0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
     let fetched_ethereum_block_number_by_hash = Some(U64::from(100u64)); // matches header_number
     let slack_alert_group = None;
-
     let last_checkpoint_block_number = 50;
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n❌ Attestation block heights diff: 100 (200|100)\n✅ Attestation header hash matches correct Ethereum block: (100|100)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n❌ Attestation block heights diff: 100 (200|100)\n✅ Attestation header hash matches correct Ethereum block: (100|100)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         None,
     );
@@ -612,9 +574,15 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        maybe_elected_attestors,
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }
@@ -622,12 +590,10 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
 #[test]
 fn create_message_returns_chain_status_and_no_group_notification_when_slack_group_is_none_and_header_hash_check_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
@@ -642,17 +608,20 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
-        "0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
     let fetched_ethereum_block_number_by_hash = Some(U64::from(100u64)); // mismatch: 100 != 150
     let slack_alert_group = None;
 
-    let last_checkpoint_block_number = 50;
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n❌ Attestation header hash does not match correct Ethereum block: (100|150)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n❌ Attestation header hash does not match correct Ethereum block: (100|150)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         None,
     );
@@ -663,13 +632,19 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         calculated_ethereum_block_merkle_root.as_str(),
         fetched_ethereum_block_number_by_hash,
         CheckpointCreatedWithinRangeResult {
-            last_checkpoint_block_number,
+            last_checkpoint_block_number: 50,
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        maybe_elected_attestors,
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }
@@ -677,13 +652,12 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
 #[test]
 fn create_message_returns_chain_status_and_no_group_notification_when_slack_group_is_none_and_merkle_root_check_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
+
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
             chain_key: 2,
@@ -695,18 +669,18 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         signature: [0u8; 96],
         attestors: vec![],
     };
-    let latest_ethereum_block_number = 200_u64;
-    let calculated_ethereum_block_merkle_root = "0xsomecalculatedmerkle".to_string(); // mismatch
+    let calculated_ethereum_block_merkle_root = "somecalculatedmerkle".to_string(); // mismatch
     let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64)); // matches header_number
-    let slack_alert_group = None;
+    let slack_alert_group: Option<String> = None;
 
     let last_checkpoint_block_number = 50;
+    let latest_ethereum_block_number = 200_u64;
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n❌ Calculated merkle root does not match attestation root: (0xsomecalculatedmerkle|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n❌ Calculated merkle root does not match attestation root: (somecalculatedmerkle|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         None,
     );
@@ -721,9 +695,18 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        Some(vec![
+            AccountId32::from([0u8; 32]),
+            AccountId32::from([1u8; 32]),
+        ]),
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }
@@ -731,12 +714,10 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
 #[test]
 fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_group_is_none_and_sanity_check_succeeds(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
@@ -751,17 +732,20 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
     };
     let latest_ethereum_block_number = 200_u64;
     let calculated_ethereum_block_merkle_root =
-        "0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
     let fetched_ethereum_block_number_by_hash = Some(U64::from(150u64));
     let slack_alert_group = None;
-
     let last_checkpoint_block_number = 50;
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)```"
+            "text": "```[TEST - 1] ⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n✅ Last checkpoint creation is within checkpoint range: 150 (200|50)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         None,
     );
@@ -776,9 +760,15 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
             latest_ethereum_block_number,
             checkpoint_created_within_range: true,
         },
+        maybe_elected_attestors,
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }
@@ -786,17 +776,15 @@ fn create_message_returns_a_chain_status_and_no_group_notification_when_slack_gr
 #[test]
 fn create_message_returns_chain_status_and_no_group_notification_when_slack_group_is_none_and_only_checkpoint_range_fails(
 ) {
-    let target = &crate::NetworkTarget {
-        usc_network_name: "TEST".to_string(),
-        usc_rpc_url: "http://someuscmetricsurl.com/metrics".to_string(),
-        usc_account_mnemonic: "".to_string(),
+    let supported_chain_info = SupportedChainInfo {
+        chain_id: 1,
+        chain_name: "TEST".to_string(),
         chain_key: 2,
-        ethereum_rpc_url: "http://someethrpcurl.com".to_string(),
     };
     let last_signed_attestation = SignedAttestation {
         attestation: attestor_primitives::Attestation {
             chain_key: 2,
-            header_number: 150, // block diff is 50 (passes)
+            header_number: 150,
             header_hash: H256::from_slice(&[0u8; 32]),
             root: hex!("736f6d6563616c63756c617465646d65726b6c65000000000000000000000000"),
             prev_digest: None,
@@ -806,18 +794,20 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
     };
     let latest_ethereum_block_number = 200_u64;
     let ethereum_current_block_calculated_merkle_root =
-        "0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
-    let eth_block_by_hash = Some(U64::from(150u64)); // matches header_number
+        "736f6d6563616c63756c617465646d65726b6c65000000000000000000000000".to_string();
+    let eth_block_by_hash = Some(U64::from(150u64));
     let slack_alert_group: Option<String> = None;
-
-    // Set checkpoint values so the check fails (latest_ethereum_block_number - last_checkpoint_block_number > checkpoint_creation_range)
+    let maybe_elected_attestors = Some(vec![
+        AccountId32::from([0u8; 32]),
+        AccountId32::from([1u8; 32]),
+    ]);
     let last_checkpoint_block_number = 10;
 
     let expected_result = (
         json!({
             "username": "usc-audit-automation",
             "icon_emoji": ":shield:",
-            "text": "```⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n✅ Calculated merkle root matches attestation root: (0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|0x736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n❌ Last checkpoint creation is outside checkpoint range: 190 (200|10)```"
+            "text": "```[TEST - 1] ⬛ TEST\n✅ Attestation block heights diff: 50 (200|150)\n✅ Attestation header hash matches correct Ethereum block: (150|150)\n✅ Calculated merkle root matches attestation root: (736f6d6563616c63756c617465646d65726b6c65000000000000000000000000|736f6d6563616c63756c617465646d65726b6c65000000000000000000000000)\n❌ Last checkpoint creation is outside checkpoint range: 190 (200|10)\n✅ All signed attestors are elected:  (0|2)```"
         }),
         None,
     );
@@ -830,11 +820,17 @@ fn create_message_returns_chain_status_and_no_group_notification_when_slack_grou
         CheckpointCreatedWithinRangeResult {
             last_checkpoint_block_number,
             latest_ethereum_block_number,
-            checkpoint_created_within_range: false, // fails
+            checkpoint_created_within_range: false,
         },
+        maybe_elected_attestors,
     );
 
-    let result = create_json_message(target.clone(), attestation_check_result, &slack_alert_group);
+    let result = create_json_message(
+        &supported_chain_info,
+        attestation_check_result,
+        "TEST",
+        &slack_alert_group,
+    );
 
     assert_eq!(expected_result, result);
 }

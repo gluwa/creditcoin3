@@ -6,17 +6,20 @@ use eth::{self, AlloyB256, Client as EthClient, OrderedBlock};
 use ethers::types::U64;
 use mmr::traits::MerkleTreeTrait;
 use mockall::{automock, predicate::*};
+use reqwest::Client;
 use serde::Deserialize;
 use sp_core::H256;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use subxt::utils::AccountId32;
 use tracing::info;
 const MAX_ALLOWED_BLOCK_HEIGHT_DIFF: i128 = 50;
+const CHAIN_LIST_URL: &str = "https://chainid.network/chains.json";
 
 pub mod attestation_check_result;
 pub mod attestation_checks;
 mod create_json_message;
-
+mod ethereum_rpc;
 #[cfg(test)]
 mod tests;
 
@@ -30,30 +33,83 @@ pub struct SanitiesChecker {
     pub config_file: PathBuf,
 }
 
-/// - `usc_network_name`: Name of the USC network (for logging purposes)
-/// - `usc_rpc_url`: USC RPC url (must have rpc + websocket features)
-/// - `usc_account_mnemonic`: Mnemonic for a usc account
-/// - `ethereum_rpc_url`: Ethereum RPC url (for fetching block height)
-/// - `chain_key`: Chain key of the source chain to monitor
 #[derive(Debug, Deserialize, Clone)]
-pub struct NetworkTarget {
-    pub usc_network_name: String,
-    pub usc_rpc_url: String,
-    pub usc_account_mnemonic: String,
-    pub ethereum_rpc_url: String,
-    pub chain_key: u64,
+pub struct RpcProvider {
+    name: String,
+    api_key: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct SanitiesConfigFile {
-    #[serde(default)]
-    pub targets: Vec<NetworkTarget>,
     #[serde(default)]
     pub slack_webhook_url: String,
     #[serde(default)]
     pub slack_alert_group: Option<String>,
     #[serde(default)]
     pub log_verbose: bool,
+    #[serde(default)]
+    pub usc_network_name: String,
+    #[serde(default)]
+    pub usc_rpc_url: String,
+    #[serde(default)]
+    pub usc_account_mnemonic: String,
+    #[serde(default)]
+    pub rpc_providers: Vec<RpcProvider>,
+    #[serde(default)]
+    pub usc_graphql_url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChainInfo {
+    pub name: String,
+    #[serde(rename = "chainId")]
+    pub chain_id: u64,
+    pub rpc: Vec<String>,
+    #[serde(default)]
+    pub short_name: Option<String>,
+    #[serde(default)]
+    pub network: Option<String>,
+}
+
+pub async fn fetch_chains_json(client: &Client) -> Result<Option<Vec<ChainInfo>>> {
+    let response = client.get(CHAIN_LIST_URL).send().await?;
+    let chains: Vec<ChainInfo> = response.json().await?;
+
+    Ok(Some(chains))
+}
+
+pub struct SupportedChainInfo {
+    pub chain_id: u64,
+    pub chain_name: String,
+    pub chain_key: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChainCache {
+    by_id: HashMap<u64, ChainInfo>,
+    by_name: HashMap<String, ChainInfo>,
+}
+
+impl ChainCache {
+    pub fn from_chains(chains: Vec<ChainInfo>) -> Self {
+        let mut by_id = HashMap::new();
+        let mut by_name = HashMap::new();
+
+        for chain in chains {
+            by_id.insert(chain.chain_id, chain.clone());
+            by_name.insert(chain.name.to_lowercase(), chain);
+        }
+
+        Self { by_id, by_name }
+    }
+
+    pub fn get_by_id(&self, id: u64) -> Option<&ChainInfo> {
+        self.by_id.get(&id)
+    }
+
+    pub fn get_by_name(&self, name: &str) -> Option<&ChainInfo> {
+        self.by_name.get(&name.to_lowercase())
+    }
 }
 
 #[automock]
@@ -172,15 +228,17 @@ pub(crate) async fn check_attestation_checkpoint_created_within_block_interval_r
         .await?
         .unwrap_or_default();
     info!("Attestation interval: {:?}", attestation_interval);
-    let vote_acceptance_window = client
+    let attestation_vote_acceptance_window = client
         .get_attestation_vote_acceptance_window(chain_key)
         .await?
         .unwrap_or_default();
-    info!("Vote acceptance window: {:?}", vote_acceptance_window);
+    info!(
+        "Attestation vote acceptance window: {:?}",
+        attestation_vote_acceptance_window
+    );
 
-    // Number of attestations between checkpoints
     let checkpoint_block_range =
-        checkpoint_interval as u64 * attestation_interval * vote_acceptance_window;
+        checkpoint_interval as u64 * attestation_interval * attestation_vote_acceptance_window;
 
     info!("Checkpoint expected range: {}", checkpoint_block_range);
 
