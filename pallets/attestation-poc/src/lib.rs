@@ -804,13 +804,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(9)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(
-            attestations.len() as u32,
-            attestations.iter()
-                .map(|a| a.continuity_proof.len() as u32) // or .encoded_size() as u32
-                .max().unwrap_or(0),
-            T::MaxAttestationNodes::get()
-        ), DispatchClass::Mandatory))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_attestation(attestations.len() as u32, attestations.iter().map(|a| a.continuity_proof.len() as u32).max().unwrap_or(0), T::MaxAttestationNodes::get()), DispatchClass::Mandatory))]
         pub fn commit_attestation(
             origin: OriginFor<T>,
             attestations: BoundedVec<
