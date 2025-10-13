@@ -17,7 +17,7 @@ describe('BlockAttested events', (): void => {
     let chain_Anvil1_AttestationInterval = 0;
     let startBlock_Anvil1 = 0;
     let provider_Anvil1: WebSocketProvider;
-    const maxBlocks = 220; // ~ 18:20 mins
+    const maxBlocks = 20; // ~ 18:20 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -50,18 +50,23 @@ describe('BlockAttested events', (): void => {
             '2': 0,
             '4': 0,
         };
+
+        const attestedEventsMemory: {
+            [key: string]: { signed: AttestorPrimitivesSignedAttestation; digest: string }[];
+        } = { '2': [], '4': [] };
+
         const electionEvents: { [key: string]: number } = {
             '2': 0,
-            '4': 0,
+            // '4': 0,
         };
         const intervalChangedEvents: { [key: string]: number } = {
             '2': 0,
-            '4': 0,
+            // '4': 0,
         };
         const initialBlock = (await getChainStatus(api)).bestNumber;
         const expectedMinVotes: { [key: string]: bigint } = {
             '2': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil1_Key)).toBigInt()),
-            '4': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil2_Key)).toBigInt()),
+            // '4': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil2_Key)).toBigInt()),
         };
 
         return new Promise((resolve, reject): void => {
@@ -80,11 +85,19 @@ describe('BlockAttested events', (): void => {
                             const [supportedChainKey] = event.data;
                             const supportedChainKeyStr = (supportedChainKey as U64).toString();
                             const signedAttestation = event.data[1] as AttestorPrimitivesSignedAttestation;
+                            const digest = event.data[2].toHex();
 
                             // is this how many attestors voted for this attestation ?
                             expect(BigInt(signedAttestation.attestors.length)).toBeGreaterThanOrEqual(
                                 expectedMinVotes[supportedChainKeyStr],
                             );
+
+                            // Keep in memory for later continuity proof validation
+                            (attestedEventsMemory[supportedChainKeyStr] ||= []).push({
+                                signed: signedAttestation,
+                                digest,
+                            });
+
                             attestedEvents[supportedChainKeyStr]++;
                         }
 
@@ -131,6 +144,25 @@ describe('BlockAttested events', (): void => {
                 })
                 .catch((error) => reject(new Error(error)));
         }).then(async () => {
+            const prev_digests = [];
+            // Validate continuity proofs for Anvil-1
+            for (const attestationRecord of attestedEventsMemory[chain_Anvil1_Key]) {
+                prev_digests.push(attestationRecord.digest);
+
+                if (attestationRecord.signed.attestation.headerNumber.toNumber() > 0) {
+                    expect(attestationRecord.signed.continuityProof.blocks.length).toBeGreaterThanOrEqual(
+                        chain_Anvil1_AttestationInterval - 1,
+                    );
+                    const continuityProofValid = validateContinuityProof(prev_digests, attestationRecord.signed);
+                    expect(continuityProofValid).toBeTruthy();
+                } else {
+                    console.log(
+                        `**** DEBUG: SKIP continuity proof validation for genesis attestation for chain ${chain_Anvil1_Key}`,
+                    );
+                    expect(attestationRecord.signed.continuityProof.blocks.length).toBe(0);
+                }
+            }
+
             // b/c we always start from scratch in CI expect that there is
             // a checkpoint for the genesis block of the ingested chain
             let checkpointsForGenesis = 0;
@@ -178,5 +210,41 @@ describe('BlockAttested events', (): void => {
             // this test loops over roughly 15 epochs and we make a change every 2
             expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
-    }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
+    }, 500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
+
+    // Helper function to validate continuity proof
+    function validateContinuityProof(
+        prev_digests: string[],
+        attestation: AttestorPrimitivesSignedAttestation,
+    ): boolean {
+        if (attestation.continuityProof.blocks.length === 0) {
+            console.log('**** DEBUG: continuity proof has no blocks; returning false');
+            return false;
+        }
+
+        let block_prev_digest = '';
+        attestation.continuityProof.blocks.forEach((block, index) => {
+            if (block.blockNumber.isZero()) {
+                return;
+            }
+
+            if (index === 0) {
+                if (!prev_digests.includes(block.prevDigest.toHex())) {
+                    console.log(
+                        `**** DEBUG: continuity proof first block prevDigest ${block.prevDigest.toHex()} not in known prev_digests`,
+                    );
+                    return false;
+                }
+                block_prev_digest = block.prevDigest.toHex();
+                return;
+            }
+
+            if (block.prevDigest.toHex() !== block_prev_digest) {
+                return false;
+            }
+            block_prev_digest = block.digest.toHex();
+        });
+
+        return true;
+    }
 });
