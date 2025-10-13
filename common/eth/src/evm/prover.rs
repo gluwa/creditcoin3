@@ -104,8 +104,7 @@ pub async fn deploy(
         display_name,
         timeout,
     )
-    .await
-    .map_err(|e| AlloyContractError::from(e))?;
+    .await?;
 
     info!(
         "Gluwa Public Prover contract deploy at {}",
@@ -156,7 +155,7 @@ pub async fn check_fees_against_existing(
         let receipt = pending
             .get_receipt()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
         let new_base_fee = prover.baseFee().call().await?._0;
         info!(
             "✅ baseFee updated: {}, tx hash: {}",
@@ -181,7 +180,7 @@ pub async fn check_fees_against_existing(
         let receipt = pending
             .get_receipt()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
         let new_cost_per_byte = prover.costPerByte().call().await?._0;
         info!(
             "✅ costPerByte updated: {}, tx hash: {}",
@@ -277,11 +276,11 @@ impl GluwaPublicProverContract {
         let builder = provider
             .send_transaction(tx_request)
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
         let result = builder
             .get_receipt()
             .await
-            .map_err(|e| AlloyContractError::from(e))?
+            .map_err(AlloyContractError::from)?
             .transaction_hash;
 
         Ok(result.to_string())
@@ -303,14 +302,14 @@ impl GluwaPublicProverContract {
             .QuerySubmitted_filter()
             .subscribe()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
         let mut stream = sub.into_stream();
 
         info!("Subscribed to query submissions");
 
         while let Some(query) = stream.next().await {
             info!("New query submission");
-            let (query_submitted, _log) = query.map_err(|e| AlloyContractError::from(e))?;
+            let (query_submitted, _log) = query.map_err(AlloyContractError::from)?;
 
             // TODO: check log
 
@@ -410,7 +409,7 @@ impl GluwaPublicProverContract {
             .await?
             .get_receipt()
             .await
-            .map_err(|e| AlloyContractError::from(e))?
+            .map_err(AlloyContractError::from)?
             .transaction_hash;
 
         Ok(result.to_string())
@@ -427,13 +426,13 @@ impl GluwaPublicProverContract {
             .QueryProofVerified_filter()
             .subscribe()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
         let mut stream = sub.into_stream();
 
         info!("Subscribed to proof verification events");
 
         while let Some(proof) = stream.next().await {
-            let (proof_verified, _log) = proof.map_err(|e| AlloyContractError::from(e))?;
+            let (proof_verified, _log) = proof.map_err(AlloyContractError::from)?;
             let query_id = proof_verified.queryId;
 
             proof_channel
@@ -465,21 +464,21 @@ impl GluwaPublicProverContract {
         let stream_verified = verification_filter
             .subscribe()
             .await
-            .map_err(|e| AlloyContractError::from(e))?
+            .map_err(AlloyContractError::from)?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryProofVerified(event));
 
         let invalid_query_stream = query_invalid_filter
             .subscribe()
             .await
-            .map_err(|e| AlloyContractError::from(e))?
+            .map_err(AlloyContractError::from)?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryMarkedInvalid(event));
 
         let processing_failed_stream = processing_failed_filter
             .subscribe()
             .await
-            .map_err(|e| AlloyContractError::from(e))?
+            .map_err(AlloyContractError::from)?
             .into_stream()
             .map_ok(|(event, _log)| StreamMessage::FromQueryProcessingFailed(event));
 
@@ -575,7 +574,7 @@ impl GluwaPublicProverContract {
             .await?
             .watch()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
 
         Ok(result.to_string())
     }
@@ -598,7 +597,7 @@ impl GluwaPublicProverContract {
             .await?
             .watch()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
 
         Ok(result.to_string())
     }
@@ -622,7 +621,7 @@ impl GluwaPublicProverContract {
             .await?
             .get_receipt()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
 
         Ok(result.transaction_hash.to_string())
     }
@@ -646,7 +645,7 @@ impl GluwaPublicProverContract {
             .await?
             .get_receipt()
             .await
-            .map_err(|e| AlloyContractError::from(e))?;
+            .map_err(AlloyContractError::from)?;
 
         Ok(result.transaction_hash.to_string())
     }
