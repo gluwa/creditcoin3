@@ -226,7 +226,7 @@ pub fn create_json_message(
                 || !attestation_check_result.header_hash_matches()
                 || !attestation_check_result.merkle_roots_match()
                 || !attestation_check_result.is_checkpoint_in_range()
-                || attestation_check_result
+                || !attestation_check_result
                     .get_unelected_attestors()
                     .is_empty() =>
         {
