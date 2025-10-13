@@ -17,6 +17,7 @@ describe('handleEventBlockAttested()', () => {
     describe('when there are attested blocks', () => {
         let currentEpoch = 0n;
         let epochStart = 0;
+        let attestationInterval = 0;
 
         beforeAll(async () => {
             currentEpoch = (await api.query.babe.epochIndex()).toBigInt();
@@ -24,6 +25,9 @@ describe('handleEventBlockAttested()', () => {
 
             epochStart = (await api.query.babe.epochStart())[1].toNumber();
             expect(epochStart).toBeGreaterThan(0);
+
+            attestationInterval = (await api.query.attestation.chainAttestationInterval(chain_Anvil1_Key)).toNumber();
+            expect(attestationInterval).toBeGreaterThan(0);
 
             // initial setup already has at least 3 attestors for Anvil 1
             const entriesForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).entries();
@@ -41,7 +45,7 @@ describe('handleEventBlockAttested()', () => {
                         orderBy: HEADER_NUMBER_ASC, last: 10,
                         filter: { chainKey: { equalTo: "${chain_Anvil1_Key}" }}
                     ) {
-                        nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp }
+                        nodes { id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp, continuityProof }
                     },
 
                     attestationChainData(
@@ -90,6 +94,15 @@ describe('handleEventBlockAttested()', () => {
                 expect(mapResponse.data.mapAttestationAttestors.nodes.length).toBeGreaterThanOrEqual(1);
                 // ^^^ this is just a many-to-many mapping table. Not sure how to assert that
                 // the relationships are the correct ones!
+                if (node.headerNumber > 0) {
+                    // continuityProof is only present for attestations after the first one
+                    // and should contain at least attestationInterval - 1 blocks
+                    expect(node.continuityProof).toBeTruthy();
+                    expect(node.continuityProof.blocks).toBeTruthy();
+                    expect(node.continuityProof.blocks.length).toBeGreaterThanOrEqual(attestationInterval - 1);
+                } else {
+                    expect(node.continuityProof.blocks.length).toEqual(0);
+                }
             }
             expect(lastHeaderNumber).toBeGreaterThan(0n);
             expect(lastDigest).not.toEqual('');

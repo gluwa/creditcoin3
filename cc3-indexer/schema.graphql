@@ -105,6 +105,19 @@ type Attestations @entity {
     digest: String!
 
     timestamp: BigInt!
+
+    continuityProof: ContinuityProof
+}
+
+type ContinuityProof @jsonField {
+    blocks: [ContinuityBlock] # List of continuity blocks
+}
+
+type ContinuityBlock @jsonField {
+    blockNumber: BigInt! # Block number of the continuity block
+    root: String! # Root hash of the continuity block
+    prevDigest: String # Previous digest of the continuity block
+    digest: String! # Digest of the continuity block
 }
 
 type Attestors @entity {

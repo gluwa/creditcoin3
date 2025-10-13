@@ -33,6 +33,7 @@ import {
     AuthorizedAttestorAdded,
     AuthorizedAttestors,
     AuthorizedAttestorRemoved,
+    ContinuityProof,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData } from './initStore';
@@ -586,6 +587,7 @@ export async function handleEventBlockAttested(event: SubstrateEvent): Promise<v
         signature: signedAttestationParsed.signature,
         digest: digest.toString(),
         timestamp: BigInt(event.block.timestamp?.getTime() ?? 0),
+        continuityProof: signedAttestationParsed.continuityProof ? signedAttestationParsed.continuityProof : undefined,
     });
     // /* eslint-enable */
 
@@ -627,6 +629,7 @@ interface SignedAttestation {
     attestation: Attestation;
     signature: string;
     attestors: string[];
+    continuityProof?: ContinuityProof;
 }
 
 function parseSignedAttestation(attestationCheckpointStr: string): SignedAttestation {
