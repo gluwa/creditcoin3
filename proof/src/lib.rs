@@ -96,35 +96,5 @@ pub async fn run_cairo_verifier(
     debug!("cairo verification output:");
     debug!("{}", format!("{output:?}").bold());
 
-    // let input_checkpoint = query_attestation_fragment
-    //     .checkpoint()
-    //     .expect("attestation fragment expected to be full");
-
-    // let output_checkpoint = AttestationCheckpoint::try_from_block(
-    //     // TODO: The use of AttestationChainParams is fully vestigial here since
-    //     // only the genesis field is used, and the current consensus is to
-    //     // always use the gnensis block 0. Rework once outdated crates sharing
-    //     // `try_from_block` are removed.
-    //     AttestationChainParams::new(0, 10),
-    //     query_block_number - 1 + output.continuity_proof_length - 1,
-    //     output.continuity_checkpoint_digest,
-    // )
-    // .ok_or(anyhow!(
-    //     "expected to get a valid checkpoint from cairo verifier's output"
-    // ))?;
-
-    // if input_checkpoint == output_checkpoint {
-    //     debug!(
-    //         "{}",
-    //         format!("\nquery continuity validated at checkpoint: {output_checkpoint:?}").green()
-    //     );
-    // } else {
-    //     return Err(anyhow!(
-    //         "query continuity not validated on attestation chain, here {:?}, there {:?}",
-    //         input_checkpoint,
-    //         output_checkpoint
-    //     ));
-    // };
-
     Ok(cairo_verifier)
 }
