@@ -266,6 +266,7 @@ jobs:
         run: yarn install
 
       - name: Check PR title
+        if: always()
         # https://docs.github.com/en/actions/reference/security/secure-use#good-practices-for-mitigating-script-injection-attacks
         env:
           TITLE: ${{ github.event.pull_request.title }}
@@ -276,6 +277,7 @@ jobs:
           fi
 
       - name: Check commit messages
+        if: always()
         shell: bash
         run: |
           has_valid=false
@@ -297,6 +299,7 @@ jobs:
           fi
 
       - name: Check Changelog
+        if: always()
         run: |
           yarn conventional-changelog -p conventionalcommits -r 1 -u -o /var/tmp/changelog.md
 
