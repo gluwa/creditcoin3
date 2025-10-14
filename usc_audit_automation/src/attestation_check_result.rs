@@ -683,6 +683,7 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
+            continuity_proof: Default::default(),
         };
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());
@@ -773,6 +774,7 @@ mod tests {
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
+            continuity_proof: Default::default(),
         };
         let latest_ethereum_block_number = 100;
         let fetched_ethereum_block_number_by_hash = Some(100u64.into());

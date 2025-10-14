@@ -17,7 +17,7 @@ describe('BlockAttested events', (): void => {
     let chain_Anvil1_AttestationInterval = 0;
     let startBlock_Anvil1 = 0;
     let provider_Anvil1: WebSocketProvider;
-    const maxBlocks = 20; // ~ 18:20 mins
+    const maxBlocks = 220; // ~ 18:20 mins
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -57,16 +57,16 @@ describe('BlockAttested events', (): void => {
 
         const electionEvents: { [key: string]: number } = {
             '2': 0,
-            // '4': 0,
+            '4': 0,
         };
         const intervalChangedEvents: { [key: string]: number } = {
             '2': 0,
-            // '4': 0,
+            '4': 0,
         };
         const initialBlock = (await getChainStatus(api)).bestNumber;
         const expectedMinVotes: { [key: string]: bigint } = {
             '2': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil1_Key)).toBigInt()),
-            // '4': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil2_Key)).toBigInt()),
+            '4': calculateThreshold((await api.query.attestation.targetSampleSize(chain_Anvil2_Key)).toBigInt()),
         };
 
         return new Promise((resolve, reject): void => {
@@ -210,7 +210,7 @@ describe('BlockAttested events', (): void => {
             // this test loops over roughly 15 epochs and we make a change every 2
             expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
         });
-    }, 500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
+    }, 1_500_000); // 220 blocks is 1100 sec + reserve to avoid timeouts
 
     // Helper function to validate continuity proof
     function validateContinuityProof(
