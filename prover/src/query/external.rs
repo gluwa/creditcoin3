@@ -63,12 +63,12 @@ pub enum Error {
     BadProofOrderRequest(String),
     #[error("Couldn't parse work order response. Error: {0}")]
     BadProofOrderResponse(String),
-    #[error("Proof generation failed. The main reason this would happen is in the case of an invalid query.")]
-    ProofGenerationFailed,
     #[error("The Prover BE has no record of our query. If the BE previously accepted our query, then this indicates the issue is with the prover BE and not with our query.")]
     ProofOrderNotFound,
-    #[error("Failed to fetch prover output")]
-    FailedToFetchProverOutput,
+    #[error(
+        "Proof processing in the prover BE or fetching proof results from the BE DB has failed."
+    )]
+    ProofProcessingFailed,
     #[error("Bad proof result request. Likely an issue with the Prover BE. StatusCode: {0}")]
     BadProofResultRequest(String),
     #[error("Bad proof result response. Error: {0}")]
@@ -296,14 +296,11 @@ async fn get_work_order_result(
         // instead of StatusCode::BadRequest
         reqwest::StatusCode::NO_CONTENT | reqwest::StatusCode::BAD_REQUEST => Ok(None),
         reqwest::StatusCode::NOT_FOUND => Err(Error::ProofOrderNotFound),
-        // This is the key error which designates a query as invalid. The light prover
-        // tried the proving pipeline and it failed.
-        reqwest::StatusCode::UNPROCESSABLE_ENTITY => Err(Error::ProofGenerationFailed),
         // This status indicates that the proving process timed out (> 30m)
         reqwest::StatusCode::REQUEST_TIMEOUT => {
             Err(Error::ProverBEQueryTimeout(query_id.to_string()))
         }
-        reqwest::StatusCode::INTERNAL_SERVER_ERROR => Err(Error::FailedToFetchProverOutput),
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR => Err(Error::ProofProcessingFailed),
         other_status => Err(Error::BadProofResultRequest(other_status.to_string())),
     }
 }
