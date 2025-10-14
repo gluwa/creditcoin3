@@ -225,6 +225,43 @@ jobs:
           node-version: 20
       - run: npm install -g yarn
 
+      - name: Check for Merge commit(s)
+        run: |
+          commits=$(git log "$GITHUB_BASE_REF".."$GITHUB_HEAD_REF" | grep "Merge: " || echo -n)
+          if [ -n "$commits" ]; then
+              echo "FAIL: found Merge: commit(s)"
+              exit 1
+          fi
+
+      - name: Check for duplicate files
+        run: |
+          .github/check-for-duplicate-files.sh
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install openzeppelin dependencies
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm install
+
+      - name: Compile Hardhat contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+          npx hardhat compile
+
+      - name: Check for broken symlinks
+        run: |
+          .github/check-for-broken-symlinks.sh
+
       - name: Install commitlint and conventional-changelog
         run: yarn install
 
@@ -266,43 +303,6 @@ jobs:
           echo "===== DEBUG ====="
           cat /var/tmp/changelog.md
           echo "===== END ====="
-
-      - name: Check for Merge commit(s)
-        run: |
-          commits=$(git log "$GITHUB_BASE_REF".."$GITHUB_HEAD_REF" | grep "Merge: " || echo -n)
-          if [ -n "$commits" ]; then
-              echo "FAIL: found Merge: commit(s)"
-              exit 1
-          fi
-
-      - name: Check for duplicate files
-        run: |
-          .github/check-for-duplicate-files.sh
-
-      - name: Install Solidity compiler
-        run: |
-          sudo .github/install-solidity-compiler.sh
-
-      - name: Generate ABI from source code
-        working-directory: ./precompiles/metadata
-        run: |
-          solc --version
-          ./abi-creator.sh
-
-      - name: Install openzeppelin dependencies
-        working-directory: ./common/eth/contracts/
-        run: |
-          npm install
-
-      - name: Compile Hardhat contract(s)
-        working-directory: ./docs/smart-contract-development/with-hardhat
-        run: |
-          npm install
-          npx hardhat compile
-
-      - name: Check for broken symlinks
-        run: |
-          .github/check-for-broken-symlinks.sh
 
   git-rebase-sanity-check:
     runs-on: ubuntu-24.04
