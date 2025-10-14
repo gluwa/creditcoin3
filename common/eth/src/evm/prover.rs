@@ -41,12 +41,12 @@ pub enum Error {
     QueryProcessingFailed(FixedBytes<32>, String),
     #[error("Stream ended without matching proof verification or failure")]
     VerificationOrFailureStreamEnded,
-    #[error("Couldn't parse contract address")]
-    AddressParse,
-    #[error("Query channel rx dropped. Inner Error: {0}")]
-    QueryChannelDropped(String),
-    #[error("Proof channel rx dropped. Inner Error: {0}")]
-    ProofChannelDropped(String),
+    #[error("Couldn't parse contract address: {0}")]
+    AddressParse(#[from] hex::FromHexError),
+    #[error("Query channel error: {0}")]
+    QueryChannelError(#[from] mpsc::error::SendError<Query>),
+    #[error("Proof channel error: {0}")]
+    ProofChannelError(#[from] mpsc::error::SendError<H256>),
     #[error("Error: {0}")]
     Other(String),
 }
@@ -196,7 +196,7 @@ pub async fn check_fees_against_existing(
 
 pub fn new(address: String) -> Result<GluwaPublicProverContract, Error> {
     Ok(GluwaPublicProverContract {
-        address: address.parse().map_err(|_| Error::AddressParse)?,
+        address: address.parse()?,
         gas_limit: GAS_LIMIT,
     })
 }
@@ -328,9 +328,7 @@ impl GluwaPublicProverContract {
                     .collect::<Vec<_>>(),
             };
 
-            query_channel
-                .send(query)
-                .map_err(|e| Error::QueryChannelDropped(e.to_string()))?;
+            query_channel.send(query)?;
         }
 
         Err(Error::QueryStreamEnded)
@@ -435,9 +433,7 @@ impl GluwaPublicProverContract {
             let (proof_verified, _log) = proof.map_err(AlloyContractError::from)?;
             let query_id = proof_verified.queryId;
 
-            proof_channel
-                .send(H256::from_slice(&query_id[..]))
-                .map_err(|e| Error::ProofChannelDropped(e.to_string()))?;
+            proof_channel.send(H256::from_slice(&query_id[..]))?;
         }
 
         Err(Error::VerificationEventStreamEnded)
