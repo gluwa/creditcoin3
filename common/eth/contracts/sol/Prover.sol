@@ -60,7 +60,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
 
         // Calculate the total size of the query based on its layout segments
         uint256 totalBytes = 0;
-        for (uint256 i = 0; i < query.layoutSegments.length; i++) {
+        for (uint256 i = 0; i < query.layoutSegments.length; ++i) {
             totalBytes += query.layoutSegments[i].size;
         }
 
@@ -119,7 +119,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         queries[queryId].query.index = query.index;
         delete queries[queryId].query.layoutSegments; // clear existing storage array
 
-        for (uint256 i = 0; i < query.layoutSegments.length; i++) {
+        for (uint256 i = 0; i < query.layoutSegments.length; ++i) {
             queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
         }
         // .result doesn't need to be set here
@@ -226,15 +226,16 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         ChainQuery[] memory temp = new ChainQuery[](queryIds.length);
         uint256 count = 0;
 
-        for (uint256 i = 0; i < queryIds.length; i++) {
+        for (uint256 i = 0; i < queryIds.length; ++i) {
             QueryDetails storage current = queries[queryIds[i]];
             if (current.state == QueryState.Submitted && !isQueryTimedOut(queryIds[i])) {
+                // solhint-disable-next-line gas-increment-by-one
                 temp[count++] = current.query;
             }
         }
 
         ChainQuery[] memory result = new ChainQuery[](count);
-        for (uint256 i = 0; i < count; i++) {
+        for (uint256 i = 0; i < count; ++i) {
             result[i] = temp[i];
         }
 
@@ -295,7 +296,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     function setQueryResultSegments(QueryId queryId, ResultSegment[] memory resultSegments) private {
         delete queries[queryId].resultSegments; // clear existing storage array
 
-        for (uint256 i = 0; i < resultSegments.length; i++) {
+        for (uint256 i = 0; i < resultSegments.length; ++i) {
             queries[queryId].resultSegments.push(resultSegments[i]); // push each element
         }
     }
