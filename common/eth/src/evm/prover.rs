@@ -13,6 +13,7 @@ use crate::evm::prover::CreditcoinPublicProver::{
     QueryMarkedInvalid, QueryProcessingFailed, QueryProofVerified,
 };
 use crate::{Client, Error as ClientError};
+use alloy::providers::PendingTransactionError;
 use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, FixedBytes, U256},
@@ -31,6 +32,8 @@ pub enum Error {
     EthClient(#[from] ClientError),
     #[error(transparent)]
     AlloyContractError(#[from] AlloyContractError),
+    #[error(transparent)]
+    TransactionSendError(#[from] PendingTransactionError),
     #[error("Query submission stream ended")]
     QueryStreamEnded,
     #[error("Proof verification event stream ended")]
@@ -152,10 +155,7 @@ pub async fn check_fees_against_existing(
         );
         let pending = prover.updateBaseFee(desired_base_fee).send().await?;
 
-        let receipt = pending
-            .get_receipt()
-            .await
-            .map_err(AlloyContractError::from)?;
+        let receipt = pending.get_receipt().await?;
         let new_base_fee = prover.baseFee().call().await?._0;
         info!(
             "✅ baseFee updated: {}, tx hash: {}",
@@ -177,10 +177,7 @@ pub async fn check_fees_against_existing(
             .send()
             .await?;
 
-        let receipt = pending
-            .get_receipt()
-            .await
-            .map_err(AlloyContractError::from)?;
+        let receipt = pending.get_receipt().await?;
         let new_cost_per_byte = prover.costPerByte().call().await?._0;
         info!(
             "✅ costPerByte updated: {}, tx hash: {}",
@@ -277,11 +274,7 @@ impl GluwaPublicProverContract {
             .send_transaction(tx_request)
             .await
             .map_err(AlloyContractError::from)?;
-        let result = builder
-            .get_receipt()
-            .await
-            .map_err(AlloyContractError::from)?
-            .transaction_hash;
+        let result = builder.get_receipt().await?.transaction_hash;
 
         Ok(result.to_string())
     }
@@ -402,13 +395,7 @@ impl GluwaPublicProverContract {
             .submitQuery(query, principal)
             .value(U256::from(cost));
 
-        let result = builder
-            .send()
-            .await?
-            .get_receipt()
-            .await
-            .map_err(AlloyContractError::from)?
-            .transaction_hash;
+        let result = builder.send().await?.get_receipt().await?.transaction_hash;
 
         Ok(result.to_string())
     }
@@ -612,12 +599,7 @@ impl GluwaPublicProverContract {
 
         let builder = contract.markAsInvalid(query_id.0.into(), reason);
 
-        let result = builder
-            .send()
-            .await?
-            .get_receipt()
-            .await
-            .map_err(AlloyContractError::from)?;
+        let result = builder.send().await?.get_receipt().await?;
 
         Ok(result.transaction_hash.to_string())
     }
@@ -636,12 +618,7 @@ impl GluwaPublicProverContract {
 
         let builder = contract.markProcessingFailed(query_id.0.into(), reason);
 
-        let result = builder
-            .send()
-            .await?
-            .get_receipt()
-            .await
-            .map_err(AlloyContractError::from)?;
+        let result = builder.send().await?.get_receipt().await?;
 
         Ok(result.transaction_hash.to_string())
     }
