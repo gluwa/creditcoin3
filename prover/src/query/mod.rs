@@ -18,6 +18,7 @@ use crate::postgres::queryfragmenttype::NewQueryFragmentType;
 use crate::{attestation::fragment, AttestationCacheType};
 
 pub mod external;
+pub mod precheck;
 
 /// Proof as bytes
 pub type Proof = Vec<u8>;
