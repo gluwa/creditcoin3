@@ -3618,6 +3618,7 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidAttestationContinuityProofTail: boolean;
         readonly isInvalidAttestationContinuityProofHead: boolean;
         readonly isInvalidAttestationContinuityProofBlock: boolean;
+        readonly isInvalidAttestationContinuityProofBlockGenesis: boolean;
         readonly isInvalidAttestationPrevDigest: boolean;
         readonly type:
             | 'AlreadyAttestor'
@@ -3660,6 +3661,7 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationContinuityProofTail'
             | 'InvalidAttestationContinuityProofHead'
             | 'InvalidAttestationContinuityProofBlock'
+            | 'InvalidAttestationContinuityProofBlockGenesis'
             | 'InvalidAttestationPrevDigest';
     }
 

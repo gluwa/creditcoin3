@@ -3105,6 +3105,7 @@ export default {
             'InvalidAttestationContinuityProofTail',
             'InvalidAttestationContinuityProofHead',
             'InvalidAttestationContinuityProofBlock',
+            'InvalidAttestationContinuityProofBlockGenesis',
             'InvalidAttestationPrevDigest',
         ],
     },

@@ -51,6 +51,7 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestationBlockNumber: AugmentedError<ApiType>;
             InvalidAttestationContinuityProof: AugmentedError<ApiType>;
             InvalidAttestationContinuityProofBlock: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofBlockGenesis: AugmentedError<ApiType>;
             InvalidAttestationContinuityProofHead: AugmentedError<ApiType>;
             InvalidAttestationContinuityProofTail: AugmentedError<ApiType>;
             InvalidAttestationInterval: AugmentedError<ApiType>;
