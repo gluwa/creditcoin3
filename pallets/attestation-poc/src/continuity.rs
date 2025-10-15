@@ -12,10 +12,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let chain_key = attestation.chain_key();
         let header_number = attestation.header_number();
+        let attestation_genesis = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
 
         // Every attestation must have a continuity proof
         // except for the first attestation in the chain
-        if attestation.continuity_proof.is_empty() && header_number != 0 {
+        if attestation.continuity_proof.is_empty() && header_number != attestation_genesis {
             return Err(Error::<T>::EmptyContinuityProof.into());
         }
 
@@ -26,7 +27,8 @@ impl<T: Config> Pallet<T> {
         );
 
         info!(
-            "📝 Validating attestation continuity for attestation: chain_key: {chain_key:?}, header_number: {header_number}, prev_digest: {:?}, continuity_proof length: {}",
+            "📝 Validating attestation continuity for attestation: chain_key: {chain_key:?}, header_number: {header_number}, digest: {:?}, prev_digest: {:?}, continuity_proof length: {}",
+            attestation.digest(),
             attestation.prev_digest(),
             attestation.continuity_proof.len()
         );
@@ -80,17 +82,22 @@ impl<T: Config> Pallet<T> {
             let block: Block = tail.clone().into();
             info!("📝 Checking continuity proof tail: {block:?}");
             let block_prev_digest = H256::from_slice(&block.prev_digest.to_bytes_be());
-            if block_prev_digest != last_block_digest && block.block_number != 0 {
-                // Check if we have the last_block_digest in storage
-                let exists = Self::contains_digest(chain_key, block_prev_digest);
-                if !exists {
-                    error!("❌ Continuity proof tail prev digest mismatch, expected {last_block_digest:?}, got {block_prev_digest:?}, and we don't have it in storage");
+
+            // In almost all cases, the tail's prev_digest should match one of the previously finalized attestations
+            if let Some(prev_attestation) = Self::get(chain_key, block_prev_digest) {
+                if prev_attestation.header_number() != block.block_number - 1 {
+                    error!("❌ Continuity proof tail prev digest points to an attestation with header number {}, but expected {}", attestation.header_number(), block.block_number - 1);
                     return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
-                } else {
-                    last_block_digest = block_prev_digest;
-                    debug!("📝 Continuity proof tail prev digest mismatch, expected {last_block_digest:?}, got {block_prev_digest:?}, but we have it in storage, continuing");
                 }
             }
+
+            let attestation_genesis = AttestationChainGenesisBlockNumber::<T>::get(chain_key);
+            if block_prev_digest.is_zero() && block.block_number != attestation_genesis {
+                error!("❌ Continuity proof tail prev digest is zero, but block number is not genesis ({attestation_genesis})");
+                return Err(Error::<T>::InvalidAttestationContinuityProofBlockGenesis.into());
+            }
+
+            last_block_digest = block_prev_digest;
         }
 
         for serializable in attestation.continuity_proof.get_blocks_ref().clone() {
@@ -109,15 +116,11 @@ impl<T: Config> Pallet<T> {
 
             // Check if the last block digest matches the previous digest of the current block
             // This to ensure that the continuity proof is valid
-            if last_block_digest == block_prev_digest {
-                debug!("📝 Continuity proof continues with block {block:?}");
-            } else {
-                // Make an exception for the genesis block
-                if block.block_number != 0 {
-                    error!("❌ Continuity proof invalid, expected {last_block_digest:?}, got {block_prev_digest:?}, block: {block:?}");
-                    return Err(Error::<T>::InvalidAttestationContinuityProofBlock.into());
-                }
+            if last_block_digest != block_prev_digest {
+                return Err(Error::<T>::InvalidAttestationContinuityProofBlock.into());
             }
+
+            debug!("📝 Continuity proof continues with block {block:?}");
             // Update the last block digest to the current block's digest
             last_block_digest = block_digest;
         }

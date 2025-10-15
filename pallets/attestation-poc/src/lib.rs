@@ -613,6 +613,8 @@ pub mod pallet {
         InvalidAttestationContinuityProofHead,
         // Continuity proof has a bad block link
         InvalidAttestationContinuityProofBlock,
+        // Invalid genesis block in continuity proof
+        InvalidAttestationContinuityProofBlockGenesis,
         // Attestation previous digest is invalid
         InvalidAttestationPrevDigest,
     }
