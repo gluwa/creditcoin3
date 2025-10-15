@@ -603,6 +603,12 @@ jobs:
               exit 0
           fi
 
+
+      - name: Execute Solidity linters
+        working-directory: ./common/eth/contracts/
+        run: |
+          npm run solhint
+
       - name: Find latest release
         id: find-latest
         run: |

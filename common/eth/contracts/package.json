@@ -6,5 +6,11 @@
     "@openzeppelin/contracts": "^5.4.0"
   },
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "solhint": "6.0.1"
+  },
+  "scripts": {
+    "solhint": "solhint --max-warnings 0 'sol/*.sol'"
+  }
 }
