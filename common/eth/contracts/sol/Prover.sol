@@ -21,7 +21,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     mapping(QueryId => QueryDetails) public queries;
     QueryId[] public queryIds;
     Balance internal totalEscrowBalance;
-    QueryVerifierContract private verifier;
+    IQueryVerifierContract private verifier;
     address private proceedsAccount;
     uint256 public costPerByte;
     uint256 public baseFee;
@@ -37,7 +37,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         string memory _displayName,
         uint64 _timeout
     ) Ownable(msg.sender) {
-        verifier = QueryVerifierContract(PROOF_VERIFIER_ADDRESS);
+        verifier = IQueryVerifierContract(PROOF_VERIFIER_ADDRESS);
         proceedsAccount = _proceedsAccount;
         totalEscrowBalance = Balance.wrap(0);
         costPerByte = _costPerByte;
@@ -301,9 +301,9 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     }
 }
 
-/// @title QueryVerifierContract interface
-/// @notice This interface defines the functions and events for interacting with the QueryVerifierContract.
-interface QueryVerifierContract {
+/// @title IQueryVerifierContract interface
+/// @notice This interface defines the functions and events for interacting with the IQueryVerifierContract.
+interface IQueryVerifierContract {
     function verify(bytes calldata proof, ChainQuery calldata query) external returns (VerifierResult memory);
 }
 
