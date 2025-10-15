@@ -1,6 +1,6 @@
 use eth::Client as EthClient;
-use thiserror::Error;
 use pallet_prover_primitives::Query;
+use thiserror::Error;
 // Steps
 // Get source chain block
 
@@ -17,7 +17,9 @@ pub enum Error {
     QuerySizeExceedsMaximum(u64),
     #[error("A query must have at least one byte of data to prove.")]
     EmptyQuery,
-    #[error("Query corresponds to non-existant block. Query height: {0}, Highest source block: {0}")]
+    #[error(
+        "Query corresponds to non-existant block. Query height: {0}, Highest source block: {0}"
+    )]
     Query(u64, u64),
     #[error("No such tx in block. Query tx index: {0}, Max index in block: {0}")]
     NoSuchTxInBlock(u64, u64),
