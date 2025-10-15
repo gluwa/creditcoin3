@@ -12,14 +12,14 @@ interface ICreditcoinPublicProver {
 contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     mapping(QueryId => QueryDetails) public queries;
     QueryId[] public queryIds;
-    Balance totalEscrowBalance;
-    QueryVerifierContract verifier;
-    address proceedsAccount;
+    Balance internal totalEscrowBalance;
+    QueryVerifierContract private verifier;
+    address private proceedsAccount;
     uint256 public costPerByte;
     uint256 public baseFee;
-    uint64 chainKey;
+    uint64 private chainKey;
     string public displayName;
-    uint64 timeout = 100;
+    uint64 private timeout = 100;
 
     constructor(
         address _proceedsAccount,
