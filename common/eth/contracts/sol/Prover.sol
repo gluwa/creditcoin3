@@ -312,7 +312,7 @@ event ProverDeployed(
     address indexed contractAddress,
     address indexed owner,
     address proceedsAccount,
-    uint256 costPerByte,
+    uint256 indexed costPerByte,
     uint256 baseFee,
     uint64 chainKey,
     string displayName,
@@ -327,10 +327,10 @@ event QueryMarkedInvalid(QueryId indexed queryId, string reason);
 
 event QueryProcessingFailed(QueryId indexed queryId, string reason);
 
-event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 escrowedAmount);
+event EscrowedPaymentReclaimed(QueryId indexed queryId, uint256 indexed escrowedAmount);
 
-event ProceedsWithdrawn(address indexed proceedsAccount, uint256 amount);
+event ProceedsWithdrawn(address indexed proceedsAccount, uint256 indexed amount);
 
-event CostPerByteUpdated(uint256 newCostPerByte);
+event CostPerByteUpdated(uint256 indexed newCostPerByte);
 
-event BaseFeeUpdated(uint256 newBaseFee);
+event BaseFeeUpdated(uint256 indexed newBaseFee);
