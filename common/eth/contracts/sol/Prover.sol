@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
-import "./Types.sol";
+import {
+    Balance,
+    ChainQuery,
+    QueryId,
+    QueryDetails,
+    QueryState,
+    ResultSegment,
+    VerifierResult
+} from "./Types.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 address constant PROOF_VERIFIER_ADDRESS = 0x0000000000000000000000000000000000000Be9;
 
