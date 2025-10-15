@@ -1,11 +1,13 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::PathBuf;
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::query::QueryId;
 use attestor_primitives::ChainKey;
-use eth::Client;
+use eth::{
+    evm::prover::{ProofEventStream, QuerySubmissionStream},
+    Client,
+};
 use pallet_prover_primitives::Query;
 
 pub mod artifacts;
@@ -17,10 +19,10 @@ const CC3_CHAIN_ID: u64 = 42;
 /// keeping async methods and reducing the need to pass parameters everywhere.
 #[derive(Clone)]
 pub struct ProverContractClient {
-    client: Client,
+    pub client: Client,
     store: artifacts::ArtifactStore,
     chain_id: u64,
-    chain_deployment_artifact: Option<artifacts::ChainDeploymentArtifact>,
+    pub chain_deployment_artifact: artifacts::ChainDeploymentArtifact,
 }
 
 impl ProverContractClient {
@@ -40,7 +42,7 @@ impl ProverContractClient {
             client,
             store,
             chain_id,
-            chain_deployment_artifact: None,
+            chain_deployment_artifact: Default::default(),
         }
     }
 
@@ -107,26 +109,19 @@ impl ProverContractClient {
                 .await?
         };
 
-        self.chain_deployment_artifact = Some(artifact.clone());
-
         info!(
             "📜 Creditcoin Public Prover contract address({:?}) on chain {}",
             artifact.contract.address, self.chain_id,
         );
+        self.chain_deployment_artifact = artifact;
 
         Ok(())
     }
 
     /// Fetches all unprocessed queries from the contract.
     pub async fn get_initial_unprocessed_queries(&self) -> Result<Vec<Query>> {
-        let artifact = self
+        let queries = self
             .chain_deployment_artifact
-            .as_ref()
-            .context(
-                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
-            )?;
-
-        let queries = artifact
             .contract
             .get_unprocessed_queries(&self.client)
             .await?;
@@ -141,15 +136,9 @@ impl ProverContractClient {
             query_id, self.chain_id
         );
 
-        let artifact = self
-            .chain_deployment_artifact
-            .as_ref()
-            .context(
-                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
-            )?;
-
         // Submit the proof
-        let tx_hash = artifact
+        let tx_hash = self
+            .chain_deployment_artifact
             .contract
             .submit_query_proof(&self.client, query_id.0.into(), proof)
             .await?;
@@ -162,63 +151,26 @@ impl ProverContractClient {
     }
 
     /// Subscribes to proof verification events and forwards query ids to the provided channel.
-    pub async fn subscribe_proof_verification_events(
-        &self,
-        proof_channel: mpsc::UnboundedSender<QueryId>,
-    ) -> Result<()> {
-        let artifact = self
+    pub async fn subscribe_proof_verification_events(&self) -> Result<ProofEventStream> {
+        Ok(self
             .chain_deployment_artifact
-            .as_ref()
-            .context(
-                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
-            )?;
-
-        artifact
             .contract
-            .subscribe_proof_verification_events(&self.client, proof_channel)
-            .await?;
-
-        info!(
-            "✅ Subscribed to proof verification events on chain {}",
-            self.chain_id
-        );
-        Ok(())
+            .subscribe_proof_verification_events(&self.client)
+            .await?)
     }
 
-    /// Subscribes to query submissions and forwards them to the provided channel.
-    pub async fn subscribe_query_submissions(
-        &self,
-        query_channel: mpsc::UnboundedSender<Query>,
-    ) -> Result<()> {
-        let artifact = self
+    pub async fn subscribe_query_submissions(&self) -> Result<QuerySubmissionStream> {
+        Ok(self
             .chain_deployment_artifact
-            .as_ref()
-            .context(
-                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
-            )?;
-
-        artifact
             .contract
-            .subscribe_query_submissions(&self.client, query_channel)
-            .await?;
-
-        info!(
-            "✅ Subscribed to query submissions on chain {}",
-            self.chain_id
-        );
-        Ok(())
+            .subscribe_query_submissions_stream(&self.client)
+            .await?)
     }
 
     /// Marks a query as invalid on chain with the provided reason.
     pub async fn mark_query_as_invalid(&self, query_id: QueryId, reason: String) -> Result<String> {
-        let artifact = self
+        let tx_hash = self
             .chain_deployment_artifact
-            .as_ref()
-            .context(
-                "Deployment artifact not loaded; call deploy() first or initialize with existing artifact"
-            )?;
-
-        let tx_hash = artifact
             .contract
             .mark_query_as_invalid(&self.client, query_id, reason)
             .await?;
@@ -230,27 +182,23 @@ impl ProverContractClient {
 
         Ok(tx_hash)
     }
-}
 
-pub async fn mark_query_processing_failed(
-    eth_client: &Client,
-    query_id: QueryId,
-    reason: String,
-    artifacts_path: &str,
-) -> Result<String> {
-    let chain_id = eth_client.get_chain_id().await.unwrap_or(CC3_CHAIN_ID);
+    pub async fn mark_query_processing_failed(
+        &self,
+        query_id: QueryId,
+        reason: String,
+    ) -> Result<String> {
+        let tx_hash = self
+            .chain_deployment_artifact
+            .contract
+            .mark_query_processing_failed(&self.client, query_id, reason)
+            .await?;
 
-    let artifact = artifacts::get_latest_deployment_artifact_for(chain_id, artifacts_path).await?;
+        info!(
+            "📝 Query with id {} marked as having failed processing, tx_hash: {}",
+            query_id, tx_hash
+        );
 
-    let tx_hash = artifact
-        .contract
-        .mark_query_processing_failed(eth_client, query_id, reason)
-        .await?;
-
-    info!(
-        "📝 Query with id {} marked as having failed processing, tx_hash: {}",
-        query_id, tx_hash
-    );
-
-    Ok(tx_hash)
+        Ok(tx_hash)
+    }
 }

@@ -7,7 +7,6 @@ use query::external::Error as LightProvingError;
 use sp_core::H256;
 use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
-use std::sync::Arc;
 use tokio::{
     sync::mpsc,
     task::{self, JoinError, JoinHandle},
@@ -45,7 +44,7 @@ pub type ChainName = String;
 pub struct Server {
     config: Config,
     // Wrapper client encapsulating contract + artifacts
-    contract_client: Arc<ProverContractClient>,
+    contract_client: ProverContractClient,
     // Creditcoin client for the cc3 chain where the prover contract is deployed
     cc3_client: CcClient,
     // Ethereum client for the source chain
@@ -140,7 +139,7 @@ impl Server {
             cc3_client,
             source_chain_eth_client,
             attestations_cache,
-            contract_client: contract_client.into(),
+            contract_client,
             waiting_queries: BTreeMap::new(),
             queued_light_proving_queries: HashSet::new(),
             received_query_ids: HashSet::new(),
@@ -166,14 +165,10 @@ impl Server {
             .await?;
         info!("✅ Built historical cache");
 
-        // Channel for new queries
-        let (new_query_sender, mut new_query_receiver) = mpsc::unbounded_channel::<Query>();
-
         // Fetch initial unprocessed queries and push them to the channel
         info!("🔄 Polling for all existing unprocessed queries...");
-        let contract_client = Arc::clone(&self.contract_client);
-
-        let initial_unprocessed_queries = contract_client
+        let initial_unprocessed_queries = self
+            .contract_client
             .get_initial_unprocessed_queries()
             .await
             .unwrap_or_else(|e| {
@@ -186,30 +181,27 @@ impl Server {
             initial_unprocessed_queries.len()
         );
 
-        for q in &initial_unprocessed_queries {
-            new_query_sender.send(q.clone())?;
-        }
-
+        // Build a stream from the initial set
+        let initial_stream = futures::stream::iter(
+            initial_unprocessed_queries
+                .clone()
+                .into_iter()
+                .map(Ok::<Query, anyhow::Error>), // make it a TryStream
+        );
         // Subscribe to new query submissions only (initial set already pushed)
         info!("🔄 Initial poll complete. Subscribing for new queries...");
-        tokio::spawn(async move {
-            contract_client
-                .subscribe_query_submissions(new_query_sender.clone())
-                .await
-        });
+        let live_query_submission_steam =
+            self.contract_client.subscribe_query_submissions().await?;
 
-        let (proof_verified_event_sender, mut proof_verified_event_receiver) =
-            mpsc::unbounded_channel::<H256>();
-
-        let contract_client = Arc::clone(&self.contract_client);
+        // Chain initial -> live
+        let mut query_submission_stream = initial_stream.chain(live_query_submission_steam);
 
         // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
-        info!("🛰️  Subscribing to proof verification events on the contract");
-        tokio::spawn(async move {
-            contract_client
-                .subscribe_proof_verification_events(proof_verified_event_sender.clone())
-                .await
-        });
+        info!("🛰️ Subscribing to proof verification events on the contract");
+        let mut proof_verified_subscription = self
+            .contract_client
+            .subscribe_proof_verification_events()
+            .await?;
 
         let mut subscription = self
             .cc3_client
@@ -244,8 +236,10 @@ impl Server {
                         }
                     }
                 },
-                Some(new_query) = new_query_receiver.recv() => {
-                    self.handle_new_query(new_query, queries_to_process_sender.clone()).await?;
+                Some(query) = query_submission_stream.next() => {
+                    let query = query?;
+                    // New query received from subscription
+                    self.handle_new_query(query, queries_to_process_sender.clone()).await?;
                 },
                 Some(query) = queries_to_process_receiver.recv() => {
                     let query_id = query.id();
@@ -257,7 +251,8 @@ impl Server {
                 Some(result) = light_prover_queries.next() => {
                     self.handle_light_prover_poll_result(result).await?;
                 }
-                Some(query_id) = proof_verified_event_receiver.recv() => {
+                Some(query_id) = proof_verified_subscription.next() => {
+                    let query_id = query_id?;
                     // Only increment success metric if we have not seen this query proof before
                     // This event can fire multiple times for the same query
                     if self.received_query_proofs.insert(query_id) {
@@ -646,13 +641,10 @@ impl Server {
         // Clean up the query from internal memory
         self.cleanup_query(query_id);
 
-        match contract::mark_query_processing_failed(
-            &self.cc3_eth_client,
-            query_id,
-            reason,
-            &self.config.artifacts_file,
-        )
-        .await
+        match self
+            .contract_client
+            .mark_query_processing_failed(query_id, reason)
+            .await
         {
             Ok(_) => {
                 info!("✅ Marked query {:?} as having failed processing, though not necessarily invalid", query_id);

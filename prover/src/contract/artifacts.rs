@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sp_core::H256;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use eth::evm::prover::GluwaPublicProverContract;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChainDeploymentArtifact {
     pub chain_id: u64,
     pub contract: GluwaPublicProverContract,
@@ -34,7 +34,7 @@ impl ArtifactStore {
     }
 
     pub async fn has_artifact(&self, chain_id: u64) -> Result<bool> {
-        if !Path::new(&self.storage_path).exists() {
+        if !self.storage_path.as_path().exists() {
             return Ok(false);
         }
 
@@ -85,7 +85,7 @@ impl ArtifactStore {
             tokio::fs::create_dir_all(parent_dir).await?;
         }
 
-        let mut artifact_storage = if Path::new(&self.storage_path).exists() {
+        let mut artifact_storage = if self.storage_path.as_path().exists() {
             let data = tokio::fs::read_to_string(&self.storage_path).await?;
             serde_json::from_str::<ArtifactStorage>(&data)?
         } else {
