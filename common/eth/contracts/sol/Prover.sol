@@ -191,13 +191,13 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - proverFee);
 
-        // Send to proceedsAccount
-        payable(proceedsAccount).transfer(proverFee);
-
         queries[queryId].escrowedAmount = Balance.wrap(0);
 
         queries[queryId].state = QueryState.ResultAvailable;
         setQueryResultSegments(queryId, verifierResult.resultSegments);
+
+        // Send to proceedsAccount
+        payable(proceedsAccount).transfer(proverFee);
 
         // Emit event with query ID, proof, and state
         emit QueryProofVerified(queryId, verifierResult.resultSegments, queries[queryId].state);
@@ -270,8 +270,9 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         // Repay the escrowed amount to the principal
         uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - escrowedAmount);
-        payable(queries[queryId].principal).transfer(escrowedAmount);
         queries[queryId].escrowedAmount = Balance.wrap(0);
+
+        payable(queries[queryId].principal).transfer(escrowedAmount);
 
         emit EscrowedPaymentReclaimed(queryId, escrowedAmount);
     }
