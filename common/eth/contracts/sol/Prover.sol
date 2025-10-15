@@ -113,9 +113,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         // We implicitly allow resubmission of queries in the state QueryProcessingFailed
 
         // Store query details
-        // .state
         queries[queryId].state = QueryState.Submitted;
-        // .query
         queries[queryId].query.chainId = query.chainId;
         queries[queryId].query.height = query.height;
         queries[queryId].query.index = query.index;
@@ -125,19 +123,14 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
             queries[queryId].query.layoutSegments.push(query.layoutSegments[i]);
         }
         // .result doesn't need to be set here
-        // .escrowedAmount
         queries[queryId].escrowedAmount = Balance.wrap(msg.value);
-        // .principal
         queries[queryId].principal = principal;
-        // .estimatedCost
         queries[queryId].estimatedCost = Balance.wrap(estimatedCost);
-        // .timestamp
         queries[queryId].timestamp = block.timestamp;
 
         // Add to unprocessed queries
         queryIds.push(queryId);
 
-        // Emit event
         emit QuerySubmitted(queryId, estimatedCost, msg.value, query);
     }
 
