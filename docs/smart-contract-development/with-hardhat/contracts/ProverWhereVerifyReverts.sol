@@ -14,7 +14,7 @@ contract ProverWhereVerifyReverts is ProverForTesting {
         uint64 _timeoutBlocks
     ) ProverForTesting(_proceedsAccount, _costPerByte, _baseFee, _chainKey, _displayName, _timeoutBlocks) {}
 
-    function _call_verifier_verify(QueryId, bytes calldata) external pure override returns (VerifierResult memory) {
+    function _callVerifierVerify(QueryId, bytes calldata) external pure override returns (VerifierResult memory) {
         revert("Reverted on purpose");
     }
 }

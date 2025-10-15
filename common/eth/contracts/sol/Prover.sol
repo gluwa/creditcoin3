@@ -157,11 +157,11 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         );
 
         // Reclaim the escrowed amount
-        helper_reclaimEscrowPayment(queryId);
+        helperReclaimEscrowPayment(queryId);
     }
 
     // wrapper which can be used to mock the verifier precompile for testing
-    function _call_verifier_verify(QueryId queryId, bytes calldata proof)
+    function _callVerifierVerify(QueryId queryId, bytes calldata proof)
         external
         virtual
         returns (VerifierResult memory)
@@ -180,7 +180,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
             revert("Query has timed out");
         }
 
-        VerifierResult memory verifier_result = this._call_verifier_verify(queryId, proof);
+        VerifierResult memory verifierResult = this._callVerifierVerify(queryId, proof);
         // note: since https://github.com/gluwa/creditcoin3-next/pull/608
         // non Success statuses are no longer returned, instead the precompile reverts
 
@@ -196,12 +196,12 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         queries[queryId].escrowedAmount = Balance.wrap(0);
 
         queries[queryId].state = QueryState.ResultAvailable;
-        setQueryResultSegments(queryId, verifier_result.resultSegments);
+        setQueryResultSegments(queryId, verifierResult.resultSegments);
 
         // Emit event with query ID, proof, and state
-        emit QueryProofVerified(queryId, verifier_result.resultSegments, queries[queryId].state);
+        emit QueryProofVerified(queryId, verifierResult.resultSegments, queries[queryId].state);
 
-        return verifier_result.resultSegments;
+        return verifierResult.resultSegments;
     }
 
     function withdrawProceeds() public onlyOwner {
@@ -247,7 +247,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         queries[queryId].state = QueryState.InvalidQuery;
 
         // Reclaim escrowed payment
-        helper_reclaimEscrowPayment(queryId);
+        helperReclaimEscrowPayment(queryId);
 
         emit QueryMarkedInvalid(queryId, reason);
     }
@@ -259,12 +259,12 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         queries[queryId].state = QueryState.QueryProcessingFailed;
 
         // Reclaim escrowed payment
-        helper_reclaimEscrowPayment(queryId);
+        helperReclaimEscrowPayment(queryId);
 
         emit QueryProcessingFailed(queryId, reason);
     }
 
-    function helper_reclaimEscrowPayment(QueryId queryId) private {
+    function helperReclaimEscrowPayment(QueryId queryId) private {
         // Repay the escrowed amount to the principal
         uint256 escrowedAmount = Balance.unwrap(queries[queryId].escrowedAmount);
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) - escrowedAmount);
