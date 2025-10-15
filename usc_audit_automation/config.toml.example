@@ -13,6 +13,6 @@ rpc_providers = [
 slack_alert_group = "USER_OR_SUBTEAM_SLACK_ID"
 slack_webhook_url = "SLACK_WEBHOOK_URL"
 usc_account_mnemonic = "USC_NETWORK_ACCOUNT_MNEMONIC"
-usc_graphql_url = "USC_NETWORK_GRAPHQL_ENDPOINT"
+usc_attestations_graphql_url = "USC_NETWORK_GRAPHQL_ENDPOINT"
 usc_network_name = "USC_NETWORK_NAME"
 usc_rpc_url = "USC_NETWORK_RPC_URL"

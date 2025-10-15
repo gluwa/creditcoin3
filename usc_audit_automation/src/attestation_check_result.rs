@@ -1,6 +1,6 @@
 use crate::{
     calculate_usc_and_source_chain_block_diff, CheckpointCreatedWithinRangeResult,
-    MAX_ALLOWED_BLOCK_HEIGHT_DIFF,
+    GraphQLAttestationCheckResult, MAX_ALLOWED_BLOCK_HEIGHT_DIFF,
 };
 use attestor_primitives::SignedAttestation;
 use ethers::types::U64;
@@ -21,6 +21,7 @@ pub struct AttestationCheckResult {
     pub ethereum_block_info: EthereumBlockInfo,
     pub check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
     pub maybe_elected_attestors: Option<Vec<AccountId32>>,
+    pub graphql_attestation_check_result: Option<GraphQLAttestationCheckResult>,
 }
 
 impl AttestationCheckResult {
@@ -59,6 +60,88 @@ impl AttestationCheckResult {
 
         Vec::new()
     }
+    pub fn last_checkpoint_header_matches_checkpoint_header_in_graphql(&self) -> bool {
+        self.graphql_attestation_check_result
+            .as_ref()
+            .map(|res| {
+                res.checkpoint_chain_node
+                    .checkpoint_number
+                    .parse::<u64>()
+                    .unwrap_or_default()
+                    == self
+                        .check_point_created_in_range_checker
+                        .last_checkpoint_block_number
+            })
+            .unwrap_or_default()
+    }
+    pub fn last_checkpoint_digest_matches_checkpoint_digest_in_graphql(&self) -> bool {
+        self.graphql_attestation_check_result
+            .as_ref()
+            .map(|res| {
+                res.checkpoint_chain_node.last_attested_digest
+                    == hex::encode(
+                        self.attestation_info
+                            .signed_attestation
+                            .attestation
+                            .digest()
+                            .as_bytes(),
+                    )
+            })
+            .unwrap_or_default()
+    }
+    pub fn last_attestation_header_number_matches_attestation_header_number_in_graphql(
+        &self,
+    ) -> bool {
+        self.graphql_attestation_check_result
+            .as_ref()
+            .map(|res| {
+                res.attestation_node
+                    .header_number
+                    .parse::<u64>()
+                    .unwrap_or_default()
+                    == self.attestation_info.signed_attestation.header_number()
+            })
+            .unwrap_or_default()
+    }
+    pub fn last_attestation_digest_matches_attestation_digest_in_graphql(&self) -> bool {
+        self.graphql_attestation_check_result
+            .as_ref()
+            .map(|res| {
+                res.attestation_node.digest
+                    == hex::encode(
+                        self.attestation_info
+                            .signed_attestation
+                            .attestation
+                            .digest()
+                            .as_bytes(),
+                    )
+            })
+            .unwrap_or_default()
+    }
+    pub fn last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql(&self) -> bool {
+        self.graphql_attestation_check_result
+            .as_ref()
+            .map(|res| {
+                res.attestation_node.prev_digest
+                    == self
+                        .attestation_info
+                        .signed_attestation
+                        .attestation
+                        .prev_digest()
+                        .map(|digest| hex::encode(digest.as_bytes()))
+                        .unwrap_or_default()
+            })
+            .unwrap_or_default()
+    }
+    pub fn last_attesation_root_matches_attestation_root_in_graphql(&self) -> bool {
+        self.graphql_attestation_check_result
+            .as_ref()
+            .map(|res| {
+                res.attestation_node.root
+                    == hex::encode(self.attestation_info.signed_attestation.attestation.root)
+            })
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug)]
@@ -67,7 +150,6 @@ pub struct EthereumBlockInfo {
     pub calculated_ethereum_block_merkle_root: String,
     pub fetched_ethereum_block_number_by_hash: Option<u64>,
 }
-
 #[derive(Debug)]
 pub struct BlockHeightDiffChecker {
     pub block_height_diff: i128,
@@ -81,6 +163,7 @@ pub fn compute_attestation_check_result(
     fetched_ethereum_block_number_by_hash: Option<U64>,
     check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult,
     maybe_elected_attestors: Option<Vec<AccountId32>>,
+    graphql_attestation_check_result: Option<GraphQLAttestationCheckResult>,
 ) -> AttestationCheckResult {
     let attestor_best_block_number = latest_signed_attestation.attestation.header_number;
     let block_height_diff = calculate_usc_and_source_chain_block_diff(
@@ -110,12 +193,14 @@ pub fn compute_attestation_check_result(
         ethereum_block_info,
         check_point_created_in_range_checker,
         maybe_elected_attestors,
+        graphql_attestation_check_result,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AttestationCheckpointChainNode, AttestationNode, GraphQLAttestationCheckResult};
     use attestor_primitives::{Attestation, SignedAttestation};
     use sp_core::H256;
     use subxt::utils::AccountId32;
@@ -130,7 +215,7 @@ mod tests {
                 header_number,
                 header_hash: H256::zero(),
                 root,
-                prev_digest: None,
+                prev_digest: Some(H256::zero()),
             },
             signature: [0u8; 96],
             attestors: vec![],
@@ -160,6 +245,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(result.is_block_height_exceeded());
@@ -188,6 +274,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(!result.is_block_height_exceeded());
@@ -213,6 +300,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(result.header_hash_matches());
@@ -238,6 +326,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(!result.header_hash_matches());
@@ -263,6 +352,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(result.is_checkpoint_in_range());
@@ -288,6 +378,7 @@ mod tests {
                 checkpoint_created_within_range: false,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(!result.is_checkpoint_in_range());
@@ -313,6 +404,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(result.merkle_roots_match());
@@ -338,6 +430,7 @@ mod tests {
                 checkpoint_created_within_range: true,
             },
             maybe_elected_attestors: None,
+            graphql_attestation_check_result: None,
         };
 
         assert!(!result.merkle_roots_match());
@@ -361,6 +454,18 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             None,
+            Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "50".to_string(),
+                    last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "100".to_string(),
+                    digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                    prev_digest: "None".to_string(),
+                    root: hex::encode(attestation.attestation.root),
+                },
+            }),
         );
 
         assert!(!result.is_block_height_exceeded());
@@ -368,6 +473,10 @@ mod tests {
         assert!(result.merkle_roots_match());
         assert!(result.is_checkpoint_in_range());
         assert!(result.get_unelected_attestors().is_empty());
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
     }
 
     #[test]
@@ -389,6 +498,19 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             None,
+            Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "5".to_string(),
+                    last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "10".to_string(),
+                    digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                    prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                    root: hex::encode(attestation.attestation.root),
+                },
+            }),
         );
 
         assert!(result.header_hash_matches());
@@ -396,6 +518,13 @@ mod tests {
         assert!(result.is_checkpoint_in_range());
         assert!(result.get_unelected_attestors().is_empty());
         assert!(result.is_block_height_exceeded());
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+        assert!(result.last_attestation_digest_matches_attestation_digest_in_graphql());
+        assert!(result.last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql());
+        assert!(result.last_attesation_root_matches_attestation_root_in_graphql());
     }
 
     #[test]
@@ -417,6 +546,19 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             None,
+            Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "50".to_string(),
+                    last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "100".to_string(),
+                    digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                    prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                    root: hex::encode(attestation.attestation.root),
+                },
+            }),
         );
 
         assert!(!result.is_block_height_exceeded());
@@ -424,6 +566,13 @@ mod tests {
         assert!(result.is_checkpoint_in_range());
         assert!(result.get_unelected_attestors().is_empty());
         assert!(!result.header_hash_matches());
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+        assert!(result.last_attestation_digest_matches_attestation_digest_in_graphql());
+        assert!(result.last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql());
+        assert!(result.last_attesation_root_matches_attestation_root_in_graphql());
     }
 
     #[test]
@@ -445,6 +594,19 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             None,
+            Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "50".to_string(),
+                    last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "100".to_string(),
+                    digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                    prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                    root: hex::encode(attestation.attestation.root),
+                },
+            }),
         );
 
         assert!(!result.is_block_height_exceeded());
@@ -452,8 +614,14 @@ mod tests {
         assert!(result.is_checkpoint_in_range());
         assert!(result.get_unelected_attestors().is_empty());
         assert!(!result.merkle_roots_match());
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+        assert!(result.last_attestation_digest_matches_attestation_digest_in_graphql());
+        assert!(result.last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql());
+        assert!(result.last_attesation_root_matches_attestation_root_in_graphql());
     }
-
     #[test]
     fn test_checkpoint_not_in_range_only() {
         let attestation = dummy_attestation(100, [1u8; 32]);
@@ -473,6 +641,19 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             Some(vec![AccountId32::from([0u8; 32])]),
+            Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "50".to_string(),
+                    last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "100".to_string(),
+                    digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                    prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                    root: hex::encode(attestation.attestation.root),
+                },
+            }),
         );
 
         assert!(!result.is_block_height_exceeded());
@@ -480,6 +661,13 @@ mod tests {
         assert!(result.merkle_roots_match());
         assert!(result.get_unelected_attestors().is_empty());
         assert!(!result.is_checkpoint_in_range());
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+        assert!(result.last_attestation_digest_matches_attestation_digest_in_graphql());
+        assert!(result.last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql());
+        assert!(result.last_attesation_root_matches_attestation_root_in_graphql());
     }
 
     #[test]
@@ -490,7 +678,7 @@ mod tests {
                 header_number: 100,
                 header_hash: H256::zero(),
                 root: [1u8; 32],
-                prev_digest: None,
+                prev_digest: Some(H256::zero()),
             },
             signature: [0u8; 96],
             attestors: vec![AccountId32::from([0u8; 32]), AccountId32::from([2u8; 32])],
@@ -512,6 +700,19 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             maybe_elected_attestors.clone(),
+            Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "50".to_string(),
+                    last_attested_digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "100".to_string(),
+                    digest: hex::encode(attestation.attestation.digest().as_bytes()),
+                    prev_digest: "0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                    root: hex::encode(attestation.attestation.root),
+                },
+            }),
         );
 
         let unelected = result.get_unelected_attestors();
@@ -520,6 +721,13 @@ mod tests {
         assert!(result.merkle_roots_match());
         assert!(result.is_checkpoint_in_range());
         assert_eq!(unelected, vec![AccountId32::from([2u8; 32])]);
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+        assert!(result.last_attestation_digest_matches_attestation_digest_in_graphql());
+        assert!(result.last_attestation_prev_digest_matches_attestation_prev_digest_in_graphql());
+        assert!(result.last_attesation_root_matches_attestation_root_in_graphql());
     }
 
     #[test]
@@ -545,6 +753,7 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             maybe_elected_attestors.clone(),
+            None,
         );
 
         let unelected = result.get_unelected_attestors();
@@ -584,9 +793,188 @@ mod tests {
             fetched_ethereum_block_number_by_hash,
             checkpoint_created_in_range_checker,
             maybe_elected_attestors.clone(),
+            None,
         );
 
         let unelected = result.get_unelected_attestors();
         assert_eq!(unelected, vec![AccountId32::from([2u8; 32])]);
+    }
+
+    #[test]
+    fn test_graphql_attestation_checkpoint_and_attestation_found() {
+        let result = AttestationCheckResult {
+            attestation_info: AttestationInfo {
+                attestor_best_block_number: 10,
+                attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(10, [0u8; 32]),
+            },
+            block_height_diff: 0,
+            ethereum_block_info: EthereumBlockInfo {
+                latest_ethereum_block_number: 0,
+                calculated_ethereum_block_merkle_root: String::new(),
+                fetched_ethereum_block_number_by_hash: None,
+            },
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
+                last_checkpoint_block_number: 5,
+                latest_ethereum_block_number: 10,
+                checkpoint_created_within_range: true,
+            },
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "5".to_string(),
+                    last_attested_digest: hex::encode(
+                        dummy_attestation(10, [0u8; 32])
+                            .attestation
+                            .digest()
+                            .as_bytes(),
+                    ),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "10".to_string(),
+                    digest: hex::encode(
+                        dummy_attestation(10, [0u8; 32])
+                            .attestation
+                            .digest()
+                            .as_bytes(),
+                    ),
+                    prev_digest: "0x4".to_string(),
+                    root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
+                },
+            }),
+        };
+
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+    }
+
+    #[test]
+    fn test_graphql_attestation_checkpoint_and_attestation_not_found() {
+        let result = AttestationCheckResult {
+            attestation_info: AttestationInfo {
+                attestor_best_block_number: 0,
+                attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(10, [0u8; 32]),
+            },
+            block_height_diff: 0,
+            ethereum_block_info: EthereumBlockInfo {
+                latest_ethereum_block_number: 0,
+                calculated_ethereum_block_merkle_root: String::new(),
+                fetched_ethereum_block_number_by_hash: None,
+            },
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
+                last_checkpoint_block_number: 10,
+                latest_ethereum_block_number: 0,
+                checkpoint_created_within_range: true,
+            },
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "0".to_string(),
+                    last_attested_digest: "0".to_string(),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "0".to_string(),
+                    digest: "0".to_string(),
+                    prev_digest: "0x4".to_string(),
+                    root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
+                },
+            }),
+        };
+        assert!(!result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            !result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+    }
+
+    #[test]
+    fn test_graphql_attestation_checkpoint_found_and_attestation_not_found() {
+        let result = AttestationCheckResult {
+            attestation_info: AttestationInfo {
+                attestor_best_block_number: 0,
+                attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(10, [0u8; 32]),
+            },
+            block_height_diff: 0,
+            ethereum_block_info: EthereumBlockInfo {
+                latest_ethereum_block_number: 0,
+                calculated_ethereum_block_merkle_root: String::new(),
+                fetched_ethereum_block_number_by_hash: None,
+            },
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
+                last_checkpoint_block_number: 10,
+                latest_ethereum_block_number: 0,
+                checkpoint_created_within_range: true,
+            },
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "10".to_string(),
+                    last_attested_digest: hex::encode(
+                        dummy_attestation(10, [0u8; 32])
+                            .attestation
+                            .digest()
+                            .as_bytes(),
+                    ),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "0".to_string(),
+                    digest: "0".to_string(),
+                    prev_digest: "0x4".to_string(),
+                    root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
+                },
+            }),
+        };
+
+        assert!(result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            !result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
+    }
+
+    #[test]
+    fn test_graphql_attestation_checkpoint_not_found_and_attestation_found() {
+        let result = AttestationCheckResult {
+            attestation_info: AttestationInfo {
+                attestor_best_block_number: 0,
+                attestation_merkle_root: String::new(),
+                signed_attestation: dummy_attestation(10, [0u8; 32]),
+            },
+            block_height_diff: 0,
+            ethereum_block_info: EthereumBlockInfo {
+                latest_ethereum_block_number: 0,
+                calculated_ethereum_block_merkle_root: String::new(),
+                fetched_ethereum_block_number_by_hash: None,
+            },
+            check_point_created_in_range_checker: CheckpointCreatedWithinRangeResult {
+                last_checkpoint_block_number: 10,
+                latest_ethereum_block_number: 0,
+                checkpoint_created_within_range: true,
+            },
+            maybe_elected_attestors: None,
+            graphql_attestation_check_result: Some(GraphQLAttestationCheckResult {
+                checkpoint_chain_node: AttestationCheckpointChainNode {
+                    checkpoint_number: "0".to_string(),
+                    last_attested_digest: "0".to_string(),
+                },
+                attestation_node: AttestationNode {
+                    header_number: "10".to_string(),
+                    digest: hex::encode(
+                        dummy_attestation(10, [0u8; 32])
+                            .attestation
+                            .digest()
+                            .as_bytes(),
+                    ),
+                    prev_digest: "0x4".to_string(),
+                    root: hex::encode(dummy_attestation(10, [0u8; 32]).attestation.root),
+                },
+            }),
+        };
+        assert!(!result.last_checkpoint_header_matches_checkpoint_header_in_graphql());
+        assert!(
+            result.last_attestation_header_number_matches_attestation_header_number_in_graphql()
+        );
     }
 }

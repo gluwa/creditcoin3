@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use subxt::utils::AccountId32;
 use tracing::info;
+
 const MAX_ALLOWED_BLOCK_HEIGHT_DIFF: i128 = 50;
 const CHAIN_LIST_URL: &str = "https://chainid.network/chains.json";
 
@@ -56,7 +57,7 @@ pub struct SanitiesConfigFile {
     #[serde(default)]
     pub rpc_providers: Vec<RpcProvider>,
     #[serde(default)]
-    pub usc_graphql_url: String,
+    pub usc_attestations_graphql_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -286,4 +287,132 @@ pub(crate) async fn calculate_merkle_root(
         .context("Failed to get block")?;
     let merkle_tree = eth::starknet_pedersen_mmr(&ordered_block);
     Ok(merkle_tree.root().0.to_bytes_be())
+}
+
+#[derive(Debug, Deserialize)]
+struct AttestationDataGraphqlResponse {
+    data: Option<AttestationData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AttestationData {
+    attestations: Attestations,
+    #[serde(rename = "attestationChainData")]
+    attestation_chain_data: AttestationChainData,
+}
+
+#[derive(Debug, Deserialize)]
+struct Attestations {
+    nodes: Vec<AttestationNode>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AttestationNode {
+    #[serde(rename = "headerNumber")]
+    header_number: String,
+    root: String,
+    #[serde(rename = "prevDigest")]
+    prev_digest: String,
+    digest: String,
+}
+
+impl From<&AttestationNode> for AttestationNode {
+    fn from(n: &AttestationNode) -> Self {
+        let prefix = "0x";
+        Self {
+            header_number: n.header_number.clone(),
+            root: n.root.strip_prefix(prefix).unwrap_or(&n.root).to_string(),
+            prev_digest: n
+                .prev_digest
+                .strip_prefix(prefix)
+                .unwrap_or(&n.prev_digest)
+                .to_string(),
+            digest: n
+                .digest
+                .strip_prefix(prefix)
+                .unwrap_or(&n.digest)
+                .to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct AttestationChainData {
+    nodes: Vec<AttestationCheckpointChainNode>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AttestationCheckpointChainNode {
+    #[serde(rename = "lastCheckpointHeaderNumber")]
+    checkpoint_number: String,
+    #[serde(rename = "lastAttestedDigest")]
+    last_attested_digest: String,
+}
+
+#[derive(Debug)]
+pub struct GraphQLAttestationCheckResult {
+    checkpoint_chain_node: AttestationCheckpointChainNode,
+    attestation_node: AttestationNode,
+}
+
+pub async fn get_graphql_attestation_check_result(
+    client: &Client,
+    chain_key: u64,
+    last_attested_header_number: u64,
+    last_attested_checkpoint_number: u64,
+    graphql_url: String,
+) -> Result<Option<GraphQLAttestationCheckResult>> {
+    let query = format!(
+        r#"
+    query AttestationData {{
+      attestations(
+          orderBy: HEADER_NUMBER_ASC, 
+          last: 1,
+          filter: {{ chainKey: {{ equalTo: "{chain_key}" }}, headerNumber: {{ equalTo: "{last_attested_header_number}" }} }}
+      ) {{
+          nodes {{ id, chainKey, headerNumber, headerHash, root, prevDigest, signature, digest, timestamp }}
+    }},
+
+      attestationChainData(
+          orderBy: CHAIN_KEY_ASC,
+          last: 1,
+          filter: {{ chainKey: {{ equalTo: "{chain_key}" }}, lastCheckpointHeaderNumber: {{ equalTo: "{last_attested_checkpoint_number}" }} }}
+      ) {{ nodes {{ id, chainKey, lastAttestedDigest, lastCheckpointHeaderNumber }} }},
+    }}
+    "#
+    );
+
+    info!("Attestation GraphQL URL: {}", graphql_url);
+    let res = client
+        .post(graphql_url)
+        .json(&serde_json::json!({ "query": query }))
+        .send()
+        .await?
+        .json::<AttestationDataGraphqlResponse>()
+        .await?;
+
+    info!("AttestationDataGraphqlResponse response: {:?}", res);
+    if let Some(data) = res.data {
+        let attestation_node = data
+            .attestations
+            .nodes
+            .into_iter()
+            .next()
+            .map(|n| AttestationNode::from(&n))
+            .context("No attestation node found")?;
+
+        let checkpoint_chain_node = data
+            .attestation_chain_data
+            .nodes
+            .into_iter()
+            .next()
+            .context("No chain node found")?;
+
+        return Ok(Some(GraphQLAttestationCheckResult {
+            attestation_node,
+            checkpoint_chain_node,
+        }));
+    }
+
+    Ok(None)
 }

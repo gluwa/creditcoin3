@@ -14,8 +14,8 @@ use crate::{
     attestation_check_result::compute_attestation_check_result, calculate_merkle_root,
     check_attestation_checkpoint_created_within_block_interval_range,
     create_json_message::create_json_message, ethereum_rpc::get_ethereum_rpc_url_from_chain_cache,
-    fetch_chains_json, ChainCache, EthereumProvider, SanitiesConfigFile, SupportedChainInfo,
-    USCClientWrapper, UniversalSmartContractProvider,
+    fetch_chains_json, get_graphql_attestation_check_result, ChainCache, EthereumProvider,
+    SanitiesConfigFile, SupportedChainInfo, USCClientWrapper, UniversalSmartContractProvider,
 };
 
 pub(crate) async fn get_attestor_latest_attestation_data(
@@ -184,6 +184,22 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
             .fetch(&elected_attestors_storage_query)
             .await?;
 
+        let last_checkpoint_block_number =
+            check_point_created_within_range_checker.last_checkpoint_block_number;
+
+        let attestation_in_graphql_result = get_graphql_attestation_check_result(
+            &client,
+            supported_chain_info.chain_key,
+            latest_signed_attestation.attestation.header_number(),
+            last_checkpoint_block_number,
+            config.usc_attestations_graphql_url.clone(),
+        )
+        .await?;
+        info!(
+            "Last checkpoint found in GraphQL: {:?}",
+            attestation_in_graphql_result
+        );
+
         let attestation_check_result = compute_attestation_check_result(
             &latest_signed_attestation,
             latest_eth_block_number,
@@ -191,6 +207,7 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
             fetched_ethereum_block_number_by_hash,
             check_point_created_within_range_checker,
             maybe_elected_attestors,
+            attestation_in_graphql_result,
         );
 
         let (primary_message, secondary_message) = create_json_message(
@@ -201,7 +218,7 @@ pub async fn run_attestation_sanity_checks(config: &SanitiesConfigFile) -> Resul
         );
 
         info!(
-            "{}\n{}",
+            "Primary: {}\nSecondary: {}",
             primary_message,
             secondary_message.clone().unwrap_or_default()
         );
