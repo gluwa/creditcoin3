@@ -125,6 +125,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         // Need a more complex guard for the queries that allows replay attack protection.
 
         uint256 estimatedCost = computeQueryCost(query);
+        // solhint-disable-next-line gas-strict-inequalities
         require(msg.value >= estimatedCost, "msg.value < estimatedCost");
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
