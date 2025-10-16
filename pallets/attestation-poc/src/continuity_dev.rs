@@ -1,20 +1,21 @@
 use attestor_primitives::{attestation_fragment::AttestationFragment, block::Block, Digest};
+use sp_runtime::traits::Zero;
+use sp_std::ops::RangeInclusive;
 use starknet_crypto::Felt;
 
 pub fn construct_fragment(
     prev_digest: Option<Digest>,
-    start: u64,
-    end: u64,
+    range: RangeInclusive<u64>,
 ) -> AttestationFragment {
-    if end == 0 {
+    if range.end().is_zero() {
         return AttestationFragment::default();
     }
     // Create a dummy fragment from start to end and use provided digest if we can
-    let mut fragment = AttestationFragment::new((end - start + 1) as usize);
+    let mut fragment = AttestationFragment::new((range.end() - range.start() + 1) as usize);
     let mut current_prev_digest =
         Felt::from_bytes_be(&prev_digest.map(|d| d.0).unwrap_or_default());
 
-    for block_number in start..=end {
+    for block_number in range {
         let block = Block::new_from_prev_digest(block_number, Felt::default(), current_prev_digest);
         log::debug!(
             "Constructed block number: {}, prev_digest: {:?}, digest: {:?}",

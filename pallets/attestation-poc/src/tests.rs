@@ -15,6 +15,7 @@ use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
+use sp_std::ops::RangeInclusive;
 
 #[derive(Debug, Clone)]
 pub struct Attestor {
@@ -71,7 +72,10 @@ pub fn create_signed_attestation(
     let fragment = if let Some(f) = fragment {
         f
     } else {
-        construct_fragment(prev_digest, 1, header_number.saturating_sub(1))
+        construct_fragment(
+            prev_digest,
+            RangeInclusive::new(1, header_number.saturating_sub(1)),
+        )
     };
 
     let attestation = AttestationPrimitive {
@@ -123,8 +127,7 @@ pub fn create_checkpoint(
         let fragment_start = attestation_header_number.saturating_sub(attestaion_interval) + 1;
         let fragment = construct_fragment(
             last_digest,
-            fragment_start,
-            attestation_header_number.saturating_sub(1),
+            RangeInclusive::new(fragment_start, attestation_header_number.saturating_sub(1)),
         );
 
         let attestation = create_signed_attestation(
@@ -2134,7 +2137,7 @@ fn commit_attestation_should_error_on_invalid_prev_digest() {
         // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        let fragment = construct_fragment(attestation_1.prev_digest(), 1, 9);
+        let fragment = construct_fragment(attestation_1.prev_digest(), RangeInclusive::new(1, 9));
         let continuity_proof = AttestationFragmentSerializable::from(&fragment);
 
         let attestation_2 = SignedAttestation {
@@ -2211,7 +2214,7 @@ fn commit_attestation_should_error_on_invalid_continuity_head() {
         // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        let fragment = construct_fragment(Some(H256::random()), 1, 9);
+        let fragment = construct_fragment(Some(H256::random()), RangeInclusive::new(1, 9));
         let continuity_proof = AttestationFragmentSerializable::from(&fragment);
 
         let attestation_2 = SignedAttestation {
@@ -2270,7 +2273,8 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
         ));
 
         // Create a correct continuity proof fragment
-        let correct_fragment = construct_fragment(Some(attestation_1.digest()), 1, 9);
+        let correct_fragment =
+            construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 9));
         let correct_fragment_head = correct_fragment
             .head()
             .expect("Fragment should have a head")
@@ -2297,9 +2301,10 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
         // sign
         let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
 
-        let fragment_1 = construct_fragment(Some(attestation_1.digest()), 1, 3);
+        let fragment_1 =
+            construct_fragment(Some(attestation_1.digest()), RangeInclusive::new(1, 3));
         // Create a third disconnected fragment
-        let fragment_2 = construct_fragment(Some(H256::random()), 4, 8);
+        let fragment_2 = construct_fragment(Some(H256::random()), RangeInclusive::new(4, 8));
         let mut fragment_2_blocks = fragment_2.blocks().to_vec();
         // push correct head to make it look valid
         fragment_2_blocks.push(correct_fragment_head.clone());
@@ -2369,7 +2374,7 @@ fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
             create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
 
         // Create a correct continuity proof fragment
-        let correct_fragment = construct_fragment(None, 2, 9);
+        let correct_fragment = construct_fragment(None, RangeInclusive::new(2, 9));
         let attestation = AttestationPrimitive {
             chain_key: SUPPORTED_CHAIN_KEY,
             header_number: 10,
@@ -2721,8 +2726,7 @@ fn creating_checkpoint_works() {
             let fragment_start = attestation_header_number.saturating_sub(att_interval) + 1;
             let fragment = construct_fragment(
                 last_digest,
-                fragment_start,
-                attestation_header_number.saturating_sub(1),
+                RangeInclusive::new(fragment_start, attestation_header_number.saturating_sub(1)),
             );
 
             let attestation = create_signed_attestation(
@@ -2814,8 +2818,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
             let fragment_start = attestation_header_number.saturating_sub(att_interval) + 1;
             let fragment = construct_fragment(
                 last_digest,
-                fragment_start,
-                attestation_header_number.saturating_sub(1),
+                RangeInclusive::new(fragment_start, attestation_header_number.saturating_sub(1)),
             );
 
             let attestation = create_signed_attestation(
@@ -2909,8 +2912,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
             let fragment_start = attestation_header_number.saturating_sub(att_interval) + 1;
             let fragment = construct_fragment(
                 last_digest,
-                fragment_start,
-                attestation_header_number.saturating_sub(1),
+                RangeInclusive::new(fragment_start, attestation_header_number.saturating_sub(1)),
             );
 
             let attestation = create_signed_attestation(

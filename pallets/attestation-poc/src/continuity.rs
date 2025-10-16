@@ -33,21 +33,18 @@ impl<T: Config> Pallet<T> {
             attestation.continuity_proof.len()
         );
         // Validate the attestation's previous digest,
-        match attestation.prev_digest() {
-            Some(digest) => {
-                if digest.is_zero() && last_block_digest.is_some() {
-                    error!("❌ Attestation has a zero prev digest and we don't have a finalized attestation yet");
-                    return Err(Error::<T>::InvalidAttestationPrevDigest.into());
-                }
+        match (attestation.prev_digest(), last_block_digest) {
+            (Some(digest), Some(_)) if digest.is_zero() => {
+                error!("❌ Attestation cannot have a zero prev digest since we already have a finalized attestation");
+                return Err(Error::<T>::InvalidAttestationPrevDigest.into());
             }
-            None => {
-                if last_block_digest.is_some() {
-                    error!(
-                        "❌ Attestation has no prev digest but we have a finalized attestation yet"
+            (None, Some(_)) => {
+                error!(
+                        "❌ Attestation should have a prev digest since we already have a finalized attestation"
                     );
-                    return Err(Error::<T>::InvalidAttestationPrevDigest.into());
-                }
+                return Err(Error::<T>::InvalidAttestationPrevDigest.into());
             }
+            _ => {}
         }
 
         info!(
@@ -97,6 +94,8 @@ impl<T: Config> Pallet<T> {
                 return Err(Error::<T>::InvalidAttestationContinuityProofBlockGenesis.into());
             }
 
+            // Overwrite the last block digest to the tail's prev_digest
+            // In order to validate the continuity proof from tail to head
             last_block_digest = block_prev_digest;
         }
 

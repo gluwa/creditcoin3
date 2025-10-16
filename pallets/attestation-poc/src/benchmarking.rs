@@ -8,8 +8,7 @@ use frame_support::assert_ok;
 use frame_support::traits::{OnInitialize, OriginTrait};
 use sp_core::H256;
 use sp_runtime::traits::{Bounded, One};
-use sp_std::vec;
-use sp_std::vec::Vec;
+use sp_std::{ops::RangeInclusive, vec, vec::Vec};
 
 use attestor_primitives::{
     attestation_fragment::AttestationFragmentSerializable, block::Block,
@@ -77,7 +76,10 @@ fn create_signed_attestation<T: frame_system::Config>(
     header_number: u64,
     prev_digest: Option<H256>,
 ) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
-    let fragment = construct_fragment(prev_digest, start_block, header_number.saturating_sub(1));
+    let fragment = construct_fragment(
+        prev_digest,
+        RangeInclusive::new(start_block, header_number.saturating_sub(1)),
+    );
 
     let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
         chain_key,
