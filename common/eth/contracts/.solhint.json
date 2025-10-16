@@ -9,6 +9,7 @@
       {
         "ignoreConstructors": true
       }
-    ]
+    ],
+    "gas-custom-errors": "off"
   }
 }

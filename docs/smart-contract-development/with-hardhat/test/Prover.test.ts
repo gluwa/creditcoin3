@@ -180,7 +180,7 @@ describe('CreditcoinPublicProver', function () {
         it('Should reject query with insufficient payment', async function () {
             await expect(
                 prover.connect(user).submitQuery(sampleQuery, await user.getAddress(), { value: queryCost - 1n }),
-            ).to.be.revertedWith('Insufficient funds: msg.value must be >= estimatedCost');
+            ).to.be.revertedWith('msg.value < estimatedCost');
         });
 
         it('Should revert when query.chainId does not match chainId configured in contract', async function () {
@@ -200,11 +200,11 @@ describe('CreditcoinPublicProver', function () {
         });
 
         const queryStates = [
-            { name: 'QueryState.Submitted', value: 1, revertMessage: 'Query already submitted and still pending' },
+            { name: 'QueryState.Submitted', value: 1, revertMessage: 'Query submitted and pending' },
             {
                 name: 'QueryState.ResultAvailable',
                 value: 2,
-                revertMessage: 'Query proof already generated, check contract storage for results',
+                revertMessage: 'Query result available',
             },
             { name: 'QueryState.InvalidQuery', value: 3, revertMessage: 'Cannot resubmit an invalid query' },
         ];
@@ -297,7 +297,7 @@ describe('CreditcoinPublicProver', function () {
             await prover.connect(owner).mock_setQueryState(queryId, 0);
 
             await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
-                'Cannot reclaim: neither timeout nor invalid query state met',
+                'Query not invalid nor timed out',
             );
         });
 
@@ -316,7 +316,7 @@ describe('CreditcoinPublicProver', function () {
             await progressBlocks(TIMEOUT_BLOCKS, BLOCKTIME);
 
             await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
-                'Cannot reclaim: query result is available',
+                'Query result available',
             );
         });
 
@@ -336,7 +336,7 @@ describe('CreditcoinPublicProver', function () {
             console.log(`after: ${after}`);
 
             await expect(prover.connect(user).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
-                'Cannot reclaim: neither timeout nor invalid query state met',
+                'Query not invalid nor timed out',
             );
         });
 
@@ -350,7 +350,7 @@ describe('CreditcoinPublicProver', function () {
 
             // note: trying to reclaim as `owner` instead of `user`
             await expect(prover.connect(owner).reclaimEscrowedPayment(queryId)).to.be.revertedWith(
-                'Sender different from query.principal',
+                'sender != query.principal',
             );
         });
 
@@ -677,7 +677,7 @@ describe('CreditcoinPublicProver', function () {
             await prover.connect(owner).mock_setQueryState(queryId, 2);
 
             await expect(prover.connect(owner).markAsInvalid(queryId, 'Invalid query')).to.be.revertedWith(
-                'Cannot mark as invalid: result available',
+                'Query result available',
             );
         });
     });
@@ -803,7 +803,7 @@ describe('CreditcoinPublicProver', function () {
                 prover
                     .connect(owner)
                     .markProcessingFailed(queryId, 'cannot mark as failed b/c result already available'),
-            ).to.be.revertedWith('Cannot mark processing as failed: result available');
+            ).to.be.revertedWith('Query result available');
         });
     });
 
@@ -950,7 +950,7 @@ describe('CreditcoinPublicProver', function () {
             const proceedsBalanceBefore = await ethers.provider.getBalance(await proceedsAccount.getAddress());
 
             await expect(prover.connect(owner).withdrawProceeds()).to.be.revertedWith(
-                'No withdrawable proceeds available',
+                'No withdrawable funds available',
             );
 
             const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());

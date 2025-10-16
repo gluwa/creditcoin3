@@ -125,7 +125,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         // Need a more complex guard for the queries that allows replay attack protection.
 
         uint256 estimatedCost = computeQueryCost(query);
-        require(msg.value >= estimatedCost, "Insufficient funds: msg.value must be >= estimatedCost");
+        require(msg.value >= estimatedCost, "msg.value < estimatedCost");
 
         totalEscrowBalance = Balance.wrap(Balance.unwrap(totalEscrowBalance) + msg.value);
 
@@ -136,12 +136,12 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
 
         // Prevent resubmission if result already available
         if (queries[queryId].state == QueryState.ResultAvailable) {
-            revert("Query proof already generated, check contract storage for results");
+            revert("Query result available");
         }
 
         // Prevent resubmission of already submitted queries unless timed out
         if (queries[queryId].state == QueryState.Submitted && !isQueryTimedOut(queryId)) {
-            revert("Query already submitted and still pending");
+            revert("Query submitted and pending");
         }
 
         // We implicitly allow resubmission of queries in the state QueryProcessingFailed
@@ -183,17 +183,17 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     /// @notice Initiate return of an escrowed payment back to sender
     /// @param queryId The query ID in question
     function reclaimEscrowedPayment(QueryId queryId) public {
-        require(queries[queryId].principal == msg.sender, "Sender different from query.principal");
+        require(queries[queryId].principal == msg.sender, "sender != query.principal");
 
         QueryState state = queries[queryId].state;
         // Explicitly revert if the state is ResultAvailable
-        require(state != QueryState.ResultAvailable, "Cannot reclaim: query result is available");
+        require(state != QueryState.ResultAvailable, "Query result available");
 
         // Allow reclaim if timeout has passed OR if the query processing failed
         bool queryProcessingFailed = (state == QueryState.InvalidQuery || state == QueryState.QueryProcessingFailed);
 
         require(
-            queryProcessingFailed || isQueryTimedOut(queryId), "Cannot reclaim: neither timeout nor invalid query state met"
+            queryProcessingFailed || isQueryTimedOut(queryId), "Query not invalid nor timed out"
         );
 
         // Reclaim the escrowed amount
@@ -260,7 +260,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
         uint256 totalEscrowed = Balance.unwrap(totalEscrowBalance);
         uint256 withdrawable = contractBalance > totalEscrowed ? contractBalance - totalEscrowed : 0;
 
-        require(withdrawable > 0, "No withdrawable proceeds available");
+        require(withdrawable > 0, "No withdrawable funds available");
 
         // Transfer the amount to the proceeds account
         payable(proceedsAccount).transfer(withdrawable);
@@ -295,7 +295,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     /// @param reason Human readable reason
     function markAsInvalid(QueryId queryId, string memory reason) public onlyOwner {
         require(queries[queryId].state != QueryState.Uninitialized, "Query not found");
-        require(queries[queryId].state != QueryState.ResultAvailable, "Cannot mark as invalid: result available");
+        require(queries[queryId].state != QueryState.ResultAvailable, "Query result available");
 
         queries[queryId].state = QueryState.InvalidQuery;
 
@@ -310,7 +310,7 @@ contract CreditcoinPublicProver is ICreditcoinPublicProver, Ownable {
     /// @param reason Human readable reason
     function markProcessingFailed(QueryId queryId, string memory reason) public onlyOwner {
         require(queries[queryId].state != QueryState.Uninitialized, "Query not found");
-        require(queries[queryId].state != QueryState.ResultAvailable, "Cannot mark processing as failed: result available");
+        require(queries[queryId].state != QueryState.ResultAvailable, "Query result available");
 
         queries[queryId].state = QueryState.QueryProcessingFailed;
 
