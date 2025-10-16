@@ -190,11 +190,11 @@ impl Server {
         );
         // Subscribe to new query submissions only (initial set already pushed)
         info!("🔄 Initial poll complete. Subscribing for new queries...");
-        let live_query_submission_steam =
+        let live_query_submission_stream =
             self.contract_client.subscribe_query_submissions().await?;
 
         // Chain initial -> live
-        let mut query_submission_stream = initial_stream.chain(live_query_submission_steam);
+        let mut query_submission_stream = initial_stream.chain(live_query_submission_stream);
 
         // Spawn a task to listen to proof verifications on the contract and report back to the prover operator
         info!("🛰️ Subscribing to proof verification events on the contract");

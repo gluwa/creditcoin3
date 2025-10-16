@@ -1,6 +1,6 @@
 use alloy::transports::{RpcError, TransportErrorKind};
 use anyhow::Result;
-use futures_util::{Stream, StreamExt, TryStreamExt};
+use futures_util::{stream_select, Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::pin::Pin;
@@ -151,7 +151,7 @@ pub async fn check_fees_against_existing(
     contract_address: Address,
 ) -> Result<(), Error> {
     let provider = eth_client.get_wallet_ws_provider().await?;
-    let prover = CreditcoinPublicProver::new(contract_address, provider);
+    let prover = CreditcoinPublicProver::new(contract_address, &provider);
     let onchain_base_fee = prover.baseFee().call().await?._0;
     let onchain_cost_per_byte_fee = prover.costPerByte().call().await?._0;
 
@@ -230,9 +230,8 @@ impl GluwaPublicProverContract {
     /// Compute the query cost
     pub async fn compute_query_cost(&self, client: &Client, query: Query) -> Result<u64, Error> {
         info!("Computing query cost");
-
         let provider = client.get_wallet_ws_provider().await?;
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &provider);
 
         let query = CreditcoinPublicProver::ChainQuery {
             chainId: query.chain_id,
@@ -267,7 +266,6 @@ impl GluwaPublicProverContract {
         proof: Proof,
     ) -> Result<String, Error> {
         debug!("Submitting query proof for query: {:?}", query_id);
-
         let provider = client.get_wallet_ws_provider().await?;
         let contract = CreditcoinPublicProver::new(self.address, &provider);
 
@@ -324,8 +322,7 @@ impl GluwaPublicProverContract {
         client: &Client,
         query: Query,
     ) -> Result<Option<Vec<ResultSegment>>, Error> {
-        let provider = client.get_wallet_ws_provider().await?;
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &client.rpc_provider);
 
         let chain_query = CreditcoinPublicProver::ChainQuery {
             chainId: query.chain_id,
@@ -362,12 +359,8 @@ impl GluwaPublicProverContract {
         query: Query,
         cost: u64,
     ) -> Result<String, Error> {
-        let signer = client.get_signer()?;
-        let principal = signer.address();
-
         let provider = client.get_wallet_ws_provider().await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &provider);
 
         let query = CreditcoinPublicProver::ChainQuery {
             chainId: query.chain_id,
@@ -383,6 +376,8 @@ impl GluwaPublicProverContract {
                 .collect::<Vec<_>>(),
         };
 
+        let signer = client.get_signer()?;
+        let principal = signer.address();
         let builder = contract
             .submitQuery(query, principal)
             .value(U256::from(cost));
@@ -397,7 +392,6 @@ impl GluwaPublicProverContract {
         client: &Client,
     ) -> Result<ProofEventStream, Error> {
         let contract = CreditcoinPublicProver::new(self.address, &client.rpc_provider);
-
         let sub = contract.QueryProofVerified_filter().subscribe().await?;
 
         let s = sub.into_stream().map(|res| {
@@ -417,13 +411,10 @@ impl GluwaPublicProverContract {
             "Subscribing to proof verification for query: {:?}",
             query_id
         );
-
         let contract = CreditcoinPublicProver::new(self.address, &client.rpc_provider);
 
         let verification_filter = contract.QueryProofVerified_filter().topic1(query_id);
-
         let query_invalid_filter = contract.QueryMarkedInvalid_filter().topic1(query_id);
-
         let processing_failed_filter = contract.QueryProcessingFailed_filter().topic1(query_id);
 
         let stream_verified = verification_filter
@@ -497,9 +488,7 @@ impl GluwaPublicProverContract {
 
     pub async fn get_unprocessed_queries(&self, client: &Client) -> Result<Vec<Query>, Error> {
         info!("Getting unprocessed queries");
-
         let contract = CreditcoinPublicProver::new(self.address, &client.rpc_provider);
-
         let unprocessed = contract.getUnprocessedQueries().call().await?;
 
         Ok(unprocessed
@@ -527,13 +516,10 @@ impl GluwaPublicProverContract {
         new_cost_per_byte: u64,
     ) -> Result<String, Error> {
         info!("Setting base cost per bytes: {}", new_cost_per_byte);
-
         let provider = client.get_wallet_ws_provider().await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &provider);
 
         let builder = contract.updateCostPerByte(U256::from(new_cost_per_byte));
-
         let result = builder
             .send()
             .await?
@@ -550,13 +536,10 @@ impl GluwaPublicProverContract {
         new_base_fee: u64,
     ) -> Result<String, Error> {
         info!("Setting base fee: {}", new_base_fee);
-
         let provider = client.get_wallet_ws_provider().await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &provider);
 
         let builder = contract.updateBaseFee(U256::from(new_base_fee));
-
         let result = builder
             .send()
             .await?
@@ -574,13 +557,10 @@ impl GluwaPublicProverContract {
         reason: String,
     ) -> Result<String, Error> {
         info!("Marking query as invalid: {:?}", query_id);
-
         let provider = client.get_wallet_ws_provider().await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &provider);
 
         let builder = contract.markAsInvalid(query_id.0.into(), reason);
-
         let result = builder.send().await?.get_receipt().await?;
 
         Ok(result.transaction_hash.to_string())
@@ -593,13 +573,10 @@ impl GluwaPublicProverContract {
         reason: String,
     ) -> Result<String, Error> {
         info!("Marking query as having failed processing: {:?}", query_id);
-
         let provider = client.get_wallet_ws_provider().await?;
-
-        let contract = CreditcoinPublicProver::new(self.address, provider);
+        let contract = CreditcoinPublicProver::new(self.address, &provider);
 
         let builder = contract.markProcessingFailed(query_id.0.into(), reason);
-
         let result = builder.send().await?.get_receipt().await?;
 
         Ok(result.transaction_hash.to_string())
