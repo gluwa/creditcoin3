@@ -1,5 +1,6 @@
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
+use serde::{Deserialize, Serialize};
 use sp_core::H256;
 
 use utils::Felt;
@@ -15,8 +16,8 @@ pub enum BlockError {
 }
 
 #[cfg(feature = "std")]
-impl std::fmt::Display for BlockError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for BlockError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BlockError::BlockNumberMismatch(n) => {
                 write!(f, "Block number mismatch: expected {}, got {}", n - 1, n)
@@ -27,7 +28,7 @@ impl std::fmt::Display for BlockError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for BlockError {}
+impl core::error::Error for BlockError {}
 
 #[derive(Debug, Clone, Default)]
 pub struct Block {
@@ -118,8 +119,20 @@ impl MaybeCreatedFromEmpty for Block {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, MaxEncodedLen, TypeInfo, Default)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    Encode,
+    Decode,
+    MaxEncodedLen,
+    TypeInfo,
+    Default,
+    Serialize,
+    Deserialize,
+)]
 pub struct BlockSerializable {
     block_number: u64,
     root: H256,
@@ -133,8 +146,9 @@ pub struct ContinuityBlock {
     digest: Felt,
 }
 
-#[derive(Debug, Clone, TypeInfo, Decode, Encode, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[derive(
+    Debug, Clone, TypeInfo, Decode, Encode, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
 pub struct ContinuityBlockSerializable {
     root: H256,
     digest: H256,

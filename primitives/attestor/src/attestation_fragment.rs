@@ -1,5 +1,6 @@
 use parity_scale_codec::{Decode, Encode};
 use scale_info::TypeInfo;
+use serde::{Deserialize, Serialize};
 use sp_std::vec::Vec;
 
 use utils::Felt;
@@ -129,8 +130,7 @@ impl From<FragmentBlocksSerializable> for FragmentContinuityBlocksSerializable {
     }
 }
 
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeInfo, Decode, Encode, Eq, PartialEq)]
+#[derive(Debug, Clone, TypeInfo, Decode, Encode, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FragmentContinuityBlocksSerializable {
     pub start: u64,
     pub blocks: Vec<ContinuityBlockSerializable>,
@@ -147,8 +147,8 @@ pub enum AttestationFragmentError {
 }
 
 #[cfg(feature = "std")]
-impl std::fmt::Display for AttestationFragmentError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for AttestationFragmentError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::BlockNumberMismatch(num) => write!(f, "Block number mismatch: expected {num}"),
             Self::BlockDigestMismatch(block) => write!(f, "Block digest mismatch: {block:?}"),
@@ -161,7 +161,7 @@ impl std::fmt::Display for AttestationFragmentError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for AttestationFragmentError {}
+impl core::error::Error for AttestationFragmentError {}
 
 impl From<BlockError> for AttestationFragmentError {
     fn from(err: BlockError) -> AttestationFragmentError {
@@ -174,8 +174,9 @@ impl From<BlockError> for AttestationFragmentError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, TypeInfo, Default)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Encode, Decode, TypeInfo, Default, Serialize, Deserialize,
+)]
 pub struct AttestationFragmentSerializable {
     //    params: AttestationChainParams,
     blocks: Vec<BlockSerializable>,

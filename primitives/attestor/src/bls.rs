@@ -57,14 +57,12 @@ impl Decode for WrapEncode<bls_signatures::Signature> {
     }
 }
 
-#[cfg(feature = "std")]
 impl serde::Serialize for WrapEncode<bls_signatures::Signature> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.as_bytes().serialize(serializer)
     }
 }
 
-#[cfg(feature = "std")]
 impl<'a> serde::Deserialize<'a> for WrapEncode<bls_signatures::Signature> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
