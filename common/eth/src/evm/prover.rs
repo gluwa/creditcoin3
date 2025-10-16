@@ -1,6 +1,6 @@
 use alloy::transports::{RpcError, TransportErrorKind};
 use anyhow::Result;
-use futures_util::{stream_select, Stream, StreamExt, TryStreamExt};
+use futures_util::{Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::pin::Pin;
