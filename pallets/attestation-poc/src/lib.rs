@@ -603,6 +603,8 @@ pub mod pallet {
         AttestorAlreadyAuthorized,
         // Attestor is not authorized for the chain.
         AttestorNotAuthorized,
+        // No finalized attestation found when one is required
+        NoFinalizedAttestation,
         // Continuity proof is empty when it shouldn't be
         EmptyContinuityProof,
         // Continuity proof is invalid

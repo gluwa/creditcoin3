@@ -743,11 +743,9 @@ impl AttestorService {
         // Get the eth block for the header number
         let block = self.eth_client.get_block(header_number).await?;
         // Get the previous digest from the continuity fragment
-        let prev_digest = Some(
-            continuity_fragment
-                .head_digest()
-                .map_or_else(sp_core::H256::zero, |d| H256::from(d.to_bytes_be())),
-        );
+        let prev_digest = continuity_fragment
+            .head_digest()
+            .map(|d| H256::from(d.to_bytes_be()));
         // Create attestation data
         let attestation = crate::util::create_attestation(self.chain_key, &block, prev_digest);
 

@@ -1990,7 +1990,7 @@ fn commit_attestation_works() {
 }
 
 #[test]
-fn commit_attestation_should_error_on_invalid_continuity_proof() {
+fn commit_attestation_should_error_on_invalid_attestation_header() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_eq!(
@@ -2014,6 +2014,7 @@ fn commit_attestation_should_error_on_invalid_continuity_proof() {
 
         progress_to_block(5);
 
+        // There is no finalized attestation yet and we are not attesting to genesis
         let attestation_1 = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
@@ -2028,7 +2029,7 @@ fn commit_attestation_should_error_on_invalid_continuity_proof() {
                 RuntimeOrigin::none(),
                 vec![attestation_1.clone()].try_into().unwrap()
             ),
-            Error::<Test>::InvalidAttestationContinuityProofTail
+            Error::<Test>::NoFinalizedAttestation
         );
     })
 }
