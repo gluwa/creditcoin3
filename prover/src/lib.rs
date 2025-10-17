@@ -4,7 +4,7 @@ use either::Either;
 use eth::Client as EthClient;
 use futures::stream::{FuturesUnordered, StreamExt};
 use query::external::Error as LightProvingError;
-use query::precheck::{pre_check_query, Error as PreCheckError};
+use query::precheck::pre_check_query;
 use sp_core::H256;
 use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
@@ -419,28 +419,6 @@ impl Server {
             self.config.chain_key
         );
 
-        // Check if the query is clearly invalid
-        let precheck_result = pre_check_query(&query, &self.source_chain_eth_client).await;
-        if let Err(e) = precheck_result {
-            match e {
-                PreCheckError::EmptyQuery
-                | PreCheckError::EmptyTxRx
-                | PreCheckError::NoSuchBlock(_, _)
-                | PreCheckError::NoSuchTxInBlock(_, _)
-                | PreCheckError::NoSuchDataInTxRx(_, _) => {
-                    warn!("⚠️ Received invalid query {:?}, ignoring.", query_id);
-                    self.mark_query_as_invalid(query_id, e.to_string()).await?;
-                    return Ok(());
-                }
-                PreCheckError::EthError(e) => {
-                    let reason = format!("Eth client error during pre-checking: {}", e.to_string());
-                    warn!(reason);
-                    self.mark_query_processing_failed(query_id, reason).await?;
-                    return Ok(());
-                }
-            }
-        }
-
         // Check if the query is ready to be processed
         // This is a synchronous check, the async version is in handle_block_attested
         // and is used when we receive a new attestation
@@ -491,6 +469,24 @@ impl Server {
         light_prover_queries: &mut LightProverQueries,
     ) -> Result<()> {
         info!("🏗️ Processing query: {:?}", query.id());
+
+        // Check if the query is clearly invalid
+        let precheck_result = pre_check_query(&query, &self.source_chain_eth_client).await;
+        if let Err(e) = precheck_result {
+            if e.is_permanently_invalid() {
+                warn!("⚠️ Received invalid query {:?}, ignoring.", query.id());
+                self.mark_query_as_invalid(query.id(), e.to_string())
+                    .await?;
+                return Ok(());
+            } else {
+                let reason = format!("Error during pre-checking: {}", e.to_string());
+                warn!(reason);
+                self.mark_query_processing_failed(query.id(), reason)
+                    .await?;
+                return Ok(());
+            }
+        }
+
         let r = query::process(
             &self.source_chain_eth_client,
             &query,

@@ -23,10 +23,36 @@ pub enum Error {
     NoSuchBlock(u64, u64),
     #[error("No such tx in block. Query tx index: {0}, Max index in block: {0}")]
     NoSuchTxInBlock(usize, usize),
-    #[error("No such data in tx. Queried index: {0}, Max index contained in TxRx: {0}")]
-    NoSuchDataInTxRx(usize, usize),
+    #[error("No such data in tx. Segment: {segment}, Queried index: {end}, Max index contained in TxRx: {payload_len}")]
+    NoSuchDataInTxRx {
+        segment: usize,
+        end: usize,
+        payload_len: usize,
+    },
+    #[error("Layout segment offset + size result in integer overflow. Segment idx: {segment}")]
+    OffsetOverflow { segment: usize },
+    #[error("Missing tx even after checking for its existance. This shouldn't happen.")]
+    MissingTx,
     #[error(transparent)]
     EthError(#[from] eth::Error),
+}
+
+impl Error {
+    pub fn is_permanently_invalid(&self) -> bool {
+        matches!(
+            self,
+            Error::EmptyQuery
+                | Error::EmptyTxRx
+                | Error::NoSuchBlock(_, _)
+                | Error::NoSuchTxInBlock(_, _)
+                | Error::NoSuchDataInTxRx {
+                    segment: _,
+                    end: _,
+                    payload_len: _
+                }
+                | Error::OffsetOverflow { segment: _ }
+        )
+    }
 }
 
 /// Checks to make sure that a query isn't obviously invalid before processing it.
@@ -76,31 +102,41 @@ fn check_tx_exists_in_block(query: &Query, block: &OrderedBlock) -> Result<(), E
 /// layout segments.
 fn check_queried_bytes_against_txrx(query: &Query, block: &OrderedBlock) -> Result<(), Error> {
     // Get the full length of tx data in bytes
-    let payload_bytes_len = block
+    let payload_len = block
         .items()
         .get(query.index as usize)
-        .expect("Already checked that tx exists in block.")
+        .ok_or(Error::MissingTx)?
         .payload_bytes()
         .len();
 
     // Should never happen
-    if payload_bytes_len == 0 {
+    if payload_len == 0 {
         return Err(Error::EmptyTxRx);
     }
-    let last_tx_rx_index = payload_bytes_len - 1;
 
-    let mut has_data = false;
-    for layout_segment in &query.layout_segments {
-        if layout_segment.size > 0 {
-            has_data = true;
-        }
-        let last_segment_byte = (layout_segment.offset + layout_segment.size) as usize;
-        if last_segment_byte > last_tx_rx_index {
-            return Err(Error::NoSuchDataInTxRx(last_segment_byte, last_tx_rx_index));
-        }
-    }
-    if !has_data {
+    // Must have at least one non-empty segment
+    if !query.layout_segments.iter().any(|s| s.size > 0) {
         return Err(Error::EmptyQuery);
     }
-    Ok(())
+
+    // Validate each segment is within bounds: [offset, offset + size) ⊆ [0, payload_len)
+    query
+        .layout_segments
+        .iter()
+        .enumerate()
+        .try_for_each(|(i, s)| {
+            let end = (s.offset as usize)
+                .checked_add(s.size as usize)
+                .ok_or(Error::OffsetOverflow { segment: i })?;
+
+            if end > payload_len {
+                // end is exclusive; comparing to total length avoids off-by-one
+                return Err(Error::NoSuchDataInTxRx {
+                    segment: i,
+                    end,
+                    payload_len,
+                });
+            }
+            Ok(())
+        })
 }
