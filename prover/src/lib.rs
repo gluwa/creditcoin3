@@ -622,9 +622,6 @@ impl Server {
         self.received_query_ids.remove(&query_id);
     }
 
-    // TODO: Use this again once we have a definitive solution
-    // for determining whether a query is malformed.
-    #[allow(unused)]
     /// Marks a query as invalid on chain with the given reason
     /// Increments the failed proofs metric
     /// Cleans up the query from internal memory
