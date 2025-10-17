@@ -519,8 +519,16 @@ jobs:
 
   sanity-test-solidity:
     runs-on: ubuntu-24.04
+    needs:
+      - build-creditcoin-node-for-testing-ci
+    # checkov:skip=CKV2_GHA_1:We need this for .bytecode.hash auto-commit
+    permissions: write-all
     steps:
       - uses: actions/checkout@v5
+        with:
+          lfs: true
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install Solidity compiler
         run: |
@@ -603,11 +611,43 @@ jobs:
               exit 0
           fi
 
-
       - name: Execute Solidity linters
         working-directory: ./common/eth/contracts/
         run: |
           npm run solhint
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v5
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Update Prover.sol bytecode.hash if changed
+        id: bytecode_hash
+        run: |
+          chmod a+x ./target/release/compute-prover-contract-bytecode-hash
+          ./target/release/compute-prover-contract-bytecode-hash > common/eth/contracts/.bytecode.hash
+
+          if [ -n "$(git status --short --untracked-files=no -- common/eth/contracts/)" ]; then
+              git diff common/eth/contracts/
+              echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "git_diff=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit changes for bytecode.hash
+        if: ${{ env.GITHUB_TOKEN && success() && steps.bytecode_hash.outputs.git_diff == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "common/eth/contracts/.bytecode.hash"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "docs(Prover.sol): update bytecode hash\n
+                    \n
+                    BREAKING CHANGE: contract changed. Redeployment required!"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Find latest release
         id: find-latest
